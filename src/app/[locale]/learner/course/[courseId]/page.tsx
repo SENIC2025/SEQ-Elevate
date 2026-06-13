@@ -1,8 +1,20 @@
+import type { Metadata } from "next";
 import { setRequestLocale } from "next-intl/server";
 import { notFound } from "next/navigation";
 import { getCourse } from "@/lib/cms";
 import type { Locale } from "@/lib/cms/types";
 import { CoursePlayer } from "@/components/course/CoursePlayer";
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ locale: string; courseId: string }>;
+}): Promise<Metadata> {
+  const { locale, courseId } = await params;
+  const loc = (["en", "de", "el"].includes(locale) ? locale : "en") as Locale;
+  const course = await getCourse("seq-elevate", courseId, loc);
+  return { title: course?.title ?? "Course" };
+}
 
 /**
  * Course route. Fetches the authored CourseContent from the CMS client

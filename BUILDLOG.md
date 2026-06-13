@@ -163,3 +163,14 @@ The proof the shell is content-driven: a genuinely different course (different c
 - `[BUILD]` DB seed iterates `COURSE_DEFS` — seeds both courses + both badges. Verified: `workplace-conflict` + `receiving-feedback`, `voice-without-edges` + `feedback-as-fuel` in the DB.
 - `[VERIFY]` Both courses render 200 in all 3 locales; native content confirmed (EN "The flyer you stayed late for", DE "Der Flyer, für den du länger geblieben bist", EL "Το φυλλάδιο που έμεινες αργά να φτιάξεις"). Dashboard lists both. Build ✓ lint ✓ types ✓.
 - `[NOTE]` This validates the whole generic architecture: adding a course = a `CourseDef` + localized text, no engineering. Exactly what the consortium does in Strapi for courses 2–6.
+
+---
+
+## Phase 3 — Autonomous hardening (client OOO)
+
+### Production hardening + SEO + PWA (2026-06-13)
+- `[BUILD]` Error/loading/not-found boundaries: `[locale]/loading.tsx` (branded spinner), `[locale]/not-found.tsx` (localized 404, EN/DE/EL), `[locale]/error.tsx` (localized error boundary, Sentry-ready hook), `global-error.tsx` (root fallback), `app/not-found.tsx` (root unmatched-path 404). New `system` i18n namespace (EN/DE/EL).
+- `[BUILD]` Branded favicon `app/icon.svg` (lime tile + sparkle, auto-detected by Next).
+- `[BUILD]` PWA `app/manifest.ts` — installable, standalone display, theme color, start_url `/en`. (Maskable PNG icons pending consortium brand logo.)
+- `[BUILD]` SEO: `app/robots.ts` (disallow all on staging — placeholder content + vulnerable target group; flip at production go-live), root metadata with `metadataBase`, title template, Open Graph, Apple web-app meta; `viewport` export with theme color. Course route has dynamic `generateMetadata` (course title).
+- `[VERIFY]` Build ✓ lint ✓ types ✓. 404 → branded localized page (course notFound() shows DE/EL text); manifest.webmanifest, robots.txt, icon.svg all 200.

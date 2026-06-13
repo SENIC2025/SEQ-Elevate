@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import { NextIntlClientProvider, hasLocale } from "next-intl";
 import { getMessages, setRequestLocale } from "next-intl/server";
@@ -17,9 +17,34 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "SEQ Elevate",
+  metadataBase: new URL(
+    process.env.AUTH_URL ?? "https://seq-elevate-demo.vercel.app"
+  ),
+  title: {
+    default: "SEQ Elevate",
+    template: "%s · SEQ Elevate",
+  },
   description:
     "SEQ Elevate — a learning journey for skills that matter. Created and Powered by SENIC.",
+  applicationName: "SEQ Elevate",
+  appleWebApp: {
+    capable: true,
+    title: "SEQ Elevate",
+    statusBarStyle: "default",
+  },
+  openGraph: {
+    title: "SEQ Elevate",
+    description:
+      "A learning journey for skills that matter — for life, work and what comes next.",
+    siteName: "SEQ Elevate",
+    type: "website",
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#cad12c",
+  width: "device-width",
+  initialScale: 1,
 };
 
 export function generateStaticParams() {

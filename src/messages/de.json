@@ -15,6 +15,15 @@
     "demoBannerLine1": "Das ist die SEQ Elevate Plattform-Shell — eine funktionierende Demo der leeren Plattform, die SENIC liefern wird.",
     "demoBannerLine2": "Die hier gezeigten Kursinhalte sind Platzhalter, die das Konsortium ersetzen wird."
   },
+  "system": {
+    "notFoundTitle": "Diese Seite haben wir nicht gefunden",
+    "notFoundBody": "Die gesuchte Seite existiert nicht oder wurde verschoben.",
+    "goHome": "Zur Startseite",
+    "errorTitle": "Etwas ist schiefgelaufen",
+    "errorBody": "Ein unerwarteter Fehler ist aufgetreten. Du kannst es erneut versuchen.",
+    "tryAgain": "Erneut versuchen",
+    "loading": "Lädt…"
+  },
   "auth": {
     "signInTitle": "Anmelden",
     "signInSubtitle": "Wir senden dir einen sicheren Link per E-Mail — kein Passwort nötig.",
