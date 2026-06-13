@@ -68,6 +68,15 @@ Single source of truth for decisions made, decisions still open, and the rationa
 - Mirror production Postgres locally so Prisma schema and migrations behave identically
 - Docker Compose for local dev convenience
 
+### D11 · Staging database — Neon (EU, Frankfurt)
+**Decided / done**: 13 June 2026 · *Decider: client provided, SENIC wired*
+- Neon serverless Postgres (eu-central-1, Frankfurt — GDPR-aligned) is the staging database, connected to the Vercel app.
+- **Pooled** connection (`-pooler` host) is `DATABASE_URL` for the serverless runtime; **direct** connection (no `-pooler`) used for `prisma migrate deploy` (Prisma's migration advisory-locks don't work through Neon's PgBouncer pooler).
+- Migrated (20 tables) + seeded (SEQ Elevate project, 4 partner orgs, Berlin cohort, both courses + badges). Verified: the live Vercel app reads + writes Neon (auth created a VerificationToken in Neon).
+- **Not used**: Neon Auth (we have NextAuth) and Neon's Data API/REST (we use Prisma over the native protocol).
+- Local dev stays on Docker Postgres (isolated from staging data); Vercel uses Neon. The secret connection string lives only in Vercel's encrypted env (never committed).
+- **Still needed for end-to-end user sign-in**: a Resend API key — without it, tokens are created in Neon but the magic-link email isn't delivered (logged to Vercel function logs instead). This is a Resend dependency, not a Neon one. → `DECISIONS.md D7`
+
 ### D9 · CMS — hybrid Strapi, behind a swappable client
 **Decided**: 13 June 2026 · *Decider: client (SENIC principal)*
 - Strapi (per signed Technical Proposal §4) is the authoring backend — out-of-box no-code authoring, draft/publish, media, i18n, fastest to the "publish a course without code" acceptance criterion within the 5-week budget.
