@@ -13,7 +13,31 @@
     "minutes": "{count, plural, one {# Minute} other {# Minuten}}",
     "switchRole": "Rolle wechseln",
     "demoBannerLine1": "Das ist die SEQ Elevate Plattform-Shell — eine funktionierende Demo der leeren Plattform, die SENIC liefern wird.",
-    "demoBannerLine2": "Die hier gezeigten Kursinhalte sind Platzhalter, die das Konsortium ersetzen wird."
+    "demoBannerLine2": "Die hier gezeigten Kursinhalte sind Platzhalter, die das Konsortium ersetzen wird.",
+    "account": "Konto"
+  },
+  "account": {
+    "title": "Dein Konto",
+    "subtitle": "Verwalte dein Profil, deine Daten und deine Privatsphäre.",
+    "memberSince": "Mitglied seit {date}",
+    "statCourses": "Kurse",
+    "statBadges": "Abzeichen",
+    "statCompCard": "Comp Card",
+    "a11yTitle": "Lesehilfe",
+    "a11yBody": "Deine Textgröße, die leicht lesbare Schrift und der hohe Kontrast werden in deinem Konto gespeichert und begleiten dich auf jedem Gerät. Du kannst sie jederzeit über die Schaltfläche „Lesehilfe“ oben ändern.",
+    "dataTitle": "Deine Daten",
+    "dataBody": "Lade eine Kopie aller Daten herunter, die SEQ Elevate über dich speichert – deinen Fortschritt, Abzeichen, deine Comp Card und Reflexionen – als Datei zum Behalten (DSGVO Art. 15 und 20).",
+    "download": "Meine Daten herunterladen",
+    "dangerTitle": "Konto löschen",
+    "dangerBody": "Lösche dein Konto und alle persönlichen Daten endgültig. Dies kann nicht rückgängig gemacht werden. Deine Begleitperson sieht deinen Fortschritt und deine Comp Card dann nicht mehr.",
+    "deleteButton": "Mein Konto löschen",
+    "confirmTitle": "Bist du ganz sicher?",
+    "confirmBody": "Dadurch werden dein Konto, dein Fortschritt, deine Abzeichen und deine Comp Card endgültig gelöscht. Gib zur Bestätigung unten deine E-Mail-Adresse ein.",
+    "confirmLabel": "E-Mail zur Bestätigung eingeben",
+    "confirmCta": "Endgültig löschen",
+    "deleting": "Wird gelöscht…",
+    "cancel": "Abbrechen",
+    "deleteError": "Etwas ist schiefgelaufen. Bitte versuche es erneut."
   },
   "system": {
     "notFoundTitle": "Diese Seite haben wir nicht gefunden",

@@ -106,6 +106,14 @@ Single source of truth for decisions made, decisions still open, and the rationa
 - Auth + DB-backed features dormant on Vercel until a hosted Postgres (Neon, free EU tier — recommended) + Resend key are added. Demo flows need neither.
 - **DNS action (Hostinger panel for senic.world)**: add `A  staging.seq-elevate  →  76.76.21.21`. Vercel auto-verifies + issues SSL. senic.world nameservers are on dns-parking.com (Hostinger).
 
+### D12 · GDPR self-service — data export + right to erasure
+**Decided**: 14 June 2026 · *Decider: SENIC (build), within scope (vulnerable-youth platform)*
+- Signed-in learners get an **Account** page (`/[locale]/account`) with: profile, a **Download my data** export (`GET /api/me/export` → JSON of everything we hold; Art. 15/20), and **Delete my account** with typed-email confirmation (Art. 17).
+- **Erasure anonymises rather than erases the audit trail**: `User` delete cascades away all personal data, but `AuditLog.actorId` is `onDelete: SetNull` — the `account.deleted` record survives with `actorId = null`. We keep the *legal* fact of the action without the PII.
+- Export is a **server-only** helper called with a server-derived user id (never a client-callable action) — closes the IDOR risk of letting a client pass any userId.
+- Deletion clears the session cookie in the server action itself (not NextAuth `signOut`), since the cascade already removed the `Session` row — avoids a spurious `SignOutError` in production logs.
+- Does **not** close O7 (the Terms/Privacy/Cookie *copy* is still consortium counsel's) — it provides the technical mechanism those policies will point to. Flag at kickoff that the rights-exercise surface is already live.
+
 ### O2 · The four open WP3 strategic decisions (PCR v2.0 §1.2)
 **Status**: Open · **Decide by**: end of kickoff (26 June 2026)
 

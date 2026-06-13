@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import AxeBuilder from "@axe-core/playwright";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 
@@ -378,5 +379,173 @@ describe("accessibility preferences persist to the account", () => {
     await expect(
       page.getByRole("button", { name: "Extra large" })
     ).toHaveAttribute("aria-pressed", "true");
+  });
+});
+
+describe("GDPR self-service (export + erasure)", () => {
+  const exportEmail = "e2e-gdpr-export@example.com";
+  const deleteEmail = "e2e-gdpr-delete@example.com";
+  let exportUserId: string;
+  let deleteUserId: string;
+  let exportSession: string;
+  let deleteSession: string;
+
+  test.beforeAll(async () => {
+    await prisma.user.deleteMany({
+      where: { email: { in: [exportEmail, deleteEmail] } },
+    });
+
+    // Export subject — give them data so the export has content.
+    const ex = await prisma.user.create({
+      data: { email: exportEmail, emailVerified: new Date() },
+    });
+    exportUserId = ex.id;
+    await prisma.membership.create({
+      data: { userId: ex.id, projectId: "seq-elevate", role: "LEARNER" },
+    });
+    const course = await prisma.course.findFirst({
+      where: { slug: "workplace-conflict" },
+    });
+    await prisma.courseEnrollment.create({
+      data: {
+        userId: ex.id,
+        courseId: course!.id,
+        stagesCompleted: ["CONTEXT", "CONCEPT"],
+        scenarioRoot: "private",
+      },
+    });
+    exportSession = `e2e-gdpr-ex-${Date.now()}`;
+    await prisma.session.create({
+      data: {
+        sessionToken: exportSession,
+        userId: ex.id,
+        expires: new Date(Date.now() + 86_400_000),
+      },
+    });
+
+    // Erasure subject.
+    const del = await prisma.user.create({
+      data: { email: deleteEmail, emailVerified: new Date() },
+    });
+    deleteUserId = del.id;
+    await prisma.membership.create({
+      data: { userId: del.id, projectId: "seq-elevate", role: "LEARNER" },
+    });
+    deleteSession = `e2e-gdpr-del-${Date.now()}`;
+    await prisma.session.create({
+      data: {
+        sessionToken: deleteSession,
+        userId: del.id,
+        expires: new Date(Date.now() + 86_400_000),
+      },
+    });
+  });
+
+  test.afterAll(async () => {
+    await prisma.user.deleteMany({
+      where: { email: { in: [exportEmail, deleteEmail] } },
+    });
+    await prisma.auditLog.deleteMany({
+      where: { entityId: { in: [exportUserId, deleteUserId] } },
+    });
+  });
+
+  test("export returns the signed-in user's own data as a JSON download", async ({
+    context,
+  }) => {
+    await context.addCookies([
+      {
+        name: "authjs.session-token",
+        value: exportSession,
+        domain: "localhost",
+        path: "/",
+        httpOnly: true,
+        sameSite: "Lax",
+      },
+    ]);
+    const res = await context.request.get("/api/me/export");
+    expect(res.status()).toBe(200);
+    expect(res.headers()["content-disposition"]).toContain("attachment");
+    const body = await res.json();
+    expect(body.account.email).toBe(exportEmail);
+    expect(body.courses.length).toBeGreaterThan(0);
+    expect(body.courses[0].course).toBe("workplace-conflict");
+
+    // The export was recorded in the audit trail.
+    const log = await prisma.auditLog.findFirst({
+      where: { entityId: exportUserId, action: "account.exported" },
+    });
+    expect(log, "export audited").toBeTruthy();
+  });
+
+  test("export refuses a guest (401)", async ({ context }) => {
+    const res = await context.request.get("/api/me/export");
+    expect(res.status()).toBe(401);
+  });
+
+  test("account page (incl. delete-confirm form) has no serious a11y violations", async ({
+    page,
+    context,
+  }) => {
+    await context.addCookies([
+      {
+        name: "authjs.session-token",
+        value: exportSession,
+        domain: "localhost",
+        path: "/",
+        httpOnly: true,
+        sameSite: "Lax",
+      },
+    ]);
+    await page.goto("/en/account");
+    await expect(page.getByText(exportEmail).first()).toBeVisible();
+    // Expand the danger zone so the confirmation form is scanned too.
+    await page.getByRole("button", { name: /delete my account/i }).click();
+    await expect(page.getByLabel(/type your email to confirm/i)).toBeVisible();
+
+    const results = await new AxeBuilder({ page })
+      .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"])
+      .analyze();
+    const serious = results.violations.filter(
+      (v) => v.impact === "serious" || v.impact === "critical"
+    );
+    expect(serious, JSON.stringify(serious.map((x) => x.id), null, 2)).toEqual(
+      []
+    );
+  });
+
+  test("deleting the account erases the user and anonymises the audit log", async ({
+    page,
+    context,
+  }) => {
+    await context.addCookies([
+      {
+        name: "authjs.session-token",
+        value: deleteSession,
+        domain: "localhost",
+        path: "/",
+        httpOnly: true,
+        sameSite: "Lax",
+      },
+    ]);
+    await page.goto("/en/account");
+    await expect(page.getByText(deleteEmail).first()).toBeVisible();
+
+    // Danger zone → type the email → confirm.
+    await page.getByRole("button", { name: /delete my account/i }).click();
+    await page.getByLabel(/type your email to confirm/i).fill(deleteEmail);
+    await page.getByRole("button", { name: /permanently delete/i }).click();
+
+    // The server action deletes before signing out; give it time to flush.
+    await page.waitForTimeout(2000);
+
+    const user = await prisma.user.findUnique({ where: { id: deleteUserId } });
+    expect(user, "user row erased").toBeNull();
+
+    const log = await prisma.auditLog.findFirst({
+      where: { entityId: deleteUserId, action: "account.deleted" },
+    });
+    expect(log, "deletion audit record kept").toBeTruthy();
+    expect(log?.actorId, "audit actor anonymised on erasure").toBeNull();
   });
 });

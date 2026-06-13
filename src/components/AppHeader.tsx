@@ -31,10 +31,16 @@ export function AppHeader({ showRoleSwitch = true }: { showRoleSwitch?: boolean 
         <div className="flex items-center gap-2">
           {authed ? (
             <>
-              <span className="hidden sm:inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--surface-muted)] px-3 py-1.5 text-xs text-[var(--muted-foreground)] max-w-[180px] truncate">
+              <Link
+                href="/account"
+                aria-label={t("account")}
+                className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--surface-muted)] px-3 py-1.5 text-xs text-[var(--muted-foreground)] max-w-[200px] hover:bg-[var(--surface)]"
+              >
                 <UserRound className="h-3.5 w-3.5 flex-shrink-0" />
-                <span className="truncate">{session?.user?.email}</span>
-              </span>
+                <span className="hidden sm:inline truncate">
+                  {session?.user?.email}
+                </span>
+              </Link>
               <button
                 type="button"
                 onClick={() => signOut({ callbackUrl: "/" })}

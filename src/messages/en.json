@@ -13,7 +13,31 @@
     "minutes": "{count, plural, one {# minute} other {# minutes}}",
     "switchRole": "Switch role",
     "demoBannerLine1": "This is the SEQ Elevate platform shell — a working demo of the empty platform SENIC will deliver.",
-    "demoBannerLine2": "Course content shown here is placeholder for the consortium to replace."
+    "demoBannerLine2": "Course content shown here is placeholder for the consortium to replace.",
+    "account": "Account"
+  },
+  "account": {
+    "title": "Your account",
+    "subtitle": "Manage your profile, your data and your privacy.",
+    "memberSince": "Member since {date}",
+    "statCourses": "Courses",
+    "statBadges": "Badges",
+    "statCompCard": "Comp Card",
+    "a11yTitle": "Reading help",
+    "a11yBody": "Your text size, easy-read font and high-contrast settings are saved to your account and follow you on every device. Change them any time from the “Reading help” button at the top.",
+    "dataTitle": "Your data",
+    "dataBody": "Download a copy of everything SEQ Elevate holds about you — your progress, badges, Comp Card and reflections — as a file you can keep (GDPR Articles 15 and 20).",
+    "download": "Download my data",
+    "dangerTitle": "Delete your account",
+    "dangerBody": "Permanently delete your account and all your personal data. This cannot be undone. Your facilitator will no longer see your progress or Comp Card.",
+    "deleteButton": "Delete my account",
+    "confirmTitle": "Are you absolutely sure?",
+    "confirmBody": "This permanently erases your account, progress, badges and Comp Card. To confirm, type your email address below.",
+    "confirmLabel": "Type your email to confirm",
+    "confirmCta": "Permanently delete",
+    "deleting": "Deleting…",
+    "cancel": "Cancel",
+    "deleteError": "Something went wrong. Please try again."
   },
   "system": {
     "notFoundTitle": "We couldn't find that page",
