@@ -84,6 +84,15 @@ Single source of truth for decisions made, decisions still open, and the rationa
 - DNS configuration owned by consortium (they hold `seqelevate.eu`)
 - Staging URL stays on `senic.world` until this is decided
 
+### D10 · Interim staging on Vercel (delay Hetzner until contract/payment confirmed)
+**Decided**: 13 June 2026 · *Decider: client (SENIC principal)*
+- Deploy staging on Vercel now to keep development moving; buy Hetzner once the contract/payment lands.
+- Works cleanly because of the swappable CMS (D9): Vercel runs `CMS_SOURCE=local` (Strapi can't run serverless), the local content provider keeps the app fully functional. Flip to `strapi` on Hetzner later — no code change.
+- **Live now**: `https://seq-elevate-demo.vercel.app` (demo flows fully working: all 4 roles, course player, Comp Card, EN/DE/EL, a11y, storybook, cms-check).
+- **Custom domain** `staging.seq-elevate.senic.world` added to the Vercel project; pending one DNS record (see below).
+- Auth + DB-backed features dormant on Vercel until a hosted Postgres (Neon, free EU tier — recommended) + Resend key are added. Demo flows need neither.
+- **DNS action (Hostinger panel for senic.world)**: add `A  staging.seq-elevate  →  76.76.21.21`. Vercel auto-verifies + issues SSL. senic.world nameservers are on dns-parking.com (Hostinger).
+
 ### O2 · The four open WP3 strategic decisions (PCR v2.0 §1.2)
 **Status**: Open · **Decide by**: end of kickoff (26 June 2026)
 

@@ -110,3 +110,14 @@ Goal: use the ~2-week gap between contract signature and the 25–26 June kickof
 - `[DOC]` `KICKOFF.md` — consortium-facing brief for the 25–26 June meeting: where we are (live staging foundations), the 4 WP3 decisions with SENIC recommendations + rationale, scope boundary (RACI), the 5-week plan with weekly demos, what SENIC needs from the consortium, acceptance criteria, parked questions.
 - `[DOC]` Updated main `README.md` to reflect the production architecture (was the demo README).
 - `[NOTE]` Kickoff opens with a live walkthrough (everyone signs in on their phone), not slides — the pre-kickoff Week 0 infrastructure work makes this possible.
+
+### Interim Vercel staging (2026-06-13)
+- `[DECISION]` Deploy staging on Vercel now; delay Hetzner until contract/payment confirmed (client direction). The swappable CMS makes this free: `CMS_SOURCE=local` on Vercel, `strapi` on Hetzner later. → `DECISIONS.md D10`
+- `[INFRA]` `package.json` → `postinstall: prisma generate` (Vercel generates the Prisma client on install). Verified `prisma generate` works with no `DATABASE_URL`.
+- `[INFRA]` `.vercelignore` excludes `/cms`, `/deploy`, Docker files, internal docs from the upload.
+- `[FIX]` **Critical bug**: first two deploys failed with "Can't resolve `@/lib/cms/*`". Root cause: `.vercelignore` line `cms` is an **unanchored** pattern that matched `src/lib/cms/` too, excluding the entire content client from the upload. Fixed by anchoring all entries with a leading slash (`/cms`). Lesson logged: `.vercelignore`/`.gitignore` patterns without a leading slash match at every directory level.
+- `[FIX]` Removed the `src/lib/cms/check.ts` indirection (collateral of the above); inlined the CMS-source label into the cms-check page.
+- `[INFRA]` Vercel env set (production): `AUTH_SECRET`, `CMS_SOURCE=local`, `AUTH_TRUST_HOST=true`, placeholder `DATABASE_URL` (real one with Neon later).
+- `[VERIFY]` **Live at `https://seq-elevate-demo.vercel.app`**. Smoke test: 10 routes 200 (landing, 4 roles, content preview, storybook, cms-check, DE/EL learner, signin). CMS content resolves live — Greek course title + EN 7-stage sequence render server-side.
+- `[INFRA]` Custom domain `staging.seq-elevate.senic.world` added to the Vercel project. Pending DNS: `A staging.seq-elevate → 76.76.21.21` in the Hostinger panel (senic.world NS = dns-parking.com). Vercel auto-verifies + SSL on propagation.
+- `[BLOCK]` For auth + DB-backed features on Vercel: hosted Postgres (Neon free EU tier recommended) + Resend key. Demo flows need neither.

@@ -1,0 +1,10 @@
+/cms
+/deploy
+/docker-compose.yml
+/Dockerfile
+/.dockerignore
+/BUILDLOG.md
+/DECISIONS.md
+/STORYBOOK.md
+/KICKOFF.md
+/HANDOVER.md

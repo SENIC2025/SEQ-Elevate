@@ -1,5 +1,6 @@
 import { setRequestLocale } from "next-intl/server";
-import { getCourse, listCourses, getCMSSourceLabel } from "@/lib/cms/check";
+import { getCourse, listCourses } from "@/lib/cms";
+import { getCMSSource } from "@/lib/cms/provider";
 import type { Locale } from "@/lib/cms/types";
 
 /**
@@ -16,12 +17,17 @@ export default async function Page({
   setRequestLocale(locale);
   const loc = (["en", "de", "el"].includes(locale) ? locale : "en") as Locale;
 
+  const sourceLabel =
+    getCMSSource() === "strapi"
+      ? "source: Strapi (CMS_SOURCE=strapi)"
+      : "source: local (bundled content)";
+
   const summaries = await listCourses("seq-elevate", loc);
   const course = await getCourse("seq-elevate", "workplace-conflict", loc);
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-8 font-mono text-sm">
-      <h1 className="text-xl font-bold mb-2">CMS check · {getCMSSourceLabel()}</h1>
+      <h1 className="text-xl font-bold mb-2">CMS check · {sourceLabel}</h1>
       <p className="text-[var(--muted-foreground)] mb-6">
         Locale: <strong>{loc}</strong> · provider output below proves the
         content client resolves real CourseContent.
