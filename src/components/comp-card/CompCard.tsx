@@ -22,8 +22,6 @@ import { cn } from "@/lib/utils";
 
 export function CompCard() {
   const t = useTranslations("compCard");
-  const tCourse = useTranslations("course.workplaceConflict");
-  const tScenario = useTranslations("course.workplaceConflict.scenario");
   const locale = useLocale();
 
   const { state, dispatch } = useDemoState();
@@ -31,12 +29,14 @@ export function CompCard() {
   const set = (patch: Partial<typeof c>) =>
     dispatch({ type: "updateCompCard", patch });
 
-  const hasScenarioEvidence =
-    state.course.scenario.root && state.course.scenario.followup;
+  // Evidence + course title come from what the learner actually did
+  // (stored when they played), so the Comp Card is course-agnostic.
+  const sc = state.course.scenario;
+  const hasScenarioEvidence = sc.rootLabel && sc.followupLabel;
 
-  const courseTitle = tCourse("title");
+  const courseTitle = state.course.courseTitle ?? "—";
   const scenarioSummary = hasScenarioEvidence
-    ? `${tScenario(`choices.${state.course.scenario.root}`)} → ${tScenario(`followup.${state.course.scenario.followup}`)}`
+    ? `${sc.rootLabel} → ${sc.followupLabel}`
     : "—";
 
   const dateStr = c.updatedAt

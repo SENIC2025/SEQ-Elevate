@@ -142,3 +142,15 @@ The core acceptance criterion: the platform must render courses that don't exist
 - `[BUILD]` `CourseSummary` extended with `badgeSlug/badgeName/badgeMeaning/comingSoon`. Local provider's `listCourses` now returns the published course **plus a "Receiving feedback" coming-soon course** — proves the list is dynamic (the consortium authors courses 2–6). Strapi provider kept in sync.
 - `[VERIFY]` Build ✓, type-check ✓. Course route renders EN ("Handling a small workplace conflict" → Context → narrative) and full native Greek ("Τρεις εβδομάδες στη νέα δουλειά", chrome "1 / 7 · Πλαίσιο", "Συνέχεια"). Dashboard shows "Your courses" + the coming-soon course. Unknown slug → 404. Valid slug → 200.
 - `[NOTE]` Progress persistence is still single-course (localStorage demo-state). Multi-course progress keyed by slug + DB-backed state is a follow-up (needs the hosted Postgres). The RENDERING is fully generic now — the acceptance-criterion capability is met.
+
+### CI green + GitHub + Vercel auto-deploy (2026-06-13)
+- `[INFRA]` Connected local repo to `github.com/SENIC2025/SEQ-Elevate`. Non-destructive: merged the repo's original "Initial commit" (placeholder README) into our history rather than force-pushing. 130 files, no secrets/node_modules.
+- `[FIX]` CI lint was red. Causes + fixes: (1) ESLint was scanning the Strapi `cms/` dir → added `cms/**` to eslint `globalIgnores`. (2) New React 19 rule `react-hooks/set-state-in-effect` flagged 4 legitimate localStorage-hydration-on-mount effects (the correct SSR pattern — localStorage is unavailable during SSR) → scoped `eslint-disable` with justifying comments in ProjectThemeProvider, AccessibilityProvider, demo-state, CoursePlayer. (3) Removed unused imports/vars (`COURSE_META`, `locale`) and a stale `no-var` disable. Result: 0 errors, 0 warnings.
+- `[VERIFY]` CI run green: Lint ✓ Type check ✓ Build ✓ (52s).
+- `[INFRA]` `vercel git connect` → pushes to `main` now auto-deploy to staging. Verified an auto-deploy fired on push.
+
+### Generic pass — Comp Card + Facilitator decoupled from hardcoded course (2026-06-13)
+- `[BUILD]` Comp Card and Facilitator views no longer read the `course.workplaceConflict` i18n namespace. The learner's scenario evidence (choice labels) and the course title are now stored in demo-state *when the learner plays*, so these views render any course's evidence.
+- `[BUILD]` `demo-state`: `ScenarioAttempt` gains `rootLabel`/`followupLabel`; `CourseProgress` gains `courseSlug`/`courseTitle`; new `setCourseContext` action (resets per-course progress when a different course opens). `recordScenarioRoot/Followup` now carry the label text.
+- `[BUILD]` `CoursePlayer` dispatches `setCourseContext` on mount; `ScenarioStage` passes choice text when recording.
+- `[VERIFY]` Build ✓ type-check ✓ lint clean (0/0). Comp Card + facilitator pages render (EN + EL). The entire learner→evidence→facilitator chain is now course-agnostic.

@@ -38,11 +38,11 @@ export function ScenarioStage({
   const pickRoot = (c: ScenarioChoice) => {
     setRootId(c.id);
     setFollowupId(null);
-    dispatch({ type: "recordScenarioRoot", choice: c.id });
+    dispatch({ type: "recordScenarioRoot", choice: c.id, label: c.text });
   };
   const pickFollowup = (c: ScenarioChoice) => {
     setFollowupId(c.id);
-    dispatch({ type: "recordScenarioFollowup", choice: c.id });
+    dispatch({ type: "recordScenarioFollowup", choice: c.id, label: c.text });
   };
   const reset = () => {
     setRootId(null);

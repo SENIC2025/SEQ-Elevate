@@ -18,6 +18,10 @@ export interface SimulationAttempt {
 export interface ScenarioAttempt {
   root: string | null;
   followup: string | null;
+  /** Human-readable choice text, stored so Comp Card / facilitator views
+   *  display the evidence without re-resolving against course content. */
+  rootLabel: string | null;
+  followupLabel: string | null;
 }
 
 export interface ReflectionAnswers {
@@ -33,6 +37,9 @@ export interface AssessmentAnswers {
 }
 
 export interface CourseProgress {
+  /** The course currently being played (set when the player mounts). */
+  courseSlug: string | null;
+  courseTitle: string | null;
   stagesCompleted: string[];
   simulation: SimulationAttempt | null;
   scenario: ScenarioAttempt;
@@ -70,9 +77,11 @@ const DEFAULT_STATE: DemoState = {
   role: null,
   badges: [],
   course: {
+    courseSlug: null,
+    courseTitle: null,
     stagesCompleted: [],
     simulation: null,
-    scenario: { root: null, followup: null },
+    scenario: { root: null, followup: null, rootLabel: null, followupLabel: null },
     reflection: { p1: "", p2: "", p3: "" },
     assessment: { q1: null, q2: null, q3: null },
     completedAt: null,
@@ -93,10 +102,11 @@ const STORAGE_KEY = "seq-elevate-demo-state-v1";
 type Action =
   | { type: "setProject"; projectId: string }
   | { type: "setRole"; role: Role | null }
+  | { type: "setCourseContext"; slug: string; title: string }
   | { type: "completeStage"; stage: string }
   | { type: "recordSimulation"; attempt: SimulationAttempt }
-  | { type: "recordScenarioRoot"; choice: string }
-  | { type: "recordScenarioFollowup"; choice: string }
+  | { type: "recordScenarioRoot"; choice: string; label: string }
+  | { type: "recordScenarioFollowup"; choice: string; label: string }
   | { type: "updateReflection"; patch: Partial<ReflectionAnswers> }
   | { type: "updateAssessment"; patch: Partial<AssessmentAnswers> }
   | { type: "completeCourse" }
@@ -113,6 +123,27 @@ function reducer(state: DemoState, action: Action): DemoState {
       return { ...DEFAULT_STATE, projectId: action.projectId };
     case "setRole":
       return { ...state, role: action.role };
+    case "setCourseContext":
+      // If the learner opens a different course than the one in progress,
+      // reset the per-course progress for the new course.
+      if (state.course.courseSlug && state.course.courseSlug !== action.slug) {
+        return {
+          ...state,
+          course: {
+            ...DEFAULT_STATE.course,
+            courseSlug: action.slug,
+            courseTitle: action.title,
+          },
+        };
+      }
+      return {
+        ...state,
+        course: {
+          ...state.course,
+          courseSlug: action.slug,
+          courseTitle: action.title,
+        },
+      };
     case "completeStage":
       return state.course.stagesCompleted.includes(action.stage)
         ? state
@@ -133,7 +164,12 @@ function reducer(state: DemoState, action: Action): DemoState {
         ...state,
         course: {
           ...state.course,
-          scenario: { root: action.choice, followup: null },
+          scenario: {
+            root: action.choice,
+            rootLabel: action.label,
+            followup: null,
+            followupLabel: null,
+          },
         },
       };
     case "recordScenarioFollowup":
@@ -141,7 +177,11 @@ function reducer(state: DemoState, action: Action): DemoState {
         ...state,
         course: {
           ...state.course,
-          scenario: { ...state.course.scenario, followup: action.choice },
+          scenario: {
+            ...state.course.scenario,
+            followup: action.choice,
+            followupLabel: action.label,
+          },
         },
       };
     case "updateReflection":

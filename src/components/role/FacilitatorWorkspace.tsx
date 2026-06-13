@@ -31,9 +31,7 @@ const COHORT = [
 export function FacilitatorWorkspace() {
   const t = useTranslations("facilitator");
   const tCommon = useTranslations("common");
-  const tCourse = useTranslations("course.workplaceConflict");
   const tCard = useTranslations("compCard");
-  const tScenario = useTranslations("course.workplaceConflict.scenario");
   const { state } = useDemoState();
 
   const [selected, setSelected] = useState<string | null>(null);
@@ -79,7 +77,7 @@ export function FacilitatorWorkspace() {
                 </p>
                 <h2 className="text-2xl font-bold">You (demo learner)</h2>
                 <p className="text-sm text-[var(--muted-foreground)] mt-0.5">
-                  {tCourse("title")}
+                  {state.course.courseTitle ?? "—"}
                 </p>
               </div>
               <Badge variant="primary">{youProgress}%</Badge>
@@ -93,15 +91,11 @@ export function FacilitatorWorkspace() {
 
             <div className="space-y-3">
               <CompCardRow label={tCard("fieldScenario")}>
-                {state.course.scenario.root ? (
-                  `${tScenario(`choices.${state.course.scenario.root}`)} → ${
-                    state.course.scenario.followup
-                      ? tScenario(`followup.${state.course.scenario.followup}`)
-                      : "—"
-                  }`
-                ) : (
-                  "—"
-                )}
+                {state.course.scenario.rootLabel
+                  ? `${state.course.scenario.rootLabel} → ${
+                      state.course.scenario.followupLabel ?? "—"
+                    }`
+                  : "—"}
               </CompCardRow>
 
               <CompCardRow label={tCard("fieldWentWell")}>

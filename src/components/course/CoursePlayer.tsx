@@ -39,6 +39,16 @@ export function CoursePlayer({ course }: { course: CourseContent }) {
 
   const resumeFromProgress = state.course.stagesCompleted.length;
 
+  // Record which course is being played, so Comp Card / facilitator views
+  // can show the course title + evidence without re-resolving content.
+  useEffect(() => {
+    dispatch({
+      type: "setCourseContext",
+      slug: course.slug,
+      title: course.title,
+    });
+  }, [dispatch, course.slug, course.title]);
+
   useEffect(() => {
     // Resume at the learner's last position on mount, from persisted
     // progress. Intentional one-time setState after hydration.
