@@ -11,5 +11,5 @@ export default async function Page({
   const { locale } = await params;
   const { callbackUrl } = await searchParams;
   setRequestLocale(locale);
-  return <SignInForm callbackUrl={callbackUrl ?? `/${locale}`} />;
+  return <SignInForm callbackUrl={callbackUrl ?? `/${locale}/learner`} />;
 }

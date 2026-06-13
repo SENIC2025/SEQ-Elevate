@@ -211,3 +211,18 @@ The proof the shell is content-driven: a genuinely different course (different c
 - `[VERIFY]` End-to-end on the **live** site: sign-in POST → 302 (no Resend error) → magic-link email sent from `no-reply@senic.world` + `VerificationToken` created in Neon. Test tokens cleaned afterwards (DB is a clean slate: 0 tokens, 0 users).
 - `[NOTE]` The full auth stack — Neon DB + NextAuth magic-link + Resend email — is now real on staging. The consortium can sign in with a real email at kickoff. Secrets live only in Vercel's encrypted env + gitignored `.env.local`; verified absent from git history.
 - `[NOTE]` The learner journey itself still uses localStorage (client demo-state). Migrating it to DB-backed per-course progress + real RBAC memberships is the next build step, now fully unblocked by the live DB + auth.
+
+---
+
+## Phase 4 — Multi-user: DB-backed learner state
+
+### Authenticated learners persist to Postgres; guests keep localStorage (2026-06-13)
+The last real "demo-ism" removed: authenticated learners' progress, Comp Card and badges now persist server-side and follow them across devices. Guests keep the instant-clickable localStorage demo. Same `useDemoState` API for both.
+- `[BUILD]` `SessionProviderWrapper` (NextAuth `SessionProvider`) added to the locale layout so client components know auth state.
+- `[BUILD]` `src/app/actions/learner.ts` — server actions: `ensureLearnerMembership` (auto-provisions a LEARNER membership on first use), `loadLearnerGlobal` (Comp Card + badges + enrollment summaries), `loadCourseProgress` (a course's saved progress, with scenario labels + title re-resolved from the CMS), `saveCourseProgress` (CourseEnrollment upsert), `saveCompCard`, `awardBadgeAction`. Stage-key ↔ enum + privacy ↔ enum mapping.
+- `[BUILD]` `DemoStateProvider` rewritten as a hybrid store: on mount, authed users hydrate from the DB (source of truth on login) + ensure membership; guests hydrate from localStorage. Write-through to the DB (debounced 700ms) for course progress + Comp Card; append-only for badges. Race guards (`courseLoadingRef`, `loadedCourseRef`, `dbReady`, per-badge `persistedBadges`) prevent the reset-then-load flow from clobbering saved data.
+- `[BUILD]` Auth UX: header shows the signed-in user's email + real Sign out (NextAuth `signOut`) for authed users, demo role-chip for guests; landing gains a real "Sign in" CTA alongside the guest role picker; sign-in callback → `/learner`.
+- `[BUILD]` `e2e/db-backed-progress.spec.ts` — signs a user in via a Session row, walks a full course in Chromium, asserts the DB has: CourseEnrollment (completed, `scenarioRoot=private`, stages recorded), auto-provisioned LEARNER Membership, and the `voice-without-edges` UserBadge. Gated on `E2E_DB=1`.
+- `[INFRA]` CI `e2e` job gains a **Postgres 16 service** + migrate + seed + `E2E_DB=1`, so the DB-backed test is a real CI gate.
+- `[VERIFY]` Local: DB-backed test passes (full course walk → all DB rows correct); 8 guest E2E + axe tests still pass (guest flows intact); DB test skips without `E2E_DB`. Build ✓ lint ✓ types ✓ 10 unit ✓.
+- `[NOTE]` Remaining polish (Phase 4 cont.): dashboard multi-course progress indicators + facilitator cohort reading real authenticated learners from the DB (the per-course progress for the ACTIVE course already loads/saves; the multi-course dashboard summary + facilitator real-data wiring is the next slice). On login, guest localStorage progress is not migrated to the DB — DB wins (acceptable; could add migration later).

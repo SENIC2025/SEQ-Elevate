@@ -1,11 +1,24 @@
 "use client";
 
 import * as React from "react";
+import { useSession } from "next-auth/react";
+import { useLocale } from "next-intl";
+import {
+  ensureLearnerMembership,
+  loadLearnerGlobal,
+  loadCourseProgress,
+  saveCourseProgress,
+  saveCompCard,
+  awardBadgeAction,
+} from "@/app/actions/learner";
+import type { Locale } from "@/lib/cms/types";
 
 /**
- * Client-side demo state. In the real shell this lives in the database,
- * keyed by authenticated user. Here it's localStorage so reviewers can
- * close the tab and come back without losing the walkthrough.
+ * Learner state. For AUTHENTICATED users it's backed by Postgres (Neon)
+ * via server actions — progress, Comp Card and badges persist server-side
+ * and follow the learner across devices. For GUESTS it falls back to
+ * localStorage (the instant-clickable demo). The component-facing API
+ * (useDemoState) is identical for both.
  */
 
 export type Role = "learner" | "facilitator" | "admin" | "content";
@@ -113,7 +126,9 @@ type Action =
   | { type: "awardBadge"; badge: string }
   | { type: "updateCompCard"; patch: Partial<CompCardData> }
   | { type: "reset" }
-  | { type: "hydrate"; state: DemoState };
+  | { type: "hydrate"; state: DemoState }
+  | { type: "hydrateGlobal"; compCard: CompCardData | null; badges: string[] }
+  | { type: "hydrateCourse"; course: CourseProgress };
 
 function reducer(state: DemoState, action: Action): DemoState {
   switch (action.type) {
@@ -222,6 +237,14 @@ function reducer(state: DemoState, action: Action): DemoState {
       return DEFAULT_STATE;
     case "hydrate":
       return action.state;
+    case "hydrateGlobal":
+      return {
+        ...state,
+        badges: action.badges,
+        compCard: action.compCard ?? state.compCard,
+      };
+    case "hydrateCourse":
+      return { ...state, course: action.course };
     default:
       return state;
   }
@@ -237,32 +260,135 @@ const DemoStateContext = React.createContext<ContextValue | null>(null);
 export function DemoStateProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = React.useReducer(reducer, DEFAULT_STATE);
   const [hydrated, setHydrated] = React.useState(false);
+  const [dbReady, setDbReady] = React.useState(false);
 
+  const { status } = useSession();
+  const locale = useLocale() as Locale;
+  const authed = status === "authenticated";
+
+  const courseLoadingRef = React.useRef(false);
+  const loadedCourseRef = React.useRef<string | null>(null);
+  const persistedBadges = React.useRef<Set<string>>(new Set());
+  const courseTimer = React.useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined
+  );
+  const cardTimer = React.useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined
+  );
+
+  // ---- Hydration: DB for authed users, localStorage for guests ----
   React.useEffect(() => {
-    // Hydrate client-only persisted state on mount. localStorage is
-    // unavailable during SSR, so dispatching/setting here is intentional.
-    /* eslint-disable react-hooks/set-state-in-effect */
-    try {
-      const raw = window.localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw) as DemoState;
-        dispatch({ type: "hydrate", state: { ...DEFAULT_STATE, ...parsed } });
+    if (status === "loading") return;
+    let cancelled = false;
+    (async () => {
+      if (authed) {
+        await ensureLearnerMembership();
+        const global = await loadLearnerGlobal();
+        if (cancelled) return;
+        if (global) {
+          dispatch({
+            type: "hydrateGlobal",
+            compCard: global.compCard as CompCardData | null,
+            badges: global.badges,
+          });
+          persistedBadges.current = new Set(global.badges);
+        }
+        setDbReady(true);
+      } else {
+        try {
+          const raw = window.localStorage.getItem(STORAGE_KEY);
+          if (raw) {
+            const parsed = JSON.parse(raw) as DemoState;
+            dispatch({ type: "hydrate", state: { ...DEFAULT_STATE, ...parsed } });
+            persistedBadges.current = new Set(parsed.badges ?? []);
+          }
+        } catch {
+          /* ignore */
+        }
       }
-    } catch {
-      /* ignore */
-    }
-    setHydrated(true);
-    /* eslint-enable react-hooks/set-state-in-effect */
-  }, []);
+      if (!cancelled) setHydrated(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [status, authed]);
 
+  // ---- Guest localStorage write-through ----
   React.useEffect(() => {
-    if (!hydrated) return;
+    if (!hydrated || authed) return;
     try {
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     } catch {
       /* ignore */
     }
-  }, [state, hydrated]);
+  }, [state, hydrated, authed]);
+
+  // ---- Load a course's saved progress from the DB when it becomes active ----
+  React.useEffect(() => {
+    if (!authed || !dbReady) return;
+    const slug = state.course.courseSlug;
+    if (!slug || loadedCourseRef.current === slug) return;
+    let cancelled = false;
+    courseLoadingRef.current = true;
+    (async () => {
+      const prog = await loadCourseProgress(slug, locale);
+      if (cancelled) return;
+      if (prog) dispatch({ type: "hydrateCourse", course: prog as CourseProgress });
+      loadedCourseRef.current = slug;
+      courseLoadingRef.current = false;
+    })();
+    return () => {
+      cancelled = true;
+      courseLoadingRef.current = false;
+    };
+  }, [authed, dbReady, state.course.courseSlug, locale]);
+
+  // ---- DB write-through: course progress (debounced) ----
+  React.useEffect(() => {
+    if (!authed || !dbReady || courseLoadingRef.current) return;
+    const slug = state.course.courseSlug;
+    if (!slug) return;
+    const snap = state.course;
+    clearTimeout(courseTimer.current);
+    courseTimer.current = setTimeout(() => {
+      void saveCourseProgress(slug, {
+        stagesCompleted: snap.stagesCompleted,
+        simulation: snap.simulation,
+        scenario: { root: snap.scenario.root, followup: snap.scenario.followup },
+        reflection: snap.reflection,
+        assessment: snap.assessment,
+        completedAt: snap.completedAt,
+      });
+    }, 700);
+  }, [authed, dbReady, state.course]);
+
+  // ---- DB write-through: Comp Card (debounced) ----
+  React.useEffect(() => {
+    if (!authed || !dbReady || !state.compCard.updatedAt) return;
+    const snap = state.compCard;
+    clearTimeout(cardTimer.current);
+    cardTimer.current = setTimeout(() => {
+      void saveCompCard({
+        wentWell: snap.wentWell,
+        difficult: snap.difficult,
+        improve: snap.improve,
+        behaviour: snap.behaviour,
+        confidence: snap.confidence,
+        privacy: snap.privacy,
+      });
+    }, 700);
+  }, [authed, dbReady, state.compCard]);
+
+  // ---- DB write-through: badges (append-only) ----
+  React.useEffect(() => {
+    if (!authed || !dbReady) return;
+    for (const slug of state.badges) {
+      if (!persistedBadges.current.has(slug)) {
+        persistedBadges.current.add(slug);
+        void awardBadgeAction(slug);
+      }
+    }
+  }, [authed, dbReady, state.badges]);
 
   const value = React.useMemo(() => ({ state, dispatch }), [state]);
 

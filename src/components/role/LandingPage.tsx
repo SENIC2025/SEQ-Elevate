@@ -1,7 +1,7 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { useRouter } from "@/i18n/navigation";
+import { Link, useRouter } from "@/i18n/navigation";
 import { useDemoState, type Role } from "@/store/demo-state";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,7 @@ import {
   PenSquare,
   ArrowRight,
   RotateCcw,
+  LogIn,
 } from "lucide-react";
 
 const ROLES: {
@@ -33,6 +34,7 @@ export function LandingPage() {
   const t = useTranslations("landing");
   const tCommon = useTranslations("common");
   const tRoles = useTranslations("roles");
+  const tAuth = useTranslations("auth");
   const router = useRouter();
   const { dispatch } = useDemoState();
 
@@ -52,6 +54,13 @@ export function LandingPage() {
             <span>{tCommon("appName")}</span>
           </div>
           <div className="flex items-center gap-2">
+            <Link
+              href="/signin"
+              className="flex items-center gap-1.5 rounded-full bg-[var(--accent)] px-3.5 py-1.5 text-sm font-medium text-white hover:bg-[var(--accent-hover)]"
+            >
+              <LogIn className="h-4 w-4" />
+              <span>{tAuth("signIn")}</span>
+            </Link>
             <LanguageSwitcher />
             <AccessibilityToolbar />
           </div>

@@ -7,6 +7,7 @@ import { routing } from "@/i18n/routing";
 import { DemoStateProvider } from "@/store/demo-state";
 import { AccessibilityProvider } from "@/components/a11y/AccessibilityProvider";
 import { ProjectThemeProvider } from "@/components/ProjectThemeProvider";
+import { SessionProviderWrapper } from "@/components/SessionProviderWrapper";
 import { Analytics } from "@/components/Analytics";
 import "../globals.css";
 
@@ -73,11 +74,13 @@ export default async function LocaleLayout({
         </a>
         <Analytics />
         <NextIntlClientProvider locale={locale} messages={messages}>
-          <ProjectThemeProvider>
-            <AccessibilityProvider>
-              <DemoStateProvider>{children}</DemoStateProvider>
-            </AccessibilityProvider>
-          </ProjectThemeProvider>
+          <SessionProviderWrapper>
+            <ProjectThemeProvider>
+              <AccessibilityProvider>
+                <DemoStateProvider>{children}</DemoStateProvider>
+              </AccessibilityProvider>
+            </ProjectThemeProvider>
+          </SessionProviderWrapper>
         </NextIntlClientProvider>
       </body>
     </html>

@@ -51,10 +51,25 @@ jobs:
   e2e:
     name: E2E + accessibility (Playwright + axe)
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: seqelevate
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     env:
-      DATABASE_URL: postgresql://placeholder:placeholder@localhost:5432/placeholder
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/seqelevate
       AUTH_SECRET: ci-placeholder-secret
       CMS_SOURCE: local
+      E2E_DB: "1"
     steps:
       - uses: actions/checkout@v4
 
@@ -73,13 +88,18 @@ jobs:
       - name: Prisma generate
         run: pnpm prisma generate
 
+      - name: Migrate + seed (DB-backed E2E)
+        run: |
+          pnpm prisma migrate deploy
+          pnpm db:seed
+
       - name: Build
         run: pnpm build
 
       - name: Install Playwright browser
         run: pnpm exec playwright install --with-deps chromium
 
-      - name: E2E + axe
+      - name: E2E + axe (incl. DB-backed progress)
         run: pnpm exec playwright test
 
       - name: Upload report on failure
