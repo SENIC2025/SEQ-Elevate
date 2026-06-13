@@ -57,11 +57,14 @@ Single source of truth for decisions made, decisions still open, and the rationa
 - Architecture decision so future projects don't require a refactor
 - Not surfaced in consortium-facing UI to avoid distraction
 
-### D7 · Email service — Resend
-**Decided (provisional)**: 13 June 2026 · *Decider: SENIC*
-- Magic link delivery + transactional email
-- Free tier (3k emails/mo, 100/day) covers go-live and likely the full maintenance window for a NEET pilot scale
-- Paid tier kicks in at €20/mo only if volume grows materially
+### D7 · Email service — Resend ✅ LIVE
+**Decided + wired**: 13 June 2026 · *Decider: SENIC; key provided by client*
+- Magic-link delivery + transactional email via Resend.
+- **`senic.world` is verified on Resend** → we can send to any recipient (the whole consortium), no DNS work needed. Sender: `SEQ Elevate <no-reply@senic.world>`.
+- **Verified live**: the running Vercel app sent a real magic-link email via Resend (302, no error) and wrote the token to Neon. Test email visible as Delivered in the Resend dashboard.
+- The API key is a **sending-only restricted key** (good security — can send, can't manage domains/account). Stored only in Vercel's encrypted env + gitignored `.env.local`. Never committed.
+- Free tier (3k emails/mo, 100/day) covers go-live and likely the full maintenance window for a NEET pilot scale; paid tier (€20/mo) only if volume grows.
+- **Full auth stack is now end-to-end real on staging**: Neon DB (D11) + NextAuth magic-link (D-auth) + Resend email. The consortium can sign in with a real email at kickoff.
 
 ### D8 · Local dev database — Postgres in Docker
 **Decided**: 13 June 2026 · *Decider: SENIC*

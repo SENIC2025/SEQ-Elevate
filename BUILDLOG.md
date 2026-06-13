@@ -204,3 +204,10 @@ The proof the shell is content-driven: a genuinely different course (different c
   - **Best Practices 100** ✓
   - **SEO 63** — the *only* deduction is `is-crawlable` "blocked from indexing", i.e. the **intentional staging `robots` disallow** (placeholder content + vulnerable target group). At production go-live (robots → allow) SEO rises to ~100.
 - `[NOTE]` Acceptance criterion (Lighthouse mobile ≥90 across Performance/A11y/Best-Practices/SEO) is effectively met — the sole sub-90 category is held down only by the deliberate staging crawl-block, which is correct behaviour for staging and reverses at go-live.
+
+### Live database + email — full auth stack real on staging (2026-06-13)
+- `[INFRA]` **Neon Postgres** (eu-central-1 Frankfurt) connected as the staging DB. Migrated (20 tables, via direct endpoint — Prisma locks don't work through Neon's pooler) + seeded (project, 4 orgs, cohort, both courses + badges). `DATABASE_URL` (pooled) set in Vercel. Verified: live app reads + writes Neon. → `DECISIONS.md D11`
+- `[INFRA]` **Resend email** wired. `senic.world` already verified on the account → can email any recipient. `RESEND_API_KEY` (sending-only restricted key) + `EMAIL_FROM` set in Vercel.
+- `[VERIFY]` End-to-end on the **live** site: sign-in POST → 302 (no Resend error) → magic-link email sent from `no-reply@senic.world` + `VerificationToken` created in Neon. Test tokens cleaned afterwards (DB is a clean slate: 0 tokens, 0 users).
+- `[NOTE]` The full auth stack — Neon DB + NextAuth magic-link + Resend email — is now real on staging. The consortium can sign in with a real email at kickoff. Secrets live only in Vercel's encrypted env + gitignored `.env.local`; verified absent from git history.
+- `[NOTE]` The learner journey itself still uses localStorage (client demo-state). Migrating it to DB-backed per-course progress + real RBAC memberships is the next build step, now fully unblocked by the live DB + auth.
