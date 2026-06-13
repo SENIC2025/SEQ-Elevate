@@ -187,3 +187,12 @@ The proof the shell is content-driven: a genuinely different course (different c
 - `[BUILD]` `src/lib/cms/local-provider.test.ts` — the content engine: lists all courses per locale; null for unknown; builds complete valid CourseContent for every course × locale (7 stages, one best sim option, scenario tree text/outcomes/quality, assessment correct-id validity, badge); content is localized (titles differ EN/DE/EL); Comp Card template has the WP3 fields.
 - `[BUILD]` `src/data/course.test.ts` — course-def integrity: order references defined courses, cluster valid, sim correct ∈ options, scenario ids unique, quality tags valid, assessment correct ∈ options, badge slugs unique.
 - `[VERIFY]` 10 tests pass. Added `Unit tests` step to CI (lint → type → **test** → build).
+
+### Testing — Playwright E2E + axe accessibility, CI job (2026-06-13)
+- `[INFRA]` `@playwright/test` + `@axe-core/playwright`; `playwright.config.ts` (chromium, prod-server webServer); chromium installed.
+- `[BUILD]` `e2e/learner-journey.spec.ts` — dashboard lists both courses; player advances stages; unknown course shows the not-found page; German + Greek content render natively.
+- `[BUILD]` `e2e/accessibility.spec.ts` — axe-core WCAG 2.2 AA scan (wcag2a/aa, wcag21, wcag22aa) on landing, dashboard, course player, Comp Card; asserts zero serious/critical violations.
+- `[FIX]` **Axe caught a real WCAG AA failure**: purple accent `#7467ae` as 12px text on light tints = 4.21:1 (< 4.5:1). Root cause was the runtime `ProjectThemeProvider` override from the brand kit. Fixed by setting the brand kit `accentColor` to the brand's own secondary-dark `#5d528b` (axe-verified pass). → `DECISIONS.md D4`
+- `[FIX]` Axe caught `aria-progressbar-name`: the course-player progress bar had no accessible name. `Progress` now always has an `aria-label` (label ?? ariaLabel ?? "Progress").
+- `[NOTE]` `notFound()` for an unknown course renders the branded not-found page but Next 16 streams a 200 status header (framework nuance). The E2E asserts the rendered page (the meaningful UX check).
+- `[VERIFY]` 8/8 E2E + axe tests pass in headless Chromium. Added a separate `e2e` CI job (build → install chromium → playwright test, uploads report on failure).

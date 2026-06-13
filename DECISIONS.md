@@ -37,6 +37,7 @@ Single source of truth for decisions made, decisions still open, and the rationa
 - Logo gradient stops (warm sunset, cool wave) available for accent surfaces
 - Cool-tinted neutrals matching the Bricks WP theme on seqelevate.eu
 - *Confirm at kickoff: is this the canonical SEQ Elevate brand or does a separate brand kit exist?*
+- **13 June 2026 — accent darkened for accessibility**: the purple accent was changed from the brand's `secondary` (#7467ae) to `secondary-dark` (#5d528b). Reason: as 12px text on light tints #7467ae only reached 4.21:1 contrast, failing WCAG 2.2 AA (4.5:1) — caught by automated axe tests. #5d528b passes and stays within the seqelevate.eu palette. *Confirm acceptable at kickoff; if the consortium insists on the lighter purple, we restrict it to large text only.*
 
 ### D5 · Tech stack — locked per Technical Proposal §4
 **Decided**: 10 June 2026 · *Decider: SENIC, accepted in signed proposal*

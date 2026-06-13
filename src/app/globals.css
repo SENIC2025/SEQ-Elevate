@@ -17,9 +17,12 @@
   --primary-hover: #b6bc28;     /* primary-semi-dark */
   --primary-foreground: #2e2e3d; /* dark text on lime — passes WCAG AAA */
 
-  /* Accent — purple. Used for actionable surfaces with white text. */
-  --accent: #7467ae;            /* secondary */
-  --accent-hover: #5d528b;      /* secondary-dark */
+  /* Accent — purple. Used for actionable surfaces with white text AND as
+     small text on light tints, so it's set to the brand's secondary-DARK
+     (#5d528b) to clear WCAG 2.2 AA 4.5:1 for 12px text (the lighter
+     #7467ae only reached 4.21:1 — flagged by axe). */
+  --accent: #5d528b;            /* secondary-dark */
+  --accent-hover: #463e68;      /* secondary-ultra-dark */
   --accent-foreground: #ffffff;
 
   /* Tertiary — rose-purple. Available for highlights / illustrations. */

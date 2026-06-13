@@ -47,9 +47,11 @@ export const PROJECTS: Record<string, ProjectConfig> = {
       tagline: "Skills for life, work and what comes next.",
       // Palette matches seqelevate.eu (Bricks WP theme):
       // --primary #cad12c (lime), --secondary #7467ae (purple), --tertiary #b575ae (rose).
+      // accentColor uses the brand's secondary-DARK (#5d528b) so purple as
+      // small text on light tints clears WCAG 2.2 AA 4.5:1 (axe-verified).
       primaryColor: "#cad12c",
       primaryHover: "#b6bc28",
-      accentColor: "#7467ae",
+      accentColor: "#5d528b",
     },
     locales: ["en", "de", "el"],
     defaultLocale: "en",

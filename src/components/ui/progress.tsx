@@ -4,10 +4,13 @@ export function Progress({
   value,
   className,
   label,
+  ariaLabel,
 }: {
   value: number;
   className?: string;
   label?: string;
+  /** Accessible name when there's no visible label. */
+  ariaLabel?: string;
 }) {
   const clamped = Math.max(0, Math.min(100, value));
   return (
@@ -24,7 +27,7 @@ export function Progress({
         aria-valuenow={Math.round(clamped)}
         aria-valuemin={0}
         aria-valuemax={100}
-        aria-label={label}
+        aria-label={label ?? ariaLabel ?? "Progress"}
       >
         <div
           className="h-full bg-[var(--primary)] transition-[width] duration-500 ease-out"
