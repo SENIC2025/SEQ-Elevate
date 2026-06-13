@@ -26,24 +26,32 @@ const PRIVACY_FROM_DB: Record<
 
 /** The current user's per-course enrollment summaries (own data). */
 export async function getLearnerEnrollments() {
-  const user = await getCurrentUser();
-  if (!user) return null;
-  const rows = await prisma.courseEnrollment.findMany({
-    where: { userId: user.id },
-    include: { course: true },
-  });
-  return rows.map((e) => ({
-    slug: e.course.slug,
-    stagesCompleted: e.stagesCompleted.length,
-    totalStages: TOTAL_STAGES,
-    completed: !!e.completedAt,
-  }));
+  try {
+    const user = await getCurrentUser();
+    if (!user) return null;
+    const rows = await prisma.courseEnrollment.findMany({
+      where: { userId: user.id },
+      include: { course: true },
+    });
+    return rows.map((e) => ({
+      slug: e.course.slug,
+      stagesCompleted: e.stagesCompleted.length,
+      totalStages: TOTAL_STAGES,
+      completed: !!e.completedAt,
+    }));
+  } catch {
+    return null;
+  }
 }
 
 /** The current user's roles in the project (for view gating). */
 export async function getViewerRoles(): Promise<Role[]> {
-  const memberships = await getProjectMemberships(PROJECT);
-  return memberships.map((m) => m.role);
+  try {
+    const memberships = await getProjectMemberships(PROJECT);
+    return memberships.map((m) => m.role);
+  } catch {
+    return [];
+  }
 }
 
 export interface FacilitatorLearner {
@@ -76,6 +84,16 @@ export async function getProjectLearners(
   const roles = await getViewerRoles();
   if (!roles.includes("FACILITATOR") && !roles.includes("ADMIN")) return null;
 
+  try {
+    return await loadLearners(locale);
+  } catch {
+    return [];
+  }
+}
+
+async function loadLearners(
+  locale: Locale
+): Promise<FacilitatorLearner[]> {
   const memberships = await prisma.membership.findMany({
     where: { projectId: PROJECT, role: "LEARNER" },
     include: {
@@ -151,11 +169,19 @@ export async function getProjectLearners(
 
 /** Aggregate counts for the admin dashboard (anonymised). */
 export async function getAdminCounts() {
-  const [users, cohorts, organisations, courses] = await Promise.all([
-    prisma.membership.count({ where: { projectId: PROJECT, role: "LEARNER" } }),
-    prisma.cohort.count({ where: { projectId: PROJECT } }),
-    prisma.organisation.count({ where: { projectId: PROJECT } }),
-    prisma.course.count({ where: { projectId: PROJECT, status: "published" } }),
-  ]);
-  return { users, cohorts, organisations, courses };
+  try {
+    const [users, cohorts, organisations, courses] = await Promise.all([
+      prisma.membership.count({
+        where: { projectId: PROJECT, role: "LEARNER" },
+      }),
+      prisma.cohort.count({ where: { projectId: PROJECT } }),
+      prisma.organisation.count({ where: { projectId: PROJECT } }),
+      prisma.course.count({
+        where: { projectId: PROJECT, status: "published" },
+      }),
+    ]);
+    return { users, cohorts, organisations, courses };
+  } catch {
+    return { users: 0, cohorts: 0, organisations: 0, courses: 0 };
+  }
 }
