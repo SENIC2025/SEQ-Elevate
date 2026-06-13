@@ -34,10 +34,12 @@ export function ProjectThemeProvider({
   const [projectId, setProjectIdState] = React.useState(DEFAULT_PROJECT_ID);
   const project = getProject(projectId);
 
-  // Hydrate from localStorage
+  // Hydrate client-only persisted project on mount (localStorage is
+  // unavailable during SSR, so the synchronous setState here is intentional).
   React.useEffect(() => {
     try {
       const stored = window.localStorage.getItem(STORAGE_KEY);
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       if (stored) setProjectIdState(stored);
     } catch {}
   }, []);

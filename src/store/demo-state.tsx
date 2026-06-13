@@ -199,6 +199,9 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
   const [hydrated, setHydrated] = React.useState(false);
 
   React.useEffect(() => {
+    // Hydrate client-only persisted state on mount. localStorage is
+    // unavailable during SSR, so dispatching/setting here is intentional.
+    /* eslint-disable react-hooks/set-state-in-effect */
     try {
       const raw = window.localStorage.getItem(STORAGE_KEY);
       if (raw) {
@@ -209,6 +212,7 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
       /* ignore */
     }
     setHydrated(true);
+    /* eslint-enable react-hooks/set-state-in-effect */
   }, []);
 
   React.useEffect(() => {

@@ -1,14 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { useTranslations, useLocale } from "next-intl";
+import { useTranslations } from "next-intl";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 import { useDemoState } from "@/store/demo-state";
-import { COURSE_META, STAGES } from "@/data/course";
+import { STAGES } from "@/data/course";
 import {
   Users,
   CheckCircle2,
@@ -34,7 +34,6 @@ export function FacilitatorWorkspace() {
   const tCourse = useTranslations("course.workplaceConflict");
   const tCard = useTranslations("compCard");
   const tScenario = useTranslations("course.workplaceConflict.scenario");
-  const locale = useLocale();
   const { state } = useDemoState();
 
   const [selected, setSelected] = useState<string | null>(null);

@@ -40,6 +40,9 @@ export function CoursePlayer({ course }: { course: CourseContent }) {
   const resumeFromProgress = state.course.stagesCompleted.length;
 
   useEffect(() => {
+    // Resume at the learner's last position on mount, from persisted
+    // progress. Intentional one-time setState after hydration.
+    /* eslint-disable react-hooks/set-state-in-effect */
     if (state.course.completedAt) {
       setCurrent("complete");
     } else if (
@@ -48,6 +51,7 @@ export function CoursePlayer({ course }: { course: CourseContent }) {
     ) {
       setCurrent(orderedKeys[resumeFromProgress]);
     }
+    /* eslint-enable react-hooks/set-state-in-effect */
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

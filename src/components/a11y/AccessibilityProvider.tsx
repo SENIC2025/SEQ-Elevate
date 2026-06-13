@@ -23,6 +23,10 @@ export function AccessibilityProvider({ children }: { children: React.ReactNode 
   const [contrast, setContrast] = React.useState(false);
 
   React.useEffect(() => {
+    // Hydrate client-only persisted prefs on mount. localStorage isn't
+    // available during SSR, so reading it here (not in a lazy initializer)
+    // is the correct pattern — the synchronous setState is intentional.
+    /* eslint-disable react-hooks/set-state-in-effect */
     try {
       const raw = window.localStorage.getItem(STORAGE_KEY);
       if (raw) {
@@ -32,6 +36,7 @@ export function AccessibilityProvider({ children }: { children: React.ReactNode 
         if (typeof parsed.contrast === "boolean") setContrast(parsed.contrast);
       }
     } catch {}
+    /* eslint-enable react-hooks/set-state-in-effect */
   }, []);
 
   React.useEffect(() => {
