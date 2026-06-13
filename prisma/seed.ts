@@ -9,7 +9,8 @@
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PROJECTS, DEFAULT_PROJECT_ID } from "../src/data/project";
-import { COURSE_META } from "../src/data/course";
+import { COURSE_DEFS, COURSE_ORDER } from "../src/data/course";
+import en from "../src/messages/en.json";
 
 const adapter = new PrismaPg({
   connectionString: process.env.DATABASE_URL!,
@@ -96,39 +97,47 @@ async function main() {
   });
   console.log(`  ✓ Cohort: ${berlinCohort.name}`);
 
-  // 4. Workplace-conflict course
-  // Strapi ID is a placeholder until Strapi is wired up in Week 0 Day 4
-  const badge = await prisma.badge.upsert({
-    where: { projectId_slug: { projectId: project.id, slug: COURSE_META.badgeId } },
-    create: {
-      projectId: project.id,
-      slug: COURSE_META.badgeId,
-      name: "Voice without edges",
-      meaning: "Spoke up without escalating or shrinking",
-    },
-    update: {},
-  });
+  // 4. Courses + badges (one per CourseDef). Badge name/meaning come from
+  //    the English completion copy; the strapiId is a placeholder until
+  //    courses are authored in Strapi.
+  for (const slug of COURSE_ORDER) {
+    const def = COURSE_DEFS[slug];
+    if (!def) continue;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const copy = (en as any).course[def.contentKey]?.completion ?? {};
 
-  const course = await prisma.course.upsert({
-    where: { projectId_slug: { projectId: project.id, slug: COURSE_META.id } },
-    create: {
-      projectId: project.id,
-      strapiId: "placeholder-workplace-conflict",
-      slug: COURSE_META.id,
-      cluster: COURSE_META.cluster,
-      durationMinutes: COURSE_META.durationMinutes,
-      badgeId: badge.id,
-      status: "published",
-      publishedAt: new Date(),
-    },
-    update: {
-      cluster: COURSE_META.cluster,
-      durationMinutes: COURSE_META.durationMinutes,
-      badgeId: badge.id,
-      status: "published",
-    },
-  });
-  console.log(`  ✓ Course: ${course.slug} (badge ${badge.slug})`);
+    const badge = await prisma.badge.upsert({
+      where: { projectId_slug: { projectId: project.id, slug: def.badgeId } },
+      create: {
+        projectId: project.id,
+        slug: def.badgeId,
+        name: copy.badgeName ?? def.badgeId,
+        meaning: copy.badgeMeaning ?? "",
+      },
+      update: { name: copy.badgeName ?? def.badgeId, meaning: copy.badgeMeaning ?? "" },
+    });
+
+    const course = await prisma.course.upsert({
+      where: { projectId_slug: { projectId: project.id, slug: def.id } },
+      create: {
+        projectId: project.id,
+        strapiId: `placeholder-${def.id}`,
+        slug: def.id,
+        cluster: def.cluster,
+        durationMinutes: def.durationMinutes,
+        badgeId: badge.id,
+        status: "published",
+        publishedAt: new Date(),
+      },
+      update: {
+        cluster: def.cluster,
+        durationMinutes: def.durationMinutes,
+        badgeId: badge.id,
+        status: "published",
+      },
+    });
+    console.log(`  ✓ Course: ${course.slug} (badge ${badge.slug})`);
+  }
 
   console.log("Seed complete.");
 }

@@ -154,3 +154,12 @@ The core acceptance criterion: the platform must render courses that don't exist
 - `[BUILD]` `demo-state`: `ScenarioAttempt` gains `rootLabel`/`followupLabel`; `CourseProgress` gains `courseSlug`/`courseTitle`; new `setCourseContext` action (resets per-course progress when a different course opens). `recordScenarioRoot/Followup` now carry the label text.
 - `[BUILD]` `CoursePlayer` dispatches `setCourseContext` on mount; `ScenarioStage` passes choice text when recording.
 - `[VERIFY]` Build ✓ type-check ✓ lint clean (0/0). Comp Card + facilitator pages render (EN + EL). The entire learner→evidence→facilitator chain is now course-agnostic.
+
+### Second course — "Receiving feedback" (Resilience), full trilingual (2026-06-13)
+The proof the shell is content-driven: a genuinely different course (different cluster, scenario tree, behaviour model) flowing through the identical engine, in all three languages, with zero new component code.
+- `[BUILD]` Generalised `data/course.ts`: `CourseDef` type + `COURSE_DEFS` registry (structure: sim options, scenario root/followup tree with quality tags, assessment) + `COURSE_ORDER`. `contentKey` maps hyphenated slug → camelCase messages namespace. Workplace-conflict structure preserved identically.
+- `[BUILD]` Generalised local provider: `buildCourse(def, locale)` builds any course's `CourseContent` from its `CourseDef` + `course.<contentKey>.*` messages. Falls back to EN if a course isn't translated for the locale yet (mirrors the real CMS handling an untranslated course).
+- `[BUILD]` Authored "Receiving feedback without flinching" (Resilience, badge "feedback-as-fuel") — full 7-stage course (context → … → assessment), 4 sim options, 4×3 scenario tree, 3 assessment Qs — in **EN, DE, and EL** (native translations, not machine).
+- `[BUILD]` DB seed iterates `COURSE_DEFS` — seeds both courses + both badges. Verified: `workplace-conflict` + `receiving-feedback`, `voice-without-edges` + `feedback-as-fuel` in the DB.
+- `[VERIFY]` Both courses render 200 in all 3 locales; native content confirmed (EN "The flyer you stayed late for", DE "Der Flyer, für den du länger geblieben bist", EL "Το φυλλάδιο που έμεινες αργά να φτιάξεις"). Dashboard lists both. Build ✓ lint ✓ types ✓.
+- `[NOTE]` This validates the whole generic architecture: adding a course = a `CourseDef` + localized text, no engineering. Exactly what the consortium does in Strapi for courses 2–6.

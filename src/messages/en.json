@@ -276,6 +276,156 @@
         "openCompCard": "Open your Comp Card",
         "backToDashboard": "Back to dashboard"
       }
+    },
+    "receivingFeedback": {
+      "title": "Receiving feedback without flinching",
+      "cluster": "Resilience",
+      "tagline": "20 minutes · being told something hard, and using it",
+      "context": {
+        "title": "The flyer you stayed late for",
+        "narrative": "You're at a work placement at a community centre. They asked you to design a flyer for the youth night. You stayed late, picked the colours, got it just right. This morning you show it to Mara, the coordinator. She looks at it for a few seconds and says, \"Hm. This isn't really what I asked for.\" Your face goes hot. You can feel something drop in your stomach. What happens next is up to you.",
+        "anchor": "We'll take this slowly. Feedback is hard for everyone."
+      },
+      "concept": {
+        "title": "Hearing the message, not the threat",
+        "body1": "When someone criticises your work, your body often reacts as if you're being attacked — heat, a tight chest, the urge to defend or disappear. That's normal. It doesn't mean the feedback is an attack.",
+        "body2": "Two small skills turn feedback from a wound into something useful:",
+        "point1": "Separate the work from you. \"The flyer missed the point\" is not \"you are a failure.\"",
+        "point2": "Ask one specific question, so you actually know what to change.",
+        "body3": "You don't have to agree with all of it. But if you can stay in the conversation long enough to understand it, the feedback becomes something you can use instead of something that just hurts."
+      },
+      "behaviour": {
+        "title": "What this looks like",
+        "intro": "One useful move is to pause, then ask for the specific thing:",
+        "formula": "Okay — can you show me which part missed, so I can fix it?",
+        "blamingLabel": "Defensive",
+        "blaming": "\"That's not fair. I did exactly what you said.\"",
+        "iStatementLabel": "Curious",
+        "iStatement": "\"Okay. Can you show me which part missed what you needed?\"",
+        "closing": "The second one doesn't collapse and doesn't fight. It treats the feedback as information you can work with — which keeps you in control of what happens next."
+      },
+      "simulation": {
+        "title": "Try a small move",
+        "prompt": "A teammate reviewing a group report says, \"Honestly, your part was kind of confusing.\" You feel the heat rise. You…",
+        "instruction": "Pick the response that feels strongest — there's a best answer, but no wrong way to feel.",
+        "options": {
+          "defend": "\"It's not confusing, you just read it too fast.\"",
+          "crumble": "\"Ugh, I'm so bad at this, sorry, I'll just redo the whole thing.\"",
+          "clarify": "\"Okay — which part lost you? I'd rather fix the actual spot than guess.\"",
+          "dismiss": "\"Whatever, it's fine.\""
+        },
+        "feedback": {
+          "defend": "Pushing back protects you for a second, but now your teammate stops being honest with you — and the confusing part is still confusing.",
+          "crumble": "Turning it into 'I'm bad' makes it about your worth, not the work. You'll redo more than you need to and feel worse doing it.",
+          "clarify": "Strong choice. You stayed with it and asked for the specific spot. Now you can fix the real problem in five minutes instead of guessing.",
+          "dismiss": "Brushing it off ends the discomfort fast — but you lose the one piece of information that would've made the next version better."
+        },
+        "tryAgain": "Try another"
+      },
+      "scenario": {
+        "title": "The bigger moment",
+        "setup": "Back to Mara and the flyer. She's said it \"isn't really what she asked for,\" and she's waiting. Two other staff are within earshot. Your face is still hot.",
+        "question": "What do you do?",
+        "choices": {
+          "argue": "Explain why you made the choices you made",
+          "deflate": "Apologise a lot and go quiet",
+          "askWhat": "Ask what specifically missed the mark",
+          "takeTime": "Say you'll take another look and come back"
+        },
+        "outcomes": {
+          "argue": "You start explaining the colours, the font, your reasoning. Mara's face closes a little. \"I hear you, but I don't have time to debate it — it just needs to match the brief.\" You feel both defensive and stuck.",
+          "deflate": "\"Sorry, sorry, I'll redo it, sorry.\" Mara softens but looks a bit awkward. The other staff glance over. You've ended the moment, but you still have no idea what was actually wrong.",
+          "askWhat": "You breathe. \"Okay — can you show me which part missed what you needed?\" Mara points: \"The date's buried, and it reads more like a party than a support night.\" Oh. That's… actually clear. And fixable.",
+          "takeTime": "\"Let me take another look and come back to you.\" Mara nods. \"Sure.\" You've bought yourself space — but you'll still need to find out what she meant."
+        },
+        "followupQ": "What do you do next?",
+        "followup": {
+          "argueDouble": "Keep explaining — you want her to get it",
+          "argueConcede": "Stop, and ask what she'd change",
+          "argueAsk": "Let it go and ask for the brief again",
+          "deflateSpiral": "Go home and feel terrible about it",
+          "deflateRegroup": "Next morning, ask Mara to walk you through the brief",
+          "deflateAsk": "Message a colleague to check what Mara meant",
+          "askFix": "Fix the two things she named and show her again",
+          "askDefend": "Fix the date, but keep your design as is",
+          "askOverwhelm": "Try to change everything at once",
+          "takeReturn": "Re-read the brief, then go back with questions",
+          "takeAvoid": "Quietly hope she forgets about it",
+          "takeRush": "Redo it fast without checking what she meant"
+        },
+        "followupOutcomes": {
+          "argueDouble": "The more you explain, the more it sounds like excuses — to her and to you. The moment sours. Nothing about the flyer is fixed.",
+          "argueConcede": "\"Okay, I'll stop — what would you change?\" Mara exhales. \"Just the date and the tone.\" You got there, a little bruised, but you got there.",
+          "argueAsk": "\"Can I see the brief again?\" She sends it. Reading it now, calmer, you can see what she meant. Not lost.",
+          "deflateSpiral": "You replay it all evening. By morning the flyer still isn't fixed and you feel smaller about a thing that was never that big.",
+          "deflateRegroup": "You sleep on it. In the morning: \"Can you walk me through the brief?\" Mara does, kindly. The fix takes ten minutes. You feel the difference between flinching and following up.",
+          "deflateAsk": "A colleague tells you what Mara usually means by 'on brief.' It helps — though hearing it from Mara herself would've helped more.",
+          "askFix": "You fix the buried date and the party tone. You show Mara. \"Yes — that's it.\" Something settles in you. You took the hit and used it.",
+          "askDefend": "You fix the date but keep the party look. Mara half-nods. \"Closer.\" Part of the feedback landed; part didn't. Workable.",
+          "askOverwhelm": "You try to redo everything and tie yourself in knots. The new version is different but not better. Sometimes 'fix two things' beats 'fix everything.'",
+          "takeReturn": "You re-read the brief, jot two questions, and go back. Mara answers them in a minute. The second flyer is right. The pause worked because you used it.",
+          "takeAvoid": "You hope it blows over. Two days later Mara asks for it. Now it's late and still wrong, and the gap got bigger.",
+          "takeRush": "You rush a new version without checking what she meant. It misses again — differently. The pause only helps if you use it to find out more."
+        },
+        "summaryLabel": "What just happened",
+        "qualityBest": "A strong move",
+        "qualityOkay": "A workable move",
+        "qualityPoor": "A move that costs you"
+      },
+      "reflection": {
+        "title": "Look back",
+        "intro": "These prompts are just for you. Nothing here is graded. Leave any of them blank.",
+        "prompt1": "Where did you feel the feedback in your body?",
+        "prompt2": "What's the difference between 'the work missed' and 'I'm a failure'?",
+        "prompt3": "What's one question you could ask next time, before reacting?",
+        "placeholder1": "Heat, stomach, jaw, hands — wherever it showed up.",
+        "placeholder2": "In your own words. Only you see this.",
+        "placeholder3": "Even a single sentence you could keep in your pocket."
+      },
+      "assessment": {
+        "title": "Quick check",
+        "intro": "Three short questions. Not a test — just a way to lock in what you tried.",
+        "q1": {
+          "question": "When feedback feels like an attack, the useful first step is to…",
+          "a": "Defend your work immediately",
+          "b": "Separate the work from your worth, then listen",
+          "c": "Agree with everything to end it",
+          "d": "Walk away"
+        },
+        "q2": {
+          "question": "Why ask 'which part specifically?'",
+          "a": "To challenge the other person",
+          "b": "So you know the real thing to change instead of guessing",
+          "c": "To slow them down",
+          "d": "To prove you were right"
+        },
+        "q3": {
+          "question": "Taking time before responding helps only if you…",
+          "a": "Hope the feedback is forgotten",
+          "b": "Use the pause to find out what was actually meant",
+          "c": "Redo everything quickly",
+          "d": "Avoid the person"
+        },
+        "submit": "Check answers",
+        "score": "You got {correct} out of {total} right.",
+        "scoreEncouragement": {
+          "all": "Nicely done. You've got the pattern.",
+          "most": "Strong. The pattern is landing.",
+          "some": "That's a start. Re-read the behaviour model — the rest will click.",
+          "none": "It happens. Step back, look again, and try the scenario once more. No grade attached."
+        },
+        "correctLabel": "Right",
+        "incorrectLabel": "Try again"
+      },
+      "completion": {
+        "title": "Course complete",
+        "body": "You walked the full sequence — context, concept, behaviour, practice, scenario, reflection, check. Taking feedback without breaking on it is a real skill, and you just practised it. Your Comp Card is waiting.",
+        "badgeUnlocked": "Badge unlocked",
+        "badgeName": "Feedback as fuel",
+        "badgeMeaning": "Took hard feedback and used it instead of breaking on it",
+        "openCompCard": "Open your Comp Card",
+        "backToDashboard": "Back to dashboard"
+      }
     }
   },
   "coursePlayer": {

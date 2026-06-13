@@ -1,27 +1,17 @@
 /**
  * Local CMS provider — builds CourseContent from the bundled i18n
- * messages + the structure in src/data/course.ts.
+ * messages + the structure definitions in src/data/course.ts.
  *
  * This is the default content source. It keeps the app fully functional
  * with zero external dependencies, and serves as the reference shape that
- * the Strapi provider must reproduce. When the consortium authors content
- * in Strapi, flip CMS_SOURCE=strapi and the same CourseContent shape comes
- * from the API instead.
+ * the Strapi provider must reproduce. The builder is generic over
+ * CourseDef, so any number of bundled courses render through it.
  */
 
 import en from "@/messages/en.json";
 import de from "@/messages/de.json";
 import el from "@/messages/el.json";
-import {
-  STAGES,
-  SIMULATION_OPTIONS,
-  SIMULATION_CORRECT,
-  SCENARIO_ROOT_CHOICES,
-  SCENARIO_FOLLOWUP,
-  SCENARIO_OUTCOME_QUALITY,
-  ASSESSMENT,
-  COURSE_META,
-} from "@/data/course";
+import { STAGES, COURSE_DEFS, COURSE_ORDER, type CourseDef } from "@/data/course";
 import type { CMSProvider } from "./provider";
 import type {
   CourseContent,
@@ -39,8 +29,11 @@ function msgs(locale: Locale) {
   return MESSAGES[locale] ?? MESSAGES.en;
 }
 
-function buildWorkplaceConflict(locale: Locale): CourseContent {
-  const m = msgs(locale).course.workplaceConflict;
+function buildCourse(def: CourseDef, locale: Locale): CourseContent {
+  // Fall back to English if this course isn't translated for the locale yet.
+  // Mirrors how the real CMS handles a course awaiting DE/EL translation.
+  const m =
+    msgs(locale).course[def.contentKey] ?? msgs("en").course[def.contentKey];
   const stageLabel = msgs(locale).course.stageSubtitle;
 
   const stages: CourseStage[] = STAGES.map((key): CourseStage => {
@@ -89,26 +82,26 @@ function buildWorkplaceConflict(locale: Locale): CourseContent {
         simulation: {
           prompt: m.simulation.prompt,
           instruction: m.simulation.instruction,
-          options: SIMULATION_OPTIONS.map((id) => ({
+          options: def.simulation.options.map((id) => ({
             id,
             text: m.simulation.options[id],
-            isBest: id === SIMULATION_CORRECT,
+            isBest: id === def.simulation.correct,
             feedback: m.simulation.feedback[id],
           })),
         },
       };
     }
     if (key === "scenario") {
-      const choices: ScenarioChoice[] = SCENARIO_ROOT_CHOICES.map((rootId) => ({
-        id: rootId,
-        text: m.scenario.choices[rootId],
-        outcome: m.scenario.outcomes[rootId],
-        quality: SCENARIO_OUTCOME_QUALITY[rootId],
-        followups: SCENARIO_FOLLOWUP[rootId].map((fId) => ({
-          id: fId,
-          text: m.scenario.followup[fId],
-          outcome: m.scenario.followupOutcomes[fId],
-          quality: SCENARIO_OUTCOME_QUALITY[fId],
+      const choices: ScenarioChoice[] = def.scenario.roots.map((root) => ({
+        id: root.id,
+        text: m.scenario.choices[root.id],
+        outcome: m.scenario.outcomes[root.id],
+        quality: root.quality,
+        followups: root.followups.map((f) => ({
+          id: f.id,
+          text: m.scenario.followup[f.id],
+          outcome: m.scenario.followupOutcomes[f.id],
+          quality: f.quality,
         })),
       }));
       return {
@@ -139,7 +132,7 @@ function buildWorkplaceConflict(locale: Locale): CourseContent {
       ...base,
       assessment: {
         intro: m.assessment.intro,
-        questions: ASSESSMENT.map((q) => ({
+        questions: def.assessment.map((q) => ({
           id: q.id,
           question: m.assessment[q.id].question,
           options: q.options.map((o) => ({ id: o, text: m.assessment[q.id][o] })),
@@ -150,15 +143,15 @@ function buildWorkplaceConflict(locale: Locale): CourseContent {
   });
 
   return {
-    slug: COURSE_META.id,
+    slug: def.id,
     locale,
-    cluster: COURSE_META.cluster,
+    cluster: def.cluster,
     title: m.title,
     clusterLabel: m.cluster,
     tagline: m.tagline,
-    durationMinutes: COURSE_META.durationMinutes,
+    durationMinutes: def.durationMinutes,
     badge: {
-      slug: COURSE_META.badgeId,
+      slug: def.badgeId,
       name: m.completion.badgeName,
       meaning: m.completion.badgeMeaning,
     },
@@ -167,40 +160,32 @@ function buildWorkplaceConflict(locale: Locale): CourseContent {
   };
 }
 
+function summarise(c: CourseContent): CourseSummary {
+  return {
+    slug: c.slug,
+    cluster: c.cluster,
+    title: c.title,
+    clusterLabel: c.clusterLabel,
+    tagline: c.tagline,
+    durationMinutes: c.durationMinutes,
+    status: "published",
+    badgeSlug: c.badge.slug,
+    badgeName: c.badge.name,
+    badgeMeaning: c.badge.meaning,
+  };
+}
+
 export const localProvider: CMSProvider = {
   async listCourses(_projectId, locale) {
-    const c = buildWorkplaceConflict(locale);
-    const published: CourseSummary = {
-      slug: c.slug,
-      cluster: c.cluster,
-      title: c.title,
-      clusterLabel: c.clusterLabel,
-      tagline: c.tagline,
-      durationMinutes: c.durationMinutes,
-      status: "published",
-      badgeSlug: c.badge.slug,
-      badgeName: c.badge.name,
-      badgeMeaning: c.badge.meaning,
-    };
-    // A second course, not yet authored — proves the dashboard renders
-    // the course LIST dynamically (the consortium authors courses 2–6).
-    const m = msgs(locale).dashboard;
-    const comingSoon: CourseSummary = {
-      slug: "receiving-feedback",
-      cluster: "resilience",
-      title: m.comingSoonCourseTitle,
-      clusterLabel: msgs(locale).skillClusters.resilience,
-      tagline: m.comingSoonCourseTagline,
-      durationMinutes: 20,
-      status: "draft",
-      comingSoon: true,
-    };
-    return [published, comingSoon];
+    return COURSE_ORDER.filter((id) => COURSE_DEFS[id]).map((id) =>
+      summarise(buildCourse(COURSE_DEFS[id], locale))
+    );
   },
 
   async getCourse(_projectId, slug, locale) {
-    if (slug !== COURSE_META.id) return null;
-    return buildWorkplaceConflict(locale);
+    const def = COURSE_DEFS[slug];
+    if (!def) return null;
+    return buildCourse(def, locale);
   },
 
   async getCompCardTemplate(_projectId, locale) {

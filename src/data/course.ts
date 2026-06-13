@@ -1,11 +1,15 @@
 /**
- * Workplace Conflict — demo micro-course.
+ * Course structure definitions.
  *
- * STRUCTURE lives here in TypeScript so the engine has typed access.
- * COPY (titles, narratives, options) lives in /messages/{en,de,el}.json
- * referenced by the keys below. This mirrors how the real shell will
- * read structured content from Strapi while keeping translatable text
- * in the i18n layer.
+ * STRUCTURE (stage order, option ids, scenario tree shape, quality tags,
+ * correct answers) lives here in TypeScript so the engine has typed access.
+ * COPY (titles, narratives, option text) lives in /messages/{en,de,el}.json
+ * under `course.<id>.*`, referenced by the ids below. This mirrors how the
+ * real shell reads structured content from Strapi while keeping translatable
+ * text in the i18n layer.
+ *
+ * Adding a course = add a CourseDef here + its localized text in messages.
+ * No component code changes — the generic player renders it.
  */
 
 export const STAGES = [
@@ -20,64 +24,37 @@ export const STAGES = [
 
 export type Stage = (typeof STAGES)[number];
 
-export const SIMULATION_OPTIONS = [
-  "blame",
-  "shrink",
-  "iStatement",
-  "avoid",
-] as const;
+export type OutcomeQuality = "best" | "okay" | "poor";
 
-export type SimulationOption = (typeof SIMULATION_OPTIONS)[number];
-export const SIMULATION_CORRECT: SimulationOption = "iStatement";
+export interface ScenarioFollowupDef {
+  id: string;
+  quality: OutcomeQuality;
+}
 
-export const SCENARIO_ROOT_CHOICES = [
-  "confront",
-  "ignore",
-  "private",
-  "manager",
-] as const;
+export interface ScenarioRootDef {
+  id: string;
+  quality: OutcomeQuality;
+  followups: ScenarioFollowupDef[];
+}
 
-export type ScenarioRootChoice = (typeof SCENARIO_ROOT_CHOICES)[number];
+export interface AssessmentQDef {
+  id: string;
+  options: readonly string[];
+  correct: string;
+}
 
-export const SCENARIO_FOLLOWUP: Record<ScenarioRootChoice, string[]> = {
-  confront: ["confrontExplain", "confrontDefensive", "confrontBrush"],
-  ignore: ["ignoreTalk", "ignoreSlide", "ignoreShift"],
-  private: ["privateAccept", "privateAskStop", "privateBoundary"],
-  manager: ["managerTalk", "managerAvoid", "managerBack"],
-};
-
-/** Best-path follow-ups, used to colour outcomes (best / okay / poor). */
-export const SCENARIO_OUTCOME_QUALITY: Record<string, "best" | "okay" | "poor"> = {
-  confront: "poor",
-  ignore: "okay",
-  private: "best",
-  manager: "okay",
-  confrontExplain: "okay",
-  confrontDefensive: "poor",
-  confrontBrush: "poor",
-  ignoreTalk: "best",
-  ignoreSlide: "poor",
-  ignoreShift: "okay",
-  privateAccept: "okay",
-  privateAskStop: "best",
-  privateBoundary: "best",
-  managerTalk: "best",
-  managerAvoid: "poor",
-  managerBack: "okay",
-};
-
-export const ASSESSMENT = [
-  { id: "q1", options: ["a", "b", "c", "d"] as const, correct: "b" },
-  { id: "q2", options: ["a", "b", "c", "d"] as const, correct: "b" },
-  { id: "q3", options: ["a", "b", "c", "d"] as const, correct: "b" },
-] as const;
-
-export const COURSE_META = {
-  id: "workplace-conflict",
-  cluster: "communicationEi",
-  durationMinutes: 20,
-  badgeId: "voice-without-edges",
-} as const;
+export interface CourseDef {
+  id: string;
+  /** Messages namespace under `course.*` holding this course's localized
+   *  text (camelCase; the id/slug is hyphenated for clean URLs). */
+  contentKey: string;
+  cluster: SkillCluster;
+  badgeId: string;
+  durationMinutes: number;
+  simulation: { options: readonly string[]; correct: string };
+  scenario: { roots: ScenarioRootDef[] };
+  assessment: readonly AssessmentQDef[];
+}
 
 export const SKILL_CLUSTERS = [
   "communicationEi",
@@ -90,3 +67,132 @@ export const SKILL_CLUSTERS = [
 ] as const;
 
 export type SkillCluster = (typeof SKILL_CLUSTERS)[number];
+
+const ABCD = ["a", "b", "c", "d"] as const;
+
+export const COURSE_DEFS: Record<string, CourseDef> = {
+  "workplace-conflict": {
+    id: "workplace-conflict",
+    contentKey: "workplaceConflict",
+    cluster: "communicationEi",
+    badgeId: "voice-without-edges",
+    durationMinutes: 20,
+    simulation: {
+      options: ["blame", "shrink", "iStatement", "avoid"],
+      correct: "iStatement",
+    },
+    scenario: {
+      roots: [
+        {
+          id: "confront",
+          quality: "poor",
+          followups: [
+            { id: "confrontExplain", quality: "okay" },
+            { id: "confrontDefensive", quality: "poor" },
+            { id: "confrontBrush", quality: "poor" },
+          ],
+        },
+        {
+          id: "ignore",
+          quality: "okay",
+          followups: [
+            { id: "ignoreTalk", quality: "best" },
+            { id: "ignoreSlide", quality: "poor" },
+            { id: "ignoreShift", quality: "okay" },
+          ],
+        },
+        {
+          id: "private",
+          quality: "best",
+          followups: [
+            { id: "privateAccept", quality: "okay" },
+            { id: "privateAskStop", quality: "best" },
+            { id: "privateBoundary", quality: "best" },
+          ],
+        },
+        {
+          id: "manager",
+          quality: "okay",
+          followups: [
+            { id: "managerTalk", quality: "best" },
+            { id: "managerAvoid", quality: "poor" },
+            { id: "managerBack", quality: "okay" },
+          ],
+        },
+      ],
+    },
+    assessment: [
+      { id: "q1", options: ABCD, correct: "b" },
+      { id: "q2", options: ABCD, correct: "b" },
+      { id: "q3", options: ABCD, correct: "b" },
+    ],
+  },
+
+  "receiving-feedback": {
+    id: "receiving-feedback",
+    contentKey: "receivingFeedback",
+    cluster: "resilience",
+    badgeId: "feedback-as-fuel",
+    durationMinutes: 20,
+    simulation: {
+      options: ["defend", "crumble", "clarify", "dismiss"],
+      correct: "clarify",
+    },
+    scenario: {
+      roots: [
+        {
+          id: "argue",
+          quality: "poor",
+          followups: [
+            { id: "argueDouble", quality: "poor" },
+            { id: "argueConcede", quality: "okay" },
+            { id: "argueAsk", quality: "okay" },
+          ],
+        },
+        {
+          id: "deflate",
+          quality: "okay",
+          followups: [
+            { id: "deflateSpiral", quality: "poor" },
+            { id: "deflateRegroup", quality: "best" },
+            { id: "deflateAsk", quality: "okay" },
+          ],
+        },
+        {
+          id: "askWhat",
+          quality: "best",
+          followups: [
+            { id: "askFix", quality: "best" },
+            { id: "askDefend", quality: "okay" },
+            { id: "askOverwhelm", quality: "poor" },
+          ],
+        },
+        {
+          id: "takeTime",
+          quality: "okay",
+          followups: [
+            { id: "takeReturn", quality: "best" },
+            { id: "takeAvoid", quality: "poor" },
+            { id: "takeRush", quality: "okay" },
+          ],
+        },
+      ],
+    },
+    assessment: [
+      { id: "q1", options: ABCD, correct: "b" },
+      { id: "q2", options: ABCD, correct: "b" },
+      { id: "q3", options: ABCD, correct: "b" },
+    ],
+  },
+};
+
+/** Order courses appear in lists / on the dashboard. */
+export const COURSE_ORDER = ["workplace-conflict", "receiving-feedback"];
+
+/** Back-compat: the original course meta, used by the DB seed. */
+export const COURSE_META = {
+  id: "workplace-conflict",
+  cluster: "communicationEi",
+  durationMinutes: 20,
+  badgeId: "voice-without-edges",
+} as const;

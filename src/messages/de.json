@@ -276,6 +276,156 @@
         "openCompCard": "Comp Card öffnen",
         "backToDashboard": "Zum Dashboard"
       }
+    },
+    "receivingFeedback": {
+      "title": "Feedback annehmen, ohne zusammenzuzucken",
+      "cluster": "Resilienz",
+      "tagline": "20 Minuten · etwas Schwieriges hören und es nutzen",
+      "context": {
+        "title": "Der Flyer, für den du länger geblieben bist",
+        "narrative": "Du machst ein Praktikum in einem Stadtteilzentrum. Du solltest einen Flyer für den Jugendabend gestalten. Du bist länger geblieben, hast die Farben ausgesucht, alles passend gemacht. Heute Morgen zeigst du ihn Mara, der Koordinatorin. Sie schaut ein paar Sekunden drauf und sagt: \"Hm. Das ist nicht ganz das, worum ich gebeten habe.\" Dein Gesicht wird heiß. Du spürst, wie dir etwas in den Magen rutscht. Was als Nächstes passiert, liegt bei dir.",
+        "anchor": "Wir gehen das langsam an. Feedback ist für alle schwer."
+      },
+      "concept": {
+        "title": "Die Botschaft hören, nicht die Bedrohung",
+        "body1": "Wenn jemand deine Arbeit kritisiert, reagiert dein Körper oft, als würdest du angegriffen — Hitze, ein enger Brustkorb, der Drang dich zu verteidigen oder zu verschwinden. Das ist normal. Es heißt nicht, dass das Feedback ein Angriff ist.",
+        "body2": "Zwei kleine Fähigkeiten machen aus Feedback statt einer Wunde etwas Nützliches:",
+        "point1": "Trenne die Arbeit von dir. \"Der Flyer hat es verfehlt\" ist nicht \"du bist ein Versager\".",
+        "point2": "Stell eine konkrete Frage, damit du wirklich weißt, was du ändern sollst.",
+        "body3": "Du musst nicht allem zustimmen. Aber wenn du lange genug im Gespräch bleibst, um es zu verstehen, wird das Feedback zu etwas, das du nutzen kannst, statt zu etwas, das nur wehtut."
+      },
+      "behaviour": {
+        "title": "So sieht das aus",
+        "intro": "Ein nützlicher Schritt: kurz innehalten und dann nach dem Konkreten fragen:",
+        "formula": "Okay — kannst du mir zeigen, welcher Teil daneben war, damit ich es korrigieren kann?",
+        "blamingLabel": "Defensiv",
+        "blaming": "\"Das ist unfair. Ich habe genau das gemacht, was du gesagt hast.\"",
+        "iStatementLabel": "Neugierig",
+        "iStatement": "\"Okay. Kannst du mir zeigen, welcher Teil nicht das war, was du gebraucht hast?\"",
+        "closing": "Die zweite bricht nicht zusammen und kämpft nicht. Sie behandelt das Feedback als Information, mit der du arbeiten kannst — und das hält dich in der Kontrolle über das, was als Nächstes kommt."
+      },
+      "simulation": {
+        "title": "Probiere einen kleinen Schritt",
+        "prompt": "Ein Teammitglied, das einen Gruppenbericht durchsieht, sagt: \"Ehrlich, dein Teil war ziemlich verwirrend.\" Du spürst die Hitze aufsteigen. Du…",
+        "instruction": "Wähle die Antwort, die sich am stärksten anfühlt — es gibt eine beste Antwort, aber kein falsches Gefühl.",
+        "options": {
+          "defend": "\"Das ist nicht verwirrend, du hast es nur zu schnell gelesen.\"",
+          "crumble": "\"Boah, ich bin so schlecht darin, sorry, ich mach einfach alles neu.\"",
+          "clarify": "\"Okay — an welcher Stelle hast du den Faden verloren? Ich korrigiere lieber die richtige Stelle, als zu raten.\"",
+          "dismiss": "\"Egal, passt schon.\""
+        },
+        "feedback": {
+          "defend": "Zurückzuschieben schützt dich kurz, aber jetzt hört dein Teammitglied auf, ehrlich zu sein — und der verwirrende Teil ist immer noch verwirrend.",
+          "crumble": "Daraus 'ich bin schlecht' zu machen, dreht es um deinen Wert, nicht um die Arbeit. Du machst mehr neu als nötig und fühlst dich dabei schlechter.",
+          "clarify": "Starke Wahl. Du bist drangeblieben und hast nach der konkreten Stelle gefragt. Jetzt korrigierst du das echte Problem in fünf Minuten, statt zu raten.",
+          "dismiss": "Es wegzuwischen beendet das Unangenehme schnell — aber du verlierst die eine Information, die die nächste Version besser gemacht hätte."
+        },
+        "tryAgain": "Andere probieren"
+      },
+      "scenario": {
+        "title": "Der größere Moment",
+        "setup": "Zurück zu Mara und dem Flyer. Sie hat gesagt, er sei \"nicht ganz das, worum sie gebeten hat\", und sie wartet. Zwei andere Mitarbeitende sind in Hörweite. Dein Gesicht ist noch heiß.",
+        "question": "Was machst du?",
+        "choices": {
+          "argue": "Erklären, warum du es so gemacht hast",
+          "deflate": "Dich viel entschuldigen und still werden",
+          "askWhat": "Fragen, was konkret danebenlag",
+          "takeTime": "Sagen, du schaust nochmal drüber und kommst zurück"
+        },
+        "outcomes": {
+          "argue": "Du fängst an, die Farben, die Schrift, deine Überlegungen zu erklären. Maras Gesicht verschließt sich ein wenig. \"Ich höre dich, aber ich habe keine Zeit zu diskutieren — es muss einfach zum Briefing passen.\" Du fühlst dich defensiv und festgefahren.",
+          "deflate": "\"Sorry, sorry, ich mach's neu, sorry.\" Mara wird weicher, sieht aber etwas verlegen aus. Die anderen schauen kurz her. Du hast den Moment beendet, aber du hast immer noch keine Ahnung, was wirklich falsch war.",
+          "askWhat": "Du atmest. \"Okay — kannst du mir zeigen, welcher Teil nicht das war, was du gebraucht hast?\" Mara zeigt: \"Das Datum geht unter, und es liest sich eher wie eine Party als wie ein Unterstützungsabend.\" Oh. Das ist… eigentlich klar. Und machbar.",
+          "takeTime": "\"Lass mich nochmal drüberschauen und auf dich zukommen.\" Mara nickt. \"Klar.\" Du hast dir Luft verschafft — aber du musst trotzdem herausfinden, was sie meinte."
+        },
+        "followupQ": "Was machst du als Nächstes?",
+        "followup": {
+          "argueDouble": "Weiter erklären — du willst, dass sie es versteht",
+          "argueConcede": "Aufhören und fragen, was sie ändern würde",
+          "argueAsk": "Es loslassen und nochmal um das Briefing bitten",
+          "deflateSpiral": "Nach Hause gehen und dich schlecht fühlen",
+          "deflateRegroup": "Am nächsten Morgen Mara bitten, dir das Briefing zu erklären",
+          "deflateAsk": "Einer Kollegin schreiben, um zu klären, was Mara meinte",
+          "askFix": "Die zwei genannten Dinge ändern und es ihr nochmal zeigen",
+          "askDefend": "Das Datum ändern, aber dein Design so lassen",
+          "askOverwhelm": "Versuchen, alles auf einmal zu ändern",
+          "takeReturn": "Das Briefing nochmal lesen, dann mit Fragen zurückgehen",
+          "takeAvoid": "Leise hoffen, dass sie es vergisst",
+          "takeRush": "Schnell neu machen, ohne zu prüfen, was sie meinte"
+        },
+        "followupOutcomes": {
+          "argueDouble": "Je mehr du erklärst, desto mehr klingt es nach Ausreden — für sie und für dich. Der Moment kippt. Am Flyer ist nichts korrigiert.",
+          "argueConcede": "\"Okay, ich höre auf — was würdest du ändern?\" Mara atmet aus. \"Nur das Datum und den Ton.\" Du bist angekommen, etwas zerknirscht, aber angekommen.",
+          "argueAsk": "\"Kann ich das Briefing nochmal sehen?\" Sie schickt es. Jetzt, ruhiger, siehst du, was sie meinte. Nicht verloren.",
+          "deflateSpiral": "Du spielst es den ganzen Abend durch. Am Morgen ist der Flyer immer noch nicht korrigiert und du fühlst dich kleiner wegen einer Sache, die nie so groß war.",
+          "deflateRegroup": "Du schläfst drüber. Am Morgen: \"Kannst du mir das Briefing erklären?\" Mara tut es, freundlich. Die Korrektur dauert zehn Minuten. Du spürst den Unterschied zwischen Zusammenzucken und Nachfragen.",
+          "deflateAsk": "Eine Kollegin sagt dir, was Mara mit 'zum Briefing passend' meint. Es hilft — auch wenn es von Mara selbst mehr geholfen hätte.",
+          "askFix": "Du korrigierst das untergegangene Datum und den Party-Ton. Du zeigst es Mara. \"Ja — genau so.\" Etwas in dir beruhigt sich. Du hast den Schlag genommen und ihn genutzt.",
+          "askDefend": "Du korrigierst das Datum, behältst aber den Party-Look. Mara nickt halb. \"Näher dran.\" Ein Teil des Feedbacks ist angekommen, ein Teil nicht. Machbar.",
+          "askOverwhelm": "Du versuchst, alles neu zu machen, und verhedderst dich. Die neue Version ist anders, aber nicht besser. Manchmal schlägt 'zwei Dinge ändern' das 'alles ändern'.",
+          "takeReturn": "Du liest das Briefing nochmal, notierst zwei Fragen und gehst zurück. Mara beantwortet sie in einer Minute. Der zweite Flyer stimmt. Die Pause hat geholfen, weil du sie genutzt hast.",
+          "takeAvoid": "Du hoffst, es legt sich. Zwei Tage später fragt Mara danach. Jetzt ist es spät und immer noch falsch, und die Lücke ist größer geworden.",
+          "takeRush": "Du machst hastig eine neue Version, ohne zu prüfen, was sie meinte. Sie verfehlt es wieder — anders. Die Pause hilft nur, wenn du sie nutzt, um mehr herauszufinden."
+        },
+        "summaryLabel": "Was gerade passiert ist",
+        "qualityBest": "Ein starker Schritt",
+        "qualityOkay": "Ein machbarer Schritt",
+        "qualityPoor": "Ein Schritt, der dich etwas kostet"
+      },
+      "reflection": {
+        "title": "Rückblick",
+        "intro": "Diese Fragen sind nur für dich. Nichts hier wird benotet. Lass Felder ruhig leer.",
+        "prompt1": "Wo hast du das Feedback in deinem Körper gespürt?",
+        "prompt2": "Was ist der Unterschied zwischen 'die Arbeit hat es verfehlt' und 'ich bin ein Versager'?",
+        "prompt3": "Welche eine Frage könntest du nächstes Mal stellen, bevor du reagierst?",
+        "placeholder1": "Hitze, Magen, Kiefer, Hände — wo auch immer es auftauchte.",
+        "placeholder2": "In deinen eigenen Worten. Nur du siehst das.",
+        "placeholder3": "Auch ein einzelner Satz, den du in der Tasche behalten kannst."
+      },
+      "assessment": {
+        "title": "Schnellcheck",
+        "intro": "Drei kurze Fragen. Kein Test — nur eine Art, das Geübte festzuhalten.",
+        "q1": {
+          "question": "Wenn sich Feedback wie ein Angriff anfühlt, ist der nützliche erste Schritt…",
+          "a": "Sofort deine Arbeit verteidigen",
+          "b": "Die Arbeit von deinem Wert trennen und dann zuhören",
+          "c": "Allem zustimmen, um es zu beenden",
+          "d": "Weggehen"
+        },
+        "q2": {
+          "question": "Warum nach 'welchem Teil genau?' fragen?",
+          "a": "Um die andere Person herauszufordern",
+          "b": "Damit du das echte Änderungs-Ziel kennst, statt zu raten",
+          "c": "Um sie auszubremsen",
+          "d": "Um zu beweisen, dass du recht hattest"
+        },
+        "q3": {
+          "question": "Sich Zeit zu nehmen, bevor man antwortet, hilft nur, wenn du…",
+          "a": "Hoffst, das Feedback wird vergessen",
+          "b": "Die Pause nutzt, um herauszufinden, was wirklich gemeint war",
+          "c": "Alles schnell neu machst",
+          "d": "Der Person aus dem Weg gehst"
+        },
+        "submit": "Antworten prüfen",
+        "score": "Du hast {correct} von {total} richtig.",
+        "scoreEncouragement": {
+          "all": "Schön gemacht. Du hast das Muster drin.",
+          "most": "Stark. Das Muster sitzt.",
+          "some": "Ein Anfang. Lies das Verhaltensmodell nochmal — der Rest klickt dann.",
+          "none": "Passiert. Tritt einen Schritt zurück, schau nochmal und probiere das Szenario erneut. Keine Note hängt dran."
+        },
+        "correctLabel": "Richtig",
+        "incorrectLabel": "Nochmal"
+      },
+      "completion": {
+        "title": "Kurs abgeschlossen",
+        "body": "Du bist die ganze Sequenz gegangen — Kontext, Konzept, Verhalten, Übung, Szenario, Reflexion, Check. Feedback anzunehmen, ohne daran zu zerbrechen, ist eine echte Fähigkeit, und du hast sie gerade geübt. Deine Comp Card wartet.",
+        "badgeUnlocked": "Abzeichen freigeschaltet",
+        "badgeName": "Feedback als Treibstoff",
+        "badgeMeaning": "Hat hartes Feedback genommen und genutzt, statt daran zu zerbrechen",
+        "openCompCard": "Comp Card öffnen",
+        "backToDashboard": "Zum Dashboard"
+      }
     }
   },
   "coursePlayer": {
