@@ -120,6 +120,11 @@ export interface CourseSummary {
   tagline: string;
   durationMinutes: number;
   status: "draft" | "published" | "archived";
+  badgeSlug?: string;
+  badgeName?: string;
+  badgeMeaning?: string;
+  /** Courses not yet authored render as "coming soon" (not clickable). */
+  comingSoon?: boolean;
 }
 
 /** A Comp Card template (fields the learner fills). Configurable per project. */

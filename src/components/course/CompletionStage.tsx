@@ -7,22 +7,23 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Link } from "@/i18n/navigation";
 import { useDemoState } from "@/store/demo-state";
-import { COURSE_META } from "@/data/course";
+import type { CourseContent } from "@/lib/cms/types";
 import { Award, Trophy, FileText, Home, Sparkles } from "lucide-react";
 
-export function CompletionStage() {
-  const t = useTranslations("course.workplaceConflict.completion");
-  const tG = useTranslations("gamification");
+/**
+ * Completion + badge unlock. Badge + completion copy come from the authored
+ * course, so any course celebrates with its own badge.
+ */
+export function CompletionStage({ course }: { course: CourseContent }) {
+  const t = useTranslations("coursePlayer");
   const { state, dispatch } = useDemoState();
 
   useEffect(() => {
-    if (!state.course.completedAt) {
-      dispatch({ type: "completeCourse" });
+    if (!state.course.completedAt) dispatch({ type: "completeCourse" });
+    if (!state.badges.includes(course.badge.slug)) {
+      dispatch({ type: "awardBadge", badge: course.badge.slug });
     }
-    if (!state.badges.includes(COURSE_META.badgeId)) {
-      dispatch({ type: "awardBadge", badge: COURSE_META.badgeId });
-    }
-  }, [dispatch, state.course.completedAt, state.badges]);
+  }, [dispatch, state.course.completedAt, state.badges, course.badge.slug]);
 
   return (
     <Card className="overflow-hidden">
@@ -50,7 +51,7 @@ export function CompletionStage() {
           transition={{ delay: 0.2 }}
           className="mt-6 text-3xl font-bold tracking-tight"
         >
-          {t("title")}
+          {course.completion.title}
         </motion.h2>
         <motion.p
           initial={{ opacity: 0, y: 8 }}
@@ -58,7 +59,7 @@ export function CompletionStage() {
           transition={{ delay: 0.3 }}
           className="mt-3 max-w-lg mx-auto text-[var(--muted-foreground)]"
         >
-          {t("body")}
+          {course.completion.body}
         </motion.p>
 
         <motion.div
@@ -72,9 +73,9 @@ export function CompletionStage() {
             <p className="text-[10px] uppercase tracking-wider text-[var(--accent)] font-semibold">
               {t("badgeUnlocked")}
             </p>
-            <p className="text-base font-bold">{t("badgeName")}</p>
+            <p className="text-base font-bold">{course.badge.name}</p>
             <p className="text-xs text-[var(--muted-foreground)]">
-              {t("badgeMeaning")}
+              {course.badge.meaning}
             </p>
           </div>
         </motion.div>
@@ -85,7 +86,7 @@ export function CompletionStage() {
           transition={{ delay: 0.7 }}
           className="mt-6 text-xs text-[var(--muted-foreground)]"
         >
-          {tG("noLeaderboards")}
+          {t("noLeaderboards")}
         </motion.p>
 
         <motion.div

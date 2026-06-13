@@ -97,7 +97,11 @@
     "minutesLeft": "Απομένουν {count} λεπτά",
     "compCard": "Η Comp Card σου",
     "compCardHint": "Μια σύντομη καταγραφή όσων εξάσκησες και έμαθες. Είναι πάντα δική σου.",
-    "openCompCard": "Άνοιγμα Comp Card"
+    "openCompCard": "Άνοιγμα Comp Card",
+    "coursesTitle": "Τα μαθήματά σου",
+    "comingSoon": "Σύντομα",
+    "comingSoonCourseTitle": "Να δέχεσαι κριτική χωρίς να μαζεύεσαι",
+    "comingSoonCourseTagline": "20 λεπτά · ακούς κάτι δύσκολο και το αξιοποιείς"
   },
   "mission": {
     "workplaceConflictTitle": "Δοκίμασε μια μικρή αλλά αληθινή κατάσταση",
@@ -273,6 +277,30 @@
         "backToDashboard": "Πίσω στο dashboard"
       }
     }
+  },
+  "coursePlayer": {
+    "stepOf": "Βήμα {current} από {total}",
+    "tryAnother": "Δοκίμασε άλλη",
+    "tryDifferent": "Δοκίμασε άλλες επιλογές",
+    "branchingScenario": "Διακλαδούμενο σενάριο",
+    "whatJustHappened": "Τι μόλις συνέβη",
+    "justForYou": "Μόνο για σένα",
+    "quickCheck": "Σύντομος έλεγχος",
+    "checkAnswers": "Έλεγξε τις απαντήσεις",
+    "qualityBest": "Μια δυνατή κίνηση",
+    "qualityOkay": "Μια εφικτή κίνηση",
+    "qualityPoor": "Μια κίνηση που σου κοστίζει",
+    "score": "Πέτυχες {correct} από {total}.",
+    "encouragementAll": "Ωραία δουλειά. Έχεις πιάσει το μοτίβο.",
+    "encouragementMost": "Δυνατά. Το μοτίβο σου κάθεται.",
+    "encouragementSome": "Καλή αρχή. Ξαναδιάβασε το μοντέλο συμπεριφοράς — τα υπόλοιπα θα κουμπώσουν.",
+    "encouragementNone": "Συμβαίνει. Κάνε ένα βήμα πίσω, δες το ξανά και δοκίμασε άλλη μία φορά. Δεν υπάρχει βαθμός.",
+    "badgeUnlocked": "Σήμα ξεκλειδώθηκε",
+    "noLeaderboards": "Δεν υπάρχουν πίνακες κατάταξης. Η πρόοδός σου είναι δική σου.",
+    "openCompCard": "Άνοιγμα Comp Card",
+    "backToDashboard": "Πίσω στο dashboard",
+    "courseComplete": "Μάθημα ολοκληρώθηκε",
+    "dashboard": "Dashboard"
   },
   "compCard": {
     "title": "Comp Card",

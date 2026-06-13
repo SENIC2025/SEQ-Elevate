@@ -121,3 +121,24 @@ Goal: use the ~2-week gap between contract signature and the 25–26 June kickof
 - `[VERIFY]` **Live at `https://seq-elevate-demo.vercel.app`**. Smoke test: 10 routes 200 (landing, 4 roles, content preview, storybook, cms-check, DE/EL learner, signin). CMS content resolves live — Greek course title + EN 7-stage sequence render server-side.
 - `[INFRA]` Custom domain `staging.seq-elevate.senic.world` added to the Vercel project. Pending DNS: `A staging.seq-elevate → 76.76.21.21` in the Hostinger panel (senic.world NS = dns-parking.com). Vercel auto-verifies + SSL on propagation.
 - `[BLOCK]` For auth + DB-backed features on Vercel: hosted Postgres (Neon free EU tier recommended) + Resend key. Demo flows need neither.
+
+---
+
+## Phase 2 — Week 1 (contracted build)
+
+### Generic course player — the "shell renders any authored course" capability (2026-06-13)
+The core acceptance criterion: the platform must render courses that don't exist in code. Refactored the player + all stage components to consume a `CourseContent` object from the CMS client instead of hardcoded i18n keys.
+- `[BUILD]` Course route `/[locale]/learner/course/[courseId]` is now a server component: calls `getCourse(projectId, courseId, locale)`, passes `CourseContent` to the player, `notFound()` on unknown slug.
+- `[BUILD]` `CoursePlayer` consumes `course: CourseContent`. Walks `course.stages` in the enforced WP3 order (`STAGES` filter); state machine, breadcrumb, progress all derive from the stage list. No per-course code.
+- `[BUILD]` All 6 stage components rewritten to take their `CourseStage` data as props (content) + i18n only for UI chrome:
+  - `NarrativeStage` renders generic content blocks (paragraph / list / callout / compare)
+  - `SimulationStage` renders authored options; "best" flagged in content (`isBest`)
+  - `ScenarioStage` renders the authored branch tree (root → outcome → followups), quality-tagged
+  - `ReflectionStage` renders authored prompts
+  - `AssessmentStage` renders authored questions, answers keyed by question id (any count)
+  - `CompletionStage` celebrates with the course's own authored badge
+- `[BUILD]` New `coursePlayer` i18n namespace (EN/DE/EL) for course-agnostic chrome (step counter, quality labels, score, encouragement, badge-unlocked, etc.). Content strings come from `CourseContent`; only chrome is i18n.
+- `[BUILD]` Learner dashboard is now CMS-driven: server page calls `listCourses()`, dashboard renders the hero + a "Your courses" list + skill-map highlights from the data. Badges display from the course list's badge info.
+- `[BUILD]` `CourseSummary` extended with `badgeSlug/badgeName/badgeMeaning/comingSoon`. Local provider's `listCourses` now returns the published course **plus a "Receiving feedback" coming-soon course** — proves the list is dynamic (the consortium authors courses 2–6). Strapi provider kept in sync.
+- `[VERIFY]` Build ✓, type-check ✓. Course route renders EN ("Handling a small workplace conflict" → Context → narrative) and full native Greek ("Τρεις εβδομάδες στη νέα δουλειά", chrome "1 / 7 · Πλαίσιο", "Συνέχεια"). Dashboard shows "Your courses" + the coming-soon course. Unknown slug → 404. Valid slug → 200.
+- `[NOTE]` Progress persistence is still single-course (localStorage demo-state). Multi-course progress keyed by slug + DB-backed state is a follow-up (needs the hosted Postgres). The RENDERING is fully generic now — the acceptance-criterion capability is met.

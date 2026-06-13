@@ -170,7 +170,7 @@ function buildWorkplaceConflict(locale: Locale): CourseContent {
 export const localProvider: CMSProvider = {
   async listCourses(_projectId, locale) {
     const c = buildWorkplaceConflict(locale);
-    const summary: CourseSummary = {
+    const published: CourseSummary = {
       slug: c.slug,
       cluster: c.cluster,
       title: c.title,
@@ -178,8 +178,24 @@ export const localProvider: CMSProvider = {
       tagline: c.tagline,
       durationMinutes: c.durationMinutes,
       status: "published",
+      badgeSlug: c.badge.slug,
+      badgeName: c.badge.name,
+      badgeMeaning: c.badge.meaning,
     };
-    return [summary];
+    // A second course, not yet authored — proves the dashboard renders
+    // the course LIST dynamically (the consortium authors courses 2–6).
+    const m = msgs(locale).dashboard;
+    const comingSoon: CourseSummary = {
+      slug: "receiving-feedback",
+      cluster: "resilience",
+      title: m.comingSoonCourseTitle,
+      clusterLabel: msgs(locale).skillClusters.resilience,
+      tagline: m.comingSoonCourseTagline,
+      durationMinutes: 20,
+      status: "draft",
+      comingSoon: true,
+    };
+    return [published, comingSoon];
   },
 
   async getCourse(_projectId, slug, locale) {

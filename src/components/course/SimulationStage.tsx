@@ -4,69 +4,78 @@ import { useTranslations } from "next-intl";
 import { useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import {
-  SIMULATION_OPTIONS,
-  SIMULATION_CORRECT,
-  type SimulationOption,
-} from "@/data/course";
 import { useDemoState } from "@/store/demo-state";
+import type { CourseStage } from "@/lib/cms/types";
 import { CheckCircle2, XCircle, ArrowRight, RotateCcw } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-export function SimulationStage({ onContinue }: { onContinue: () => void }) {
-  const t = useTranslations("course.workplaceConflict.simulation");
+/**
+ * Choose-response simulation. Renders any authored options from
+ * stage.simulation. The "best" option is flagged in content (isBest), so
+ * the engine stays content-agnostic.
+ */
+export function SimulationStage({
+  stage,
+  onContinue,
+}: {
+  stage: CourseStage;
+  onContinue: () => void;
+}) {
+  const t = useTranslations("coursePlayer");
+  const tCommon = useTranslations("common");
   const { dispatch } = useDemoState();
-  const [selected, setSelected] = useState<SimulationOption | null>(null);
+  const [selected, setSelected] = useState<string | null>(null);
 
-  const pick = (opt: SimulationOption) => {
+  const sim = stage.simulation;
+  if (!sim) return null;
+
+  const pick = (optId: string) => {
     if (selected) return;
-    setSelected(opt);
+    const opt = sim.options.find((o) => o.id === optId);
+    setSelected(optId);
     dispatch({
       type: "recordSimulation",
-      attempt: { choice: opt, correct: opt === SIMULATION_CORRECT },
+      attempt: { choice: optId, correct: !!opt?.isBest },
     });
   };
 
-  const reset = () => setSelected(null);
-
+  const selectedOpt = sim.options.find((o) => o.id === selected);
   const showFeedback = selected !== null;
-  const isCorrect = selected === SIMULATION_CORRECT;
+  const isCorrect = !!selectedOpt?.isBest;
 
   return (
     <Card>
       <CardContent className="p-6 sm:p-8">
-        <h2 className="text-2xl font-bold tracking-tight">{t("title")}</h2>
-        <p className="mt-3 text-base leading-relaxed">{t("prompt")}</p>
+        <h2 className="text-2xl font-bold tracking-tight">{stage.title}</h2>
+        <p className="mt-3 text-base leading-relaxed">{sim.prompt}</p>
         <p className="mt-2 text-sm text-[var(--muted-foreground)]">
-          {t("instruction")}
+          {sim.instruction}
         </p>
 
         <div className="mt-6 space-y-2">
-          {SIMULATION_OPTIONS.map((opt) => {
-            const isSelected = selected === opt;
-            const isCorrectAnswer = opt === SIMULATION_CORRECT;
+          {sim.options.map((opt) => {
+            const isSelected = selected === opt.id;
             const showCorrectness = showFeedback && isSelected;
-
             return (
               <button
-                key={opt}
+                key={opt.id}
                 type="button"
                 disabled={showFeedback && !isSelected}
-                onClick={() => pick(opt)}
+                onClick={() => pick(opt.id)}
                 className={cn(
                   "w-full text-left rounded-lg border p-4 transition-colors",
                   !showFeedback &&
-                    "border-[var(--border)] hover:bg-[var(--surface-muted)] hover:border-[var(--primary)]/40",
-                  showCorrectness && isCorrectAnswer &&
+                    "border-[var(--border)] hover:bg-[var(--surface-muted)] hover:border-[var(--accent)]/40",
+                  showCorrectness && opt.isBest &&
                     "border-[var(--success)] bg-[var(--success)]/5",
-                  showCorrectness && !isCorrectAnswer &&
+                  showCorrectness && !opt.isBest &&
                     "border-[var(--warning)] bg-[var(--warning)]/5",
                   showFeedback && !isSelected && "opacity-50"
                 )}
               >
                 <div className="flex items-start gap-3">
                   {showCorrectness ? (
-                    isCorrectAnswer ? (
+                    opt.isBest ? (
                       <CheckCircle2 className="h-5 w-5 mt-0.5 text-[var(--success)] flex-shrink-0" />
                     ) : (
                       <XCircle className="h-5 w-5 mt-0.5 text-[var(--warning)] flex-shrink-0" />
@@ -75,7 +84,7 @@ export function SimulationStage({ onContinue }: { onContinue: () => void }) {
                     <span className="mt-0.5 h-5 w-5 rounded-full border border-[var(--border)] flex-shrink-0" />
                   )}
                   <span className="text-sm sm:text-base leading-relaxed">
-                    {t(`options.${opt}`)}
+                    {opt.text}
                   </span>
                 </div>
               </button>
@@ -83,7 +92,7 @@ export function SimulationStage({ onContinue }: { onContinue: () => void }) {
           })}
         </div>
 
-        {showFeedback && selected ? (
+        {showFeedback && selectedOpt ? (
           <div
             className={cn(
               "mt-5 rounded-lg p-4 border-l-4",
@@ -92,20 +101,18 @@ export function SimulationStage({ onContinue }: { onContinue: () => void }) {
                 : "border-l-[var(--warning)] bg-[var(--warning)]/5"
             )}
           >
-            <p className="text-sm leading-relaxed">
-              {t(`feedback.${selected}`)}
-            </p>
+            <p className="text-sm leading-relaxed">{selectedOpt.feedback}</p>
           </div>
         ) : null}
 
         {showFeedback ? (
           <div className="mt-6 flex flex-wrap gap-3 justify-between">
-            <Button variant="outline" size="md" onClick={reset}>
+            <Button variant="outline" size="md" onClick={() => setSelected(null)}>
               <RotateCcw className="h-4 w-4" />
-              {t("tryAgain")}
+              {t("tryAnother")}
             </Button>
             <Button size="md" onClick={onContinue}>
-              Continue
+              {tCommon("continue")}
               <ArrowRight className="h-4 w-4" />
             </Button>
           </div>

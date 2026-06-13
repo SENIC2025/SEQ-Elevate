@@ -97,7 +97,11 @@
     "minutesLeft": "{count} min left",
     "compCard": "Your Comp Card",
     "compCardHint": "A short record of what you've practised and learned. Always yours.",
-    "openCompCard": "Open Comp Card"
+    "openCompCard": "Open Comp Card",
+    "coursesTitle": "Your courses",
+    "comingSoon": "Coming soon",
+    "comingSoonCourseTitle": "Receiving feedback without flinching",
+    "comingSoonCourseTagline": "20 minutes · being told something hard, and using it"
   },
   "mission": {
     "workplaceConflictTitle": "Try a small but real situation",
@@ -273,6 +277,30 @@
         "backToDashboard": "Back to dashboard"
       }
     }
+  },
+  "coursePlayer": {
+    "stepOf": "Step {current} of {total}",
+    "tryAnother": "Try another",
+    "tryDifferent": "Try different choices",
+    "branchingScenario": "Branching scenario",
+    "whatJustHappened": "What just happened",
+    "justForYou": "Just for you",
+    "quickCheck": "Quick check",
+    "checkAnswers": "Check answers",
+    "qualityBest": "A strong move",
+    "qualityOkay": "A workable move",
+    "qualityPoor": "A move that costs you",
+    "score": "You got {correct} out of {total} right.",
+    "encouragementAll": "Nicely done. You've got the pattern.",
+    "encouragementMost": "Strong. The pattern is landing.",
+    "encouragementSome": "That's a start. Re-read the behaviour model — the rest will click.",
+    "encouragementNone": "It happens. Step back, look again, and try once more. No grade attached.",
+    "badgeUnlocked": "Badge unlocked",
+    "noLeaderboards": "No leaderboards here. Your progress is yours.",
+    "openCompCard": "Open your Comp Card",
+    "backToDashboard": "Back to dashboard",
+    "courseComplete": "Course complete",
+    "dashboard": "Dashboard"
   },
   "compCard": {
     "title": "Comp Card",

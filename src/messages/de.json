@@ -97,7 +97,11 @@
     "minutesLeft": "Noch {count} Min.",
     "compCard": "Deine Comp Card",
     "compCardHint": "Eine kurze Aufzeichnung dessen, was du geübt und gelernt hast. Sie gehört dir.",
-    "openCompCard": "Comp Card öffnen"
+    "openCompCard": "Comp Card öffnen",
+    "coursesTitle": "Deine Kurse",
+    "comingSoon": "Demnächst",
+    "comingSoonCourseTitle": "Feedback annehmen, ohne zusammenzuzucken",
+    "comingSoonCourseTagline": "20 Minuten · etwas Schwieriges hören und es nutzen"
   },
   "mission": {
     "workplaceConflictTitle": "Probiere eine kleine, aber echte Situation",
@@ -273,6 +277,30 @@
         "backToDashboard": "Zum Dashboard"
       }
     }
+  },
+  "coursePlayer": {
+    "stepOf": "Schritt {current} von {total}",
+    "tryAnother": "Andere probieren",
+    "tryDifferent": "Andere Wege probieren",
+    "branchingScenario": "Verzweigtes Szenario",
+    "whatJustHappened": "Was gerade passiert ist",
+    "justForYou": "Nur für dich",
+    "quickCheck": "Schnellcheck",
+    "checkAnswers": "Antworten prüfen",
+    "qualityBest": "Ein starker Schritt",
+    "qualityOkay": "Ein machbarer Schritt",
+    "qualityPoor": "Ein Schritt, der dich etwas kostet",
+    "score": "Du hast {correct} von {total} richtig.",
+    "encouragementAll": "Schön gemacht. Du hast das Muster drin.",
+    "encouragementMost": "Stark. Das Muster sitzt.",
+    "encouragementSome": "Ein Anfang. Lies das Verhaltensmodell nochmal — der Rest klickt dann.",
+    "encouragementNone": "Passiert. Tritt einen Schritt zurück, schau nochmal und probiere es erneut. Keine Note hängt dran.",
+    "badgeUnlocked": "Abzeichen freigeschaltet",
+    "noLeaderboards": "Hier gibt es keine Bestenlisten. Dein Fortschritt gehört dir.",
+    "openCompCard": "Comp Card öffnen",
+    "backToDashboard": "Zum Dashboard",
+    "courseComplete": "Kurs abgeschlossen",
+    "dashboard": "Dashboard"
   },
   "compCard": {
     "title": "Comp Card",

@@ -5,7 +5,7 @@ import { useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { STAGES, type Stage, COURSE_META } from "@/data/course";
+import { STAGES, type Stage } from "@/data/course";
 import { useDemoState } from "@/store/demo-state";
 import { StageBreadcrumb } from "./StageBreadcrumb";
 import { NarrativeStage } from "./NarrativeStage";
@@ -14,77 +14,94 @@ import { ScenarioStage } from "./ScenarioStage";
 import { ReflectionStage } from "./ReflectionStage";
 import { AssessmentStage } from "./AssessmentStage";
 import { CompletionStage } from "./CompletionStage";
+import type { CourseContent, CourseStage } from "@/lib/cms/types";
 import { ChevronLeft } from "lucide-react";
 
-export function CoursePlayer() {
-  const t = useTranslations("course.workplaceConflict");
+/**
+ * Generic course player. Renders ANY course passed as a CourseContent
+ * object — content comes from props (CMS), only UI chrome is i18n. The
+ * WP3 7-stage sequence is enforced via the STAGES order; the player walks
+ * the stages present in course.stages in that canonical order.
+ */
+export function CoursePlayer({ course }: { course: CourseContent }) {
   const tStage = useTranslations("course.stageLabel");
 
   const { state, dispatch } = useDemoState();
   const [current, setCurrent] = useState<Stage | "complete">("context");
+
+  // Stage data lookup by key
+  const stageByKey = new Map<string, CourseStage>(
+    course.stages.map((s) => [s.key, s])
+  );
+  // The ordered list of stage keys this course actually contains,
+  // in the enforced WP3 order.
+  const orderedKeys = STAGES.filter((k) => stageByKey.has(k));
 
   const resumeFromProgress = state.course.stagesCompleted.length;
 
   useEffect(() => {
     if (state.course.completedAt) {
       setCurrent("complete");
-    } else if (resumeFromProgress > 0 && resumeFromProgress < STAGES.length) {
-      setCurrent(STAGES[resumeFromProgress]);
+    } else if (
+      resumeFromProgress > 0 &&
+      resumeFromProgress < orderedKeys.length
+    ) {
+      setCurrent(orderedKeys[resumeFromProgress]);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const indexOf = (key: Stage) => orderedKeys.indexOf(key);
+
   const goNext = useCallback(() => {
     if (current === "complete") return;
     dispatch({ type: "completeStage", stage: current });
-    const idx = STAGES.indexOf(current);
-    if (idx === STAGES.length - 1) {
+    const idx = orderedKeys.indexOf(current);
+    if (idx === orderedKeys.length - 1) {
       setCurrent("complete");
     } else {
-      setCurrent(STAGES[idx + 1]);
+      setCurrent(orderedKeys[idx + 1]);
     }
-    if (typeof window !== "undefined") {
+    if (typeof window !== "undefined")
       window.scrollTo({ top: 0, behavior: "smooth" });
-    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [current, dispatch]);
 
   const goBack = useCallback(() => {
     if (current === "complete") {
-      setCurrent("assessment");
+      setCurrent(orderedKeys[orderedKeys.length - 1]);
       return;
     }
-    const idx = STAGES.indexOf(current);
+    const idx = orderedKeys.indexOf(current);
     if (idx === 0) return;
-    setCurrent(STAGES[idx - 1]);
-    if (typeof window !== "undefined") {
+    setCurrent(orderedKeys[idx - 1]);
+    if (typeof window !== "undefined")
       window.scrollTo({ top: 0, behavior: "smooth" });
-    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [current]);
 
   const jumpTo = useCallback((stage: Stage) => {
     setCurrent(stage);
-    if (typeof window !== "undefined") {
+    if (typeof window !== "undefined")
       window.scrollTo({ top: 0, behavior: "smooth" });
-    }
   }, []);
 
   const breadcrumbCurrent: Stage =
-    current === "complete" ? "assessment" : current;
+    current === "complete" ? orderedKeys[orderedKeys.length - 1] : current;
   const completedStages =
-    current === "complete"
-      ? [...STAGES]
-      : state.course.stagesCompleted;
+    current === "complete" ? [...orderedKeys] : state.course.stagesCompleted;
 
   const progressPct =
     current === "complete"
       ? 100
-      : Math.round(
-          ((STAGES.indexOf(current) + 1) / STAGES.length) * 100
-        );
+      : Math.round(((indexOf(current) + 1) / orderedKeys.length) * 100);
+
+  const currentStage =
+    current === "complete" ? null : stageByKey.get(current) ?? null;
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-6 sm:py-8">
-      {/* Top bar: back + title + progress */}
+      {/* Top bar */}
       <div className="mb-4 flex items-start justify-between gap-3">
         <Link
           href="/learner"
@@ -95,13 +112,13 @@ export function CoursePlayer() {
         </Link>
         <div className="text-right">
           <p className="text-xs text-[var(--muted-foreground)] uppercase tracking-wider">
-            {t("cluster")}
+            {course.clusterLabel}
           </p>
-          <h1 className="text-sm sm:text-base font-semibold">{t("title")}</h1>
+          <h1 className="text-sm sm:text-base font-semibold">{course.title}</h1>
         </div>
       </div>
 
-      {/* Stage breadcrumb — enforces visible sequence */}
+      {/* Breadcrumb — enforces visible sequence */}
       <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3 mb-2">
         <StageBreadcrumb
           current={breadcrumbCurrent}
@@ -111,42 +128,39 @@ export function CoursePlayer() {
       </div>
       <Progress value={progressPct} className="mb-6" />
 
-      {/* Current stage content */}
+      {/* Current stage */}
       <div key={current}>
-        {current === "context" ? (
-          <NarrativeStage stage="context" onContinue={goNext} />
-        ) : current === "concept" ? (
-          <NarrativeStage stage="concept" onContinue={goNext} />
-        ) : current === "behaviour" ? (
-          <NarrativeStage stage="behaviour" onContinue={goNext} />
-        ) : current === "simulation" ? (
-          <SimulationStage onContinue={goNext} />
-        ) : current === "scenario" ? (
-          <ScenarioStage onContinue={goNext} />
-        ) : current === "reflection" ? (
-          <ReflectionStage onContinue={goNext} />
-        ) : current === "assessment" ? (
-          <AssessmentStage onContinue={goNext} />
+        {currentStage?.key === "context" ||
+        currentStage?.key === "concept" ||
+        currentStage?.key === "behaviour" ? (
+          <NarrativeStage stage={currentStage} onContinue={goNext} />
+        ) : currentStage?.key === "simulation" ? (
+          <SimulationStage stage={currentStage} onContinue={goNext} />
+        ) : currentStage?.key === "scenario" ? (
+          <ScenarioStage stage={currentStage} onContinue={goNext} />
+        ) : currentStage?.key === "reflection" ? (
+          <ReflectionStage stage={currentStage} onContinue={goNext} />
+        ) : currentStage?.key === "assessment" ? (
+          <AssessmentStage stage={currentStage} onContinue={goNext} />
         ) : (
-          <CompletionStage />
+          <CompletionStage course={course} />
         )}
       </div>
 
-      {/* Sequence enforcement note */}
+      {/* Nav */}
       {current !== "complete" ? (
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
           <Button
             variant="ghost"
             size="sm"
             onClick={goBack}
-            disabled={current === "context"}
+            disabled={indexOf(current) === 0}
           >
             <ChevronLeft className="h-4 w-4" />
-            {tStage(STAGES[Math.max(0, STAGES.indexOf(current) - 1)])}
+            {tStage(orderedKeys[Math.max(0, indexOf(current) - 1)])}
           </Button>
           <p className="text-xs text-[var(--muted-foreground)] hidden sm:block">
-            Step {STAGES.indexOf(current) + 1} of {STAGES.length} ·{" "}
-            {tStage(current)}
+            {indexOf(current) + 1} / {orderedKeys.length} · {tStage(current)}
           </p>
         </div>
       ) : null}

@@ -65,7 +65,7 @@ function toCourseContent(raw: any, locale: Locale): CourseContent {
 export const strapiProvider: CMSProvider = {
   async listCourses(_projectId, locale) {
     const json = await strapiFetch<{ data: any[] }>(
-      `/courses?locale=${locale}&status=published&fields[0]=slug&fields[1]=cluster&fields[2]=title&fields[3]=clusterLabel&fields[4]=tagline&fields[5]=durationMinutes`
+      `/courses?locale=${locale}&status=published`
     );
     return (json.data ?? []).map((raw): CourseSummary => {
       const e = flat(raw);
@@ -77,6 +77,9 @@ export const strapiProvider: CMSProvider = {
         tagline: e.tagline ?? "",
         durationMinutes: e.durationMinutes ?? 20,
         status: "published",
+        badgeSlug: e.badgeSlug,
+        badgeName: e.badgeName,
+        badgeMeaning: e.badgeMeaning,
       };
     });
   },
