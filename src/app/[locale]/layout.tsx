@@ -1,7 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import { NextIntlClientProvider, hasLocale } from "next-intl";
-import { getMessages, setRequestLocale } from "next-intl/server";
+import { getMessages, getTranslations, setRequestLocale } from "next-intl/server";
 import { notFound } from "next/navigation";
 import { routing } from "@/i18n/routing";
 import { DemoStateProvider } from "@/store/demo-state";
@@ -63,10 +63,14 @@ export default async function LocaleLayout({
 
   setRequestLocale(locale);
   const messages = await getMessages();
+  const t = await getTranslations("system");
 
   return (
     <html lang={locale} className={inter.variable}>
       <body className="min-h-screen flex flex-col">
+        <a href="#main-content" className="skip-link">
+          {t("skipToContent")}
+        </a>
         <Analytics />
         <NextIntlClientProvider locale={locale} messages={messages}>
           <ProjectThemeProvider>

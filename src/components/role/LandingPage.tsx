@@ -58,7 +58,7 @@ export function LandingPage() {
         </div>
       </header>
 
-      <main className="flex-1">
+      <main id="main-content" tabIndex={-1} className="flex-1 outline-none">
         <div className="mx-auto max-w-6xl px-4 py-12 sm:py-16">
           <div className="max-w-2xl">
             <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--accent)]/30 bg-[var(--accent)]/10 px-3 py-1 text-xs font-medium text-[var(--accent)]">

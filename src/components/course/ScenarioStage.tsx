@@ -154,7 +154,11 @@ function Outcome({
         : t("qualityPoor");
 
   return (
-    <div className="mt-6 rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] p-4">
+    <div
+      role="status"
+      aria-live="polite"
+      className="mt-6 rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] p-4"
+    >
       <div className="flex items-center justify-between gap-2 mb-2">
         <span className="text-xs uppercase tracking-wider text-[var(--muted-foreground)] font-semibold">
           {t("whatJustHappened")}

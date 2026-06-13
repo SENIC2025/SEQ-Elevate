@@ -174,3 +174,16 @@ The proof the shell is content-driven: a genuinely different course (different c
 - `[BUILD]` PWA `app/manifest.ts` — installable, standalone display, theme color, start_url `/en`. (Maskable PNG icons pending consortium brand logo.)
 - `[BUILD]` SEO: `app/robots.ts` (disallow all on staging — placeholder content + vulnerable target group; flip at production go-live), root metadata with `metadataBase`, title template, Open Graph, Apple web-app meta; `viewport` export with theme color. Course route has dynamic `generateMetadata` (course title).
 - `[VERIFY]` Build ✓ lint ✓ types ✓. 404 → branded localized page (course notFound() shows DE/EL text); manifest.webmanifest, robots.txt, icon.svg all 200.
+
+### Accessibility pass — WCAG 2.2 AA (2026-06-13)
+- `[BUILD]` Skip-to-content link (`.skip-link`, hidden until focused) in the locale layout → `#main-content`; added `id="main-content"` + `tabIndex={-1}` to all role-layout `<main>` landmarks + the landing main. (WCAG 2.4.1 Bypass Blocks)
+- `[BUILD]` Focus management in the course player: focus moves to the new stage region on stage change (skips initial mount), so screen-reader users hear new content. (WCAG 2.4.3)
+- `[BUILD]` `prefers-reduced-motion`: global CSS kills non-essential animation/transition; the framer-motion badge unlock wrapped in `<MotionConfig reducedMotion="user">`. (WCAG 2.3.3)
+- `[BUILD]` `role="status" aria-live="polite"` on in-stage feedback regions (simulation feedback, scenario outcome, assessment score) so results are announced. New `system.skipToContent` i18n (EN/DE/EL).
+- `[NOTE]` Builds on the existing foundation: visible focus rings, semantic HTML, `lang` per locale, dyslexia/contrast/font-size toolbar, lime-as-surface contrast model.
+
+### Testing — Vitest unit suite + CI gate (2026-06-13)
+- `[INFRA]` Vitest + vite-tsconfig-paths; `vitest.config.ts`; `test` / `test:watch` / `test:e2e` scripts.
+- `[BUILD]` `src/lib/cms/local-provider.test.ts` — the content engine: lists all courses per locale; null for unknown; builds complete valid CourseContent for every course × locale (7 stages, one best sim option, scenario tree text/outcomes/quality, assessment correct-id validity, badge); content is localized (titles differ EN/DE/EL); Comp Card template has the WP3 fields.
+- `[BUILD]` `src/data/course.test.ts` — course-def integrity: order references defined courses, cluster valid, sim correct ∈ options, scenario ids unique, quality tags valid, assessment correct ∈ options, badge slugs unique.
+- `[VERIFY]` 10 tests pass. Added `Unit tests` step to CI (lint → type → **test** → build).

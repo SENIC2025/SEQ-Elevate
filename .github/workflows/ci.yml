@@ -37,6 +37,9 @@ jobs:
       - name: Type check
         run: pnpm exec tsc --noEmit
 
+      - name: Unit tests
+        run: pnpm test
+
       - name: Build
         run: pnpm build
         env:

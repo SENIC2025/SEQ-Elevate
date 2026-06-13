@@ -13,7 +13,7 @@ export default async function FacilitatorLayout({
   return (
     <div className="flex-1 flex flex-col">
       <AppHeader />
-      <main className="flex-1">{children}</main>
+      <main id="main-content" tabIndex={-1} className="flex-1 outline-none">{children}</main>
     </div>
   );
 }

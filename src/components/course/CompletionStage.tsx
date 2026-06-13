@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { useTranslations } from "next-intl";
-import { motion } from "framer-motion";
+import { motion, MotionConfig } from "framer-motion";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Link } from "@/i18n/navigation";
@@ -26,8 +26,9 @@ export function CompletionStage({ course }: { course: CourseContent }) {
   }, [dispatch, state.course.completedAt, state.badges, course.badge.slug]);
 
   return (
-    <Card className="overflow-hidden">
-      <CardContent className="p-6 sm:p-10 text-center">
+    <MotionConfig reducedMotion="user">
+      <Card className="overflow-hidden">
+        <CardContent className="p-6 sm:p-10 text-center">
         <motion.div
           initial={{ scale: 0, rotate: -10 }}
           animate={{ scale: 1, rotate: 0 }}
@@ -108,7 +109,8 @@ export function CompletionStage({ course }: { course: CourseContent }) {
             </Button>
           </Link>
         </motion.div>
-      </CardContent>
-    </Card>
+        </CardContent>
+      </Card>
+    </MotionConfig>
   );
 }

@@ -22,7 +22,8 @@
     "errorTitle": "Something went wrong",
     "errorBody": "An unexpected error happened. You can try again.",
     "tryAgain": "Try again",
-    "loading": "Loading…"
+    "loading": "Loading…",
+    "skipToContent": "Skip to main content"
   },
   "auth": {
     "signInTitle": "Sign in",

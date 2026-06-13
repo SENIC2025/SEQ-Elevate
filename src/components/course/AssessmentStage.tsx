@@ -128,7 +128,11 @@ export function AssessmentStage({
         </div>
 
         {checked ? (
-          <div className="mt-6 rounded-lg bg-[var(--accent)]/5 border border-[var(--accent)]/20 p-4">
+          <div
+            role="status"
+            aria-live="polite"
+            className="mt-6 rounded-lg bg-[var(--accent)]/5 border border-[var(--accent)]/20 p-4"
+          >
             <p className="font-semibold text-[var(--accent)]">
               {t("score", { correct: correctCount, total: questions.length })}
             </p>

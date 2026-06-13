@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import { Button } from "@/components/ui/button";
@@ -38,6 +38,18 @@ export function CoursePlayer({ course }: { course: CourseContent }) {
   const orderedKeys = STAGES.filter((k) => stageByKey.has(k));
 
   const resumeFromProgress = state.course.stagesCompleted.length;
+
+  // Focus management: when the stage changes, move focus to the new stage
+  // so screen-reader users hear the new content (WCAG 2.4.3 Focus Order).
+  const stageRef = useRef<HTMLDivElement>(null);
+  const firstRender = useRef(true);
+  useEffect(() => {
+    if (firstRender.current) {
+      firstRender.current = false;
+      return;
+    }
+    stageRef.current?.focus();
+  }, [current]);
 
   // Record which course is being played, so Comp Card / facilitator views
   // can show the course title + evidence without re-resolving content.
@@ -142,8 +154,9 @@ export function CoursePlayer({ course }: { course: CourseContent }) {
       </div>
       <Progress value={progressPct} className="mb-6" />
 
-      {/* Current stage */}
-      <div key={current}>
+      {/* Current stage. Focus moves here on stage change so SR users hear
+          the new content; in-stage feedback uses its own live regions. */}
+      <div key={current} ref={stageRef} tabIndex={-1} className="outline-none">
         {currentStage?.key === "context" ||
         currentStage?.key === "concept" ||
         currentStage?.key === "behaviour" ? (

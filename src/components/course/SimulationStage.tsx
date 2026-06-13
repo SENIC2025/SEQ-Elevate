@@ -94,6 +94,8 @@ export function SimulationStage({
 
         {showFeedback && selectedOpt ? (
           <div
+            role="status"
+            aria-live="polite"
             className={cn(
               "mt-5 rounded-lg p-4 border-l-4",
               isCorrect

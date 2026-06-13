@@ -22,7 +22,8 @@
     "errorTitle": "Etwas ist schiefgelaufen",
     "errorBody": "Ein unerwarteter Fehler ist aufgetreten. Du kannst es erneut versuchen.",
     "tryAgain": "Erneut versuchen",
-    "loading": "Lädt…"
+    "loading": "Lädt…",
+    "skipToContent": "Zum Hauptinhalt springen"
   },
   "auth": {
     "signInTitle": "Anmelden",
