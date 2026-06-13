@@ -12,5 +12,11 @@ export function SessionProviderWrapper({
 }: {
   children: React.ReactNode;
 }) {
-  return <SessionProvider>{children}</SessionProvider>;
+  // No background refetching — the session rarely changes mid-page and the
+  // extra requests add load + test flakiness. Re-fetched on navigation.
+  return (
+    <SessionProvider refetchOnWindowFocus={false} refetchInterval={0}>
+      {children}
+    </SessionProvider>
+  );
 }

@@ -20,6 +20,10 @@ const prisma = DB
 
 const describe = DB ? test.describe : test.describe.skip;
 
+// These tests mutate a shared database — run them one at a time so they
+// don't see each other's learners or race on cleanup.
+test.describe.configure({ mode: "serial" });
+
 describe("DB-backed learner progress", () => {
   const email = "e2e-learner@example.com";
   let userId: string;
@@ -125,5 +129,103 @@ describe("DB-backed learner progress", () => {
       include: { badge: true },
     });
     expect(userBadge?.badge.slug, "badge awarded").toBe("voice-without-edges");
+  });
+});
+
+describe("facilitator sees real learners", () => {
+  const staffEmail = "e2e-staff@example.com";
+  const learnerEmail = "e2e-cohort-learner@example.com";
+  let staffSession: string;
+
+  test.beforeAll(async () => {
+    await prisma.user.deleteMany({
+      where: { email: { in: [staffEmail, learnerEmail] } },
+    });
+
+    // A learner with progress + a Comp Card the facilitator may see
+    const learner = await prisma.user.create({
+      data: { email: learnerEmail, emailVerified: new Date() },
+    });
+    await prisma.membership.create({
+      data: { userId: learner.id, projectId: "seq-elevate", role: "LEARNER" },
+    });
+    const course = await prisma.course.findFirst({
+      where: { slug: "workplace-conflict" },
+    });
+    await prisma.courseEnrollment.create({
+      data: {
+        userId: learner.id,
+        courseId: course!.id,
+        stagesCompleted: [
+          "CONTEXT",
+          "CONCEPT",
+          "BEHAVIOUR",
+          "SIMULATION",
+          "SCENARIO",
+          "REFLECTION",
+          "ASSESSMENT",
+        ],
+        scenarioRoot: "private",
+        scenarioFollowup: "privateBoundary",
+        completedAt: new Date(),
+      },
+    });
+    await prisma.compCard.create({
+      data: {
+        userId: learner.id,
+        projectId: "seq-elevate",
+        wentWell: "I stayed calm",
+        difficult: "Speaking up",
+        privacy: "FACILITATOR",
+      },
+    });
+
+    // Staff member (FACILITATOR) with a session
+    const staff = await prisma.user.create({
+      data: { email: staffEmail, emailVerified: new Date() },
+    });
+    await prisma.membership.create({
+      data: { userId: staff.id, projectId: "seq-elevate", role: "FACILITATOR" },
+    });
+    staffSession = `e2e-staff-${Date.now()}`;
+    await prisma.session.create({
+      data: {
+        sessionToken: staffSession,
+        userId: staff.id,
+        expires: new Date(Date.now() + 86_400_000),
+      },
+    });
+  });
+
+  test.afterAll(async () => {
+    await prisma.user.deleteMany({
+      where: { email: { in: [staffEmail, learnerEmail] } },
+    });
+  });
+
+  test("facilitator workspace lists the real learner + their progress", async ({
+    page,
+    context,
+  }) => {
+    await context.addCookies([
+      {
+        name: "authjs.session-token",
+        value: staffSession,
+        domain: "localhost",
+        path: "/",
+        httpOnly: true,
+        sameSite: "Lax",
+      },
+    ]);
+    await page.goto("/en/facilitator");
+    // Real learner appears in the cohort list (scope to their row — other
+    // parallel tests may add learners to the shared DB)
+    const row = page.locator("li", { hasText: learnerEmail }).first();
+    await expect(row).toBeVisible();
+    // Open their record → Comp Card with the consented field visible
+    await row.getByRole("button", { name: /open learner/i }).click();
+    await expect(page.getByText("I stayed calm")).toBeVisible();
+    // The "difficult" field is FACILITATOR-visible (not redacted)
+    await expect(page.getByText("Speaking up")).toBeVisible();
   });
 });

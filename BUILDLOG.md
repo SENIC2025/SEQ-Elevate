@@ -225,4 +225,15 @@ The last real "demo-ism" removed: authenticated learners' progress, Comp Card an
 - `[BUILD]` `e2e/db-backed-progress.spec.ts` — signs a user in via a Session row, walks a full course in Chromium, asserts the DB has: CourseEnrollment (completed, `scenarioRoot=private`, stages recorded), auto-provisioned LEARNER Membership, and the `voice-without-edges` UserBadge. Gated on `E2E_DB=1`.
 - `[INFRA]` CI `e2e` job gains a **Postgres 16 service** + migrate + seed + `E2E_DB=1`, so the DB-backed test is a real CI gate.
 - `[VERIFY]` Local: DB-backed test passes (full course walk → all DB rows correct); 8 guest E2E + axe tests still pass (guest flows intact); DB test skips without `E2E_DB`. Build ✓ lint ✓ types ✓ 10 unit ✓.
-- `[NOTE]` Remaining polish (Phase 4 cont.): dashboard multi-course progress indicators + facilitator cohort reading real authenticated learners from the DB (the per-course progress for the ACTIVE course already loads/saves; the multi-course dashboard summary + facilitator real-data wiring is the next slice). On login, guest localStorage progress is not migrated to the DB — DB wins (acceptable; could add migration later).
+- `[NOTE]` On login, guest localStorage progress is not migrated to the DB — DB wins (acceptable; could add migration later).
+
+### Dashboard, admin + facilitator read real DB data (2026-06-13)
+The staff/learner views now show real people and progress, not mock data.
+- `[BUILD]` `src/lib/server-queries.ts` — server-component read queries: `getLearnerEnrollments` (current user's per-course progress), `getAdminCounts` (real aggregate counts), `getViewerRoles`, `getProjectLearners` (RBAC-gated list of real learners with progress + Comp Card + scenario evidence resolved from the CMS).
+- `[BUILD]` Learner dashboard: per-course status (completed / in-progress / open) now comes from real enrollments for authed users (demo-state for guests) — hero CTA + course-card badges reflect actual progress.
+- `[BUILD]` Admin dashboard: Users / Cohorts / Organisations counts are real DB aggregates (server-fetched).
+- `[BUILD]` Facilitator: `RealFacilitatorView` renders real learners for staff (FACILITATOR/ADMIN) — cohort list with real progress, per-learner Comp Card with **field-level privacy redaction** (SELF hides difficult+behaviour; FACILITATOR_AND_MENTOR reveals all), scenario evidence, observation + validation that persist (`src/app/actions/facilitator.ts`, RBAC-gated, write Observation/Validation + AuditLog). Guests/non-staff still see the demo mock.
+- `[BUILD]` Seed: optional `SEED_STAFF_EMAIL` grants FACILITATOR + ADMIN so staff views can be tested with real data.
+- `[BUILD]` E2E: a facilitator test signs in as staff and verifies a real learner appears in the cohort with their Comp Card (privacy-respecting). Added to the DB-backed spec (CI Postgres-gated).
+- `[FIX]` Test flakiness: `SessionProvider` now disables background refetch (`refetchOnWindowFocus={false}`, `refetchInterval={0}`) — fewer requests + stabler hydration; the journey "Continue" click retries via `toPass` (guards the hydration race); DB spec runs serial; ambiguous `getByText` selectors use `.first()`. Result: 10/10 E2E stable across repeated runs.
+- `[VERIFY]` Build ✓ lint ✓ types ✓ 10 unit ✓ 10 E2E ✓ (stable ×2).

@@ -1,4 +1,5 @@
 import { setRequestLocale } from "next-intl/server";
+import { getAdminCounts } from "@/lib/server-queries";
 import { AdminDashboard } from "@/components/role/AdminDashboard";
 
 export default async function Page({
@@ -8,5 +9,6 @@ export default async function Page({
 }) {
   const { locale } = await params;
   setRequestLocale(locale);
-  return <AdminDashboard />;
+  const counts = await getAdminCounts();
+  return <AdminDashboard counts={counts} />;
 }

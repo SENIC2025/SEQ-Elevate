@@ -139,6 +139,32 @@ async function main() {
     console.log(`  ✓ Course: ${course.slug} (badge ${badge.slug})`);
   }
 
+  // 5. Optional staff account — grants FACILITATOR + ADMIN to SEED_STAFF_EMAIL
+  //    so the facilitator/admin views can show real data. Set the env to
+  //    your email before seeding to provision yourself as staff.
+  const staffEmail = process.env.SEED_STAFF_EMAIL;
+  if (staffEmail) {
+    const staff = await prisma.user.upsert({
+      where: { email: staffEmail },
+      create: { email: staffEmail, emailVerified: new Date() },
+      update: {},
+    });
+    for (const role of ["FACILITATOR", "ADMIN"] as const) {
+      await prisma.membership.upsert({
+        where: {
+          userId_projectId_role: {
+            userId: staff.id,
+            projectId: project.id,
+            role,
+          },
+        },
+        create: { userId: staff.id, projectId: project.id, role },
+        update: {},
+      });
+    }
+    console.log(`  ✓ Staff: ${staffEmail} (FACILITATOR + ADMIN)`);
+  }
+
   console.log("Seed complete.");
 }
 

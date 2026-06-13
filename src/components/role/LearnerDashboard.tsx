@@ -37,21 +37,64 @@ const CLUSTER_ICONS: Record<string, typeof MessageCircle> = {
   initiative: Rocket,
 };
 
-export function LearnerDashboard({ courses }: { courses: CourseSummary[] }) {
+export interface EnrollmentSummary {
+  slug: string;
+  stagesCompleted: number;
+  totalStages: number;
+  completed: boolean;
+}
+
+export function LearnerDashboard({
+  courses,
+  enrollments,
+}: {
+  courses: CourseSummary[];
+  enrollments?: EnrollmentSummary[] | null;
+}) {
   const t = useTranslations("dashboard");
   const tCommon = useTranslations("common");
   const tClusters = useTranslations("skillClusters");
 
   const { state } = useDemoState();
-  const stagesDone = state.course.stagesCompleted.length;
   const totalStages = STAGES.length;
-  const progressPct = Math.round((stagesDone / totalStages) * 100);
-  const isInProgress = stagesDone > 0 && !state.course.completedAt;
-  const isCompleted = !!state.course.completedAt;
 
   const published = courses.filter((c) => !c.comingSoon);
   const hero = published[0];
   const activeClusters = new Set(published.map((c) => c.cluster));
+
+  // Per-course status: real enrollments for authed users, demo-state for guests.
+  const enrollMap = new Map((enrollments ?? []).map((e) => [e.slug, e]));
+  const courseStatus = (slug: string) => {
+    if (enrollments) {
+      const e = enrollMap.get(slug);
+      if (!e) return { stagesDone: 0, completed: false, inProgress: false };
+      return {
+        stagesDone: e.stagesCompleted,
+        completed: e.completed,
+        inProgress: e.stagesCompleted > 0 && !e.completed,
+      };
+    }
+    const isActive =
+      state.course.courseSlug === slug ||
+      (!state.course.courseSlug && slug === hero?.slug);
+    if (isActive) {
+      const sd = state.course.stagesCompleted.length;
+      return {
+        stagesDone: sd,
+        completed: !!state.course.completedAt,
+        inProgress: sd > 0 && !state.course.completedAt,
+      };
+    }
+    return { stagesDone: 0, completed: false, inProgress: false };
+  };
+
+  const heroStatus = hero
+    ? courseStatus(hero.slug)
+    : { stagesDone: 0, completed: false, inProgress: false };
+  const stagesDone = heroStatus.stagesDone;
+  const progressPct = Math.round((stagesDone / totalStages) * 100);
+  const isInProgress = heroStatus.inProgress;
+  const isCompleted = heroStatus.completed;
 
   // Badge slug → display info, from the course list.
   const badgeInfo = new Map<string, { name: string; meaning: string }>();
@@ -152,6 +195,9 @@ export function LearnerDashboard({ courses }: { courses: CourseSummary[] }) {
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {courses.map((c) => {
             const Icon = CLUSTER_ICONS[c.cluster] ?? MessageCircle;
+            const status = c.comingSoon
+              ? null
+              : courseStatus(c.slug);
             const inner = (
               <CardContent className="p-4 flex flex-col h-full">
                 <div className="flex items-start justify-between">
@@ -162,6 +208,15 @@ export function LearnerDashboard({ courses }: { courses: CourseSummary[] }) {
                     <Badge variant="muted" className="text-[10px]">
                       <Lock className="h-3 w-3" />
                       {t("comingSoon")}
+                    </Badge>
+                  ) : status?.completed ? (
+                    <Badge variant="success" className="text-[10px]">
+                      <CheckCircle2 className="h-3 w-3" />
+                      {t("completed")}
+                    </Badge>
+                  ) : status?.inProgress ? (
+                    <Badge variant="accent" className="text-[10px]">
+                      {t("inProgress")}
                     </Badge>
                   ) : null}
                 </div>
@@ -174,7 +229,11 @@ export function LearnerDashboard({ courses }: { courses: CourseSummary[] }) {
                 {!c.comingSoon ? (
                   <span className="mt-2 inline-flex items-center gap-1 text-xs text-[var(--accent)] font-medium">
                     <PlayCircle className="h-3.5 w-3.5" />
-                    {t("openCourse")}
+                    {status?.completed
+                      ? t("completed")
+                      : status?.inProgress
+                        ? t("resumeCourse")
+                        : t("openCourse")}
                   </span>
                 ) : null}
               </CardContent>

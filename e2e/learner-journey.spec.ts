@@ -8,29 +8,34 @@ test.describe("learner journey", () => {
 
     // Dashboard lists both courses (from the CMS, not hardcoded)
     await expect(
-      page.getByRole("heading", {
-        name: "Handling a small workplace conflict",
-      })
+      page
+        .getByRole("heading", { name: "Handling a small workplace conflict" })
+        .first()
     ).toBeVisible();
     await expect(
-      page.getByText("Receiving feedback without flinching")
+      page.getByText("Receiving feedback without flinching").first()
     ).toBeVisible();
 
     // Open the hero course
     await page.goto("/en/learner/course/workplace-conflict");
+    await page.waitForLoadState("networkidle");
 
     // Context stage renders
     await expect(
       page.getByRole("heading", { name: /three weeks into the new job/i })
     ).toBeVisible();
 
-    // Advance to the next stage via Continue
-    await page.getByRole("button", { name: /^continue$/i }).click();
-    await expect(
-      page.getByRole("heading", {
-        name: /speaking up without making it worse/i,
-      })
-    ).toBeVisible();
+    // Advance to the next stage via Continue. Retry the click until the
+    // next stage appears (guards against the hydration race where the
+    // handler isn't attached yet).
+    await expect(async () => {
+      await page.getByRole("button", { name: /^continue$/i }).click();
+      await expect(
+        page.getByRole("heading", {
+          name: /speaking up without making it worse/i,
+        })
+      ).toBeVisible({ timeout: 2000 });
+    }).toPass({ timeout: 15000 });
   });
 
   test("unknown course shows the not-found page", async ({ page }) => {

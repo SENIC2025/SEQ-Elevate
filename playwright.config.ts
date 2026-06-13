@@ -12,7 +12,11 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
+  // The DB-backed tests mutate a shared database; keep worker contention low
+  // so they don't race each other or starve the single dev server.
+  workers: process.env.CI ? 2 : 3,
   reporter: "list",
+  expect: { timeout: 10_000 },
   use: {
     baseURL: "http://localhost:3000",
     trace: "on-first-retry",

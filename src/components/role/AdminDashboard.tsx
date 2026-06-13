@@ -14,7 +14,14 @@ import {
   ToggleLeft,
 } from "lucide-react";
 
-export function AdminDashboard() {
+export interface AdminCounts {
+  users: number;
+  cohorts: number;
+  organisations: number;
+  courses: number;
+}
+
+export function AdminDashboard({ counts }: { counts?: AdminCounts }) {
   const t = useTranslations("admin");
   const tCommon = useTranslations("common");
 
@@ -33,17 +40,17 @@ export function AdminDashboard() {
         <Stat
           icon={<Users className="h-5 w-5" />}
           label={t("users")}
-          value="142"
+          value={String(counts?.users ?? 0)}
         />
         <Stat
           icon={<GraduationCap className="h-5 w-5" />}
           label={t("cohorts")}
-          value="6"
+          value={String(counts?.cohorts ?? 0)}
         />
         <Stat
           icon={<Building2 className="h-5 w-5" />}
           label={t("organisations")}
-          value="4"
+          value={String(counts?.organisations ?? 0)}
         />
         <Stat
           icon={<ShieldCheck className="h-5 w-5" />}
