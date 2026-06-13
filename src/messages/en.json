@@ -1,0 +1,356 @@
+{
+  "common": {
+    "appName": "SEQ Elevate",
+    "tagline": "Skills for life, work and what comes next.",
+    "continue": "Continue",
+    "back": "Back",
+    "next": "Next",
+    "skip": "Skip",
+    "save": "Save",
+    "submit": "Submit",
+    "finish": "Finish",
+    "close": "Close",
+    "minutes": "{count, plural, one {# minute} other {# minutes}}",
+    "switchRole": "Switch role",
+    "demoBannerLine1": "This is the SEQ Elevate platform shell — a working demo of the empty platform SENIC will deliver.",
+    "demoBannerLine2": "Course content shown here is placeholder for the consortium to replace."
+  },
+  "auth": {
+    "signInTitle": "Sign in",
+    "signInSubtitle": "We'll email you a secure link — no password needed.",
+    "emailLabel": "Email",
+    "emailPlaceholder": "you@example.com",
+    "sendLink": "Send me a link",
+    "sending": "Sending…",
+    "magicLinkNote": "The link signs you in with one click and expires shortly. Safe and password-free.",
+    "backToHome": "Back to home",
+    "checkEmailTitle": "Check your email",
+    "checkEmailBody": "We've sent a sign-in link to your inbox. Click it to continue.",
+    "tryDifferentEmail": "Use a different email",
+    "signIn": "Sign in",
+    "signOut": "Sign out"
+  },
+  "landing": {
+    "title": "Welcome to SEQ Elevate",
+    "subtitle": "A mobile-first learning journey for NEET youth, built around real-life practice, reflection and evidence — not lectures.",
+    "demoNote": "This is a working demonstration of the platform shell. Pick a role to enter as.",
+    "pickRole": "Choose how to enter the demo",
+    "languageLabel": "Language",
+    "scaffoldNote": "Built in days, not months — Created and Powered by SENIC.",
+    "exploreLearner": "Walk through the learner journey",
+    "peekFacilitator": "See how facilitators support cohorts",
+    "peekAdmin": "Review admin and GDPR controls",
+    "peekContent": "Author content in the CMS"
+  },
+  "roles": {
+    "learner": "Learner",
+    "facilitator": "Facilitator",
+    "admin": "Admin",
+    "contentEditor": "Content Editor",
+    "content": "Content Editor",
+    "learnerDesc": "The young person walking the journey",
+    "facilitatorDesc": "The coach observing and validating",
+    "adminDesc": "Organisation owner, runs cohorts and GDPR",
+    "contentEditorDesc": "Partner author writing courses in the CMS",
+    "contentDesc": "Partner author writing courses in the CMS"
+  },
+  "skillClusters": {
+    "communicationEi": "Communication & Emotional Intelligence",
+    "resilience": "Resilience",
+    "teamwork": "Teamwork",
+    "problemSolving": "Problem Solving",
+    "adaptability": "Adaptability",
+    "leadership": "Leadership",
+    "initiative": "Initiative",
+    "communicationEiShort": "Comms & EI",
+    "resilienceShort": "Resilience",
+    "teamworkShort": "Teamwork",
+    "problemSolvingShort": "Problem solving",
+    "adaptabilityShort": "Adaptability",
+    "leadershipShort": "Leadership",
+    "initiativeShort": "Initiative"
+  },
+  "a11y": {
+    "title": "Reading help",
+    "fontSize": "Text size",
+    "sizeNormal": "Normal",
+    "sizeLarge": "Large",
+    "sizeExtraLarge": "Extra large",
+    "dyslexia": "Easy-read font",
+    "contrast": "High contrast",
+    "open": "Open reading help",
+    "close": "Close reading help"
+  },
+  "dashboard": {
+    "greeting": "Welcome back",
+    "yourJourney": "Your journey",
+    "currentMission": "Current mission",
+    "missionFeed": "What's next",
+    "badges": "Badges",
+    "badgesNone": "No badges yet — finish your first scenario to start collecting.",
+    "skillMap": "Your skill map",
+    "skillMapHint": "Tap a skill to see your courses",
+    "openCourse": "Open course",
+    "resumeCourse": "Resume",
+    "completed": "Completed",
+    "inProgress": "In progress",
+    "minutesLeft": "{count} min left",
+    "compCard": "Your Comp Card",
+    "compCardHint": "A short record of what you've practised and learned. Always yours.",
+    "openCompCard": "Open Comp Card"
+  },
+  "mission": {
+    "workplaceConflictTitle": "Try a small but real situation",
+    "workplaceConflictHint": "20 minutes. Mobile-friendly. No grades. You can pause."
+  },
+  "course": {
+    "stageLabel": {
+      "context": "Context",
+      "concept": "Skill concept",
+      "behaviour": "Behaviour model",
+      "simulation": "Guided practice",
+      "scenario": "Applied scenario",
+      "reflection": "Reflection",
+      "assessment": "Quick check"
+    },
+    "stageSubtitle": {
+      "context": "What's the situation",
+      "concept": "What the skill is",
+      "behaviour": "What it looks like",
+      "simulation": "Try one move",
+      "scenario": "The full moment",
+      "reflection": "Look back",
+      "assessment": "Quick check"
+    },
+    "workplaceConflict": {
+      "title": "Handling a small workplace conflict",
+      "cluster": "Communication & Emotional Intelligence",
+      "tagline": "20 minutes · no grades · you can pause anytime",
+      "context": {
+        "title": "Three weeks into the new job",
+        "narrative": "You started at a small community café three weeks ago. The team is mostly young people like you. Sam, who started a few weeks before you, has been making sharp remarks about you — sometimes in front of customers. Today Sam said, \"Watch out, slow one's on the till.\" You laughed it off. But your stomach dropped. The shift is still going. What happens next is up to you.",
+        "anchor": "We'll work on this together, step by step."
+      },
+      "concept": {
+        "title": "Speaking up without making it worse",
+        "body1": "Conflict at work is normal. What matters is not avoiding it — it's responding in a way that doesn't escalate the situation, and doesn't shut you down either.",
+        "body2": "Two small skills carry most of the weight:",
+        "point1": "Notice what you actually feel, before you react.",
+        "point2": "Say it clearly, without blaming the other person.",
+        "body3": "These don't fix every conflict. But they give you a chance to stay in the conversation instead of leaving it — or making it worse."
+      },
+      "behaviour": {
+        "title": "What this looks like",
+        "intro": "One useful pattern is the I-statement:",
+        "formula": "When X happens, I feel Y, and I'd like Z.",
+        "compareLabel": "Compare these two responses to Sam:",
+        "blamingLabel": "Blaming",
+        "blaming": "\"You're so rude. Stop being a jerk.\"",
+        "iStatementLabel": "I-statement",
+        "iStatement": "\"When you make comments like that in front of customers, I feel embarrassed. I'd rather we talk to each other directly.\"",
+        "closing": "Notice the second one doesn't accuse, doesn't escalate, and doesn't back down. It just says what's happening for you."
+      },
+      "simulation": {
+        "title": "Try a small move",
+        "prompt": "Your colleague says, \"Look who finally showed up\" when you arrive four minutes late after a delayed bus. You…",
+        "instruction": "Pick the response that feels strongest — there's a best answer, but no wrong way to think.",
+        "options": {
+          "blame": "\"You're always on my case. Get off my back.\"",
+          "shrink": "\"Sorry, sorry, won't happen again.\"",
+          "iStatement": "\"The bus was late. When you say 'finally', I feel singled out. I'd rather we just say good morning.\"",
+          "avoid": "Nothing — you walk past silently."
+        },
+        "feedback": {
+          "blame": "This pushes back hard, which feels good for a moment — but it leaves both of you defensive, and the next shift will be tense.",
+          "shrink": "Polite, but you didn't actually say what was true. You'll likely carry the feeling all day.",
+          "iStatement": "Strong choice. You named what happened and what you'd prefer, without attacking. That gives the other person a real chance to respond.",
+          "avoid": "Sometimes silence is the right move. But here it leaves the comment hanging — and your body will hold it."
+        },
+        "tryAgain": "Try another"
+      },
+      "scenario": {
+        "title": "The bigger moment",
+        "setup": "It's the lunch rush. Sam mutters something about you to a regular customer. The customer laughs awkwardly. You're behind the till.",
+        "question": "What do you do?",
+        "choices": {
+          "confront": "Tell Sam off in front of the customer",
+          "ignore": "Stay quiet and keep working",
+          "private": "Wait for a quiet moment, then talk to Sam privately",
+          "manager": "Go straight to the manager"
+        },
+        "outcomes": {
+          "confront": "Sam goes quiet, but you can feel the tension for the rest of the shift. The customer looks uncomfortable. At the end of the day, Sam doesn't say goodbye. The next morning the manager asks what happened.",
+          "ignore": "You feel something hot rise in your chest. By the end of the shift you're exhausted from holding it in. On the bus home you replay the moment.",
+          "private": "You wait 20 minutes. The rush calms. You catch Sam in the back: \"Hey — when you said that earlier, I felt put down. Can we talk?\" Sam looks surprised: \"I didn't mean it like that. I was just messing around. Sorry.\"",
+          "manager": "The manager listens but says, \"You should talk to Sam first.\" Now you feel both annoyed and stuck."
+        },
+        "followupQ": "What do you do next?",
+        "followup": {
+          "confrontExplain": "Explain calmly what happened",
+          "confrontDefensive": "Get defensive — \"Sam started it\"",
+          "confrontBrush": "Say it was nothing",
+          "ignoreTalk": "Plan to talk to Sam tomorrow",
+          "ignoreSlide": "Let it slide",
+          "ignoreShift": "Ask the manager for different shifts",
+          "privateAccept": "Accept the apology and move on",
+          "privateAskStop": "Accept it, and ask Sam to not do it again",
+          "privateBoundary": "Tell Sam it's fine, but you'd like to be addressed directly from now on",
+          "managerTalk": "Go and talk to Sam after all",
+          "managerAvoid": "Avoid both of them for the rest of the week",
+          "managerBack": "Go back to the manager and insist"
+        },
+        "followupOutcomes": {
+          "confrontExplain": "The manager nods. \"Next time, try to handle it without making it a scene. But thanks for telling me.\" It's not closed yet, but it's not lost either.",
+          "confrontDefensive": "The manager looks tired. \"I don't want to hear who started it. I want it stopped.\" You leave feeling smaller.",
+          "confrontBrush": "The manager moves on, but you know it isn't nothing.",
+          "ignoreTalk": "You sleep on it. Tomorrow you find Sam in the break room. The conversation is awkward, but at the end Sam says, \"Yeah, I shouldn't have.\"",
+          "ignoreSlide": "You let it go. It happens again two weeks later. You wonder why you keep ending up here.",
+          "ignoreShift": "The manager says they'll see what they can do. The team notices. It costs you something.",
+          "privateAccept": "The apology lands. The next shift is easier. You feel proud you spoke up.",
+          "privateAskStop": "Sam takes it in. The dynamic shifts. You both work better.",
+          "privateBoundary": "You're clear and not angry. Sam respects it. The next time something starts, Sam catches themselves.",
+          "managerTalk": "You go back to Sam later that day. It's harder than it would have been earlier — but you do it. Sam listens.",
+          "managerAvoid": "By Friday the air is thick. You spend the weekend dreading Monday.",
+          "managerBack": "The manager is firm: \"I'm not having this conversation for you.\" You leave with nothing solved."
+        },
+        "summaryLabel": "What just happened",
+        "qualityBest": "A strong move",
+        "qualityOkay": "A workable move",
+        "qualityPoor": "A move that costs you"
+      },
+      "reflection": {
+        "title": "Look back",
+        "intro": "These prompts are just for you. Nothing here is graded. You can leave any of them blank.",
+        "prompt1": "What did you notice in your body during the harder moments?",
+        "prompt2": "What was the hardest part of the scenario?",
+        "prompt3": "What might you try differently next time?",
+        "placeholder1": "It can be a word, a feeling, or a sentence.",
+        "placeholder2": "Be honest — only you see this unless you choose to share it.",
+        "placeholder3": "Even one small change counts."
+      },
+      "assessment": {
+        "title": "Quick check",
+        "intro": "Three short questions. Not a test — just a way to lock in what you tried.",
+        "q1": {
+          "question": "An I-statement does which of the following?",
+          "a": "Tells the other person what they did wrong",
+          "b": "Describes what you felt and what you'd prefer",
+          "c": "Avoids the situation entirely",
+          "d": "Forces an apology"
+        },
+        "q2": {
+          "question": "What's the first step before responding to a tense moment?",
+          "a": "Decide what to say",
+          "b": "Notice what you're feeling",
+          "c": "Ask the manager",
+          "d": "Walk away"
+        },
+        "q3": {
+          "question": "Why does waiting for a quiet moment help?",
+          "a": "It avoids the conversation",
+          "b": "It lets both people be heard without an audience",
+          "c": "It lets the other person forget what they said",
+          "d": "It shows you don't care"
+        },
+        "submit": "Check answers",
+        "score": "You got {correct} out of {total} right.",
+        "scoreEncouragement": {
+          "all": "Nicely done. You've got the pattern.",
+          "most": "Strong. The pattern is landing.",
+          "some": "That's a start. Re-read the behaviour model — the rest will click.",
+          "none": "It happens. Step back, look again, and try the scenario once more. No grade attached."
+        },
+        "correctLabel": "Right",
+        "incorrectLabel": "Try again"
+      },
+      "completion": {
+        "title": "Course complete",
+        "body": "You walked the full sequence — context, concept, behaviour, practice, scenario, reflection, check. The badge is yours. Your Comp Card is waiting.",
+        "badgeUnlocked": "Badge unlocked",
+        "badgeName": "Voice without edges",
+        "badgeMeaning": "Spoke up without escalating or shrinking",
+        "openCompCard": "Open your Comp Card",
+        "backToDashboard": "Back to dashboard"
+      }
+    }
+  },
+  "compCard": {
+    "title": "Comp Card",
+    "subtitle": "Short, structured, always yours.",
+    "courseLabel": "From",
+    "dateLabel": "Date",
+    "fieldWentWell": "What went well",
+    "fieldDifficult": "What was difficult",
+    "fieldImprove": "What I'll try next time",
+    "fieldScenario": "Scenario I completed",
+    "fieldFeedback": "Feedback I received",
+    "fieldBehaviour": "A behaviour I demonstrated",
+    "fieldConfidence": "How confident I feel now (1–5)",
+    "privacyLabel": "Who can see this Comp Card",
+    "privacyChoice": {
+      "self": "Only me",
+      "facilitator": "Me and my facilitator",
+      "facilitatorAndMentor": "Me, my facilitator and mentor"
+    },
+    "downloadPdf": "Download as PDF",
+    "printPdf": "Print Comp Card",
+    "saved": "Saved",
+    "saving": "Saving…",
+    "placeholder": {
+      "wentWell": "Even small wins count.",
+      "difficult": "Be honest — nothing here goes anywhere you don't want it to.",
+      "improve": "One thing.",
+      "behaviour": "What did you actually do that you're proud of?"
+    },
+    "evidencePulled": "Pulled from your scenario:",
+    "confidenceLabels": {
+      "1": "Not at all",
+      "2": "A little",
+      "3": "Somewhat",
+      "4": "Quite",
+      "5": "Very"
+    }
+  },
+  "gamification": {
+    "missionStarted": "Mission started",
+    "missionComplete": "Mission complete",
+    "badgeUnlocked": "Badge unlocked",
+    "progressUp": "Progress updated",
+    "noLeaderboards": "No leaderboards here. Your progress is yours."
+  },
+  "facilitator": {
+    "title": "Facilitator workspace",
+    "cohortLabel": "Cohort",
+    "cohortName": "Berlin Pilot · Spring 2026",
+    "learnersLabel": "Learners",
+    "activeNow": "Active in the last 24h",
+    "compCardSubmissions": "Comp Cards submitted",
+    "needsAttention": "Needs attention",
+    "viewLearner": "Open learner",
+    "observationTitle": "Observation note",
+    "observationPlaceholder": "What did you notice during the role-play? Behaviour, not character.",
+    "validateLabel": "Validate this evidence",
+    "validateHint": "Records that you observed this competence in practice.",
+    "redacted": "Redacted by learner",
+    "redactedHint": "The learner chose not to share this field with you.",
+    "scriptsLibrary": "Scripts & adaptation notes"
+  },
+  "admin": {
+    "title": "Admin dashboard",
+    "users": "Users",
+    "cohorts": "Cohorts",
+    "organisations": "Organisations",
+    "gdpr": "GDPR self-service",
+    "auditLog": "Audit log",
+    "anonymisedNote": "All reporting metrics are anonymised by default."
+  },
+  "content": {
+    "title": "Content authoring",
+    "cmsNote": "In production this opens Strapi CMS. The demo shows the structure your authors will work in.",
+    "modelCourse": "Course",
+    "modelScenario": "Scenario",
+    "modelCompCard": "Comp Card template",
+    "modelMission": "Mission",
+    "modelBadge": "Badge"
+  }
+}

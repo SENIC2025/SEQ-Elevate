@@ -1,0 +1,77 @@
+# SEQ Elevate — production stack for Hetzner Cloud.
+#
+# Run behind Coolify (recommended) or directly with `docker compose`.
+# Coolify provides the reverse proxy + automatic Let's Encrypt SSL; if
+# running compose directly, add a Caddy/Traefik service for TLS.
+#
+# Secrets come from a .env file alongside this compose (never committed).
+# See deploy/README.md for the full provisioning runbook.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  web:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ${WEB_DATABASE_URL}
+      AUTH_SECRET: ${AUTH_SECRET}
+      AUTH_URL: ${AUTH_URL}
+      RESEND_API_KEY: ${RESEND_API_KEY}
+      EMAIL_FROM: ${EMAIL_FROM}
+      CMS_SOURCE: ${CMS_SOURCE:-strapi}
+      STRAPI_URL: ${STRAPI_INTERNAL_URL:-http://cms:1337}
+      STRAPI_API_TOKEN: ${STRAPI_API_TOKEN}
+      NEXT_PUBLIC_PLAUSIBLE_DOMAIN: ${PLAUSIBLE_DOMAIN}
+      SENTRY_DSN: ${SENTRY_DSN}
+    ports:
+      - "3000:3000"
+    # Migrations run as a deploy step (see deploy/README.md), NOT here —
+    # avoids replicas racing to migrate. The container just serves.
+
+  cms:
+    build:
+      context: ../cms
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_CLIENT: postgres
+      DATABASE_HOST: postgres
+      DATABASE_PORT: 5432
+      DATABASE_NAME: ${STRAPI_DB_NAME:-strapi}
+      DATABASE_USERNAME: ${POSTGRES_USER}
+      DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
+      APP_KEYS: ${STRAPI_APP_KEYS}
+      API_TOKEN_SALT: ${STRAPI_API_TOKEN_SALT}
+      ADMIN_JWT_SECRET: ${STRAPI_ADMIN_JWT_SECRET}
+      TRANSFER_TOKEN_SALT: ${STRAPI_TRANSFER_TOKEN_SALT}
+      JWT_SECRET: ${STRAPI_JWT_SECRET}
+    volumes:
+      - strapi-uploads:/app/public/uploads
+    ports:
+      - "1337:1337"
+
+volumes:
+  pgdata:
+  strapi-uploads:

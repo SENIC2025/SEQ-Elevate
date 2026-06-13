@@ -1,0 +1,24 @@
+{
+  "kind": "singleType",
+  "collectionName": "comp_card_templates",
+  "info": {
+    "singularName": "comp-card-template",
+    "pluralName": "comp-card-templates",
+    "displayName": "Comp Card Template",
+    "description": "The fields a learner fills in their SEQ Comp Card. Configurable per project."
+  },
+  "options": {
+    "draftAndPublish": true
+  },
+  "pluginOptions": {
+    "i18n": {
+      "localized": true
+    }
+  },
+  "attributes": {
+    "fields": {
+      "type": "json",
+      "pluginOptions": { "i18n": { "localized": true } }
+    }
+  }
+}

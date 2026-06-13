@@ -1,0 +1,456 @@
+// SEQ Elevate platform — Prisma schema.
+//
+// Single source of truth for the production database. Mirrored locally
+// (Docker Postgres, see docker-compose.yml) and in production
+// (Hetzner Cloud Postgres, see DECISIONS.md · D1).
+//
+// Architecture notes:
+//   - Project is the multi-tenant root. Every other entity (except
+//     NextAuth's auth tables) carries projectId. RBAC and queries are
+//     project-scoped.
+//   - Course content lives in Strapi (Project → Strapi space). The
+//     Course/Scenario/Mission/Badge tables here hold the STRUCTURAL
+//     references and the platform-side state (progress, attempts,
+//     evidence). The narrative copy stays in Strapi so partners can
+//     author without code.
+//   - All learner state is project-scoped: a learner enrolled in two
+//     projects has two Memberships, two sets of progress, two Comp
+//     Cards. This is the project-scoped identity model agreed on in
+//     the demo phase.
+//   - Audit log captures sensitive actions for GDPR + admin review.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ============================================================
+// Multi-tenant root
+// ============================================================
+
+model Project {
+  id             String   @id // slug-form, e.g. "seq-elevate"
+  name           String
+  shortName      String
+  tagline        String?
+  primaryColor   String   // hex
+  primaryHover   String   // hex
+  accentColor    String   // hex
+  programme      String   // "Erasmus+", "Horizon Europe", "Other"
+  defaultLocale  String   @default("en")
+  locales        String[] // ["en", "de", "el"]
+  clusters       String[] // skill cluster keys this project teaches
+  partners       String[] // consortium partner short names
+  strapiSpaceId  String?  // Strapi tenant/space identifier for content
+  productionUrl  String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  memberships    Membership[]
+  organisations  Organisation[]
+  cohorts        Cohort[]
+  courses        Course[]
+  badges         Badge[]
+  missions       Mission[]
+  compCards      CompCard[]
+  auditLogs      AuditLog[]
+}
+
+// ============================================================
+// Identity (NextAuth.js + project-scoped roles)
+// ============================================================
+
+enum Role {
+  LEARNER
+  FACILITATOR
+  ADMIN
+  CONTENT_EDITOR
+}
+
+enum PrivacyChoice {
+  SELF
+  FACILITATOR
+  FACILITATOR_AND_MENTOR
+}
+
+enum StageKey {
+  CONTEXT
+  CONCEPT
+  BEHAVIOUR
+  SIMULATION
+  SCENARIO
+  REFLECTION
+  ASSESSMENT
+}
+
+enum OutcomeQuality {
+  BEST
+  OKAY
+  POOR
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  emailVerified DateTime?
+  name          String?
+  image         String?
+  // Accessibility preferences are user-global, not project-scoped
+  fontSize      String    @default("normal") // "normal" | "lg" | "xl"
+  dyslexic      Boolean   @default(false)
+  contrast      Boolean   @default(false)
+  // Last accessed project — for default routing after login
+  lastProjectId String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  accounts        Account[]
+  sessions        Session[]
+  memberships     Membership[]
+  enrollments     CourseEnrollment[]
+  compCards       CompCard[]
+  observations    Observation[] @relation("ObserverUser")
+  observedNotes   Observation[] @relation("ObservedUser")
+  validations     Validation[]  @relation("ValidatorUser")
+  validatedNotes  Validation[]  @relation("ValidatedUser")
+  badges          UserBadge[]
+  missionProgress MissionProgress[]
+  auditEvents     AuditLog[]
+}
+
+// Membership = "this user belongs to this project in this role,
+// optionally within this org/cohort". The same human can have
+// multiple memberships across projects.
+model Membership {
+  id             String   @id @default(cuid())
+  userId         String
+  projectId      String
+  role           Role
+  organisationId String?
+  cohortId       String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project        Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  organisation   Organisation?  @relation(fields: [organisationId], references: [id], onDelete: SetNull)
+  cohort         Cohort?        @relation(fields: [cohortId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, projectId, role])
+  @@index([projectId, role])
+}
+
+// NextAuth.js tables (Account/Session/VerificationToken).
+// These are auth-global, not project-scoped.
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ============================================================
+// Org structure
+// ============================================================
+
+model Organisation {
+  id        String   @id @default(cuid())
+  projectId String
+  name      String
+  shortName String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  project     Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  cohorts     Cohort[]
+  memberships Membership[]
+
+  @@index([projectId])
+}
+
+model Cohort {
+  id             String   @id @default(cuid())
+  projectId      String
+  organisationId String
+  name           String
+  startsAt       DateTime?
+  endsAt         DateTime?
+  // Facilitator-tunable per-cohort settings (gamification intensity,
+  // peer enabled, etc.) — JSON for flexibility, see DECISIONS.md · O2
+  settings       Json     @default("{}")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  project      Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  memberships  Membership[]
+
+  @@index([projectId])
+  @@index([organisationId])
+}
+
+// ============================================================
+// Course content (links to Strapi for narrative copy)
+// ============================================================
+
+model Course {
+  id              String  @id @default(cuid())
+  projectId       String
+  // strapiId is the Strapi content ID that holds the translatable copy.
+  // The narrative, scenario text, options etc. live there.
+  strapiId        String
+  slug            String  // platform-side identifier
+  cluster         String  // skill cluster key
+  durationMinutes Int     @default(20)
+  badgeId         String?
+  status          String  @default("draft") // "draft" | "published" | "archived"
+  publishedAt     DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  project     Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  enrollments CourseEnrollment[]
+  badge       Badge?             @relation(fields: [badgeId], references: [id], onDelete: SetNull)
+  missions    Mission[]
+  compCardEntries CompCardEntry[]
+
+  @@unique([projectId, slug])
+  @@index([projectId])
+}
+
+model CourseEnrollment {
+  id             String   @id @default(cuid())
+  userId         String
+  courseId       String
+  enrolledAt     DateTime @default(now())
+  completedAt    DateTime?
+  stagesCompleted StageKey[]
+  // Simulation attempt
+  simulationChoice  String?
+  simulationCorrect Boolean?
+  // Scenario attempt
+  scenarioRoot     String?
+  scenarioFollowup String?
+  // Reflection answers (stored as JSON for flexibility — the field set
+  // can evolve per course without schema changes)
+  reflection       Json   @default("{}")
+  // Assessment answers
+  assessment       Json   @default("{}")
+  updatedAt        DateTime @updatedAt
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  course Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, courseId])
+  @@index([courseId])
+}
+
+// ============================================================
+// Comp Cards — the long-running reflection journal + per-course snapshot
+// ============================================================
+
+model CompCard {
+  id           String        @id @default(cuid())
+  userId       String
+  projectId    String
+  // Long-running journal fields
+  wentWell     String        @default("")
+  difficult    String        @default("")
+  improve      String        @default("")
+  behaviour    String        @default("")
+  confidence   Int           @default(3) // 1-5
+  privacy      PrivacyChoice @default(FACILITATOR)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project     Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  entries     CompCardEntry[]
+  observations Observation[]
+  validations  Validation[]
+
+  @@unique([userId, projectId])
+  @@index([projectId])
+}
+
+// Per-course snapshot, auto-generated from the learner's course flow.
+model CompCardEntry {
+  id          String   @id @default(cuid())
+  compCardId  String
+  courseId    String
+  // Snapshot of the journal fields at the time the course completed,
+  // plus scenario evidence and assessment outcome.
+  wentWell    String   @default("")
+  difficult   String   @default("")
+  improve     String   @default("")
+  behaviour   String   @default("")
+  confidence  Int      @default(3)
+  scenarioRoot     String?
+  scenarioFollowup String?
+  scenarioQuality  OutcomeQuality?
+  assessmentScore  Int?
+  createdAt   DateTime @default(now())
+
+  compCard CompCard @relation(fields: [compCardId], references: [id], onDelete: Cascade)
+  course   Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@unique([compCardId, courseId])
+  @@index([compCardId])
+}
+
+// ============================================================
+// Gamification (no leaderboards — see PCR v2.0 §1.1)
+// ============================================================
+
+model Badge {
+  id          String  @id @default(cuid())
+  projectId   String
+  slug        String
+  name        String
+  meaning     String
+  iconRef     String? // icon key (lucide) or asset URL
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  project     Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  unlockedBy  UserBadge[]
+  unlocks     Course[]
+
+  @@unique([projectId, slug])
+}
+
+model UserBadge {
+  id          String   @id @default(cuid())
+  userId      String
+  badgeId     String
+  awardedAt   DateTime @default(now())
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  badge Badge @relation(fields: [badgeId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, badgeId])
+}
+
+model Mission {
+  id          String   @id @default(cuid())
+  projectId   String
+  courseId    String?
+  slug        String
+  title       String
+  hint        String?
+  order       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  project Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  course  Course?           @relation(fields: [courseId], references: [id], onDelete: SetNull)
+  progress MissionProgress[]
+
+  @@unique([projectId, slug])
+}
+
+model MissionProgress {
+  id          String   @id @default(cuid())
+  userId      String
+  missionId   String
+  status      String   @default("active") // "active" | "complete"
+  startedAt   DateTime @default(now())
+  completedAt DateTime?
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mission Mission @relation(fields: [missionId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, missionId])
+}
+
+// ============================================================
+// Facilitator workflow
+// ============================================================
+
+model Observation {
+  id          String   @id @default(cuid())
+  observerId  String
+  observedId  String
+  compCardId  String?
+  cohortId    String?
+  note        String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  observer User      @relation("ObserverUser", fields: [observerId], references: [id], onDelete: Cascade)
+  observed User      @relation("ObservedUser", fields: [observedId], references: [id], onDelete: Cascade)
+  compCard CompCard? @relation(fields: [compCardId], references: [id], onDelete: SetNull)
+
+  @@index([observerId])
+  @@index([observedId])
+}
+
+model Validation {
+  id          String   @id @default(cuid())
+  validatorId String
+  validatedId String
+  compCardId  String?
+  cluster     String   // skill cluster key being validated
+  evidence    String?  // free-text evidence note
+  createdAt   DateTime @default(now())
+
+  validator User      @relation("ValidatorUser", fields: [validatorId], references: [id], onDelete: Cascade)
+  validated User      @relation("ValidatedUser", fields: [validatedId], references: [id], onDelete: Cascade)
+  compCard  CompCard? @relation(fields: [compCardId], references: [id], onDelete: SetNull)
+
+  @@index([validatedId, cluster])
+}
+
+// ============================================================
+// Audit log — GDPR + admin review
+// ============================================================
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  projectId   String
+  actorId     String?  // null for system events
+  action      String   // e.g. "compcard.exported", "consent.withdrawn", "cohort.created"
+  entity      String?  // e.g. "CompCard"
+  entityId    String?
+  metadata    Json?    // arbitrary context, no PII unless strictly needed
+  createdAt   DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  actor   User?   @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([projectId, createdAt])
+  @@index([actorId])
+}

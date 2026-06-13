@@ -1,0 +1,356 @@
+{
+  "common": {
+    "appName": "SEQ Elevate",
+    "tagline": "Fähigkeiten fürs Leben, für die Arbeit und für das, was danach kommt.",
+    "continue": "Weiter",
+    "back": "Zurück",
+    "next": "Weiter",
+    "skip": "Überspringen",
+    "save": "Speichern",
+    "submit": "Bestätigen",
+    "finish": "Fertig",
+    "close": "Schließen",
+    "minutes": "{count, plural, one {# Minute} other {# Minuten}}",
+    "switchRole": "Rolle wechseln",
+    "demoBannerLine1": "Das ist die SEQ Elevate Plattform-Shell — eine funktionierende Demo der leeren Plattform, die SENIC liefern wird.",
+    "demoBannerLine2": "Die hier gezeigten Kursinhalte sind Platzhalter, die das Konsortium ersetzen wird."
+  },
+  "auth": {
+    "signInTitle": "Anmelden",
+    "signInSubtitle": "Wir senden dir einen sicheren Link per E-Mail — kein Passwort nötig.",
+    "emailLabel": "E-Mail",
+    "emailPlaceholder": "du@beispiel.de",
+    "sendLink": "Link senden",
+    "sending": "Wird gesendet…",
+    "magicLinkNote": "Der Link meldet dich mit einem Klick an und läuft bald ab. Sicher und ohne Passwort.",
+    "backToHome": "Zurück zur Startseite",
+    "checkEmailTitle": "Prüfe deine E-Mails",
+    "checkEmailBody": "Wir haben dir einen Anmeldelink geschickt. Klicke darauf, um fortzufahren.",
+    "tryDifferentEmail": "Andere E-Mail verwenden",
+    "signIn": "Anmelden",
+    "signOut": "Abmelden"
+  },
+  "landing": {
+    "title": "Willkommen bei SEQ Elevate",
+    "subtitle": "Eine mobile-first Lernreise für NEET-Jugendliche, gebaut um echte Praxis, Reflexion und Nachweise — keine Vorlesungen.",
+    "demoNote": "Das ist eine funktionierende Demonstration der Plattform-Shell. Wähle eine Rolle, um einzusteigen.",
+    "pickRole": "Wie möchtest du die Demo betreten?",
+    "languageLabel": "Sprache",
+    "scaffoldNote": "In Tagen gebaut, nicht in Monaten — Erstellt und betrieben von SENIC.",
+    "exploreLearner": "Die Lerner-Reise durchlaufen",
+    "peekFacilitator": "Sehen, wie Trainer:innen Kohorten begleiten",
+    "peekAdmin": "Admin- und DSGVO-Kontrollen ansehen",
+    "peekContent": "Inhalte im CMS verfassen"
+  },
+  "roles": {
+    "learner": "Lernende:r",
+    "facilitator": "Trainer:in",
+    "admin": "Admin",
+    "contentEditor": "Inhalts-Redaktion",
+    "content": "Inhalts-Redaktion",
+    "learnerDesc": "Die junge Person, die die Reise geht",
+    "facilitatorDesc": "Der Coach, der beobachtet und bestätigt",
+    "adminDesc": "Organisations-Eigentümer:in, betreut Kohorten und DSGVO",
+    "contentEditorDesc": "Partner-Redaktion, schreibt Kurse im CMS",
+    "contentDesc": "Partner-Redaktion, schreibt Kurse im CMS"
+  },
+  "skillClusters": {
+    "communicationEi": "Kommunikation & Emotionale Intelligenz",
+    "resilience": "Resilienz",
+    "teamwork": "Teamarbeit",
+    "problemSolving": "Problemlösung",
+    "adaptability": "Anpassungsfähigkeit",
+    "leadership": "Führung",
+    "initiative": "Eigeninitiative",
+    "communicationEiShort": "Komm. & EI",
+    "resilienceShort": "Resilienz",
+    "teamworkShort": "Teamarbeit",
+    "problemSolvingShort": "Problemlösung",
+    "adaptabilityShort": "Anpassung",
+    "leadershipShort": "Führung",
+    "initiativeShort": "Initiative"
+  },
+  "a11y": {
+    "title": "Lesehilfe",
+    "fontSize": "Schriftgröße",
+    "sizeNormal": "Normal",
+    "sizeLarge": "Groß",
+    "sizeExtraLarge": "Sehr groß",
+    "dyslexia": "Leicht-Lese-Schrift",
+    "contrast": "Hoher Kontrast",
+    "open": "Lesehilfe öffnen",
+    "close": "Lesehilfe schließen"
+  },
+  "dashboard": {
+    "greeting": "Willkommen zurück",
+    "yourJourney": "Deine Reise",
+    "currentMission": "Aktuelle Mission",
+    "missionFeed": "Was als Nächstes kommt",
+    "badges": "Abzeichen",
+    "badgesNone": "Noch keine Abzeichen — schließe dein erstes Szenario ab, um zu starten.",
+    "skillMap": "Deine Skill-Karte",
+    "skillMapHint": "Tippe auf eine Fähigkeit, um deine Kurse zu sehen",
+    "openCourse": "Kurs öffnen",
+    "resumeCourse": "Fortsetzen",
+    "completed": "Abgeschlossen",
+    "inProgress": "Läuft gerade",
+    "minutesLeft": "Noch {count} Min.",
+    "compCard": "Deine Comp Card",
+    "compCardHint": "Eine kurze Aufzeichnung dessen, was du geübt und gelernt hast. Sie gehört dir.",
+    "openCompCard": "Comp Card öffnen"
+  },
+  "mission": {
+    "workplaceConflictTitle": "Probiere eine kleine, aber echte Situation",
+    "workplaceConflictHint": "20 Minuten. Mobiltauglich. Keine Noten. Du kannst pausieren."
+  },
+  "course": {
+    "stageLabel": {
+      "context": "Kontext",
+      "concept": "Skill-Konzept",
+      "behaviour": "Verhaltens-Modell",
+      "simulation": "Geführte Übung",
+      "scenario": "Anwendung",
+      "reflection": "Reflexion",
+      "assessment": "Schnellcheck"
+    },
+    "stageSubtitle": {
+      "context": "Worum geht es",
+      "concept": "Was die Fähigkeit ist",
+      "behaviour": "Wie es aussieht",
+      "simulation": "Probiere einen Schritt",
+      "scenario": "Der ganze Moment",
+      "reflection": "Rückblick",
+      "assessment": "Kurzer Check"
+    },
+    "workplaceConflict": {
+      "title": "Einen kleinen Konflikt am Arbeitsplatz meistern",
+      "cluster": "Kommunikation & Emotionale Intelligenz",
+      "tagline": "20 Minuten · keine Noten · du kannst jederzeit pausieren",
+      "context": {
+        "title": "Drei Wochen im neuen Job",
+        "narrative": "Du arbeitest seit drei Wochen in einem kleinen Stadtteil-Café. Das Team besteht meist aus jungen Leuten wie dir. Sam, der ein paar Wochen vor dir angefangen hat, macht spitze Bemerkungen über dich — manchmal vor Kund:innen. Heute sagte Sam: \"Vorsicht, die Langsame ist an der Kasse.\" Du hast es weggelacht. Aber dir hat es einen Stich gegeben. Die Schicht läuft noch. Was als Nächstes passiert, liegt bei dir.",
+        "anchor": "Wir gehen das gemeinsam durch, Schritt für Schritt."
+      },
+      "concept": {
+        "title": "Reden, ohne dass es schlimmer wird",
+        "body1": "Konflikt bei der Arbeit ist normal. Wichtig ist nicht, ihn zu vermeiden — sondern so zu reagieren, dass die Situation nicht eskaliert und du dich auch nicht selbst verschließt.",
+        "body2": "Zwei kleine Fähigkeiten tragen das meiste:",
+        "point1": "Bemerken, was du wirklich fühlst, bevor du reagierst.",
+        "point2": "Es klar sagen, ohne die andere Person zu beschuldigen.",
+        "body3": "Damit löst sich nicht jeder Konflikt. Aber du bekommst eine Chance, im Gespräch zu bleiben, statt es zu verlassen — oder schlimmer zu machen."
+      },
+      "behaviour": {
+        "title": "So sieht das aus",
+        "intro": "Ein nützliches Muster ist die Ich-Botschaft:",
+        "formula": "Wenn X passiert, fühle ich Y, und ich hätte gern Z.",
+        "compareLabel": "Vergleiche diese beiden Antworten an Sam:",
+        "blamingLabel": "Vorwurfsvoll",
+        "blaming": "\"Du bist so unhöflich. Hör auf, ein Idiot zu sein.\"",
+        "iStatementLabel": "Ich-Botschaft",
+        "iStatement": "\"Wenn du solche Bemerkungen vor Kund:innen machst, fühle ich mich blamiert. Ich würde es lieber direkt mit dir besprechen.\"",
+        "closing": "Die zweite klagt nicht an, eskaliert nicht und zieht sich auch nicht zurück. Sie sagt einfach, was bei dir los ist."
+      },
+      "simulation": {
+        "title": "Probiere einen kleinen Schritt",
+        "prompt": "Deine Kollegin sagt: \"Schau mal, wer endlich aufgetaucht ist\", als du vier Minuten zu spät kommst, weil der Bus Verspätung hatte. Du…",
+        "instruction": "Wähle die Antwort, die sich am stärksten anfühlt — es gibt eine beste Antwort, aber kein falsches Denken.",
+        "options": {
+          "blame": "\"Du nervst mich ständig. Lass mich in Ruhe.\"",
+          "shrink": "\"Sorry, sorry, das wird nicht mehr passieren.\"",
+          "iStatement": "\"Der Bus war zu spät. Wenn du 'endlich' sagst, fühle ich mich vorgeführt. Ich würde lieber einfach guten Morgen sagen.\"",
+          "avoid": "Nichts — du gehst stumm vorbei."
+        },
+        "feedback": {
+          "blame": "Das schiebt zurück, fühlt sich kurz gut an — aber es lässt euch beide defensiv stehen, und die nächste Schicht wird angespannt.",
+          "shrink": "Höflich, aber du hast nicht gesagt, was wirklich war. Du wirst das Gefühl wahrscheinlich den ganzen Tag mitschleppen.",
+          "iStatement": "Starke Wahl. Du hast benannt, was passiert ist und was du dir wünschst, ohne anzugreifen. Das gibt der anderen Person eine echte Chance zu reagieren.",
+          "avoid": "Manchmal ist Schweigen das Richtige. Aber hier lässt es die Bemerkung hängen — und dein Körper trägt sie weiter."
+        },
+        "tryAgain": "Andere probieren"
+      },
+      "scenario": {
+        "title": "Der größere Moment",
+        "setup": "Mittagsstoßzeit. Sam murmelt etwas über dich zu einem Stammkunden. Der Kunde lacht unsicher. Du stehst hinter der Kasse.",
+        "question": "Was machst du?",
+        "choices": {
+          "confront": "Sam vor dem Kunden zurechtweisen",
+          "ignore": "Still bleiben und weiterarbeiten",
+          "private": "Auf einen ruhigen Moment warten, dann mit Sam unter vier Augen reden",
+          "manager": "Direkt zur Chefin gehen"
+        },
+        "outcomes": {
+          "confront": "Sam wird still, aber du spürst die Spannung den Rest der Schicht. Der Kunde sieht unwohl aus. Am Ende des Tages verabschiedet sich Sam nicht. Am nächsten Morgen fragt die Chefin, was passiert ist.",
+          "ignore": "Du spürst etwas Heißes in der Brust. Bis zum Schichtende bist du erschöpft, weil du es zurückhältst. Auf dem Heimweg im Bus spielst du den Moment wieder durch.",
+          "private": "Du wartest 20 Minuten. Der Andrang lässt nach. Du erwischst Sam im Lager: \"Hey — als du vorhin das gesagt hast, hat sich das wie ein Tritt angefühlt. Können wir reden?\" Sam sieht überrascht aus: \"So war das nicht gemeint. Ich habe nur rumgealbert. Sorry.\"",
+          "manager": "Die Chefin hört zu, sagt aber: \"Du solltest zuerst mit Sam sprechen.\" Jetzt fühlst du dich genervt und festgefahren."
+        },
+        "followupQ": "Was machst du als Nächstes?",
+        "followup": {
+          "confrontExplain": "Ruhig erklären, was passiert ist",
+          "confrontDefensive": "Defensiv werden — \"Sam hat angefangen\"",
+          "confrontBrush": "Sagen, es war nichts",
+          "ignoreTalk": "Vornehmen, morgen mit Sam zu sprechen",
+          "ignoreSlide": "Es ziehen lassen",
+          "ignoreShift": "Die Chefin um andere Schichten bitten",
+          "privateAccept": "Die Entschuldigung annehmen und weitermachen",
+          "privateAskStop": "Annehmen und Sam bitten, es nicht zu wiederholen",
+          "privateBoundary": "Sam sagen, es ist okay, aber du möchtest ab jetzt direkt angesprochen werden",
+          "managerTalk": "Doch noch mit Sam sprechen",
+          "managerAvoid": "Beide den Rest der Woche meiden",
+          "managerBack": "Nochmal zur Chefin gehen und drauf bestehen"
+        },
+        "followupOutcomes": {
+          "confrontExplain": "Die Chefin nickt. \"Nächstes Mal löse es ohne Szene. Aber danke, dass du es mir sagst.\" Es ist noch nicht erledigt, aber auch nicht verloren.",
+          "confrontDefensive": "Die Chefin sieht müde aus. \"Mich interessiert nicht, wer angefangen hat. Es soll aufhören.\" Du gehst dich kleiner fühlend raus.",
+          "confrontBrush": "Die Chefin geht weiter, aber du weißt, dass es nicht nichts war.",
+          "ignoreTalk": "Du schläfst eine Nacht drüber. Am nächsten Tag triffst du Sam im Pausenraum. Das Gespräch ist holprig, aber am Ende sagt Sam: \"Ja, hätte ich nicht machen sollen.\"",
+          "ignoreSlide": "Du lässt es gehen. Zwei Wochen später passiert es wieder. Du fragst dich, warum du immer hier landest.",
+          "ignoreShift": "Die Chefin sagt, sie schaut, was geht. Das Team merkt es. Es kostet dich etwas.",
+          "privateAccept": "Die Entschuldigung landet. Die nächste Schicht ist leichter. Du bist stolz, dass du es ausgesprochen hast.",
+          "privateAskStop": "Sam nimmt es auf. Die Dynamik verschiebt sich. Ihr arbeitet besser zusammen.",
+          "privateBoundary": "Du bist klar, ohne wütend zu sein. Sam respektiert es. Beim nächsten Mal fängt Sam sich rechtzeitig.",
+          "managerTalk": "Du sprichst Sam später am Tag doch noch an. Es ist schwerer als es früher gewesen wäre — aber du machst es. Sam hört zu.",
+          "managerAvoid": "Bis Freitag liegt die Luft schwer. Du verbringst das Wochenende mit Montagsangst.",
+          "managerBack": "Die Chefin bleibt klar: \"Ich führe dieses Gespräch nicht für dich.\" Du gehst ohne Lösung raus."
+        },
+        "summaryLabel": "Was gerade passiert ist",
+        "qualityBest": "Ein starker Schritt",
+        "qualityOkay": "Ein machbarer Schritt",
+        "qualityPoor": "Ein Schritt, der dich etwas kostet"
+      },
+      "reflection": {
+        "title": "Rückblick",
+        "intro": "Diese Fragen sind nur für dich. Nichts hier wird benotet. Du kannst Felder leer lassen.",
+        "prompt1": "Was hast du in deinem Körper bemerkt, in den schwierigeren Momenten?",
+        "prompt2": "Was war der schwerste Teil im Szenario?",
+        "prompt3": "Was würdest du beim nächsten Mal anders versuchen?",
+        "placeholder1": "Es kann ein Wort sein, ein Gefühl oder ein Satz.",
+        "placeholder2": "Sei ehrlich — nur du siehst das, wenn du es nicht teilen willst.",
+        "placeholder3": "Auch eine kleine Veränderung zählt."
+      },
+      "assessment": {
+        "title": "Schnellcheck",
+        "intro": "Drei kurze Fragen. Kein Test — nur eine Art, das Gelernte festzuhalten.",
+        "q1": {
+          "question": "Was macht eine Ich-Botschaft?",
+          "a": "Sagt der anderen Person, was sie falsch gemacht hat",
+          "b": "Beschreibt, was du gefühlt hast und was du dir wünschst",
+          "c": "Vermeidet die Situation komplett",
+          "d": "Erzwingt eine Entschuldigung"
+        },
+        "q2": {
+          "question": "Was ist der erste Schritt, bevor du auf einen angespannten Moment reagierst?",
+          "a": "Entscheiden, was du sagen willst",
+          "b": "Bemerken, was du fühlst",
+          "c": "Die Chefin fragen",
+          "d": "Weggehen"
+        },
+        "q3": {
+          "question": "Warum hilft es, auf einen ruhigen Moment zu warten?",
+          "a": "Es vermeidet das Gespräch",
+          "b": "Beide werden gehört, ohne Publikum",
+          "c": "Die andere Person vergisst, was sie gesagt hat",
+          "d": "Es zeigt, dass es dir egal ist"
+        },
+        "submit": "Antworten prüfen",
+        "score": "Du hast {correct} von {total} richtig.",
+        "scoreEncouragement": {
+          "all": "Schön gemacht. Du hast das Muster drin.",
+          "most": "Stark. Das Muster sitzt.",
+          "some": "Ein Anfang. Lies das Verhaltensmodell nochmal — der Rest klickt dann.",
+          "none": "Passiert. Tritt einen Schritt zurück, schau nochmal und probiere das Szenario erneut. Keine Note hängt dran."
+        },
+        "correctLabel": "Richtig",
+        "incorrectLabel": "Nochmal"
+      },
+      "completion": {
+        "title": "Kurs abgeschlossen",
+        "body": "Du bist die ganze Sequenz gegangen — Kontext, Konzept, Verhalten, Übung, Szenario, Reflexion, Check. Das Abzeichen gehört dir. Deine Comp Card wartet.",
+        "badgeUnlocked": "Abzeichen freigeschaltet",
+        "badgeName": "Stimme ohne Kanten",
+        "badgeMeaning": "Hat geredet, ohne zu eskalieren oder sich klein zu machen",
+        "openCompCard": "Comp Card öffnen",
+        "backToDashboard": "Zum Dashboard"
+      }
+    }
+  },
+  "compCard": {
+    "title": "Comp Card",
+    "subtitle": "Kurz, strukturiert, immer deine.",
+    "courseLabel": "Aus",
+    "dateLabel": "Datum",
+    "fieldWentWell": "Was gut lief",
+    "fieldDifficult": "Was schwer war",
+    "fieldImprove": "Was ich beim nächsten Mal probiere",
+    "fieldScenario": "Szenario, das ich abgeschlossen habe",
+    "fieldFeedback": "Feedback, das ich bekommen habe",
+    "fieldBehaviour": "Ein Verhalten, das ich gezeigt habe",
+    "fieldConfidence": "Wie zuversichtlich ich mich jetzt fühle (1–5)",
+    "privacyLabel": "Wer diese Comp Card sehen darf",
+    "privacyChoice": {
+      "self": "Nur ich",
+      "facilitator": "Ich und meine Trainer:in",
+      "facilitatorAndMentor": "Ich, meine Trainer:in und Mentor:in"
+    },
+    "downloadPdf": "Als PDF herunterladen",
+    "printPdf": "Comp Card drucken",
+    "saved": "Gespeichert",
+    "saving": "Speichert…",
+    "placeholder": {
+      "wentWell": "Auch kleine Erfolge zählen.",
+      "difficult": "Sei ehrlich — nichts hier geht irgendwo hin, wo du es nicht willst.",
+      "improve": "Eine Sache.",
+      "behaviour": "Was hast du wirklich gemacht, worauf du stolz bist?"
+    },
+    "evidencePulled": "Aus deinem Szenario übernommen:",
+    "confidenceLabels": {
+      "1": "Gar nicht",
+      "2": "Wenig",
+      "3": "Etwas",
+      "4": "Ziemlich",
+      "5": "Sehr"
+    }
+  },
+  "gamification": {
+    "missionStarted": "Mission gestartet",
+    "missionComplete": "Mission abgeschlossen",
+    "badgeUnlocked": "Abzeichen freigeschaltet",
+    "progressUp": "Fortschritt aktualisiert",
+    "noLeaderboards": "Hier gibt es keine Bestenlisten. Dein Fortschritt gehört dir."
+  },
+  "facilitator": {
+    "title": "Trainer:innen-Arbeitsplatz",
+    "cohortLabel": "Kohorte",
+    "cohortName": "Berlin Pilot · Frühjahr 2026",
+    "learnersLabel": "Lernende",
+    "activeNow": "Aktiv in den letzten 24h",
+    "compCardSubmissions": "Eingereichte Comp Cards",
+    "needsAttention": "Braucht Aufmerksamkeit",
+    "viewLearner": "Lernende:n öffnen",
+    "observationTitle": "Beobachtungsnotiz",
+    "observationPlaceholder": "Was hast du im Rollenspiel bemerkt? Verhalten, nicht Charakter.",
+    "validateLabel": "Diesen Nachweis bestätigen",
+    "validateHint": "Hält fest, dass du die Kompetenz in der Praxis beobachtet hast.",
+    "redacted": "Von Lernender:m ausgeblendet",
+    "redactedHint": "Die lernende Person hat dieses Feld nicht mit dir geteilt.",
+    "scriptsLibrary": "Skripte & Anpassungsnotizen"
+  },
+  "admin": {
+    "title": "Admin-Dashboard",
+    "users": "Nutzer:innen",
+    "cohorts": "Kohorten",
+    "organisations": "Organisationen",
+    "gdpr": "DSGVO-Selbstbedienung",
+    "auditLog": "Audit-Log",
+    "anonymisedNote": "Alle Reporting-Metriken sind standardmäßig anonymisiert."
+  },
+  "content": {
+    "title": "Inhalte verfassen",
+    "cmsNote": "In Produktion öffnet das Strapi CMS. Die Demo zeigt die Struktur, in der eure Redaktionen arbeiten werden.",
+    "modelCourse": "Kurs",
+    "modelScenario": "Szenario",
+    "modelCompCard": "Comp Card-Vorlage",
+    "modelMission": "Mission",
+    "modelBadge": "Abzeichen"
+  }
+}

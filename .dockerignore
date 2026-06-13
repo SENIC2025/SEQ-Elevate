@@ -1,0 +1,16 @@
+node_modules
+.next
+.git
+.env*
+!.env.example
+cms
+npm-debug.log*
+README.md
+HANDOVER.md
+BUILDLOG.md
+STORYBOOK.md
+DECISIONS.md
+.vercel
+*.tsbuildinfo
+coverage
+.DS_Store

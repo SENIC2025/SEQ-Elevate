@@ -1,0 +1,136 @@
+@import "tailwindcss";
+
+/* ----- SEQ Elevate design tokens — palette from seqelevate.eu ----- */
+
+:root {
+  /* Neutrals — cool gray family from SEQ Elevate base palette */
+  --background: #fcfdf4;        /* primary-ultra-light: warm off-white that hints at the lime */
+  --surface: #ffffff;
+  --surface-muted: #f6f6f7;     /* base-ultra-light */
+  --border: #e4e4e8;            /* base-light */
+
+  --foreground: #2e2e3d;        /* base-ultra-dark */
+  --muted-foreground: #4d4d66;  /* base */
+
+  /* Primary — the brand lime/yellow-green. Used as a SURFACE colour. */
+  --primary: #cad12c;
+  --primary-hover: #b6bc28;     /* primary-semi-dark */
+  --primary-foreground: #2e2e3d; /* dark text on lime — passes WCAG AAA */
+
+  /* Accent — purple. Used for actionable surfaces with white text. */
+  --accent: #7467ae;            /* secondary */
+  --accent-hover: #5d528b;      /* secondary-dark */
+  --accent-foreground: #ffffff;
+
+  /* Tertiary — rose-purple. Available for highlights / illustrations. */
+  --tertiary: #b575ae;
+  --tertiary-dark: #915e8b;
+
+  /* Logo gradient stops — for hero / celebratory surfaces */
+  --warm-1: #f9a46b;
+  --warm-2: #ef5695;
+  --warm-3: #c04e9d;
+  --warm-4: #58429a;
+  --cool-1: #5cc099;
+  --cool-2: #2abec4;
+  --cool-3: #3596d3;
+  --cool-4: #426fb6;
+
+  --success: #15803d;
+  --warning: #b45309;
+  --danger: #b91c1c;
+
+  --ring: rgba(116, 103, 174, 0.45);  /* purple focus ring */
+
+  --radius: 0.75rem;
+
+  --font-sans: var(--font-inter), system-ui, -apple-system, sans-serif;
+  --font-dyslexic: "OpenDyslexic", var(--font-inter), system-ui, sans-serif;
+
+  --font-scale: 1;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-muted: var(--surface-muted);
+  --color-border: var(--border);
+  --color-foreground: var(--foreground);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-tertiary: var(--tertiary);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+  --color-ring: var(--ring);
+  --radius: var(--radius);
+  --font-sans: var(--font-sans);
+}
+
+html[data-dyslexic="true"] {
+  --font-sans: var(--font-dyslexic);
+}
+
+html[data-contrast="true"] {
+  --background: #ffffff;
+  --surface: #ffffff;
+  --surface-muted: #f1f1f1;
+  --border: #000000;
+  --foreground: #000000;
+  --muted-foreground: #1a1a1a;
+  --primary: #797d1a;            /* primary-ultra-dark — accessible lime-derived */
+  --primary-foreground: #ffffff;
+  --accent: #463e68;             /* secondary-ultra-dark */
+  --accent-foreground: #ffffff;
+  --ring: rgba(0, 0, 0, 0.7);
+}
+
+html[data-font-size="lg"] {
+  --font-scale: 1.125;
+}
+html[data-font-size="xl"] {
+  --font-scale: 1.25;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  font-size: calc(1rem * var(--font-scale));
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+*:focus-visible {
+  outline: 3px solid var(--ring);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+#comp-card-print {
+  display: none;
+}
+
+@media print {
+  body {
+    background: #fff !important;
+  }
+  body * {
+    visibility: hidden;
+  }
+  #comp-card-print,
+  #comp-card-print * {
+    visibility: visible;
+  }
+  #comp-card-print {
+    display: block !important;
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    background: #fff;
+  }
+}

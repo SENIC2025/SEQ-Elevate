@@ -1,0 +1,59 @@
+# Local development infrastructure for SEQ Elevate platform.
+#
+# Production runs on Hetzner Cloud (see DECISIONS.md · D1).
+# This compose file is for local dev convenience only — same Postgres
+# major version, same Strapi version, so schema and migrations behave
+# identically locally and in production.
+#
+# Usage:
+#   docker compose up -d        # start everything in the background
+#   docker compose down         # stop
+#   docker compose logs -f      # tail logs
+#
+# DB connection from the Next.js app:
+#   DATABASE_URL=postgresql://seqelevate:seqelevate@localhost:5432/seqelevate?schema=public
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: seq-elevate-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: seqelevate
+      POSTGRES_PASSWORD: seqelevate
+      POSTGRES_DB: seqelevate
+    ports:
+      - "5432:5432"
+    volumes:
+      - seq-elevate-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U seqelevate -d seqelevate"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Strapi will land here in Week 0 Day 4 (task #20).
+  # Keeping the service stub commented so the compose file already
+  # declares the network topology we'll use in production.
+  #
+  # strapi:
+  #   image: strapi/strapi:latest
+  #   container_name: seq-elevate-strapi
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+  #   environment:
+  #     DATABASE_CLIENT: postgres
+  #     DATABASE_HOST: postgres
+  #     DATABASE_PORT: 5432
+  #     DATABASE_NAME: strapi
+  #     DATABASE_USERNAME: seqelevate
+  #     DATABASE_PASSWORD: seqelevate
+  #   ports:
+  #     - "1337:1337"
+  #   volumes:
+  #     - ./strapi:/srv/app
+
+volumes:
+  seq-elevate-pgdata:
+    name: seq-elevate-pgdata
