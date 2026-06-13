@@ -317,3 +317,66 @@ describe("guest progress migrates to the DB on sign-in", () => {
     expect(badge?.badge.slug, "guest badge migrated").toBe("voice-without-edges");
   });
 });
+
+describe("accessibility preferences persist to the account", () => {
+  const email = "e2e-a11y@example.com";
+  let userId: string;
+  let sessionToken: string;
+
+  test.beforeAll(async () => {
+    await prisma.user.deleteMany({ where: { email } });
+    const user = await prisma.user.create({
+      data: { email, emailVerified: new Date() },
+    });
+    userId = user.id;
+    sessionToken = `e2e-a11y-${Date.now()}`;
+    await prisma.session.create({
+      data: {
+        sessionToken,
+        userId,
+        expires: new Date(Date.now() + 86_400_000),
+      },
+    });
+  });
+
+  test.afterAll(async () => {
+    await prisma.user.deleteMany({ where: { email } });
+  });
+
+  test("reading-help settings save to the User and survive a reload", async ({
+    page,
+    context,
+  }) => {
+    await context.addCookies([
+      {
+        name: "authjs.session-token",
+        value: sessionToken,
+        domain: "localhost",
+        path: "/",
+        httpOnly: true,
+        sameSite: "Lax",
+      },
+    ]);
+    await page.goto("/en/learner");
+    await expect(page.getByText(email)).toBeVisible();
+
+    // Open the reading-help toolbar and change two settings.
+    await page.getByRole("button", { name: /open reading help/i }).click();
+    await page.getByRole("button", { name: "Extra large" }).click();
+    await page.getByText("Easy-read font").click();
+
+    // Let the debounced DB save flush.
+    await page.waitForTimeout(1500);
+
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    expect(user?.fontSize, "font size saved").toBe("xl");
+    expect(user?.dyslexic, "easy-read font saved").toBe(true);
+
+    // They load back from the DB on a fresh page (not just localStorage).
+    await page.reload();
+    await page.getByRole("button", { name: /open reading help/i }).click();
+    await expect(
+      page.getByRole("button", { name: "Extra large" })
+    ).toHaveAttribute("aria-pressed", "true");
+  });
+});
