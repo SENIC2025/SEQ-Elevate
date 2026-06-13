@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { useSession } from "next-auth/react";
+import { useRouter } from "next/navigation";
 import { useLocale } from "next-intl";
 import {
   ensureLearnerMembership,
@@ -263,6 +264,7 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
   const [dbReady, setDbReady] = React.useState(false);
 
   const { status } = useSession();
+  const router = useRouter();
   const locale = useLocale() as Locale;
   const authed = status === "authenticated";
 
@@ -285,15 +287,94 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
         await ensureLearnerMembership();
         const global = await loadLearnerGlobal();
         if (cancelled) return;
-        if (global) {
-          dispatch({
-            type: "hydrateGlobal",
-            compCard: global.compCard as CompCardData | null,
-            badges: global.badges,
-          });
-          persistedBadges.current = new Set(global.badges);
+
+        // One-time guest→DB migration: a learner who built progress as a
+        // guest (localStorage) and then signed in keeps that progress. The
+        // DB always wins on conflict — we only fill gaps the server has no
+        // data for. Runs before setDbReady(true) so the write-through
+        // effects below don't race the migration.
+        let mergedCompCard = (global?.compCard ?? null) as CompCardData | null;
+        let mergedBadges = global?.badges ?? [];
+        let migratedCourse: CourseProgress | null = null;
+        let migratedAnything = false;
+        try {
+          const raw = window.localStorage.getItem(STORAGE_KEY);
+          if (raw) {
+            // Remove first, so a re-run (StrictMode, second tab) can't
+            // double-migrate.
+            window.localStorage.removeItem(STORAGE_KEY);
+            const guest = JSON.parse(raw) as DemoState;
+            const enrolled = new Map(
+              (global?.enrollments ?? []).map((e) => [e.slug, e])
+            );
+
+            // Badges: union. awardBadgeAction is idempotent.
+            const dbBadges = new Set(mergedBadges);
+            const newBadges = (guest.badges ?? []).filter((b) => !dbBadges.has(b));
+            for (const slug of newBadges) await awardBadgeAction(slug);
+            if (newBadges.length) {
+              mergedBadges = [...mergedBadges, ...newBadges];
+              migratedAnything = true;
+            }
+
+            // Comp Card: migrate only if the learner has none server-side.
+            if (!mergedCompCard && guest.compCard?.updatedAt) {
+              await saveCompCard({
+                wentWell: guest.compCard.wentWell,
+                difficult: guest.compCard.difficult,
+                improve: guest.compCard.improve,
+                behaviour: guest.compCard.behaviour,
+                confidence: guest.compCard.confidence,
+                privacy: guest.compCard.privacy,
+              });
+              mergedCompCard = guest.compCard;
+              migratedAnything = true;
+            }
+
+            // Course: the guest store only holds the last-played course.
+            // Migrate it only if the DB has no progress for that course yet.
+            const gc = guest.course;
+            if (
+              gc?.courseSlug &&
+              gc.stagesCompleted.length > 0 &&
+              (enrolled.get(gc.courseSlug)?.stagesCompleted ?? 0) === 0
+            ) {
+              await saveCourseProgress(gc.courseSlug, {
+                stagesCompleted: gc.stagesCompleted,
+                simulation: gc.simulation,
+                scenario: {
+                  root: gc.scenario.root,
+                  followup: gc.scenario.followup,
+                },
+                reflection: gc.reflection,
+                assessment: gc.assessment,
+                completedAt: gc.completedAt,
+              });
+              migratedCourse = gc;
+              migratedAnything = true;
+            }
+          }
+        } catch {
+          /* best-effort — never block sign-in on a bad localStorage blob */
+        }
+        if (cancelled) return;
+
+        dispatch({
+          type: "hydrateGlobal",
+          compCard: mergedCompCard,
+          badges: mergedBadges,
+        });
+        persistedBadges.current = new Set(mergedBadges);
+        if (migratedCourse) {
+          // Reflect the migrated course immediately and mark it loaded so the
+          // course-load effect doesn't re-fetch (and clobber) it.
+          dispatch({ type: "hydrateCourse", course: migratedCourse });
+          loadedCourseRef.current = migratedCourse.courseSlug;
         }
         setDbReady(true);
+        // Server components (dashboard journey, facilitator) were rendered
+        // with pre-migration data — refresh them to pick up what we just wrote.
+        if (migratedAnything) router.refresh();
       } else {
         try {
           const raw = window.localStorage.getItem(STORAGE_KEY);
@@ -311,7 +392,7 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [status, authed]);
+  }, [status, authed, router]);
 
   // ---- Guest localStorage write-through ----
   React.useEffect(() => {

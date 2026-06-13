@@ -39,6 +39,8 @@ const CLUSTER_ICONS: Record<string, typeof MessageCircle> = {
 
 export interface EnrollmentSummary {
   slug: string;
+  /** Lowercased stage keys completed in this course (real DB data). */
+  stages: string[];
   stagesCompleted: number;
   totalStages: number;
   completed: boolean;
@@ -95,6 +97,12 @@ export function LearnerDashboard({
   const progressPct = Math.round((stagesDone / totalStages) * 100);
   const isInProgress = heroStatus.inProgress;
   const isCompleted = heroStatus.completed;
+
+  // Which specific stages of the hero course are done, for the journey
+  // checklist: real per-course DB data for authed users, demo-state for guests.
+  const heroStages: string[] = enrollments
+    ? (hero ? (enrollMap.get(hero.slug)?.stages ?? []) : [])
+    : state.course.stagesCompleted;
 
   // Badge slug → display info, from the course list.
   const badgeInfo = new Map<string, { name: string; meaning: string }>();
@@ -350,7 +358,7 @@ export function LearnerDashboard({
                 />
                 <ul className="mt-3 space-y-1.5">
                   {STAGES.map((stage) => {
-                    const done = state.course.stagesCompleted.includes(stage);
+                    const done = heroStages.includes(stage);
                     return (
                       <li key={stage} className="flex items-center gap-2 text-sm">
                         {done ? (

@@ -35,6 +35,9 @@ export async function getLearnerEnrollments() {
     });
     return rows.map((e) => ({
       slug: e.course.slug,
+      // Lowercased stage keys, so the dashboard checklist can show *which*
+      // stages are done (not just the count) without re-querying.
+      stages: e.stagesCompleted.map((s) => s.toLowerCase()),
       stagesCompleted: e.stagesCompleted.length,
       totalStages: TOTAL_STAGES,
       completed: !!e.completedAt,
