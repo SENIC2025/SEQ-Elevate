@@ -486,6 +486,29 @@
     "courseComplete": "Course complete",
     "dashboard": "Dashboard"
   },
+  "video": {
+    "regionLabel": "Lesson video",
+    "interactiveBadge": "{count, plural, one {# question} other {# questions}}",
+    "timelineHint": "This video pauses to ask you a quick question.",
+    "questionAt": "Question at {time}",
+    "quickQuestion": "Quick question",
+    "chooseAnswer": "Choose an answer",
+    "submit": "Submit",
+    "skip": "Skip",
+    "correct": "Correct",
+    "notQuite": "Not quite",
+    "continueWatching": "Continue watching",
+    "unsupported": "Your browser can't play this video.",
+    "demo": {
+      "title": "Watch: speaking up without blame",
+      "caption": "Placeholder clip — the consortium replaces this with their own lesson video in the CMS.",
+      "question": "An “I-statement” focuses on…",
+      "optBlame": "What the other person did wrong",
+      "optFeel": "What you felt and what you'd prefer",
+      "optWho": "Whose fault it is",
+      "explanation": "An I-statement names your experience and your need — it isn't an accusation."
+    }
+  },
   "compCard": {
     "title": "Comp Card",
     "subtitle": "Short, structured, always yours.",

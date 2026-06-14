@@ -486,6 +486,29 @@
     "courseComplete": "Kurs abgeschlossen",
     "dashboard": "Dashboard"
   },
+  "video": {
+    "regionLabel": "Lernvideo",
+    "interactiveBadge": "{count, plural, one {# Frage} other {# Fragen}}",
+    "timelineHint": "Dieses Video pausiert, um dir eine kurze Frage zu stellen.",
+    "questionAt": "Frage bei {time}",
+    "quickQuestion": "Kurze Frage",
+    "chooseAnswer": "Wähle eine Antwort",
+    "submit": "Absenden",
+    "skip": "Überspringen",
+    "correct": "Richtig",
+    "notQuite": "Nicht ganz",
+    "continueWatching": "Weiter ansehen",
+    "unsupported": "Dein Browser kann dieses Video nicht abspielen.",
+    "demo": {
+      "title": "Ansehen: ansprechen ohne Vorwürfe",
+      "caption": "Platzhalter-Clip – das Konsortium ersetzt ihn im CMS durch ein eigenes Lernvideo.",
+      "question": "Eine „Ich-Botschaft“ konzentriert sich auf …",
+      "optBlame": "Was die andere Person falsch gemacht hat",
+      "optFeel": "Was du gefühlt hast und was du dir wünschst",
+      "optWho": "Wer schuld ist",
+      "explanation": "Eine Ich-Botschaft benennt dein Erleben und dein Bedürfnis – sie ist kein Vorwurf."
+    }
+  },
   "compCard": {
     "title": "Comp Card",
     "subtitle": "Kurz, strukturiert, immer deine.",

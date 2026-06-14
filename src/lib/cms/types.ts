@@ -49,6 +49,42 @@ export interface AssessmentQuestion {
   correctOptionId: string;
 }
 
+/**
+ * A question shown at a moment in a video — "interactive video" / cue point.
+ * When playback reaches `atSeconds` the video pauses and the question pops up;
+ * answering resumes it. Formative (no grade), like the in-course checks.
+ */
+export interface VideoCue {
+  id: string;
+  /** When to pause and ask, in seconds from the start of the video. */
+  atSeconds: number;
+  question: string;
+  options: { id: string; text: string }[];
+  correctOptionId: string;
+  /** Shown after answering, regardless of right/wrong. */
+  explanation?: string;
+}
+
+/**
+ * A video block attached to a stage. The source is either a direct media
+ * file (an uploaded .mp4/.webm or any direct video URL) or a shared platform
+ * URL (YouTube). Optional `cues` turn it into an interactive video.
+ */
+export interface VideoContent {
+  /** "file" = native <video> (uploaded file or direct URL); "youtube" = YouTube embed. */
+  provider: "file" | "youtube";
+  /** Direct media URL (provider "file") or a YouTube watch/share URL or id ("youtube"). */
+  src: string;
+  /** Heading shown above the player. */
+  title?: string;
+  /** Poster/thumbnail image URL (provider "file"). */
+  poster?: string;
+  /** Short caption/transcript-link line under the player. */
+  caption?: string;
+  /** In-video questions, in any order (sorted by time at render). */
+  cues?: VideoCue[];
+}
+
 /** The narrative stages (context / concept / behaviour) carry free-form blocks. */
 export interface NarrativeBlock {
   /** "paragraph" | "list" | "callout" | "compare" — rendered generically */
@@ -63,6 +99,8 @@ export interface CourseStage {
   key: StageKey;
   title: string;
   subtitle?: string;
+  /** Optional video block (with interactive cues) rendered above the stage. */
+  video?: VideoContent;
   /** narrative stages */
   blocks?: NarrativeBlock[];
   /** simulation stage */

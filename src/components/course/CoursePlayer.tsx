@@ -14,6 +14,7 @@ import { ScenarioStage } from "./ScenarioStage";
 import { ReflectionStage } from "./ReflectionStage";
 import { AssessmentStage } from "./AssessmentStage";
 import { CompletionStage } from "./CompletionStage";
+import { InteractiveVideoPlayer } from "./InteractiveVideoPlayer";
 import type { CourseContent, CourseStage } from "@/lib/cms/types";
 import { ChevronLeft } from "lucide-react";
 
@@ -156,7 +157,15 @@ export function CoursePlayer({ course }: { course: CourseContent }) {
 
       {/* Current stage. Focus moves here on stage change so SR users hear
           the new content; in-stage feedback uses its own live regions. */}
-      <div key={current} ref={stageRef} tabIndex={-1} className="outline-none">
+      <div
+        key={current}
+        ref={stageRef}
+        tabIndex={-1}
+        className="outline-none space-y-4"
+      >
+        {currentStage?.video ? (
+          <InteractiveVideoPlayer video={currentStage.video} />
+        ) : null}
         {currentStage?.key === "context" ||
         currentStage?.key === "concept" ||
         currentStage?.key === "behaviour" ? (

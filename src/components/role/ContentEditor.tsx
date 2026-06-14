@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useProject } from "@/components/ProjectThemeProvider";
+import { VideoBlockAuthor } from "@/components/role/VideoBlockAuthor";
 import {
   BookOpen,
   Compass,
@@ -20,6 +21,7 @@ import {
   Lock,
   Sparkles,
   ArrowRight,
+  Film,
 } from "lucide-react";
 
 const MODELS = [
@@ -40,6 +42,18 @@ const MODELS = [
     Icon: Compass,
     name: "Scenario",
     fields: ["setup", "rootQuestion", "rootChoices[]", "followups[]", "outcomes[]", "qualityTags"],
+    status: "published",
+  },
+  {
+    id: "video",
+    Icon: Film,
+    name: "Interactive video",
+    fields: [
+      "source (upload | URL)",
+      "provider (file | youtube)",
+      "title, poster, caption",
+      "cues[] (atSeconds, question, options[], correct, explanation)",
+    ],
     status: "published",
   },
   {
@@ -162,6 +176,10 @@ export function ContentEditor() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Interactive video authoring — add a lesson video with in-video quiz */}
+      <h2 className="mt-8 mb-3 text-lg font-semibold">Add interactive video</h2>
+      <VideoBlockAuthor />
 
       {/* Content models */}
       <h2 className="mt-8 mb-3 text-lg font-semibold">Content models</h2>

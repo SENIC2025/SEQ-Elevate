@@ -167,6 +167,18 @@ If any decision slips past kickoff, the default ships and we revisit in Week 4.
 - Content updates, new courses, translation refresh are consortium-owned
 - Worth confirming explicitly so there are no Year-2 surprises
 
+### O9 · Video hosting / storage (interactive video)
+**Status**: Open · **Decide by**: before authors upload real lesson videos
+- The interactive-video feature is built (player + in-video quiz + authoring + CMS model). **URL and YouTube sources already work end-to-end** with no storage. The open question is where *uploaded files* are persisted.
+- This is a GDPR/data-residency decision: videos may feature identifiable vulnerable youth, so EU residency matters (same posture as the Neon EU DB choice, D11).
+- Options:
+  | Option | EU residency | Cost/infra | Notes |
+  |---|---|---|---|
+  | **Embed only** (YouTube/Vimeo unlisted) | provider-dependent | none | Consortium uploads to their own account; YouTube has ads/tracking concerns for minors, Vimeo cleaner. Zero storage for us. |
+  | **S3-compatible EU bucket** (Hetzner Object Storage, OVH, Cloudflare R2-EU) | ✅ | pay-as-you-go | Cleanest for self-hosted uploads; pairs with the Hetzner move (D1/D10). |
+  | **Vercel Blob** | ⚠️ US-default | free tier | Fastest to wire on current staging, but residency needs checking before real learner videos. |
+- Default if undecided: **embed/URL** sources at launch (already working); wire EU object storage for uploads when the Hetzner move lands.
+
 ---
 
 ## 📝 Notes & change requests

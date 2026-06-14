@@ -262,3 +262,18 @@ Signed-in learners can now exercise their data rights without emailing anyone �
 - `[BUILD]` i18n: new `account` namespace in EN/DE/EL (+ `common.account`).
 - `[BUILD]` E2E (DB-gated): export returns the user's own JSON + is audited; guest export → 401; account page (incl. the expanded delete-confirm form) passes axe (WCAG 2.2 AA); deletion erases the `User` and leaves an anonymised (`actorId=null`) `account.deleted` audit record.
 - `[VERIFY]` Build ✓ lint ✓ types ✓ 10 unit ✓ **16 E2E ✓** (8 DB-backed incl. 4 GDPR, stable ×2 vs Docker Postgres).
+
+---
+
+## Phase 5 — Interactive video (in-video questions)
+
+### Lesson videos + in-video quiz pop-ups (2026-06-14)
+Requested by the client: add videos to courses (upload or URL), and have a video pause mid-play to ask the learner a question. Built as "interactive video" / cue points. → `DECISIONS.md · O9` (video hosting)
+- `[BUILD]` Content model (`src/lib/cms/types.ts`): `VideoContent` (provider `file` | `youtube`, `src`, `title`, `poster`, `caption`, `cues[]`) + `VideoCue` (`atSeconds`, `question`, `options[]`, `correctOptionId`, `explanation`). A stage gains an optional `video` block.
+- `[BUILD]` `src/lib/video.ts` — pure helpers: `dueCue()` (which question to show now — earliest unanswered cue whose time is reached, so none are skipped on seek-forward), `parseYouTubeId()`, `formatTimecode()`, `detectProvider()`. 11 unit tests.
+- `[BUILD]` `InteractiveVideoPlayer` — two playback engines behind one UI: native `<video>` (uploaded file / direct URL, full cue control via `timeupdate`/`seeked`) and **YouTube** (IFrame API, polled). At a cue it pauses and shows an accessible quiz dialog (radio options, correct/incorrect feedback + explanation, Skip/Submit → Continue watching), then resumes. A timeline shows cue markers. Wired into `CoursePlayer` above any stage with a `video`.
+- `[BUILD]` Demo: the hero course's Concept stage carries a placeholder lesson clip (`public/demo/sample-lesson.webm`, ~1 MB, open-codec so it plays in real browsers *and* Playwright) with one cue tied to the I-statement concept. The consortium swaps src + cues per course.
+- `[BUILD]` **Authoring** (`VideoBlockAuthor`, embedded in the Content Editor): a working "Add interactive video" container — Upload file (object-URL preview) | Paste URL (auto-detects YouTube vs direct), title/caption, a cue editor (timestamp + question + 2–4 options + correct + explanation), and a **live preview** using the exact learner player. New `video` content model surfaced in the CMS schema list.
+- `[BUILD]` i18n: `video` namespace (UI + demo cue) in EN/DE/EL.
+- `[VERIFY]` New E2E (`e2e/interactive-video.spec.ts`): seeking past the cue pops the quiz, the video is paused, a wrong answer shows "Not quite" + explanation, Continue closes it; the popup passes axe (WCAG 2.2 AA). Build ✓ lint ✓ types ✓ **21 unit ✓ 18 E2E ✓**.
+- `[NOTE]` Uploads currently preview in-browser (object URL). Persisting an uploaded file to storage needs a hosting decision (EU/GDPR residency for a vulnerable-youth platform) — see `DECISIONS.md · O9`. URL/YouTube sources already work end-to-end with no storage.

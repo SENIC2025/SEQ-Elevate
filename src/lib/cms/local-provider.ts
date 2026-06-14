@@ -20,6 +20,7 @@ import type {
   CompCardTemplate,
   Locale,
   ScenarioChoice,
+  VideoContent,
 } from "./types";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -27,6 +28,41 @@ const MESSAGES: Record<Locale, any> = { en, de, el };
 
 function msgs(locale: Locale) {
   return MESSAGES[locale] ?? MESSAGES.en;
+}
+
+/**
+ * The demo interactive video for the hero course (workplace-conflict). A
+ * placeholder clip with one in-video quiz cue, so the consortium can see the
+ * mechanic; they replace src + cues in the CMS. Returns undefined for other
+ * courses so only the hero course shows it.
+ */
+function buildDemoVideo(
+  def: CourseDef,
+  locale: Locale
+): VideoContent | undefined {
+  if (def.id !== "workplace-conflict") return undefined;
+  const v = msgs(locale).video?.demo ?? msgs("en").video?.demo;
+  if (!v) return undefined;
+  return {
+    provider: "file",
+    src: "/demo/sample-lesson.webm",
+    title: v.title,
+    caption: v.caption,
+    cues: [
+      {
+        id: "concept-check",
+        atSeconds: 4,
+        question: v.question,
+        options: [
+          { id: "blame", text: v.optBlame },
+          { id: "feel", text: v.optFeel },
+          { id: "who", text: v.optWho },
+        ],
+        correctOptionId: "feel",
+        explanation: v.explanation,
+      },
+    ],
+  };
 }
 
 function buildCourse(def: CourseDef, locale: Locale): CourseContent {
@@ -51,6 +87,10 @@ function buildCourse(def: CourseDef, locale: Locale): CourseContent {
     if (key === "concept") {
       return {
         ...base,
+        // Demo interactive video on the hero course's teaching stage — shows
+        // the in-video quiz mechanic. The consortium swaps src + cues in the
+        // CMS for their own lesson videos.
+        video: buildDemoVideo(def, locale),
         blocks: [
           { kind: "paragraph", text: m.concept.body1 },
           { kind: "paragraph", text: m.concept.body2 },
