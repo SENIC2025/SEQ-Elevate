@@ -549,3 +549,84 @@ describe("GDPR self-service (export + erasure)", () => {
     expect(log?.actorId, "audit actor anonymised on erasure").toBeNull();
   });
 });
+
+describe("in-video quiz answers persist for signed-in learners", () => {
+  const email = "e2e-video@example.com";
+  let userId: string;
+  let sessionToken: string;
+
+  test.beforeAll(async () => {
+    await prisma.user.deleteMany({ where: { email } });
+    const u = await prisma.user.create({
+      data: { email, emailVerified: new Date() },
+    });
+    userId = u.id;
+    sessionToken = `e2e-video-${Date.now()}`;
+    await prisma.session.create({
+      data: {
+        sessionToken,
+        userId,
+        expires: new Date(Date.now() + 86_400_000),
+      },
+    });
+  });
+
+  test.afterAll(async () => {
+    await prisma.auditLog.deleteMany({ where: { actorId: userId } });
+    await prisma.user.deleteMany({ where: { email } });
+  });
+
+  test("answering an in-video question records a video.cue_answered event", async ({
+    page,
+    context,
+  }) => {
+    await context.addCookies([
+      {
+        name: "authjs.session-token",
+        value: sessionToken,
+        domain: "localhost",
+        path: "/",
+        httpOnly: true,
+        sameSite: "Lax",
+      },
+    ]);
+    await page.goto("/en/learner/course/workplace-conflict");
+
+    // context → concept
+    const concept = page.getByText(/watch: speaking up without blame/i);
+    await expect(async () => {
+      await page.getByRole("button", { name: /^continue$/i }).first().click();
+      await expect(concept).toBeVisible({ timeout: 2000 });
+    }).toPass({ timeout: 15000 });
+
+    // Trigger the in-video cue.
+    const video = page.getByTestId("lesson-video");
+    const dialog = page.getByRole("dialog");
+    await expect(async () => {
+      await video.evaluate((v: HTMLVideoElement) => {
+        v.currentTime = 6;
+      });
+      await expect(dialog).toBeVisible({ timeout: 1000 });
+    }).toPass({ timeout: 10000 });
+
+    // Answer correctly and resume.
+    await dialog.getByText("What you felt and what you'd prefer").click();
+    await dialog.getByRole("button", { name: /^submit$/i }).click();
+    await dialog.getByRole("button", { name: /continue watching/i }).click();
+
+    await page.waitForTimeout(1500);
+
+    const ev = await prisma.auditLog.findFirst({
+      where: {
+        actorId: userId,
+        action: "video.cue_answered",
+        entityId: "concept-check",
+      },
+    });
+    expect(ev, "video answer recorded").toBeTruthy();
+    expect(
+      (ev?.metadata as { correct?: boolean } | null)?.correct,
+      "correctness recorded"
+    ).toBe(true);
+  });
+});

@@ -73,6 +73,9 @@ export interface FacilitatorLearner {
     confidence: number;
     privacy: "self" | "facilitator" | "facilitatorAndMentor";
   } | null;
+  /** In-video quiz engagement (questions answered / answered correctly). */
+  videoAnswered: number;
+  videoCorrect: number;
 }
 
 /**
@@ -110,6 +113,28 @@ async function loadLearners(
     orderBy: { createdAt: "asc" },
   });
 
+  // In-video quiz engagement per learner (recorded as AuditLog events).
+  const learnerIds = memberships.map((m) => m.user.id);
+  const videoByUser = new Map<string, { answered: number; correct: number }>();
+  if (learnerIds.length) {
+    const events = await prisma.auditLog.findMany({
+      where: {
+        projectId: PROJECT,
+        action: "video.cue_answered",
+        actorId: { in: learnerIds },
+      },
+      select: { actorId: true, metadata: true },
+    });
+    for (const ev of events) {
+      if (!ev.actorId) continue;
+      const cur = videoByUser.get(ev.actorId) ?? { answered: 0, correct: 0 };
+      cur.answered += 1;
+      const md = ev.metadata as { correct?: boolean } | null;
+      if (md?.correct === true) cur.correct += 1;
+      videoByUser.set(ev.actorId, cur);
+    }
+  }
+
   // Resolve course content once per slug for scenario labels.
   const slugs = new Set<string>();
   for (const m of memberships)
@@ -146,6 +171,7 @@ async function loadLearners(
     const completed = enr.length > 0 && enr.every((e) => !!e.completedAt);
     const card = u.compCards[0] ?? null;
     const ev = enr.find((e) => e.scenarioRoot);
+    const video = videoByUser.get(u.id) ?? { answered: 0, correct: 0 };
     return {
       id: u.id,
       name: u.name ?? u.email ?? "Learner",
@@ -166,6 +192,8 @@ async function loadLearners(
             privacy: PRIVACY_FROM_DB[card.privacy],
           }
         : null,
+      videoAnswered: video.answered,
+      videoCorrect: video.correct,
     };
   });
 }

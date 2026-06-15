@@ -2,7 +2,9 @@
 
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useTranslations } from "next-intl";
+import { useSession } from "next-auth/react";
 import { Link } from "@/i18n/navigation";
+import { recordVideoCueAnswer } from "@/app/actions/video";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { STAGES, type Stage } from "@/data/course";
@@ -28,7 +30,18 @@ export function CoursePlayer({ course }: { course: CourseContent }) {
   const tStage = useTranslations("course.stageLabel");
 
   const { state, dispatch } = useDemoState();
+  const { status } = useSession();
   const [current, setCurrent] = useState<Stage | "complete">("context");
+
+  // Record in-video quiz answers for signed-in learners (engagement signal
+  // facilitators can see). Guests keep their answers client-side only.
+  const onCueAnswered = useCallback(
+    (cueId: string, correct: boolean) => {
+      if (status !== "authenticated") return;
+      void recordVideoCueAnswer({ courseSlug: course.slug, cueId, correct });
+    },
+    [status, course.slug]
+  );
 
   // Stage data lookup by key
   const stageByKey = new Map<string, CourseStage>(
@@ -164,7 +177,10 @@ export function CoursePlayer({ course }: { course: CourseContent }) {
         className="outline-none space-y-4"
       >
         {currentStage?.video ? (
-          <InteractiveVideoPlayer video={currentStage.video} />
+          <InteractiveVideoPlayer
+            video={currentStage.video}
+            onCueAnswered={onCueAnswered}
+          />
         ) : null}
         {currentStage?.key === "context" ||
         currentStage?.key === "concept" ||

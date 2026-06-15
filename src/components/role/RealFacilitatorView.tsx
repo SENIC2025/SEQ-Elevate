@@ -16,6 +16,7 @@ import {
   EyeOff,
   MessageSquare,
   ArrowLeft,
+  Film,
 } from "lucide-react";
 
 /** Facilitator workspace backed by real DB learners (staff view). */
@@ -85,7 +86,19 @@ export function RealFacilitatorView({
               <Badge variant="primary">{selected.progressPct}%</Badge>
             </div>
 
-            <Progress value={selected.progressPct} className="mb-6" />
+            <Progress value={selected.progressPct} className="mb-4" />
+
+            {selected.videoAnswered > 0 ? (
+              <div className="mb-6 inline-flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] px-3 py-2 text-sm">
+                <Film className="h-4 w-4 text-[var(--accent)]" />
+                <span>
+                  {t("videoCheckins", {
+                    answered: selected.videoAnswered,
+                    correct: selected.videoCorrect,
+                  })}
+                </span>
+              </div>
+            ) : null}
 
             <h3 className="text-sm font-semibold mb-3">{tCard("title")}</h3>
 

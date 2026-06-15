@@ -568,7 +568,8 @@
     "validateHint": "Hält fest, dass du die Kompetenz in der Praxis beobachtet hast.",
     "redacted": "Von Lernender:m ausgeblendet",
     "redactedHint": "Die lernende Person hat dieses Feld nicht mit dir geteilt.",
-    "scriptsLibrary": "Skripte & Anpassungsnotizen"
+    "scriptsLibrary": "Skripte & Anpassungsnotizen",
+    "videoCheckins": "Video-Check-ins: {answered} beantwortet · {correct} richtig"
   },
   "admin": {
     "title": "Admin-Dashboard",

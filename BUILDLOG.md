@@ -292,3 +292,10 @@ An interactive video without captions fails **WCAG 2.2 SC 1.2.2 (Level A)** — 
 - `[BUILD]` `VideoCaptionTrack` (`src`, `label`, `lang`, `default`) added to `VideoContent`; the native player renders `<track kind="captions">` for each (with `crossOrigin="anonymous"` so cross-origin Blob/URL VTT loads). YouTube uses its own CC.
 - `[BUILD]` Authoring: a "Captions (WebVTT)" field in `VideoBlockAuthor` (upload `.vtt` or paste a URL + a language label), with a clear warning when none is set. Demo ships `public/demo/sample-lesson.en.vtt`, wired to the hero course's lesson video.
 - `[VERIFY]` E2E asserts the caption `<track>` renders. Build ✓ lint ✓ types ✓ 21 unit ✓ **19 E2E ✓**.
+
+### In-video quiz answers persist; facilitators see engagement (2026-06-15)
+The in-video questions now *count*: a signed-in learner's answers are recorded, and facilitators can see who's engaging with the videos.
+- `[BUILD]` `recordVideoCueAnswer` (`src/app/actions/video.ts`) writes an **AuditLog event** (`action: "video.cue_answered"`, `entityId: cueId`, `metadata: { courseSlug, correct }`), one row per (learner, cue), updated on re-answer. Chosen deliberately over a new `CourseEnrollment` column: the AuditLog table already exists on Neon and is built for event logging, so this ships with **zero schema migration** (Neon's pooler blocks Prisma migration locks; no auto-migrate on deploy — a new column would have meant a manual prod migration). Guests stay client-side only.
+- `[BUILD]` `CoursePlayer` wires `onCueAnswered` (gated to authenticated via `useSession`) into the player.
+- `[BUILD]` Facilitator view: `getProjectLearners` aggregates the events per learner; `RealFacilitatorView` shows "Video check-ins: N answered · M correct" on each learner's record (EN/DE/EL).
+- `[VERIFY]` DB-backed E2E: an authed learner answers the in-video question → a `video.cue_answered` AuditLog row exists with `metadata.correct = true`. Build ✓ lint ✓ types ✓ 21 unit ✓ **20 E2E ✓**.

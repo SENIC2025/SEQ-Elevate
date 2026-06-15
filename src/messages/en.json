@@ -568,7 +568,8 @@
     "validateHint": "Records that you observed this competence in practice.",
     "redacted": "Redacted by learner",
     "redactedHint": "The learner chose not to share this field with you.",
-    "scriptsLibrary": "Scripts & adaptation notes"
+    "scriptsLibrary": "Scripts & adaptation notes",
+    "videoCheckins": "Video check-ins: {answered} answered · {correct} correct"
   },
   "admin": {
     "title": "Admin dashboard",
