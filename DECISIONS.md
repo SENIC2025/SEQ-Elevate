@@ -114,6 +114,17 @@ Single source of truth for decisions made, decisions still open, and the rationa
 - Deletion clears the session cookie in the server action itself (not NextAuth `signOut`), since the cascade already removed the `Session` row — avoids a spurious `SignOutError` in production logs.
 - Does **not** close O7 (the Terms/Privacy/Cookie *copy* is still consortium counsel's) — it provides the technical mechanism those policies will point to. Flag at kickoff that the rights-exercise surface is already live.
 
+### D14 · Content / CMS — hybrid (DB now, Strapi later)
+**Decided**: 15 June 2026 · *Decider: client (SENIC principal)*
+- Authored content (courses, lessons, attached videos & documents) is persisted to the **Postgres DB now**, edited via an in-app content editor — no new infrastructure, works on the current Vercel + Neon staging immediately.
+- The swappable content client (`CMS_SOURCE=local|strapi`, see D9) is **kept**, so a Strapi instance on Hetzner can slot in later without reworking the app.
+- **Enabler**: production DB migrations now run automatically on deploy. Neon's pooled endpoint can't run Prisma migrations (advisory locks need a direct connection), so the Vercel build derives the **direct** Neon endpoint (drops `-pooler`) and runs `prisma migrate deploy` before `next build` (`prisma/migrate-deploy.mjs` via the `vercel-build` script). DB reads of new content are defensive (try/catch → fall back to bundled content) so a missing table never breaks the live site.
+
+### D15 · Moodle integration — scoped for later
+**Decided**: 15 June 2026 · *Decider: client (SENIC principal)*
+- Requirement noted; **not built now**. Three viable approaches when prioritised: **LTI 1.3** (Moodle as the front door, SSO + grade passback), **SCORM/xAPI export** (portable course packages + an LRS), or **Moodle Web-Services API sync** (users/cohorts/grades). Each is a sizable, separate workstream — revisit at/after kickoff with the consortium's actual Moodle usage in hand.
+- The platform is being built so these stay open: stable per-learner identity, project-scoped data, and an event log (AuditLog) that an xAPI/LRS bridge could emit from.
+
 ### O2 · The four open WP3 strategic decisions (PCR v2.0 §1.2)
 **Status**: Open · **Decide by**: end of kickoff (26 June 2026)
 

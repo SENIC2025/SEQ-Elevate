@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "vercel-build": "node prisma/migrate-deploy.mjs && next build",
     "start": "next start",
     "lint": "eslint",
     "db:up": "docker compose up -d postgres",
