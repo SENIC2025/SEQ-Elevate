@@ -16,6 +16,9 @@ import {
   HelpCircle,
   Eye,
   CheckCircle2,
+  Loader2,
+  CloudUpload,
+  AlertTriangle,
 } from "lucide-react";
 
 /**
@@ -60,6 +63,10 @@ export function VideoBlockAuthor() {
   const [src, setSrc] = React.useState("");
   const [fileName, setFileName] = React.useState<string | null>(null);
   const [fromUpload, setFromUpload] = React.useState(false);
+  const [uploadStatus, setUploadStatus] = React.useState<
+    "idle" | "uploading" | "stored" | "preview"
+  >("idle");
+  const [progress, setProgress] = React.useState(0);
   const [title, setTitle] = React.useState("");
   const [caption, setCaption] = React.useState("");
   const [cues, setCues] = React.useState<EditableCue[]>([]);
@@ -71,16 +78,35 @@ export function VideoBlockAuthor() {
     };
   }, []);
 
-  function onFile(e: React.ChangeEvent<HTMLInputElement>) {
+  async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0];
     if (!f) return;
     if (objectUrl.current) URL.revokeObjectURL(objectUrl.current);
-    const url = URL.createObjectURL(f);
-    objectUrl.current = url;
-    setSrc(url);
+    // Instant in-browser preview while (and whether or not) it uploads.
+    const localUrl = URL.createObjectURL(f);
+    objectUrl.current = localUrl;
+    setSrc(localUrl);
     setProvider("file");
     setFromUpload(true);
     setFileName(`${f.name} · ${(f.size / 1_048_576).toFixed(1)} MB`);
+
+    // Upload straight to Vercel Blob (client upload — large files bypass the
+    // serverless body limit). Falls back to preview-only if Blob isn't
+    // configured or the author isn't signed in as staff.
+    setProgress(0);
+    setUploadStatus("uploading");
+    try {
+      const { upload } = await import("@vercel/blob/client");
+      const blob = await upload(f.name, f, {
+        access: "public",
+        handleUploadUrl: "/api/video/upload",
+        onUploadProgress: (p) => setProgress(Math.round(p.percentage)),
+      });
+      setSrc(blob.url); // swap the preview to the persisted URL
+      setUploadStatus("stored");
+    } catch {
+      setUploadStatus("preview");
+    }
   }
 
   function onUrl(value: string) {
@@ -182,9 +208,42 @@ export function VideoBlockAuthor() {
                 />
               </label>
               {fileName ? (
-                <p className="mt-2 text-xs text-[var(--success)] flex items-center gap-1.5">
-                  <CheckCircle2 className="h-3.5 w-3.5" />
+                <p className="mt-2 text-xs text-[var(--foreground)] flex items-center gap-1.5">
+                  <CheckCircle2 className="h-3.5 w-3.5 text-[var(--success)]" />
                   {fileName}
+                </p>
+              ) : null}
+
+              {uploadStatus === "uploading" ? (
+                <div className="mt-2">
+                  <div
+                    className="h-1.5 rounded-full bg-[var(--surface-muted)] overflow-hidden"
+                    role="progressbar"
+                    aria-label="Upload progress"
+                    aria-valuenow={progress}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                  >
+                    <div
+                      className="h-full bg-[var(--accent)] transition-[width]"
+                      style={{ width: `${progress}%` }}
+                    />
+                  </div>
+                  <p className="mt-1 text-xs text-[var(--muted-foreground)] flex items-center gap-1.5">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    Uploading to storage… {progress}%
+                  </p>
+                </div>
+              ) : uploadStatus === "stored" ? (
+                <p className="mt-2 text-xs text-[var(--success)] flex items-center gap-1.5">
+                  <CloudUpload className="h-3.5 w-3.5" />
+                  Stored — this video is saved and will persist.
+                </p>
+              ) : uploadStatus === "preview" ? (
+                <p className="mt-2 text-xs text-[var(--muted-foreground)] flex items-start gap-1.5">
+                  <AlertTriangle className="h-3.5 w-3.5 text-[var(--warning)] flex-shrink-0 mt-0.5" />
+                  Preview only — sign in as a content editor (and connect Vercel
+                  Blob) to store the file. The video plays here meanwhile.
                 </p>
               ) : null}
             </div>

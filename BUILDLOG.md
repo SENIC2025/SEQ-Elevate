@@ -277,3 +277,11 @@ Requested by the client: add videos to courses (upload or URL), and have a video
 - `[BUILD]` i18n: `video` namespace (UI + demo cue) in EN/DE/EL.
 - `[VERIFY]` New E2E (`e2e/interactive-video.spec.ts`): seeking past the cue pops the quiz, the video is paused, a wrong answer shows "Not quite" + explanation, Continue closes it; the popup passes axe (WCAG 2.2 AA). Build ✓ lint ✓ types ✓ **21 unit ✓ 18 E2E ✓**.
 - `[NOTE]` Uploads currently preview in-browser (object URL). Persisting an uploaded file to storage needs a hosting decision (EU/GDPR residency for a vulnerable-youth platform) — see `DECISIONS.md · O9`. URL/YouTube sources already work end-to-end with no storage.
+
+### Video uploads wired to Vercel Blob (2026-06-15)
+Client chose Vercel Blob for uploaded lesson videos. → `DECISIONS.md · D13`
+- `[BUILD]` `POST /api/video/upload` (`@vercel/blob` client-upload flow, so large videos bypass the 4.5 MB serverless body limit). Gated in `onBeforeGenerateToken` to a signed-in **ADMIN / CONTENT_EDITOR**; restricted to `video/*` ≤ 500 MB; random suffix on the stored name.
+- `[BUILD]` `VideoBlockAuthor` now uploads on file-select: instant local preview, a progress bar while it uploads, then the preview swaps to the **persisted Blob URL** ("Stored ✓"). If Blob isn't configured or the author isn't staff, it falls back to **preview-only** (the video still plays) — graceful degradation, no hard failure.
+- `[SECURITY]` E2E: a guest POST to `/api/video/upload` is rejected (400) — no token minting without a staff session.
+- `[INFRA]` **Pending (client/Vercel dashboard)**: connect a Blob store to the Vercel project so `BLOB_READ_WRITE_TOKEN` is set, then redeploy — real uploads go live. ⚠️ Vercel Blob is US-default; confirm region/DPA before real learner videos (flagged for kickoff). Storage is pluggable — an EU S3 bucket later is an adapter swap.
+- `[VERIFY]` Build ✓ lint ✓ types ✓ 21 unit ✓ **19 E2E ✓** (incl. the upload-route guard).

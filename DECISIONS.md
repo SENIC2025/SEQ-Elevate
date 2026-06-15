@@ -167,17 +167,12 @@ If any decision slips past kickoff, the default ships and we revisit in Week 4.
 - Content updates, new courses, translation refresh are consortium-owned
 - Worth confirming explicitly so there are no Year-2 surprises
 
-### O9 · Video hosting / storage (interactive video)
-**Status**: Open · **Decide by**: before authors upload real lesson videos
-- The interactive-video feature is built (player + in-video quiz + authoring + CMS model). **URL and YouTube sources already work end-to-end** with no storage. The open question is where *uploaded files* are persisted.
-- This is a GDPR/data-residency decision: videos may feature identifiable vulnerable youth, so EU residency matters (same posture as the Neon EU DB choice, D11).
-- Options:
-  | Option | EU residency | Cost/infra | Notes |
-  |---|---|---|---|
-  | **Embed only** (YouTube/Vimeo unlisted) | provider-dependent | none | Consortium uploads to their own account; YouTube has ads/tracking concerns for minors, Vimeo cleaner. Zero storage for us. |
-  | **S3-compatible EU bucket** (Hetzner Object Storage, OVH, Cloudflare R2-EU) | ✅ | pay-as-you-go | Cleanest for self-hosted uploads; pairs with the Hetzner move (D1/D10). |
-  | **Vercel Blob** | ⚠️ US-default | free tier | Fastest to wire on current staging, but residency needs checking before real learner videos. |
-- Default if undecided: **embed/URL** sources at launch (already working); wire EU object storage for uploads when the Hetzner move lands.
+### D13 · Video hosting / storage — Vercel Blob (interactive video uploads)
+**Decided**: 15 June 2026 · *Decider: client (SENIC principal)*
+- File uploads in the interactive-video authoring UI persist to **Vercel Blob** (client-upload flow — large videos bypass the 4.5 MB serverless body limit). URL and YouTube sources work without any storage.
+- **Wired**: `POST /api/video/upload` issues a Blob client-upload token, gated to signed-in staff (ADMIN / CONTENT_EDITOR) and restricted to `video/*` ≤ 500 MB; `VideoBlockAuthor` uploads with a progress bar and swaps the preview to the persisted Blob URL. Without the token (or for guests) it falls back to in-browser preview-only — the feature degrades gracefully.
+- **One infra step remaining (client/Vercel dashboard)**: create a Blob store on the Vercel project → Vercel auto-adds **`BLOB_READ_WRITE_TOKEN`** to the env → redeploy. Real uploads then work in production.
+- **⚠️ GDPR follow-up**: Vercel Blob is US-default storage. Before real learner videos (identifiable vulnerable youth) go in, confirm the region/DPA or move uploads to an EU bucket. Acceptable for staging/kickoff demos; flag at kickoff alongside the DPIA (O6). The code is storage-pluggable — swapping to an S3-compatible EU bucket later is an adapter change, not a rewrite.
 
 ---
 

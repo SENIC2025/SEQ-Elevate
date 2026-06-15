@@ -52,6 +52,25 @@ test.describe("interactive video", () => {
     await expect(page.getByRole("dialog")).toHaveCount(0);
   });
 
+  test("the video upload endpoint rejects unauthenticated callers", async ({
+    request,
+  }) => {
+    // A guest must not be able to mint a Blob upload token.
+    const res = await request.post("/api/video/upload", {
+      data: {
+        type: "blob.generate-client-token",
+        payload: {
+          pathname: "lesson.mp4",
+          callbackUrl: "https://example.com/cb",
+          clientPayload: null,
+          multipart: false,
+        },
+      },
+    });
+    expect(res.ok()).toBeFalsy();
+    expect(res.status()).toBe(400);
+  });
+
   test("the quiz popup has no serious a11y violations", async ({ page }) => {
     await page.goto("/en/learner/course/workplace-conflict");
     const concept = page.getByText(/watch: speaking up without blame/i);
