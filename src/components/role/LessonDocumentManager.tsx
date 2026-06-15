@@ -8,6 +8,7 @@ import {
   getLessonMedia,
   addLessonDocument,
   removeLessonDocument,
+  setLessonDocumentOrder,
 } from "@/app/actions/lesson";
 import type { LessonDocumentRef } from "@/lib/cms/types";
 import {
@@ -17,6 +18,8 @@ import {
   Trash2,
   AlertTriangle,
   FolderOpen,
+  ChevronUp,
+  ChevronDown,
 } from "lucide-react";
 
 const ACCEPT =
@@ -83,6 +86,15 @@ export function LessonDocumentManager({
   async function onRemove(id: string) {
     await removeLessonDocument(id);
     await refresh();
+  }
+
+  async function move(index: number, dir: "up" | "down") {
+    const j = dir === "up" ? index - 1 : index + 1;
+    if (j < 0 || j >= docs.length) return;
+    const next = [...docs];
+    [next[index], next[j]] = [next[j], next[index]];
+    setDocs(next); // optimistic
+    await setLessonDocumentOrder(next.map((d) => d.id));
   }
 
   return (
@@ -160,12 +172,35 @@ export function LessonDocumentManager({
               No documents on this lesson yet.
             </p>
           ) : (
-            <ul className="space-y-1.5">
-              {docs.map((d) => (
+            <ol className="space-y-1.5">
+              {docs.map((d, i) => (
                 <li
                   key={d.id}
-                  className="flex items-center gap-2 rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+                  className="flex items-center gap-2 rounded-lg border border-[var(--border)] px-2 py-2 text-sm"
                 >
+                  <span className="flex h-6 w-7 flex-shrink-0 items-center justify-center rounded bg-[var(--accent)]/10 text-xs font-semibold text-[var(--accent)] tabular-nums">
+                    {i + 1}
+                  </span>
+                  <div className="flex flex-col flex-shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => move(i, "up")}
+                      disabled={i === 0}
+                      aria-label={`Move ${d.name} up`}
+                      className="text-[var(--muted-foreground)] hover:text-[var(--accent)] disabled:opacity-30"
+                    >
+                      <ChevronUp className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => move(i, "down")}
+                      disabled={i === docs.length - 1}
+                      aria-label={`Move ${d.name} down`}
+                      className="text-[var(--muted-foreground)] hover:text-[var(--accent)] disabled:opacity-30"
+                    >
+                      <ChevronDown className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
                   <FileText className="h-4 w-4 text-[var(--muted-foreground)] flex-shrink-0" />
                   <a
                     href={d.url}
@@ -188,8 +223,13 @@ export function LessonDocumentManager({
                   </button>
                 </li>
               ))}
-            </ul>
+            </ol>
           )}
+          {docs.length > 1 ? (
+            <p className="mt-2 text-xs text-[var(--muted-foreground)]">
+              Use the arrows to set the order learners see (1, 2, 3…).
+            </p>
+          ) : null}
         </div>
       </CardContent>
     </Card>

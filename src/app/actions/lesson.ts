@@ -76,6 +76,12 @@ export async function addLessonDocument(
     create: { projectId: PROJECT, courseSlug, stageKey },
     update: {},
   });
+  // New documents append to the end of the lesson's sequence.
+  const last = await prisma.lessonDocument.findFirst({
+    where: { lessonId: lesson.id },
+    orderBy: { order: "desc" },
+    select: { order: true },
+  });
   const created = await prisma.lessonDocument.create({
     data: {
       lessonId: lesson.id,
@@ -83,6 +89,7 @@ export async function addLessonDocument(
       url: doc.url,
       mimeType: doc.mimeType,
       sizeBytes: doc.sizeBytes,
+      order: (last?.order ?? -1) + 1,
     },
   });
   return { ok: true as const, id: created.id };
@@ -95,6 +102,21 @@ export async function removeLessonDocument(documentId: string) {
   return { ok: true as const };
 }
 
+/** Persist a new document order (ids in the desired sequence). */
+export async function setLessonDocumentOrder(orderedIds: string[]) {
+  const editor = await requireEditor();
+  if (!editor) return { ok: false as const, error: "forbidden" };
+  await prisma.$transaction(
+    orderedIds.map((id, index) =>
+      prisma.lessonDocument.updateMany({
+        where: { id },
+        data: { order: index },
+      })
+    )
+  );
+  return { ok: true as const };
+}
+
 /** Current author-attached media for a lesson (for the editor to preload). */
 export async function getLessonMedia(
   courseSlug: string,
@@ -104,7 +126,9 @@ export async function getLessonMedia(
   if (!editor) return { video: null, documents: [] };
   const lesson = await prisma.lesson.findUnique({
     where: lessonKey(courseSlug, stageKey),
-    include: { documents: { orderBy: { createdAt: "asc" } } },
+    include: {
+      documents: { orderBy: [{ order: "asc" }, { createdAt: "asc" }] },
+    },
   });
   if (!lesson) return { video: null, documents: [] };
   return {

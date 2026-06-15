@@ -192,7 +192,12 @@ export function CoursePlayer({ course }: { course: CourseContent }) {
           />
         ) : null}
         {currentStage?.documents?.length ? (
-          <LessonDocuments documents={currentStage.documents} />
+          <LessonDocuments
+            documents={currentStage.documents}
+            stageNumber={
+              current === "complete" ? undefined : indexOf(current) + 1
+            }
+          />
         ) : null}
         {currentStage?.key === "context" ||
         currentStage?.key === "concept" ||

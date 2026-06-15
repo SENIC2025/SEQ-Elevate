@@ -332,3 +332,10 @@ First content features on the hybrid CMS: authors can attach an interactive vide
 - `[BUILD]` **Player** — `LessonDocuments` renders a "Resources" downloads list on any stage with attached documents (typed icons + sizes). i18n `lesson.resourcesTitle` (EN/DE/EL).
 - `[VERIFY]` DB-backed E2E: a video + document attached to `receiving-feedback / context` in the DB appear on that lesson in the player; the document upload route rejects guests (400). Build ✓ lint ✓ types ✓ 21 unit ✓ **23 E2E ✓**.
 - `[NOTE]` This is the media layer of the hybrid CMS. Editing the narrative copy itself in the DB (full course CRUD) is the next CMS increment; the swappable client keeps Strapi an option later.
+
+### Ordered lesson documents — author-defined sequence (2026-06-15)
+Client follow-up: a lesson can hold several mixed-format documents (a PDF, a photo, a Word template, …) and authors need to set the order — 1.1, 1.2, 1.3…
+- `[BUILD]` `LessonDocument.order` (migration `lesson_document_order`, auto-applies to Neon). New uploads append to the end; all reads order by `order asc, createdAt asc`.
+- `[BUILD]` `setLessonDocumentOrder(ids[])` server action persists a new sequence in one transaction. The `LessonDocumentManager` shows numbered rows with **▲/▼ move** controls (optimistic reorder + persist).
+- `[BUILD]` Player: `LessonDocuments` renders an **ordered list** numbered `{stageNumber}.{n}` (e.g. Context = lesson 1 → 1.1, 1.2, 1.3), with a per-type icon — so a learner sees the author's sequence across formats.
+- `[VERIFY]` DB-backed E2E: two documents inserted out of sequence but with explicit `order` render in author order, numbered `1.1` then `1.2`. Build ✓ lint ✓ types ✓ 21 unit ✓ **23 E2E ✓**.

@@ -92,6 +92,8 @@ model LessonDocument {
   url       String
   mimeType  String
   sizeBytes Int
+  // Author-defined sequence within the lesson (1.1, 1.2, …). Lower first.
+  order     Int      @default(0)
   createdAt DateTime @default(now())
 
   lesson Lesson @relation(fields: [lessonId], references: [id], onDelete: Cascade)

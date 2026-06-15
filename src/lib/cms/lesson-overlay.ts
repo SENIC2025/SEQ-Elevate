@@ -19,7 +19,9 @@ export async function applyLessonMedia(
   try {
     const lessons = await prisma.lesson.findMany({
       where: { projectId, courseSlug: slug },
-      include: { documents: { orderBy: { createdAt: "asc" } } },
+      include: {
+        documents: { orderBy: [{ order: "asc" }, { createdAt: "asc" }] },
+      },
     });
     if (lessons.length === 0) return content;
 

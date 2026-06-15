@@ -726,13 +726,26 @@ describe("authored lesson media (CMS) renders in the player", () => {
       },
     });
     lessonId = lesson.id;
+    // Two documents, inserted out of sequence but with explicit order, to
+    // prove the author-defined ordering (not insertion order) is honoured.
     await prisma.lessonDocument.create({
       data: {
         lessonId,
-        name: "Feedback-worksheet.pdf",
-        url: "https://example.com/worksheet.pdf",
+        name: "Second-worksheet.pdf",
+        url: "https://example.com/second.pdf",
         mimeType: "application/pdf",
         sizeBytes: 23456,
+        order: 1,
+      },
+    });
+    await prisma.lessonDocument.create({
+      data: {
+        lessonId,
+        name: "First-photo.png",
+        url: "https://example.com/first.png",
+        mimeType: "image/png",
+        sizeBytes: 9876,
+        order: 0,
       },
     });
   });
@@ -741,13 +754,21 @@ describe("authored lesson media (CMS) renders in the player", () => {
     await prisma.lesson.deleteMany({ where: { id: lessonId } });
   });
 
-  test("a video + document attached to a lesson appear on its stage", async ({
+  test("attached video + ordered documents (1.1, 1.2) render on the lesson", async ({
     page,
   }) => {
     // The context stage is first; the overlay merges the DB media onto it.
     await page.goto("/en/learner/course/receiving-feedback");
-    await expect(page.getByText("Attached lesson video")).toBeVisible();
-    await expect(page.getByTestId("lesson-video")).toBeVisible();
-    await expect(page.getByText("Feedback-worksheet.pdf")).toBeVisible();
+    await expect(page.getByText("Attached lesson video").first()).toBeVisible();
+    await expect(page.getByTestId("lesson-video").first()).toBeVisible();
+
+    // Documents render in author order (order 0 first), numbered 1.1, 1.2.
+    const resources = page.getByRole("region", { name: /resources/i }).first();
+    const items = resources.locator("ol > li");
+    await expect(items).toHaveCount(2);
+    await expect(items.nth(0)).toContainText("1.1");
+    await expect(items.nth(0)).toContainText("First-photo.png");
+    await expect(items.nth(1)).toContainText("1.2");
+    await expect(items.nth(1)).toContainText("Second-worksheet.pdf");
   });
 });
