@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useTranslations } from "next-intl";
+import { useTranslations, useLocale } from "next-intl";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -9,6 +9,7 @@ import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 import type { FacilitatorLearner } from "@/lib/server-queries";
 import { saveObservation, recordValidation } from "@/app/actions/facilitator";
+import { STAGES } from "@/data/course";
 import {
   Users,
   CheckCircle2,
@@ -16,8 +17,27 @@ import {
   EyeOff,
   MessageSquare,
   ArrowLeft,
-  Film,
+  MapPin,
+  Clock,
+  Activity,
 } from "lucide-react";
+
+function formatDuration(seconds: number): string {
+  if (seconds <= 0) return "0m";
+  if (seconds < 60) return `${seconds}s`;
+  const m = Math.floor(seconds / 60);
+  if (m < 60) return `${m}m`;
+  return `${Math.floor(m / 60)}h ${m % 60}m`;
+}
+
+function relativeTime(iso: string, locale: string): string {
+  const diffMin = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  const rtf = new Intl.RelativeTimeFormat(locale, { numeric: "auto" });
+  if (Math.abs(diffMin) < 60) return rtf.format(-diffMin, "minute");
+  const diffHr = Math.round(diffMin / 60);
+  if (Math.abs(diffHr) < 24) return rtf.format(-diffHr, "hour");
+  return rtf.format(-Math.round(diffHr / 24), "day");
+}
 
 /** Facilitator workspace backed by real DB learners (staff view). */
 export function RealFacilitatorView({
@@ -88,17 +108,7 @@ export function RealFacilitatorView({
 
             <Progress value={selected.progressPct} className="mb-4" />
 
-            {selected.videoAnswered > 0 ? (
-              <div className="mb-6 inline-flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] px-3 py-2 text-sm">
-                <Film className="h-4 w-4 text-[var(--accent)]" />
-                <span>
-                  {t("videoCheckins", {
-                    answered: selected.videoAnswered,
-                    correct: selected.videoCorrect,
-                  })}
-                </span>
-              </div>
-            ) : null}
+            <ActivityPanel learner={selected} />
 
             <h3 className="text-sm font-semibold mb-3">{tCard("title")}</h3>
 
@@ -327,5 +337,149 @@ function Row({
         <p className="text-sm whitespace-pre-wrap">{children}</p>
       )}
     </div>
+  );
+}
+
+/** Where the learner is, how long they've spent, and how their quizzes went. */
+function ActivityPanel({ learner }: { learner: FacilitatorLearner }) {
+  const t = useTranslations("facilitator");
+  const tStage = useTranslations("course.stageLabel");
+  const locale = useLocale();
+
+  const positionLabel =
+    learner.currentStage === "complete"
+      ? t("completedAll")
+      : learner.currentStage
+        ? tStage(learner.currentStage)
+        : "—";
+
+  const stageRows = STAGES.filter((s) => (learner.secondsByStage[s] ?? 0) > 0);
+  const maxStage = Math.max(1, ...stageRows.map((s) => learner.secondsByStage[s]));
+
+  return (
+    <div className="mb-6 rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] p-4">
+      <p className="text-xs uppercase tracking-wider text-[var(--muted-foreground)] font-semibold mb-3">
+        {t("activityTitle")}
+      </p>
+
+      <div className="grid grid-cols-3 gap-3">
+        <MiniStat icon={MapPin} label={t("currentlyOn")} value={positionLabel} />
+        <MiniStat
+          icon={Clock}
+          label={t("timeOnTask")}
+          value={formatDuration(learner.secondsTotal)}
+        />
+        <MiniStat
+          icon={Activity}
+          label={t("lastActive")}
+          value={
+            learner.lastActiveAt
+              ? relativeTime(learner.lastActiveAt, locale)
+              : "—"
+          }
+        />
+      </div>
+
+      {learner.currentCourse ? (
+        <p className="mt-2 text-xs text-[var(--muted-foreground)]">
+          {t("inCourse", { course: learner.currentCourse })}
+        </p>
+      ) : null}
+
+      {stageRows.length ? (
+        <div className="mt-3 space-y-1.5">
+          {stageRows.map((s) => (
+            <div key={s} className="flex items-center gap-2 text-xs">
+              <span className="w-24 flex-shrink-0 text-[var(--muted-foreground)] truncate">
+                {tStage(s)}
+              </span>
+              <div className="flex-1 h-1.5 rounded-full bg-[var(--surface)] overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-[var(--accent)]/60"
+                  style={{
+                    width: `${(learner.secondsByStage[s] / maxStage) * 100}%`,
+                  }}
+                />
+              </div>
+              <span className="tabular-nums text-[var(--muted-foreground)] w-12 text-right">
+                {formatDuration(learner.secondsByStage[s])}
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      <div className="mt-3 flex flex-wrap gap-2">
+        <QuizPill
+          label={t("quizAssessment")}
+          correct={learner.assessmentCorrect}
+          total={learner.assessmentTotal}
+        />
+        <QuizPill
+          label={t("quizPractice")}
+          correct={learner.simulationCorrect}
+          total={learner.simulationTotal}
+        />
+        <QuizPill
+          label={t("quizVideo")}
+          correct={learner.videoCorrect}
+          total={learner.videoAnswered}
+        />
+      </div>
+    </div>
+  );
+}
+
+function MiniStat({
+  icon: Icon,
+  label,
+  value,
+}: {
+  icon: typeof MapPin;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-2.5">
+      <Icon className="h-3.5 w-3.5 text-[var(--accent)]" />
+      <p className="mt-1 text-sm font-semibold leading-tight">{value}</p>
+      <p className="text-[10px] uppercase tracking-wider text-[var(--muted-foreground)]">
+        {label}
+      </p>
+    </div>
+  );
+}
+
+function QuizPill({
+  label,
+  correct,
+  total,
+}: {
+  label: string;
+  correct: number;
+  total: number;
+}) {
+  const tone =
+    total === 0
+      ? "muted"
+      : correct === total
+        ? "success"
+        : correct >= total / 2
+          ? "accent"
+          : "warn";
+  const cls =
+    tone === "success"
+      ? "border-[var(--success)]/30 bg-[var(--success)]/10 text-[var(--success)]"
+      : tone === "warn"
+        ? "border-[var(--warning)]/30 bg-[var(--warning)]/10 text-[var(--warning)]"
+        : tone === "accent"
+          ? "border-[var(--accent)]/30 bg-[var(--accent)]/10 text-[var(--accent)]"
+          : "border-[var(--border)] bg-[var(--surface)] text-[var(--muted-foreground)]";
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${cls}`}
+    >
+      {label}: {total === 0 ? "—" : `${correct}/${total}`}
+    </span>
   );
 }

@@ -299,3 +299,16 @@ The in-video questions now *count*: a signed-in learner's answers are recorded, 
 - `[BUILD]` `CoursePlayer` wires `onCueAnswered` (gated to authenticated via `useSession`) into the player.
 - `[BUILD]` Facilitator view: `getProjectLearners` aggregates the events per learner; `RealFacilitatorView` shows "Video check-ins: N answered · M correct" on each learner's record (EN/DE/EL).
 - `[VERIFY]` DB-backed E2E: an authed learner answers the in-video question → a `video.cue_answered` AuditLog row exists with `metadata.correct = true`. Build ✓ lint ✓ types ✓ 21 unit ✓ **20 E2E ✓**.
+
+---
+
+## Phase 6 — Facilitator analytics
+
+### Position, time-on-task and quiz performance (2026-06-15)
+Client request: facilitators need to see where each learner is, how long they've spent (per lesson/topic), and how their quiz answers are going.
+- `[BUILD]` **Time-on-task**: `useStageTimer` (`src/components/course/useStageTimer.ts`) tracks *active* seconds on the current stage (pauses when the tab is hidden) and flushes on stage change / tab-hide / page-unload to `recordStageTime` (`src/app/actions/telemetry.ts`), which accumulates an AuditLog `stage.time` event per (learner, course, stage). No schema migration (same pattern as the video answers). Authed-only.
+- `[BUILD]` **Position + recency** are derived from existing enrollment data (no tracking needed): current stage = next stage of the most-recently-updated enrollment (or "complete"); last-active = that enrollment's `updatedAt`.
+- `[BUILD]` **Quiz performance** aggregated across a learner's courses: assessment correct/total (scored against the CMS answers), practice/simulation correct/total (`simulationCorrect`), and in-video correct/answered.
+- `[BUILD]` `getProjectLearners` returns the new fields; `RealFacilitatorView` gains an **Activity & performance** panel — current stage + course, time on task, last active (locale-aware relative time), a per-stage time breakdown bar, and colour-coded quiz pills (EN/DE/EL).
+- `[VERIFY]` DB-backed E2E: a signed-in learner spends time on the Context stage, advances, and a `stage.time` event for `workplace-conflict:context` lands with `seconds ≥ 1`. Build ✓ lint ✓ types ✓ 21 unit ✓ **21 E2E ✓**.
+- `[NOTE]` "Topic" granularity = stage (the 7 WP3 steps). Finer-grained per-question timing can layer on the same event model later if needed.

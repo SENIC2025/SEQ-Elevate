@@ -569,7 +569,16 @@
     "redacted": "Αποκρύφτηκε από τον μαθητή",
     "redactedHint": "Ο μαθητής επέλεξε να μην μοιραστεί αυτό το πεδίο μαζί σου.",
     "scriptsLibrary": "Σενάρια & σημειώσεις προσαρμογής",
-    "videoCheckins": "Έλεγχοι βίντεο: {answered} απαντήθηκαν · {correct} σωστά"
+    "videoCheckins": "Έλεγχοι βίντεο: {answered} απαντήθηκαν · {correct} σωστά",
+    "activityTitle": "Δραστηριότητα & επιδόσεις",
+    "currentlyOn": "Αυτή τη στιγμή σε",
+    "timeOnTask": "Χρόνος μελέτης",
+    "lastActive": "Τελευταία δραστηριότητα",
+    "completedAll": "Ολοκληρώθηκε",
+    "inCourse": "Στο: {course}",
+    "quizAssessment": "Αξιολόγηση",
+    "quizPractice": "Εξάσκηση",
+    "quizVideo": "Βίντεο"
   },
   "admin": {
     "title": "Πίνακας διαχειριστή",

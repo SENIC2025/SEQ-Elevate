@@ -76,6 +76,18 @@ export interface FacilitatorLearner {
   /** In-video quiz engagement (questions answered / answered correctly). */
   videoAnswered: number;
   videoCorrect: number;
+  /** Where the learner is right now. */
+  currentCourse: string | null;
+  currentStage: string | null; // stage key, or "complete"
+  lastActiveAt: string | null; // ISO
+  /** Active time on task (seconds): total + per stage key. */
+  secondsTotal: number;
+  secondsByStage: Record<string, number>;
+  /** Quiz performance across the learner's courses. */
+  assessmentCorrect: number;
+  assessmentTotal: number;
+  simulationCorrect: number;
+  simulationTotal: number;
 }
 
 /**
@@ -113,25 +125,39 @@ async function loadLearners(
     orderBy: { createdAt: "asc" },
   });
 
-  // In-video quiz engagement per learner (recorded as AuditLog events).
+  // Engagement + time-on-task per learner (recorded as AuditLog events).
   const learnerIds = memberships.map((m) => m.user.id);
   const videoByUser = new Map<string, { answered: number; correct: number }>();
+  const timeByUser = new Map<
+    string,
+    { total: number; byStage: Record<string, number> }
+  >();
   if (learnerIds.length) {
     const events = await prisma.auditLog.findMany({
       where: {
         projectId: PROJECT,
-        action: "video.cue_answered",
+        action: { in: ["video.cue_answered", "stage.time"] },
         actorId: { in: learnerIds },
       },
-      select: { actorId: true, metadata: true },
+      select: { actorId: true, action: true, metadata: true },
     });
     for (const ev of events) {
       if (!ev.actorId) continue;
-      const cur = videoByUser.get(ev.actorId) ?? { answered: 0, correct: 0 };
-      cur.answered += 1;
-      const md = ev.metadata as { correct?: boolean } | null;
-      if (md?.correct === true) cur.correct += 1;
-      videoByUser.set(ev.actorId, cur);
+      if (ev.action === "video.cue_answered") {
+        const cur = videoByUser.get(ev.actorId) ?? { answered: 0, correct: 0 };
+        cur.answered += 1;
+        const md = ev.metadata as { correct?: boolean } | null;
+        if (md?.correct === true) cur.correct += 1;
+        videoByUser.set(ev.actorId, cur);
+      } else {
+        const md = ev.metadata as { stage?: string; seconds?: number } | null;
+        const secs = md?.seconds ?? 0;
+        const cur =
+          timeByUser.get(ev.actorId) ?? { total: 0, byStage: {} };
+        cur.total += secs;
+        if (md?.stage) cur.byStage[md.stage] = (cur.byStage[md.stage] ?? 0) + secs;
+        timeByUser.set(ev.actorId, cur);
+      }
     }
   }
 
@@ -172,6 +198,49 @@ async function loadLearners(
     const card = u.compCards[0] ?? null;
     const ev = enr.find((e) => e.scenarioRoot);
     const video = videoByUser.get(u.id) ?? { answered: 0, correct: 0 };
+    const time = timeByUser.get(u.id) ?? { total: 0, byStage: {} };
+
+    // Current position: the most recently updated enrollment, and the next
+    // stage in it (or "complete").
+    const recent = [...enr].sort(
+      (a, b) => b.updatedAt.getTime() - a.updatedAt.getTime()
+    )[0];
+    let currentStage: string | null = null;
+    let currentCourse: string | null = null;
+    let lastActiveAt: string | null = null;
+    if (recent) {
+      lastActiveAt = recent.updatedAt.toISOString();
+      currentCourse =
+        contentBySlug.get(recent.course.slug)?.title ?? recent.course.slug;
+      currentStage = recent.completedAt
+        ? "complete"
+        : STAGES[Math.min(recent.stagesCompleted.length, STAGES.length - 1)];
+    }
+
+    // Quiz performance across enrollments.
+    let assessmentCorrect = 0;
+    let assessmentTotal = 0;
+    let simulationCorrect = 0;
+    let simulationTotal = 0;
+    for (const e of enr) {
+      if (e.simulationCorrect != null) {
+        simulationTotal += 1;
+        if (e.simulationCorrect) simulationCorrect += 1;
+      }
+      const qs =
+        contentBySlug.get(e.course.slug)?.stages.find(
+          (s) => s.key === "assessment"
+        )?.assessment?.questions ?? [];
+      const ans = (e.assessment as Record<string, string | null>) ?? {};
+      qs.forEach((q, i) => {
+        const a = ans[`q${i + 1}`];
+        if (a != null) {
+          assessmentTotal += 1;
+          if (a === q.correctOptionId) assessmentCorrect += 1;
+        }
+      });
+    }
+
     return {
       id: u.id,
       name: u.name ?? u.email ?? "Learner",
@@ -194,6 +263,15 @@ async function loadLearners(
         : null,
       videoAnswered: video.answered,
       videoCorrect: video.correct,
+      currentCourse,
+      currentStage,
+      lastActiveAt,
+      secondsTotal: time.total,
+      secondsByStage: time.byStage,
+      assessmentCorrect,
+      assessmentTotal,
+      simulationCorrect,
+      simulationTotal,
     };
   });
 }

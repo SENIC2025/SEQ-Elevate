@@ -569,7 +569,16 @@
     "redacted": "Von Lernender:m ausgeblendet",
     "redactedHint": "Die lernende Person hat dieses Feld nicht mit dir geteilt.",
     "scriptsLibrary": "Skripte & Anpassungsnotizen",
-    "videoCheckins": "Video-Check-ins: {answered} beantwortet · {correct} richtig"
+    "videoCheckins": "Video-Check-ins: {answered} beantwortet · {correct} richtig",
+    "activityTitle": "Aktivität & Leistung",
+    "currentlyOn": "Gerade bei",
+    "timeOnTask": "Lernzeit",
+    "lastActive": "Zuletzt aktiv",
+    "completedAll": "Abgeschlossen",
+    "inCourse": "In: {course}",
+    "quizAssessment": "Test",
+    "quizPractice": "Übung",
+    "quizVideo": "Video"
   },
   "admin": {
     "title": "Admin-Dashboard",

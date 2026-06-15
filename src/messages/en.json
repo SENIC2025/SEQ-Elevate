@@ -569,7 +569,16 @@
     "redacted": "Redacted by learner",
     "redactedHint": "The learner chose not to share this field with you.",
     "scriptsLibrary": "Scripts & adaptation notes",
-    "videoCheckins": "Video check-ins: {answered} answered · {correct} correct"
+    "videoCheckins": "Video check-ins: {answered} answered · {correct} correct",
+    "activityTitle": "Activity & performance",
+    "currentlyOn": "Currently on",
+    "timeOnTask": "Time on task",
+    "lastActive": "Last active",
+    "completedAll": "Completed",
+    "inCourse": "In: {course}",
+    "quizAssessment": "Assessment",
+    "quizPractice": "Practice",
+    "quizVideo": "Video"
   },
   "admin": {
     "title": "Admin dashboard",

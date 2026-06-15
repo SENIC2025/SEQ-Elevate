@@ -17,6 +17,7 @@ import { ReflectionStage } from "./ReflectionStage";
 import { AssessmentStage } from "./AssessmentStage";
 import { CompletionStage } from "./CompletionStage";
 import { InteractiveVideoPlayer } from "./InteractiveVideoPlayer";
+import { useStageTimer } from "./useStageTimer";
 import type { CourseContent, CourseStage } from "@/lib/cms/types";
 import { ChevronLeft } from "lucide-react";
 
@@ -41,6 +42,13 @@ export function CoursePlayer({ course }: { course: CourseContent }) {
       void recordVideoCueAnswer({ courseSlug: course.slug, cueId, correct });
     },
     [status, course.slug]
+  );
+
+  // Track active time on each stage for the facilitator analytics (authed only).
+  useStageTimer(
+    course.slug,
+    current,
+    status === "authenticated" && current !== "complete"
   );
 
   // Stage data lookup by key

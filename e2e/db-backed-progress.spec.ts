@@ -630,3 +630,73 @@ describe("in-video quiz answers persist for signed-in learners", () => {
     ).toBe(true);
   });
 });
+
+describe("time-on-task is recorded for signed-in learners", () => {
+  const email = "e2e-time@example.com";
+  let userId: string;
+  let sessionToken: string;
+
+  test.beforeAll(async () => {
+    await prisma.user.deleteMany({ where: { email } });
+    const u = await prisma.user.create({
+      data: { email, emailVerified: new Date() },
+    });
+    userId = u.id;
+    sessionToken = `e2e-time-${Date.now()}`;
+    await prisma.session.create({
+      data: {
+        sessionToken,
+        userId,
+        expires: new Date(Date.now() + 86_400_000),
+      },
+    });
+  });
+
+  test.afterAll(async () => {
+    await prisma.auditLog.deleteMany({ where: { actorId: userId } });
+    await prisma.user.deleteMany({ where: { email } });
+  });
+
+  test("leaving a stage flushes a stage.time event", async ({
+    page,
+    context,
+  }) => {
+    await context.addCookies([
+      {
+        name: "authjs.session-token",
+        value: sessionToken,
+        domain: "localhost",
+        path: "/",
+        httpOnly: true,
+        sameSite: "Lax",
+      },
+    ]);
+    await page.goto("/en/learner/course/workplace-conflict");
+    await expect(
+      page.getByRole("heading", { name: /three weeks into the new job/i })
+    ).toBeVisible();
+
+    // Spend a moment on the context stage, then advance (flushes its time).
+    await page.waitForTimeout(1600);
+    const concept = page.getByText(/watch: speaking up without blame/i);
+    await expect(async () => {
+      await page.getByRole("button", { name: /^continue$/i }).first().click();
+      await expect(concept).toBeVisible({ timeout: 2000 });
+    }).toPass({ timeout: 15000 });
+
+    await page.waitForTimeout(1500);
+
+    const ev = await prisma.auditLog.findFirst({
+      where: {
+        actorId: userId,
+        action: "stage.time",
+        entityId: "workplace-conflict:context",
+      },
+    });
+    expect(ev, "stage time recorded").toBeTruthy();
+    expect(
+      (ev?.metadata as { seconds?: number } | null)?.seconds ?? 0,
+      "at least a second on task"
+    ).toBeGreaterThanOrEqual(1);
+  });
+});
