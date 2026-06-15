@@ -4,7 +4,11 @@ import * as React from "react";
 import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import type { VideoContent, VideoCue } from "@/lib/cms/types";
+import type {
+  VideoContent,
+  VideoCue,
+  VideoCaptionTrack,
+} from "@/lib/cms/types";
 import { dueCue, sortCues, formatTimecode, parseYouTubeId } from "@/lib/video";
 import {
   HelpCircle,
@@ -112,6 +116,7 @@ export function InteractiveVideoPlayer({
           <NativeEngine
             src={video.src}
             poster={video.poster}
+            captions={video.captions}
             onTime={handleTime}
             onDuration={setDuration}
             pauseRef={pauseRef}
@@ -316,6 +321,7 @@ function QuizOverlay({
 function NativeEngine({
   src,
   poster,
+  captions,
   onTime,
   onDuration,
   pauseRef,
@@ -324,6 +330,7 @@ function NativeEngine({
 }: {
   src: string;
   poster?: string;
+  captions?: VideoCaptionTrack[];
   onTime: (t: number) => void;
   onDuration: (d: number) => void;
   pauseRef: React.RefObject<() => void>;
@@ -361,7 +368,18 @@ function NativeEngine({
       preload="metadata"
       className="h-full w-full"
       data-testid="lesson-video"
+      crossOrigin="anonymous"
     >
+      {(captions ?? []).map((c) => (
+        <track
+          key={`${c.lang}-${c.label}`}
+          kind="captions"
+          src={c.src}
+          srcLang={c.lang}
+          label={c.label}
+          default={c.default}
+        />
+      ))}
       {unsupportedLabel}
     </video>
   );

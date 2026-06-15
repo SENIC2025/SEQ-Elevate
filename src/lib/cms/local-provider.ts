@@ -48,6 +48,14 @@ function buildDemoVideo(
     src: "/demo/sample-lesson.webm",
     title: v.title,
     caption: v.caption,
+    captions: [
+      {
+        src: "/demo/sample-lesson.en.vtt",
+        label: "English",
+        lang: "en",
+        default: true,
+      },
+    ],
     cues: [
       {
         id: "concept-check",

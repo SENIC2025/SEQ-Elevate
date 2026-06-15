@@ -285,3 +285,10 @@ Client chose Vercel Blob for uploaded lesson videos. → `DECISIONS.md · D13`
 - `[SECURITY]` E2E: a guest POST to `/api/video/upload` is rejected (400) — no token minting without a staff session.
 - `[INFRA]` **Pending (client/Vercel dashboard)**: connect a Blob store to the Vercel project so `BLOB_READ_WRITE_TOKEN` is set, then redeploy — real uploads go live. ⚠️ Vercel Blob is US-default; confirm region/DPA before real learner videos (flagged for kickoff). Storage is pluggable — an EU S3 bucket later is an adapter swap.
 - `[VERIFY]` Build ✓ lint ✓ types ✓ 21 unit ✓ **19 E2E ✓** (incl. the upload-route guard).
+- `[INFRA]` **Blob store connected + redeployed (2026-06-15)**: client connected a Vercel Blob store (`BLOB_STORE_ID` + webhook key now on the project's Production env); empty-commit redeploy picked it up. Confirmed the `@vercel/blob` SDK resolves credentials via **OIDC first** (`VERCEL_OIDC_TOKEN` + `BLOB_STORE_ID`, both auto-present on Vercel) before the classic `BLOB_READ_WRITE_TOKEN` — so the linked store authenticates with no static token. Live routes 200, upload route still guards guests (400). → `DECISIONS.md · D13`
+
+### Captions (WebVTT) for the interactive video (2026-06-15)
+An interactive video without captions fails **WCAG 2.2 SC 1.2.2 (Level A)** — so captions are required, not optional, for this audience. → completes Phase 5.
+- `[BUILD]` `VideoCaptionTrack` (`src`, `label`, `lang`, `default`) added to `VideoContent`; the native player renders `<track kind="captions">` for each (with `crossOrigin="anonymous"` so cross-origin Blob/URL VTT loads). YouTube uses its own CC.
+- `[BUILD]` Authoring: a "Captions (WebVTT)" field in `VideoBlockAuthor` (upload `.vtt` or paste a URL + a language label), with a clear warning when none is set. Demo ships `public/demo/sample-lesson.en.vtt`, wired to the hero course's lesson video.
+- `[VERIFY]` E2E asserts the caption `<track>` renders. Build ✓ lint ✓ types ✓ 21 unit ✓ **19 E2E ✓**.

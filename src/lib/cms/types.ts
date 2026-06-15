@@ -65,6 +65,18 @@ export interface VideoCue {
   explanation?: string;
 }
 
+/** A WebVTT caption/subtitle track (WCAG 2.2 SC 1.2.2). */
+export interface VideoCaptionTrack {
+  /** URL to a .vtt file. */
+  src: string;
+  /** Human label shown in the player's caption menu, e.g. "English". */
+  label: string;
+  /** BCP-47 language tag, e.g. "en", "de", "el". */
+  lang: string;
+  /** Show this track by default. */
+  default?: boolean;
+}
+
 /**
  * A video block attached to a stage. The source is either a direct media
  * file (an uploaded .mp4/.webm or any direct video URL) or a shared platform
@@ -81,6 +93,8 @@ export interface VideoContent {
   poster?: string;
   /** Short caption/transcript-link line under the player. */
   caption?: string;
+  /** WebVTT caption tracks (native player). Required for accessibility. */
+  captions?: VideoCaptionTrack[];
   /** In-video questions, in any order (sorted by time at render). */
   cues?: VideoCue[];
 }

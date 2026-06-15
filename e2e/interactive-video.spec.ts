@@ -25,6 +25,9 @@ test.describe("interactive video", () => {
     const video = page.getByTestId("lesson-video");
     await expect(video).toBeVisible();
 
+    // A WebVTT caption track is present (WCAG 2.2 SC 1.2.2).
+    await expect(video.locator("track[kind='captions']")).toHaveCount(1);
+
     // Drive playback past the cue (4s). Retry the seek until the popup shows —
     // guards against video metadata still loading on the first attempt.
     const dialog = page.getByRole("dialog");

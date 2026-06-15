@@ -69,14 +69,27 @@ export function VideoBlockAuthor() {
   const [progress, setProgress] = React.useState(0);
   const [title, setTitle] = React.useState("");
   const [caption, setCaption] = React.useState("");
+  const [captionSrc, setCaptionSrc] = React.useState("");
+  const [captionLabel, setCaptionLabel] = React.useState("English");
   const [cues, setCues] = React.useState<EditableCue[]>([]);
   const objectUrl = React.useRef<string | null>(null);
+  const captionObjUrl = React.useRef<string | null>(null);
 
   React.useEffect(() => {
     return () => {
       if (objectUrl.current) URL.revokeObjectURL(objectUrl.current);
+      if (captionObjUrl.current) URL.revokeObjectURL(captionObjUrl.current);
     };
   }, []);
+
+  function onCaptionFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    if (captionObjUrl.current) URL.revokeObjectURL(captionObjUrl.current);
+    const url = URL.createObjectURL(f);
+    captionObjUrl.current = url;
+    setCaptionSrc(url);
+  }
 
   async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0];
@@ -137,6 +150,16 @@ export function VideoBlockAuthor() {
         src,
         title: title || undefined,
         caption: caption || undefined,
+        captions: captionSrc
+          ? [
+              {
+                src: captionSrc,
+                label: captionLabel || "Captions",
+                lang: "en",
+                default: true,
+              },
+            ]
+          : undefined,
         cues: previewCues,
       }
     : null;
@@ -295,6 +318,51 @@ export function VideoBlockAuthor() {
               className={inputCls}
             />
           </div>
+        </div>
+
+        {/* Captions (WCAG 2.2 SC 1.2.2 — required for prerecorded video) */}
+        <div className="mt-4">
+          <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-1">
+            Captions (WebVTT) — required for accessibility
+          </label>
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="inline-flex items-center gap-1.5 rounded-md border border-[var(--border)] px-3 py-2 text-sm cursor-pointer hover:bg-[var(--surface-muted)]">
+              <Upload className="h-4 w-4" />
+              Upload .vtt
+              <input
+                type="file"
+                accept=".vtt,text/vtt"
+                onChange={onCaptionFile}
+                className="sr-only"
+              />
+            </label>
+            <span className="text-xs text-[var(--muted-foreground)]">or</span>
+            <input
+              type="url"
+              value={captionSrc.startsWith("blob:") ? "" : captionSrc}
+              onChange={(e) => setCaptionSrc(e.target.value.trim())}
+              placeholder="https://….vtt"
+              className={`${inputCls} flex-1 min-w-[180px]`}
+            />
+            <input
+              value={captionLabel}
+              onChange={(e) => setCaptionLabel(e.target.value)}
+              placeholder="Label"
+              aria-label="Caption language label"
+              className="w-28 rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm"
+            />
+          </div>
+          {captionSrc ? (
+            <p className="mt-1.5 text-xs text-[var(--success)] flex items-center gap-1.5">
+              <CheckCircle2 className="h-3.5 w-3.5" />
+              Captions attached.
+            </p>
+          ) : (
+            <p className="mt-1.5 text-xs text-[var(--muted-foreground)] flex items-start gap-1.5">
+              <AlertTriangle className="h-3.5 w-3.5 text-[var(--warning)] flex-shrink-0 mt-0.5" />
+              No captions yet — add a .vtt so the video meets WCAG 2.2 AA.
+            </p>
+          )}
         </div>
 
         {/* Cue editor */}
