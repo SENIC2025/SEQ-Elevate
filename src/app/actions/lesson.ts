@@ -11,7 +11,13 @@
 import { Prisma } from "@prisma/client";
 import { getCurrentUser, hasRole } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
-import type { VideoContent, LessonDocumentRef } from "@/lib/cms/types";
+import { getCourse } from "@/lib/cms";
+import type {
+  VideoContent,
+  LessonDocumentRef,
+  NarrativeBlock,
+  Locale,
+} from "@/lib/cms/types";
 
 const PROJECT = "seq-elevate";
 
@@ -140,6 +146,107 @@ export async function setLessonDocumentOrder(orderedIds: string[]) {
       })
     )
   );
+  return { ok: true as const };
+}
+
+interface NarrativePayload {
+  title: string;
+  subtitle?: string;
+  blocks: NarrativeBlock[];
+}
+
+/**
+ * The current effective narrative for a lesson + locale (bundled copy, with
+ * any override already applied), for the editor to load and edit from.
+ */
+export async function getLessonContent(
+  courseSlug: string,
+  stageKey: string,
+  locale: Locale
+): Promise<{
+  title: string;
+  subtitle: string;
+  blocks: NarrativeBlock[];
+  isNarrative: boolean;
+  hasOverride: boolean;
+} | null> {
+  const editor = await requireEditor();
+  if (!editor) return null;
+  const content = await getCourse(PROJECT, courseSlug, locale);
+  const stage = content?.stages.find((s) => s.key === stageKey);
+  const lesson = await prisma.lesson.findUnique({
+    where: lessonKey(courseSlug, stageKey),
+    select: { narrative: true },
+  });
+  const narrative = (lesson?.narrative as Record<string, unknown> | null) ?? {};
+  return {
+    title: stage?.title ?? "",
+    subtitle: stage?.subtitle ?? "",
+    blocks: stage?.blocks ?? [],
+    isNarrative: !!stage?.blocks,
+    hasOverride: !!narrative[locale],
+  };
+}
+
+/** Save a per-locale narrative override for a lesson. */
+export async function saveLessonNarrative(
+  courseSlug: string,
+  stageKey: string,
+  locale: Locale,
+  payload: NarrativePayload
+) {
+  const editor = await requireEditor();
+  if (!editor) return { ok: false as const, error: "forbidden" };
+  const existing = await prisma.lesson.findUnique({
+    where: lessonKey(courseSlug, stageKey),
+    select: { narrative: true },
+  });
+  const narrative = {
+    ...((existing?.narrative as Record<string, unknown>) ?? {}),
+    [locale]: {
+      title: payload.title,
+      subtitle: payload.subtitle || undefined,
+      blocks: payload.blocks,
+    },
+  };
+  await prisma.lesson.upsert({
+    where: lessonKey(courseSlug, stageKey),
+    create: {
+      projectId: PROJECT,
+      courseSlug,
+      stageKey,
+      narrative: narrative as Prisma.InputJsonValue,
+    },
+    update: { narrative: narrative as Prisma.InputJsonValue },
+  });
+  return { ok: true as const };
+}
+
+/** Remove a lesson's narrative override for a locale (revert to bundled copy). */
+export async function clearLessonNarrative(
+  courseSlug: string,
+  stageKey: string,
+  locale: Locale
+) {
+  const editor = await requireEditor();
+  if (!editor) return { ok: false as const, error: "forbidden" };
+  const existing = await prisma.lesson.findUnique({
+    where: lessonKey(courseSlug, stageKey),
+    select: { narrative: true },
+  });
+  const narrative = {
+    ...((existing?.narrative as Record<string, unknown>) ?? {}),
+  };
+  delete narrative[locale];
+  await prisma.lesson.updateMany({
+    where: { projectId: PROJECT, courseSlug, stageKey },
+    data: {
+      narrative:
+        Object.keys(narrative).length === 0
+          ? Prisma.DbNull
+          : (narrative as Prisma.InputJsonValue),
+    },
+  });
   return { ok: true as const };
 }
 

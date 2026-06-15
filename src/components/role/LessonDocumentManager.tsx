@@ -222,6 +222,9 @@ export function LessonDocumentManager({
                   >
                     {d.name}
                   </a>
+                  <span className="hidden sm:inline text-xs text-[var(--muted-foreground)] tabular-nums">
+                    {formatSize(d.sizeBytes)}
+                  </span>
                   {d.published ? (
                     <Badge variant="success" className="text-[10px]">
                       Published

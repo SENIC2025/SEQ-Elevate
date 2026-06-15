@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { useProject } from "@/components/ProjectThemeProvider";
 import { VideoBlockAuthor } from "@/components/role/VideoBlockAuthor";
 import { LessonDocumentManager } from "@/components/role/LessonDocumentManager";
+import { LessonNarrativeEditor } from "@/components/role/LessonNarrativeEditor";
 import {
   BookOpen,
   Compass,
@@ -181,6 +182,10 @@ export function ContentEditor({
           </div>
         </CardContent>
       </Card>
+
+      {/* Lesson narrative — edit the teaching text per language */}
+      <h2 className="mt-8 mb-3 text-lg font-semibold">Edit lesson narrative</h2>
+      <LessonNarrativeEditor courses={courses} />
 
       {/* Interactive video authoring — add a lesson video with in-video quiz */}
       <h2 className="mt-8 mb-3 text-lg font-semibold">Add interactive video</h2>

@@ -802,3 +802,56 @@ describe("authored lesson media (CMS) renders in the player", () => {
     ).toHaveCount(0);
   });
 });
+
+describe("authored lesson narrative (CMS) overrides bundled copy", () => {
+  let lessonId: string;
+
+  test.beforeAll(async () => {
+    await prisma.lesson.deleteMany({
+      where: {
+        projectId: "seq-elevate",
+        courseSlug: "receiving-feedback",
+        stageKey: "concept",
+      },
+    });
+    const lesson = await prisma.lesson.create({
+      data: {
+        projectId: "seq-elevate",
+        courseSlug: "receiving-feedback",
+        stageKey: "concept",
+        narrative: {
+          en: {
+            title: "Edited concept title",
+            subtitle: "EDITED IN CMS",
+            blocks: [
+              {
+                kind: "paragraph",
+                text: "This concept text was edited in the CMS.",
+              },
+            ],
+          },
+        },
+      },
+    });
+    lessonId = lesson.id;
+  });
+
+  test.afterAll(async () => {
+    await prisma.lesson.deleteMany({ where: { id: lessonId } });
+  });
+
+  test("the EN override replaces the bundled concept narrative", async ({
+    page,
+  }) => {
+    await page.goto("/en/learner/course/receiving-feedback");
+    // context → concept (retry against the hydration race)
+    const heading = page.getByRole("heading", { name: "Edited concept title" });
+    await expect(async () => {
+      await page.getByRole("button", { name: /^continue$/i }).first().click();
+      await expect(heading).toBeVisible({ timeout: 2000 });
+    }).toPass({ timeout: 15000 });
+    await expect(
+      page.getByText("This concept text was edited in the CMS.")
+    ).toBeVisible();
+  });
+});

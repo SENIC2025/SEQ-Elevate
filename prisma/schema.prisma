@@ -74,6 +74,9 @@ model Lesson {
   stageKey   String
   // Attached interactive video as VideoContent JSON (null = none).
   video      Json?
+  // Per-locale narrative override: { en: { title, subtitle, blocks }, … }.
+  // Overrides the bundled content for the locales present; others fall back.
+  narrative  Json?
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
