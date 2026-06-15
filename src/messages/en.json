@@ -599,6 +599,16 @@
     "modelBadge": "Badge"
   },
   "lesson": {
-    "resourcesTitle": "Resources"
+    "resourcesTitle": "Resources",
+    "stepThrough": "Step through",
+    "viewInViewer": "Open in viewer",
+    "viewerTitle": "Document viewer",
+    "docPosition": "{current} of {total}",
+    "previous": "Previous",
+    "next": "Next",
+    "close": "Close",
+    "openDocument": "Open document",
+    "noPreview": "This file can't be previewed here — open it to view.",
+    "download": "Download"
   }
 }

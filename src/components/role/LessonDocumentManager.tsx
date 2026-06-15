@@ -9,6 +9,7 @@ import {
   addLessonDocument,
   removeLessonDocument,
   setLessonDocumentOrder,
+  setLessonDocumentPublished,
 } from "@/app/actions/lesson";
 import type { LessonDocumentRef } from "@/lib/cms/types";
 import {
@@ -20,6 +21,8 @@ import {
   FolderOpen,
   ChevronUp,
   ChevronDown,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 
 const ACCEPT =
@@ -95,6 +98,13 @@ export function LessonDocumentManager({
     [next[index], next[j]] = [next[j], next[index]];
     setDocs(next); // optimistic
     await setLessonDocumentOrder(next.map((d) => d.id));
+  }
+
+  async function togglePublish(id: string, published: boolean) {
+    setDocs((ds) =>
+      ds.map((d) => (d.id === id ? { ...d, published } : d))
+    ); // optimistic
+    await setLessonDocumentPublished(id, published);
   }
 
   return (
@@ -206,13 +216,38 @@ export function LessonDocumentManager({
                     href={d.url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="flex-1 truncate hover:underline"
+                    className={`flex-1 truncate hover:underline ${
+                      d.published ? "" : "text-[var(--muted-foreground)]"
+                    }`}
                   >
                     {d.name}
                   </a>
-                  <Badge variant="muted" className="text-[10px]">
-                    {formatSize(d.sizeBytes)}
-                  </Badge>
+                  {d.published ? (
+                    <Badge variant="success" className="text-[10px]">
+                      Published
+                    </Badge>
+                  ) : (
+                    <Badge variant="muted" className="text-[10px]">
+                      Draft
+                    </Badge>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => togglePublish(d.id, !d.published)}
+                    aria-label={
+                      d.published
+                        ? `Unpublish ${d.name}`
+                        : `Publish ${d.name}`
+                    }
+                    title={d.published ? "Unpublish (hide)" : "Publish (show)"}
+                    className="rounded-md p-1 text-[var(--muted-foreground)] hover:text-[var(--accent)]"
+                  >
+                    {d.published ? (
+                      <Eye className="h-4 w-4 text-[var(--success)]" />
+                    ) : (
+                      <EyeOff className="h-4 w-4" />
+                    )}
+                  </button>
                   <button
                     type="button"
                     onClick={() => onRemove(d.id)}

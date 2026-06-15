@@ -94,6 +94,9 @@ model LessonDocument {
   sizeBytes Int
   // Author-defined sequence within the lesson (1.1, 1.2, …). Lower first.
   order     Int      @default(0)
+  // Draft by default — teachers publish when they're ready to release it.
+  // Learners only ever see published documents.
+  published Boolean  @default(false)
   createdAt DateTime @default(now())
 
   lesson Lesson @relation(fields: [lessonId], references: [id], onDelete: Cascade)

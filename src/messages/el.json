@@ -599,6 +599,16 @@
     "modelBadge": "Σήμα"
   },
   "lesson": {
-    "resourcesTitle": "Υλικό"
+    "resourcesTitle": "Υλικό",
+    "stepThrough": "Βήμα-βήμα",
+    "viewInViewer": "Άνοιγμα στην προβολή",
+    "viewerTitle": "Προβολή εγγράφου",
+    "docPosition": "{current} από {total}",
+    "previous": "Προηγούμενο",
+    "next": "Επόμενο",
+    "close": "Κλείσιμο",
+    "openDocument": "Άνοιγμα εγγράφου",
+    "noPreview": "Αυτό το αρχείο δεν προβάλλεται εδώ — άνοιξέ το για να το δεις.",
+    "download": "Λήψη"
   }
 }

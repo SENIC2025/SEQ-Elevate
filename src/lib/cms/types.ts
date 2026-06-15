@@ -116,6 +116,8 @@ export interface LessonDocumentRef {
   url: string;
   mimeType: string;
   sizeBytes: number;
+  /** Visible to learners. Editor sees drafts too; the player only gets published. */
+  published: boolean;
 }
 
 export interface CourseStage {

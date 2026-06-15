@@ -24,6 +24,32 @@ async function requireEditor() {
   return ok ? user : null;
 }
 
+// Publishing is a lighter "release" control teachers run for their cohort, so
+// facilitators may toggle it too (not just content authors).
+async function requirePublisher() {
+  const user = await getCurrentUser();
+  if (!user) return null;
+  const ok =
+    (await hasRole(PROJECT, "ADMIN")) ||
+    (await hasRole(PROJECT, "CONTENT_EDITOR")) ||
+    (await hasRole(PROJECT, "FACILITATOR"));
+  return ok ? user : null;
+}
+
+/** Publish or unpublish a document (controls learner visibility). */
+export async function setLessonDocumentPublished(
+  documentId: string,
+  published: boolean
+) {
+  const publisher = await requirePublisher();
+  if (!publisher) return { ok: false as const, error: "forbidden" };
+  await prisma.lessonDocument.updateMany({
+    where: { id: documentId },
+    data: { published },
+  });
+  return { ok: true as const };
+}
+
 function lessonKey(courseSlug: string, stageKey: string) {
   return {
     projectId_courseSlug_stageKey: {
@@ -139,6 +165,7 @@ export async function getLessonMedia(
       url: d.url,
       mimeType: d.mimeType,
       sizeBytes: d.sizeBytes,
+      published: d.published,
     })),
   };
 }

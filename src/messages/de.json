@@ -599,6 +599,16 @@
     "modelBadge": "Abzeichen"
   },
   "lesson": {
-    "resourcesTitle": "Materialien"
+    "resourcesTitle": "Materialien",
+    "stepThrough": "Durchblättern",
+    "viewInViewer": "Im Viewer öffnen",
+    "viewerTitle": "Dokumentanzeige",
+    "docPosition": "{current} von {total}",
+    "previous": "Zurück",
+    "next": "Weiter",
+    "close": "Schließen",
+    "openDocument": "Dokument öffnen",
+    "noPreview": "Diese Datei kann hier nicht angezeigt werden — zum Ansehen öffnen.",
+    "download": "Herunterladen"
   }
 }

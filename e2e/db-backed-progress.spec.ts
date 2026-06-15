@@ -726,8 +726,8 @@ describe("authored lesson media (CMS) renders in the player", () => {
       },
     });
     lessonId = lesson.id;
-    // Two documents, inserted out of sequence but with explicit order, to
-    // prove the author-defined ordering (not insertion order) is honoured.
+    // Two PUBLISHED documents, inserted out of sequence but with explicit
+    // order, to prove author-defined ordering is honoured…
     await prisma.lessonDocument.create({
       data: {
         lessonId,
@@ -736,6 +736,7 @@ describe("authored lesson media (CMS) renders in the player", () => {
         mimeType: "application/pdf",
         sizeBytes: 23456,
         order: 1,
+        published: true,
       },
     });
     await prisma.lessonDocument.create({
@@ -746,6 +747,19 @@ describe("authored lesson media (CMS) renders in the player", () => {
         mimeType: "image/png",
         sizeBytes: 9876,
         order: 0,
+        published: true,
+      },
+    });
+    // …and one DRAFT (unpublished) the learner must NOT see.
+    await prisma.lessonDocument.create({
+      data: {
+        lessonId,
+        name: "Hidden-draft.pdf",
+        url: "https://example.com/hidden.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: 111,
+        order: 2,
+        published: false,
       },
     });
   });
@@ -754,7 +768,7 @@ describe("authored lesson media (CMS) renders in the player", () => {
     await prisma.lesson.deleteMany({ where: { id: lessonId } });
   });
 
-  test("attached video + ordered documents (1.1, 1.2) render on the lesson", async ({
+  test("published docs render ordered (1.1, 1.2); drafts hidden; viewer steps", async ({
     page,
   }) => {
     // The context stage is first; the overlay merges the DB media onto it.
@@ -762,7 +776,7 @@ describe("authored lesson media (CMS) renders in the player", () => {
     await expect(page.getByText("Attached lesson video").first()).toBeVisible();
     await expect(page.getByTestId("lesson-video").first()).toBeVisible();
 
-    // Documents render in author order (order 0 first), numbered 1.1, 1.2.
+    // Only the two PUBLISHED documents show, in author order (1.1, 1.2).
     const resources = page.getByRole("region", { name: /resources/i }).first();
     const items = resources.locator("ol > li");
     await expect(items).toHaveCount(2);
@@ -770,5 +784,21 @@ describe("authored lesson media (CMS) renders in the player", () => {
     await expect(items.nth(0)).toContainText("First-photo.png");
     await expect(items.nth(1)).toContainText("1.2");
     await expect(items.nth(1)).toContainText("Second-worksheet.pdf");
+    // The draft is not visible to the learner.
+    await expect(page.getByText("Hidden-draft.pdf")).toHaveCount(0);
+
+    // Step-through viewer advances 1.1 → 1.2 like slides.
+    await resources.getByRole("button", { name: /step through/i }).click();
+    const viewer = page.getByRole("dialog", { name: /document viewer/i });
+    await expect(viewer).toBeVisible();
+    await expect(viewer.getByText("First-photo.png")).toBeVisible();
+    await expect(viewer.getByText("1 of 2")).toBeVisible();
+    await viewer.getByRole("button", { name: /next/i }).click();
+    await expect(viewer.getByText("Second-worksheet.pdf")).toBeVisible();
+    await expect(viewer.getByText("2 of 2")).toBeVisible();
+    await viewer.getByRole("button", { name: /close/i }).click();
+    await expect(
+      page.getByRole("dialog", { name: /document viewer/i })
+    ).toHaveCount(0);
   });
 });

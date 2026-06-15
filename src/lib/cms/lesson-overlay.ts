@@ -20,7 +20,11 @@ export async function applyLessonMedia(
     const lessons = await prisma.lesson.findMany({
       where: { projectId, courseSlug: slug },
       include: {
-        documents: { orderBy: [{ order: "asc" }, { createdAt: "asc" }] },
+        // Learners only ever see published documents.
+        documents: {
+          where: { published: true },
+          orderBy: [{ order: "asc" }, { createdAt: "asc" }],
+        },
       },
     });
     if (lessons.length === 0) return content;
@@ -36,6 +40,7 @@ export async function applyLessonMedia(
         url: d.url,
         mimeType: d.mimeType,
         sizeBytes: d.sizeBytes,
+        published: d.published,
       }));
       return {
         ...stage,
