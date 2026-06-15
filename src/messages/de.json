@@ -597,5 +597,8 @@
     "modelCompCard": "Comp Card-Vorlage",
     "modelMission": "Mission",
     "modelBadge": "Abzeichen"
+  },
+  "lesson": {
+    "resourcesTitle": "Materialien"
   }
 }

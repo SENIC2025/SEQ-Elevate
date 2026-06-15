@@ -312,3 +312,23 @@ Client request: facilitators need to see where each learner is, how long they've
 - `[BUILD]` `getProjectLearners` returns the new fields; `RealFacilitatorView` gains an **Activity & performance** panel — current stage + course, time on task, last active (locale-aware relative time), a per-stage time breakdown bar, and colour-coded quiz pills (EN/DE/EL).
 - `[VERIFY]` DB-backed E2E: a signed-in learner spends time on the Context stage, advances, and a `stage.time` event for `workplace-conflict:context` lands with `seconds ≥ 1`. Build ✓ lint ✓ types ✓ 21 unit ✓ **21 E2E ✓**.
 - `[NOTE]` "Topic" granularity = stage (the 7 WP3 steps). Finer-grained per-question timing can layer on the same event model later if needed.
+
+---
+
+## Phase 7 — Content / CMS (hybrid: DB now)
+
+### Auto-migrate on deploy — the "DB now" enabler (2026-06-15)
+Client chose the hybrid CMS (DB now, Strapi later, → `DECISIONS.md · D14`). Persisting authored content to the DB needs production migrations to run on deploy — they previously didn't, and Neon's pooler can't run them.
+- `[INFRA]` `prisma/migrate-deploy.mjs` + a `vercel-build` script (`node prisma/migrate-deploy.mjs && next build`). Neon's POOLED endpoint can't run Prisma migrations (advisory locks need a session connection), so the script derives the **direct** endpoint (drops `-pooler` from the host — no new secret needed) and runs `prisma migrate deploy` there before `next build`. Skips cleanly without a real DB; CI/local (`pnpm build`) are untouched.
+- `[VERIFY]` Confirmed in the Vercel build logs: *"applying pending migrations to the direct endpoint… 1 migration found… No pending migrations… migrations up to date → ✓ Compiled"*. Deploy Ready (41s), live routes 200. Foundation in place — new content tables now reach production automatically.
+- `[NOTE]` Moodle scoped for later (→ `DECISIONS.md · D15`). Next: the `Lesson` media model (link a video to a lesson; upload documents) and the editor write path, on this foundation.
+
+### Lesson media — link a video + upload documents to a lesson (2026-06-15)
+First content features on the hybrid CMS: authors can attach an interactive video and upload documents to any lesson, persisted to the DB and rendered to learners.
+- `[BUILD]` Schema: `Lesson` (unique per `projectId` + `courseSlug` + `stageKey`, holds the attached video as JSON) + `LessonDocument` (uploaded file: name, url, mimeType, size). Migration `lesson_media` auto-applies to Neon on deploy (D14).
+- `[BUILD]` **Read path** — `src/lib/cms/lesson-overlay.ts` (`server-only`) merges DB lesson media onto provider-built `CourseContent` inside `getCourse`: an attached video overrides the stage's video, documents append. Defensive — a DB error (or unmigrated table) falls back to bundled content, so lessons always render.
+- `[BUILD]` **Write path** — `src/app/actions/lesson.ts` (RBAC: ADMIN/CONTENT_EDITOR): `saveLessonVideo`, `clearLessonVideo`, `addLessonDocument`, `removeLessonDocument`, `getLessonMedia`. `POST /api/document/upload` issues a Blob client-upload token for documents (PDF/Office/images/text ≤ 50 MB), staff-gated.
+- `[BUILD]` **Editor** — `VideoBlockAuthor` gains a "Save this video to a lesson" footer (course + stage pickers → `saveLessonVideo`); new `LessonDocumentManager` uploads documents to a chosen lesson (Blob → `addLessonDocument`) with a removable list. Both wired into the Content Editor; the course list is passed from the server page.
+- `[BUILD]` **Player** — `LessonDocuments` renders a "Resources" downloads list on any stage with attached documents (typed icons + sizes). i18n `lesson.resourcesTitle` (EN/DE/EL).
+- `[VERIFY]` DB-backed E2E: a video + document attached to `receiving-feedback / context` in the DB appear on that lesson in the player; the document upload route rejects guests (400). Build ✓ lint ✓ types ✓ 21 unit ✓ **23 E2E ✓**.
+- `[NOTE]` This is the media layer of the hybrid CMS. Editing the narrative copy itself in the DB (full course CRUD) is the next CMS increment; the swappable client keeps Strapi an option later.

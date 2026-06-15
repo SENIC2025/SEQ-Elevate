@@ -9,6 +9,7 @@
 import { getCMSSource, type CMSProvider } from "./provider";
 import { localProvider } from "./local-provider";
 import { strapiProvider } from "./strapi-provider";
+import { applyLessonMedia } from "./lesson-overlay";
 import type { Locale, CourseContent, CourseSummary, CompCardTemplate } from "./types";
 
 function provider(): CMSProvider {
@@ -22,12 +23,15 @@ export function listCourses(
   return provider().listCourses(projectId, locale);
 }
 
-export function getCourse(
+export async function getCourse(
   projectId: string,
   slug: string,
   locale: Locale
 ): Promise<CourseContent | null> {
-  return provider().getCourse(projectId, slug, locale);
+  const content = await provider().getCourse(projectId, slug, locale);
+  if (!content) return null;
+  // Overlay author-attached lesson media (video + documents) from the DB.
+  return applyLessonMedia(projectId, slug, content);
 }
 
 export function getCompCardTemplate(

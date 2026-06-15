@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useProject } from "@/components/ProjectThemeProvider";
 import { VideoBlockAuthor } from "@/components/role/VideoBlockAuthor";
+import { LessonDocumentManager } from "@/components/role/LessonDocumentManager";
 import {
   BookOpen,
   Compass,
@@ -104,7 +105,11 @@ const COURSE_TREE = [
   },
 ];
 
-export function ContentEditor() {
+export function ContentEditor({
+  courses = [],
+}: {
+  courses?: { slug: string; title: string }[];
+}) {
   const t = useTranslations("content");
   const tCommon = useTranslations("common");
   const { project } = useProject();
@@ -179,7 +184,11 @@ export function ContentEditor() {
 
       {/* Interactive video authoring — add a lesson video with in-video quiz */}
       <h2 className="mt-8 mb-3 text-lg font-semibold">Add interactive video</h2>
-      <VideoBlockAuthor />
+      <VideoBlockAuthor courses={courses} />
+
+      {/* Lesson documents — upload and attach files to a lesson */}
+      <h2 className="mt-8 mb-3 text-lg font-semibold">Lesson documents</h2>
+      <LessonDocumentManager courses={courses} />
 
       {/* Content models */}
       <h2 className="mt-8 mb-3 text-lg font-semibold">Content models</h2>

@@ -109,12 +109,23 @@ export interface NarrativeBlock {
   compare?: { label: string; text: string; tone: "negative" | "positive" }[];
 }
 
+/** An uploaded document attached to a lesson (PDF, Office, image, …). */
+export interface LessonDocumentRef {
+  id: string;
+  name: string;
+  url: string;
+  mimeType: string;
+  sizeBytes: number;
+}
+
 export interface CourseStage {
   key: StageKey;
   title: string;
   subtitle?: string;
   /** Optional video block (with interactive cues) rendered above the stage. */
   video?: VideoContent;
+  /** Documents attached to this lesson (authored in the CMS). */
+  documents?: LessonDocumentRef[];
   /** narrative stages */
   blocks?: NarrativeBlock[];
   /** simulation stage */

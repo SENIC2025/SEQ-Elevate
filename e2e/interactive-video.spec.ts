@@ -102,3 +102,21 @@ test.describe("interactive video", () => {
     );
   });
 });
+
+test("the document upload endpoint rejects unauthenticated callers", async ({
+  request,
+}) => {
+  const res = await request.post("/api/document/upload", {
+    data: {
+      type: "blob.generate-client-token",
+      payload: {
+        pathname: "worksheet.pdf",
+        callbackUrl: "https://example.com/cb",
+        clientPayload: null,
+        multipart: false,
+      },
+    },
+  });
+  expect(res.ok()).toBeFalsy();
+  expect(res.status()).toBe(400);
+});

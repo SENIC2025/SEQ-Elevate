@@ -597,5 +597,8 @@
     "modelCompCard": "Comp Card template",
     "modelMission": "Mission",
     "modelBadge": "Badge"
+  },
+  "lesson": {
+    "resourcesTitle": "Resources"
   }
 }

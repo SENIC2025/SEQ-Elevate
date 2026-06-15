@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { InteractiveVideoPlayer } from "@/components/course/InteractiveVideoPlayer";
 import { detectProvider, formatTimecode } from "@/lib/video";
+import { saveLessonVideo } from "@/app/actions/lesson";
+import { STAGES } from "@/data/course";
 import type { VideoContent, VideoCue } from "@/lib/cms/types";
 import {
   Upload,
@@ -19,6 +21,7 @@ import {
   Loader2,
   CloudUpload,
   AlertTriangle,
+  Save,
 } from "lucide-react";
 
 /**
@@ -57,8 +60,17 @@ interface EditableCue {
 const inputCls =
   "w-full rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm";
 
-export function VideoBlockAuthor() {
+export function VideoBlockAuthor({
+  courses = [],
+}: {
+  courses?: { slug: string; title: string }[];
+}) {
   const [tab, setTab] = React.useState<"upload" | "url">("upload");
+  const [targetCourse, setTargetCourse] = React.useState(courses[0]?.slug ?? "");
+  const [targetStage, setTargetStage] = React.useState("concept");
+  const [saveState, setSaveState] = React.useState<
+    "idle" | "saving" | "saved" | "error"
+  >("idle");
   const [provider, setProvider] = React.useState<"file" | "youtube">("file");
   const [src, setSrc] = React.useState("");
   const [fileName, setFileName] = React.useState<string | null>(null);
@@ -163,6 +175,13 @@ export function VideoBlockAuthor() {
         cues: previewCues,
       }
     : null;
+
+  async function handleSaveToLesson() {
+    if (!draft || !targetCourse) return;
+    setSaveState("saving");
+    const res = await saveLessonVideo(targetCourse, targetStage, draft);
+    setSaveState(res.ok ? "saved" : "error");
+  }
 
   return (
     <Card className="border-[var(--accent)]/30">
@@ -423,10 +442,84 @@ export function VideoBlockAuthor() {
           )}
         </div>
 
-        <p className="mt-4 text-xs text-[var(--muted-foreground)]">
-          This is a working preview. On publish, the video and its questions are
-          saved to the CMS for this project.
-        </p>
+        {/* Save to a lesson (persists to the DB) */}
+        {courses.length ? (
+          <div className="mt-5 rounded-lg border border-[var(--accent)]/30 bg-[var(--accent)]/5 p-4">
+            <p className="text-sm font-semibold mb-2 flex items-center gap-1.5">
+              <Save className="h-4 w-4 text-[var(--accent)]" />
+              Save this video to a lesson
+            </p>
+            <div className="flex flex-wrap items-end gap-2">
+              <label className="text-xs text-[var(--muted-foreground)]">
+                <span className="block mb-1">Course</span>
+                <select
+                  value={targetCourse}
+                  onChange={(e) => {
+                    setTargetCourse(e.target.value);
+                    setSaveState("idle");
+                  }}
+                  className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm"
+                >
+                  {courses.map((c) => (
+                    <option key={c.slug} value={c.slug}>
+                      {c.title}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="text-xs text-[var(--muted-foreground)]">
+                <span className="block mb-1">Lesson stage</span>
+                <select
+                  value={targetStage}
+                  onChange={(e) => {
+                    setTargetStage(e.target.value);
+                    setSaveState("idle");
+                  }}
+                  className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm capitalize"
+                >
+                  {STAGES.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <Button
+                size="sm"
+                disabled={!draft || !targetCourse || saveState === "saving"}
+                onClick={handleSaveToLesson}
+              >
+                {saveState === "saving" ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Saving…
+                  </>
+                ) : (
+                  <>
+                    <Save className="h-4 w-4" />
+                    Save to lesson
+                  </>
+                )}
+              </Button>
+              {saveState === "saved" ? (
+                <span className="text-xs text-[var(--success)] inline-flex items-center gap-1">
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  Saved — learners see it on this lesson.
+                </span>
+              ) : saveState === "error" ? (
+                <span className="text-xs text-[var(--danger)] inline-flex items-center gap-1">
+                  <AlertTriangle className="h-3.5 w-3.5" />
+                  Sign in as a content editor to save.
+                </span>
+              ) : null}
+            </div>
+          </div>
+        ) : (
+          <p className="mt-4 text-xs text-[var(--muted-foreground)]">
+            This is a working preview. On publish, the video and its questions
+            are saved to the CMS for this project.
+          </p>
+        )}
       </CardContent>
     </Card>
   );

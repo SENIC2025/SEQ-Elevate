@@ -57,6 +57,46 @@ model Project {
   missions       Mission[]
   compCards      CompCard[]
   auditLogs      AuditLog[]
+  lessons        Lesson[]
+}
+
+// ============================================================
+// Authored lesson media (hybrid CMS — DB now; see DECISIONS.md · D14)
+// ============================================================
+
+// A lesson = a (course, stage) slot that authors can enrich with media:
+// an interactive video and/or uploaded documents. The narrative copy still
+// comes from the content provider; this overlays media onto it at read time.
+model Lesson {
+  id         String   @id @default(cuid())
+  projectId  String
+  courseSlug String
+  stageKey   String
+  // Attached interactive video as VideoContent JSON (null = none).
+  video      Json?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  project   Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  documents LessonDocument[]
+
+  @@unique([projectId, courseSlug, stageKey])
+  @@index([projectId, courseSlug])
+}
+
+// An uploaded document attached to a lesson (PDF, Office, image, …).
+model LessonDocument {
+  id        String   @id @default(cuid())
+  lessonId  String
+  name      String
+  url       String
+  mimeType  String
+  sizeBytes Int
+  createdAt DateTime @default(now())
+
+  lesson Lesson @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  @@index([lessonId])
 }
 
 // ============================================================

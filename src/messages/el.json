@@ -597,5 +597,8 @@
     "modelCompCard": "Πρότυπο Comp Card",
     "modelMission": "Αποστολή",
     "modelBadge": "Σήμα"
+  },
+  "lesson": {
+    "resourcesTitle": "Υλικό"
   }
 }

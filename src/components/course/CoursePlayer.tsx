@@ -17,6 +17,7 @@ import { ReflectionStage } from "./ReflectionStage";
 import { AssessmentStage } from "./AssessmentStage";
 import { CompletionStage } from "./CompletionStage";
 import { InteractiveVideoPlayer } from "./InteractiveVideoPlayer";
+import { LessonDocuments } from "./LessonDocuments";
 import { useStageTimer } from "./useStageTimer";
 import type { CourseContent, CourseStage } from "@/lib/cms/types";
 import { ChevronLeft } from "lucide-react";
@@ -189,6 +190,9 @@ export function CoursePlayer({ course }: { course: CourseContent }) {
             video={currentStage.video}
             onCueAnswered={onCueAnswered}
           />
+        ) : null}
+        {currentStage?.documents?.length ? (
+          <LessonDocuments documents={currentStage.documents} />
         ) : null}
         {currentStage?.key === "context" ||
         currentStage?.key === "concept" ||

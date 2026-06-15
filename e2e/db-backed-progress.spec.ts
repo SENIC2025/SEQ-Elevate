@@ -700,3 +700,54 @@ describe("time-on-task is recorded for signed-in learners", () => {
     ).toBeGreaterThanOrEqual(1);
   });
 });
+
+describe("authored lesson media (CMS) renders in the player", () => {
+  let lessonId: string;
+
+  test.beforeAll(async () => {
+    await prisma.lesson.deleteMany({
+      where: {
+        projectId: "seq-elevate",
+        courseSlug: "receiving-feedback",
+        stageKey: "context",
+      },
+    });
+    const lesson = await prisma.lesson.create({
+      data: {
+        projectId: "seq-elevate",
+        courseSlug: "receiving-feedback",
+        stageKey: "context",
+        video: {
+          provider: "file",
+          src: "/demo/sample-lesson.webm",
+          title: "Attached lesson video",
+          cues: [],
+        },
+      },
+    });
+    lessonId = lesson.id;
+    await prisma.lessonDocument.create({
+      data: {
+        lessonId,
+        name: "Feedback-worksheet.pdf",
+        url: "https://example.com/worksheet.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: 23456,
+      },
+    });
+  });
+
+  test.afterAll(async () => {
+    await prisma.lesson.deleteMany({ where: { id: lessonId } });
+  });
+
+  test("a video + document attached to a lesson appear on its stage", async ({
+    page,
+  }) => {
+    // The context stage is first; the overlay merges the DB media onto it.
+    await page.goto("/en/learner/course/receiving-feedback");
+    await expect(page.getByText("Attached lesson video")).toBeVisible();
+    await expect(page.getByTestId("lesson-video")).toBeVisible();
+    await expect(page.getByText("Feedback-worksheet.pdf")).toBeVisible();
+  });
+});
