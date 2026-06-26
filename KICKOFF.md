@@ -10,19 +10,20 @@ This brief frames the kickoff. Its job: confirm a small number of decisions so c
 
 ## 1. Where we are (the good news)
 
-By kickoff, SENIC has already productionised the foundations:
+By kickoff, SENIC has already productionised the foundations **and built well into the product** (ahead of plan):
 
-- ✅ **Live staging platform** at `staging.seq-elevate.senic.world` — real auth, real database, real CMS, deployed on EU infrastructure
-- ✅ **Real sign-in** (passwordless magic link by email)
-- ✅ **Database** with the full data model (users, roles, cohorts, courses, Comp Cards, observations, audit)
-- ✅ **CMS** (Strapi) where partners author courses — no code
-- ✅ **Trilingual** EN / DE / EL on the demo course
-- ✅ **Accessibility** foundation (WCAG 2.2 AA), mobile-first, dyslexia + contrast modes
+- ✅ **Live, clickable platform** at `seq-elevate-demo.vercel.app` — real auth, EU database, deployed on EU infrastructure
+- ✅ **Sign-in** (passwordless magic link) + **one-click demo profiles** for showcasing each role
+- ✅ **Full data model** (users, roles, cohorts, courses, lessons, Comp Cards, observations, audit)
+- ✅ **In-app content editor** (DB-backed; Strapi-ready) — author **lesson text, interactive videos and documents** with no code
+- ✅ **Interactive video** with **in-video quiz pop-ups** + captions; **branching scenarios**; Comp Card + PDF; badges
+- ✅ **Facilitator analytics + a statistics dashboard** (progress, time-on-task, where-they-get-stuck, when-they-open)
+- ✅ **Trilingual** EN / DE / EL · **WCAG 2.2 AA** · mobile-first · dyslexia + contrast · **GDPR self-service**
 - ✅ **Brand** matched to seqelevate.eu (lime / purple / rose)
 
-The contracted 5 weeks are therefore spent on **polish, your content, accessibility audit, training and handover** — not on plumbing. This is ahead of plan.
+The contracted 5 weeks are therefore spent on **polish, your content, accessibility audit, training and handover** — not on plumbing.
 
-> **Live walkthrough** opens the meeting. Everyone signs in on their own phone and walks the workplace-conflict course end-to-end, in their own language.
+> **Live walkthrough** opens the meeting — see the presenter pack in `DEMO-SCRIPT.md`. Anyone can also sign in on their own phone via `/en/demo` (code `elevate-demo`) and walk a course end-to-end, in their own language.
 
 ---
 
@@ -103,4 +104,4 @@ External WCAG audit (who certifies), safeguarding policy + DPIA owner, legal pag
 
 ---
 
-*See the live platform at `staging.seq-elevate.senic.world`. Component reference at `/en/dev/storybook`.*
+*See the live platform at `seq-elevate-demo.vercel.app` (demo access: `/en/demo`, code `elevate-demo`). Presenter pack: `DEMO-SCRIPT.md`. Full functionality map: `PLATFORM-OVERVIEW.md`. Component reference at `/en/dev/storybook`.*
