@@ -60,6 +60,12 @@ export function RealFacilitatorView({
   const active = learners.filter((l) => l.progressPct > 0).length;
   const cards = learners.filter((l) => l.compCard).length;
   const attention = learners.filter((l) => l.needsAttention).length;
+  const completedCount = learners.filter((l) => l.completed).length;
+  const cohortPct = learners.length
+    ? Math.round(
+        learners.reduce((a, l) => a + l.progressPct, 0) / learners.length
+      )
+    : 0;
   const selected = learners.find((l) => l.id === selectedId) ?? null;
 
   async function handleSave() {
@@ -207,6 +213,25 @@ export function RealFacilitatorView({
           {t("statisticsLink")}
         </Link>
       </div>
+
+      {/* Cohort completion bar */}
+      <Card className="mb-4">
+        <CardContent className="p-4">
+          <div className="flex items-baseline justify-between gap-2 mb-2">
+            <p className="text-sm font-semibold">{t("cohortCompletion")}</p>
+            <p className="text-xl font-bold text-[var(--accent)] tabular-nums">
+              {cohortPct}%
+            </p>
+          </div>
+          <Progress value={cohortPct} label={`${cohortPct}%`} />
+          <p className="mt-2 text-xs text-[var(--muted-foreground)]">
+            {t("completedOf", {
+              done: completedCount,
+              total: learners.length,
+            })}
+          </p>
+        </CardContent>
+      </Card>
 
       <div className="mt-6 grid sm:grid-cols-3 gap-4">
         <StatCard

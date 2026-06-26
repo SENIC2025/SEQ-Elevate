@@ -135,7 +135,9 @@
     "coursesTitle": "Deine Kurse",
     "comingSoon": "Demnächst",
     "comingSoonCourseTitle": "Feedback annehmen, ohne zusammenzuzucken",
-    "comingSoonCourseTagline": "20 Minuten · etwas Schwieriges hören und es nutzen"
+    "comingSoonCourseTagline": "20 Minuten · etwas Schwieriges hören und es nutzen",
+    "overallCompletion": "Gesamtfortschritt",
+    "coursesCompletedOf": "{done} von {total} Kursen abgeschlossen"
   },
   "mission": {
     "workplaceConflictTitle": "Probiere eine kleine, aber echte Situation",
@@ -579,7 +581,9 @@
     "quizAssessment": "Test",
     "quizPractice": "Übung",
     "quizVideo": "Video",
-    "statisticsLink": "Statistiken"
+    "statisticsLink": "Statistiken",
+    "cohortCompletion": "Fortschritt der Gruppe",
+    "completedOf": "{done} von {total} Lernenden abgeschlossen"
   },
   "admin": {
     "title": "Admin-Dashboard",

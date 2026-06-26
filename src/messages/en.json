@@ -135,7 +135,9 @@
     "coursesTitle": "Your courses",
     "comingSoon": "Coming soon",
     "comingSoonCourseTitle": "Receiving feedback without flinching",
-    "comingSoonCourseTagline": "20 minutes · being told something hard, and using it"
+    "comingSoonCourseTagline": "20 minutes · being told something hard, and using it",
+    "overallCompletion": "Overall completion",
+    "coursesCompletedOf": "{done} of {total} courses completed"
   },
   "mission": {
     "workplaceConflictTitle": "Try a small but real situation",
@@ -579,7 +581,9 @@
     "quizAssessment": "Assessment",
     "quizPractice": "Practice",
     "quizVideo": "Video",
-    "statisticsLink": "Statistics"
+    "statisticsLink": "Statistics",
+    "cohortCompletion": "Cohort completion",
+    "completedOf": "{done} of {total} learners completed"
   },
   "admin": {
     "title": "Admin dashboard",

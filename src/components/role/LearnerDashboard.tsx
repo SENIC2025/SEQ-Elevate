@@ -104,6 +104,18 @@ export function LearnerDashboard({
     ? (hero ? (enrollMap.get(hero.slug)?.stages ?? []) : [])
     : state.course.stagesCompleted;
 
+  // Overall completion across all published courses (the whole programme).
+  const overallTotalStages = published.length * totalStages;
+  const overallDone = published.reduce(
+    (sum, c) => sum + courseStatus(c.slug).stagesDone,
+    0
+  );
+  const overallPct = overallTotalStages
+    ? Math.round((overallDone / overallTotalStages) * 100)
+    : 0;
+  const coursesDone = published.filter((c) => courseStatus(c.slug).completed)
+    .length;
+
   // Badge slug → display info, from the course list.
   const badgeInfo = new Map<string, { name: string; meaning: string }>();
   for (const c of courses) {
@@ -125,6 +137,27 @@ export function LearnerDashboard({
           {tCommon("demoBannerLine1")}
         </p>
       </div>
+
+      {/* Overall completion across the whole programme */}
+      {published.length ? (
+        <Card className="mt-3">
+          <CardContent className="p-4 sm:p-5">
+            <div className="flex items-baseline justify-between gap-2 mb-2">
+              <p className="text-sm font-semibold">{t("overallCompletion")}</p>
+              <p className="text-xl font-bold text-[var(--accent)] tabular-nums">
+                {overallPct}%
+              </p>
+            </div>
+            <Progress value={overallPct} label={`${overallPct}%`} />
+            <p className="mt-2 text-xs text-[var(--muted-foreground)]">
+              {t("coursesCompletedOf", {
+                done: coursesDone,
+                total: published.length,
+              })}
+            </p>
+          </CardContent>
+        </Card>
+      ) : null}
 
       {/* Hero mission — first published course */}
       {hero ? (

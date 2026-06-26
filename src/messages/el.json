@@ -135,7 +135,9 @@
     "coursesTitle": "Τα μαθήματά σου",
     "comingSoon": "Σύντομα",
     "comingSoonCourseTitle": "Να δέχεσαι κριτική χωρίς να μαζεύεσαι",
-    "comingSoonCourseTagline": "20 λεπτά · ακούς κάτι δύσκολο και το αξιοποιείς"
+    "comingSoonCourseTagline": "20 λεπτά · ακούς κάτι δύσκολο και το αξιοποιείς",
+    "overallCompletion": "Συνολική ολοκλήρωση",
+    "coursesCompletedOf": "{done} από {total} μαθήματα ολοκληρώθηκαν"
   },
   "mission": {
     "workplaceConflictTitle": "Δοκίμασε μια μικρή αλλά αληθινή κατάσταση",
@@ -579,7 +581,9 @@
     "quizAssessment": "Αξιολόγηση",
     "quizPractice": "Εξάσκηση",
     "quizVideo": "Βίντεο",
-    "statisticsLink": "Στατιστικά"
+    "statisticsLink": "Στατιστικά",
+    "cohortCompletion": "Ολοκλήρωση ομάδας",
+    "completedOf": "{done} από {total} μαθητές ολοκλήρωσαν"
   },
   "admin": {
     "title": "Πίνακας διαχειριστή",

@@ -379,3 +379,8 @@ The showcase now switches to live data once a cohort is active.
 - `[BUILD]` The page auto-switches: **live data when ≥ 5 learners have started, otherwise the representative sample** — with a `?live=1` / `?live=0` override and a one-click toggle in the dashboard banner ("View live data (N started) →" / "View representative sample →"). The header badge shows **live data** (green) vs **representative sample** (grey).
 - `[VERIFY]` DB-backed E2E: a real cohort of 5 learners (enrollments + `stage.time` + `course.opened` events) makes the dashboard render **live data** with the real learner rows and funnel. Build ✓ lint ✓ types ✓ **25 unit ✓ 27 E2E ✓**.
 - `[NOTE]` Same dashboard, two data sources — clients see a full demo now, and it becomes their real cohort's analytics the moment a pilot runs.
+
+### Completion bars — learner + teacher (2026-06-15)
+- `[BUILD]` Learner dashboard gains a prominent **Overall completion** bar across the whole programme ("X% · N of M courses completed") — real enrollment data for authed learners, demo-state for guests.
+- `[BUILD]` Facilitator workspace gains a **Cohort completion** bar (average progress across the cohort + "N of M learners completed").
+- `[BUILD]` i18n EN/DE/EL for both. `[VERIFY]` Build ✓ lint ✓ types ✓ 25 unit ✓ 27 E2E ✓ (no regressions).
