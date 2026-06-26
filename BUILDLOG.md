@@ -363,3 +363,12 @@ Client need: hand testers a link so they can explore each role themselves, and h
 - `[BUILD]` Discreet "Demo / client access →" link on the sign-in page.
 - `[SECURITY]` This is a deliberate demo convenience on the staging/showcase deploy (placeholder data, code-gated, kill-switchable). **Must be disabled (`DEMO_LOGIN_DISABLED=true`) on the real production domain** — flagged in DECISIONS.
 - `[VERIFY]` DB-backed E2E: a wrong code is rejected; the correct code provisions `demo321@seq-elevate.eu` with a FACILITATOR membership + session and lands on the facilitator workspace. Build ✓ lint ✓ types ✓ 21 unit ✓ **25 E2E ✓**.
+
+### Statistics showcase — analytics dashboard for clients (2026-06-15)
+Client need: show clients what learner statistics the platform gathers and how they look. Built a populated, staff-gated dashboard.
+- `[BUILD]` `/[locale]/analytics` (`AnalyticsDashboard`) — KPI row; a **completion funnel** with the biggest drop-off highlighted; **where they get stuck** insights (drop-off stage, slowest lesson, learners inactive 3+ days); **average time per lesson** bars; **activity (14 days)** + a **"when they open" day×time heatmap** (with the busiest window); and a **per-learner table** (position, progress, time, quiz, last seen, status). Hand-rolled SVG/CSS charts — no chart dependency.
+- `[BUILD]` `src/lib/analytics-sample.ts` — a **deterministic** representative cohort (24 learners) shaped exactly like the captured data (stage timings, opens, quiz, progress), so the showcase is full and stable. Clearly labelled "representative sample"; the same dashboard reads real events in production. 4 unit tests (deterministic, monotonic funnel, sane ranges).
+- `[BUILD]` `recordCourseOpened` instrumentation (`course.opened` AuditLog event) wired into the course player — so "when they open" is genuinely captured for real learners too.
+- `[BUILD]` Staff-gated (FACILITATOR/ADMIN); a "Statistics" link added to the facilitator workspace (EN/DE/EL).
+- `[FIX]` WCAG: axe caught the success-green token (`#15803d`) at 4.38:1 on its `/10` tint (small-text AA needs 4.5). Darkened `--success` → `#146c33` platform-wide (improves contrast everywhere; no other test regressed).
+- `[VERIFY]` DB-backed E2E: a staff user opens the dashboard, the funnel / stuck / heatmap sections render, and it passes axe (WCAG 2.2 AA). Build ✓ lint ✓ types ✓ **25 unit ✓ 26 E2E ✓**.

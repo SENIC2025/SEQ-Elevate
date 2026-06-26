@@ -897,3 +897,62 @@ describe("demo access — one-click profile sign-in", () => {
     expect(user?.sessions.length ?? 0, "session created").toBeGreaterThan(0);
   });
 });
+
+describe("statistics showcase (staff)", () => {
+  const email = "e2e-analytics-staff@example.com";
+  let userId: string;
+  let sessionToken: string;
+
+  test.beforeAll(async () => {
+    await prisma.user.deleteMany({ where: { email } });
+    const u = await prisma.user.create({
+      data: { email, emailVerified: new Date() },
+    });
+    userId = u.id;
+    await prisma.membership.create({
+      data: { userId, projectId: "seq-elevate", role: "FACILITATOR" },
+    });
+    sessionToken = `e2e-analytics-${Date.now()}`;
+    await prisma.session.create({
+      data: { sessionToken, userId, expires: new Date(Date.now() + 86_400_000) },
+    });
+  });
+  test.afterAll(async () => {
+    await prisma.user.deleteMany({ where: { email } });
+  });
+
+  test("staff opens the statistics dashboard; no serious a11y violations", async ({
+    page,
+    context,
+  }) => {
+    await context.addCookies([
+      {
+        name: "authjs.session-token",
+        value: sessionToken,
+        domain: "localhost",
+        path: "/",
+        httpOnly: true,
+        sameSite: "Lax",
+      },
+    ]);
+    await page.goto("/en/analytics");
+    await expect(
+      page.getByRole("heading", { name: /learner statistics/i }).first()
+    ).toBeVisible();
+    await expect(
+      page.getByText(/course progress funnel/i).first()
+    ).toBeVisible();
+    await expect(page.getByText(/where they get stuck/i).first()).toBeVisible();
+    await expect(page.getByText(/when they open/i).first()).toBeVisible();
+
+    const results = await new AxeBuilder({ page })
+      .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"])
+      .analyze();
+    const serious = results.violations.filter(
+      (v) => v.impact === "serious" || v.impact === "critical"
+    );
+    expect(serious, JSON.stringify(serious.map((x) => x.id), null, 2)).toEqual(
+      []
+    );
+  });
+});

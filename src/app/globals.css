@@ -39,7 +39,7 @@
   --cool-3: #3596d3;
   --cool-4: #426fb6;
 
-  --success: #15803d;
+  --success: #146c33; /* darkened from #15803d for WCAG AA contrast on the /10 tint */
   --warning: #b45309;
   --danger: #b91c1c;
 

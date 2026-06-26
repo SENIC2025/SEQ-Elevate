@@ -9,6 +9,7 @@ import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 import type { FacilitatorLearner } from "@/lib/server-queries";
 import { saveObservation, recordValidation } from "@/app/actions/facilitator";
+import { Link } from "@/i18n/navigation";
 import { STAGES } from "@/data/course";
 import {
   Users,
@@ -20,6 +21,7 @@ import {
   MapPin,
   Clock,
   Activity,
+  BarChart3,
 } from "lucide-react";
 
 function formatDuration(seconds: number): string {
@@ -193,13 +195,17 @@ export function RealFacilitatorView({
   // ---- List view ----
   return (
     <div className="mx-auto max-w-6xl px-4 py-8">
-      <div className="flex flex-wrap items-baseline justify-between gap-2 mb-2">
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
         <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">
           {t("title")}
         </h1>
-        <p className="text-sm text-[var(--muted-foreground)]">
-          {t("cohortLabel")}: {t("cohortName")}
-        </p>
+        <Link
+          href="/analytics"
+          className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm font-medium text-[var(--accent)] hover:bg-[var(--surface-muted)]"
+        >
+          <BarChart3 className="h-4 w-4" />
+          {t("statisticsLink")}
+        </Link>
       </div>
 
       <div className="mt-6 grid sm:grid-cols-3 gap-4">

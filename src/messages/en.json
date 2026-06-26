@@ -578,7 +578,8 @@
     "inCourse": "In: {course}",
     "quizAssessment": "Assessment",
     "quizPractice": "Practice",
-    "quizVideo": "Video"
+    "quizVideo": "Video",
+    "statisticsLink": "Statistics"
   },
   "admin": {
     "title": "Admin dashboard",

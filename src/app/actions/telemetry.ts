@@ -14,6 +14,22 @@ import { prisma } from "@/lib/prisma";
 const PROJECT = "seq-elevate";
 const MAX_DELTA_SECONDS = 3600; // clamp absurd single deltas (clock jumps etc.)
 
+/** Record that a learner opened a course (for "when they open" analytics). */
+export async function recordCourseOpened(courseSlug: string) {
+  const user = await getCurrentUser();
+  if (!user) return;
+  await prisma.auditLog.create({
+    data: {
+      projectId: user.lastProjectId ?? PROJECT,
+      actorId: user.id,
+      action: "course.opened",
+      entity: "Course",
+      entityId: courseSlug,
+      metadata: { courseSlug },
+    },
+  });
+}
+
 export async function recordStageTime(input: {
   courseSlug: string;
   stage: string;

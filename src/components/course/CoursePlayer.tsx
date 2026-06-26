@@ -5,6 +5,7 @@ import { useTranslations } from "next-intl";
 import { useSession } from "next-auth/react";
 import { Link } from "@/i18n/navigation";
 import { recordVideoCueAnswer } from "@/app/actions/video";
+import { recordCourseOpened } from "@/app/actions/telemetry";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { STAGES, type Stage } from "@/data/course";
@@ -51,6 +52,14 @@ export function CoursePlayer({ course }: { course: CourseContent }) {
     current,
     status === "authenticated" && current !== "complete"
   );
+
+  // Record the course open once per mount (for "when they open" analytics).
+  const openedRef = useRef(false);
+  useEffect(() => {
+    if (status !== "authenticated" || openedRef.current) return;
+    openedRef.current = true;
+    void recordCourseOpened(course.slug);
+  }, [status, course.slug]);
 
   // Stage data lookup by key
   const stageByKey = new Map<string, CourseStage>(
