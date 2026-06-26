@@ -372,3 +372,10 @@ Client need: show clients what learner statistics the platform gathers and how t
 - `[BUILD]` Staff-gated (FACILITATOR/ADMIN); a "Statistics" link added to the facilitator workspace (EN/DE/EL).
 - `[FIX]` WCAG: axe caught the success-green token (`#15803d`) at 4.38:1 on its `/10` tint (small-text AA needs 4.5). Darkened `--success` → `#146c33` platform-wide (improves contrast everywhere; no other test regressed).
 - `[VERIFY]` DB-backed E2E: a staff user opens the dashboard, the funnel / stuck / heatmap sections render, and it passes axe (WCAG 2.2 AA). Build ✓ lint ✓ types ✓ **25 unit ✓ 26 E2E ✓**.
+
+### Analytics dashboard computes from real captured events (2026-06-15)
+The showcase now switches to live data once a cohort is active.
+- `[BUILD]` `src/lib/analytics-real.ts` (`buildRealAnalytics`, server-only) computes the same `AnalyticsData` shape from real DB data: LEARNER memberships + `CourseEnrollment` (funnel, position, progress, assessment scored against the CMS answers), `stage.time` events (time per stage/total), `course.opened` events (activity over 14 days + the day×time-of-day heatmap), and `UserBadge` counts. Returns null when no learner has started, so the showcase falls back to the sample.
+- `[BUILD]` The page auto-switches: **live data when ≥ 5 learners have started, otherwise the representative sample** — with a `?live=1` / `?live=0` override and a one-click toggle in the dashboard banner ("View live data (N started) →" / "View representative sample →"). The header badge shows **live data** (green) vs **representative sample** (grey).
+- `[VERIFY]` DB-backed E2E: a real cohort of 5 learners (enrollments + `stage.time` + `course.opened` events) makes the dashboard render **live data** with the real learner rows and funnel. Build ✓ lint ✓ types ✓ **25 unit ✓ 27 E2E ✓**.
+- `[NOTE]` Same dashboard, two data sources — clients see a full demo now, and it becomes their real cohort's analytics the moment a pilot runs.

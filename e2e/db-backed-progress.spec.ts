@@ -956,3 +956,126 @@ describe("statistics showcase (staff)", () => {
     );
   });
 });
+
+describe("statistics dashboard — live data from real events", () => {
+  const staffEmail = "e2e-live-staff@example.com";
+  const learnerEmails = Array.from(
+    { length: 5 },
+    (_, i) => `e2e-live-learner-${i}@example.com`
+  );
+  const allEmails = [staffEmail, ...learnerEmails];
+  let staffSession: string;
+  const learnerIds: string[] = [];
+
+  test.beforeAll(async () => {
+    await prisma.user.deleteMany({ where: { email: { in: allEmails } } });
+    const course = await prisma.course.findFirst({
+      where: { slug: "workplace-conflict" },
+    });
+    const STAGE_KEYS = [
+      "CONTEXT",
+      "CONCEPT",
+      "BEHAVIOUR",
+      "SIMULATION",
+      "SCENARIO",
+      "REFLECTION",
+      "ASSESSMENT",
+    ] as const;
+
+    for (let i = 0; i < learnerEmails.length; i++) {
+      const u = await prisma.user.create({
+        data: {
+          email: learnerEmails[i],
+          name: `Live Learner ${i}`,
+          emailVerified: new Date(),
+        },
+      });
+      learnerIds.push(u.id);
+      await prisma.membership.create({
+        data: { userId: u.id, projectId: "seq-elevate", role: "LEARNER" },
+      });
+      const completed = i === 4;
+      await prisma.courseEnrollment.create({
+        data: {
+          userId: u.id,
+          courseId: course!.id,
+          stagesCompleted: completed
+            ? [...STAGE_KEYS]
+            : STAGE_KEYS.slice(0, i + 1),
+          assessment: i >= 3 ? { q1: "a", q2: "b", q3: "c" } : {},
+          completedAt: completed ? new Date() : null,
+        },
+      });
+      // Captured events: time on context + a course open.
+      await prisma.auditLog.create({
+        data: {
+          projectId: "seq-elevate",
+          actorId: u.id,
+          action: "stage.time",
+          entity: "Stage",
+          entityId: "workplace-conflict:context",
+          metadata: { courseSlug: "workplace-conflict", stage: "context", seconds: 120 + i * 30 },
+        },
+      });
+      await prisma.auditLog.create({
+        data: {
+          projectId: "seq-elevate",
+          actorId: u.id,
+          action: "course.opened",
+          entity: "Course",
+          entityId: "workplace-conflict",
+          metadata: { courseSlug: "workplace-conflict" },
+        },
+      });
+    }
+
+    const staff = await prisma.user.create({
+      data: { email: staffEmail, emailVerified: new Date() },
+    });
+    await prisma.membership.create({
+      data: { userId: staff.id, projectId: "seq-elevate", role: "FACILITATOR" },
+    });
+    staffSession = `e2e-live-${Date.now()}`;
+    await prisma.session.create({
+      data: {
+        sessionToken: staffSession,
+        userId: staff.id,
+        expires: new Date(Date.now() + 86_400_000),
+      },
+    });
+  });
+
+  test.afterAll(async () => {
+    await prisma.auditLog.deleteMany({ where: { actorId: { in: learnerIds } } });
+    await prisma.user.deleteMany({ where: { email: { in: allEmails } } });
+  });
+
+  test("the dashboard computes live stats from the real cohort", async ({
+    page,
+    context,
+  }) => {
+    await context.addCookies([
+      {
+        name: "authjs.session-token",
+        value: staffSession,
+        domain: "localhost",
+        path: "/",
+        httpOnly: true,
+        sameSite: "Lax",
+      },
+    ]);
+    // Force the live view (?live=1) to verify the real computation.
+    await page.goto("/en/analytics?live=1");
+    await expect(
+      page.getByRole("heading", { name: /learner statistics/i }).first()
+    ).toBeVisible();
+    // The "live data" indicator and our real learners are shown.
+    await expect(page.getByText(/live data/i).first()).toBeVisible();
+    await expect(page.getByText("Live Learner 0").first()).toBeVisible();
+    await expect(page.getByText("Live Learner 4").first()).toBeVisible();
+    // Funnel renders for the real cohort.
+    await expect(
+      page.getByText(/course progress funnel/i).first()
+    ).toBeVisible();
+  });
+});

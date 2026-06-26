@@ -1,21 +1,30 @@
 import { setRequestLocale } from "next-intl/server";
 import { getViewerRoles } from "@/lib/server-queries";
 import { buildSampleAnalytics } from "@/lib/analytics-sample";
+import { buildRealAnalytics } from "@/lib/analytics-real";
 import { AnalyticsDashboard } from "@/components/analytics/AnalyticsDashboard";
 import { Link } from "@/i18n/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { BarChart3, ArrowRight } from "lucide-react";
+import type { Locale } from "@/lib/cms/types";
 
-// Reads the viewer's roles — never prerender.
+// Reads the viewer's roles + live data — never prerender.
 export const dynamic = "force-dynamic";
+
+// Below this many started learners we keep the representative sample so the
+// showcase stays full; at/above it the dashboard switches to live data.
+const MIN_LIVE_LEARNERS = 5;
 
 export default async function Page({
   params,
+  searchParams,
 }: {
   params: Promise<{ locale: string }>;
+  searchParams: Promise<{ live?: string }>;
 }) {
   const { locale } = await params;
+  const { live } = await searchParams;
   setRequestLocale(locale);
 
   const roles = await getViewerRoles();
@@ -46,6 +55,18 @@ export default async function Page({
     );
   }
 
-  const data = buildSampleAnalytics();
-  return <AnalyticsDashboard data={data} />;
+  const loc = (["en", "de", "el"].includes(locale) ? locale : "en") as Locale;
+  const real = await buildRealAnalytics(loc);
+  const useReal =
+    real !== null &&
+    (live === "1" || (live !== "0" && real.cohortSize >= MIN_LIVE_LEARNERS));
+  const data = useReal ? real! : buildSampleAnalytics();
+
+  return (
+    <AnalyticsDashboard
+      data={data}
+      isSample={!useReal}
+      realCount={real?.cohortSize ?? 0}
+    />
+  );
 }

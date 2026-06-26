@@ -4,6 +4,7 @@ import {
   HEATMAP_DAYS,
   HEATMAP_BUCKETS,
 } from "@/lib/analytics-sample";
+import { Link } from "@/i18n/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -32,7 +33,15 @@ function fmtAgo(hours: number): string {
   return `${Math.round(hours / 24)}d ago`;
 }
 
-export function AnalyticsDashboard({ data }: { data: AnalyticsData }) {
+export function AnalyticsDashboard({
+  data,
+  isSample = true,
+  realCount = 0,
+}: {
+  data: AnalyticsData;
+  isSample?: boolean;
+  realCount?: number;
+}) {
   const maxTime = Math.max(1, ...data.timePerStage.map((t) => t.avgSeconds));
   const maxDay = Math.max(1, ...data.activityByDay.map((d) => d.opens));
   const maxHeat = Math.max(
@@ -50,18 +59,46 @@ export function AnalyticsDashboard({ data }: { data: AnalyticsData }) {
         <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">
           Learner statistics
         </h1>
-        <Badge variant="muted" className="text-[10px]">
-          {data.cohortSize} learners · representative sample
+        <Badge
+          variant={isSample ? "muted" : "success"}
+          className="text-[10px]"
+        >
+          {data.cohortSize} learners ·{" "}
+          {isSample ? "representative sample" : "live data"}
         </Badge>
       </div>
-      <div className="mt-2 rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] p-3 text-xs text-[var(--muted-foreground)] flex gap-2.5">
-        <Info className="h-4 w-4 text-[var(--accent)] flex-shrink-0 mt-0.5" />
-        <p>
-          Representative sample data, shaped exactly like what the platform
-          captures — stage timings, course opens, quiz responses and progress.
-          In production these charts populate from each cohort&apos;s real
-          activity.
-        </p>
+      <div className="mt-2 rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] p-3 text-xs text-[var(--muted-foreground)] flex flex-wrap items-center gap-2.5">
+        <Info className="h-4 w-4 text-[var(--accent)] flex-shrink-0" />
+        {isSample ? (
+          <p className="flex-1 min-w-[200px]">
+            Representative sample data, shaped exactly like what the platform
+            captures — stage timings, course opens, quiz responses and progress.
+            In production these charts populate from each cohort&apos;s real
+            activity.
+            {realCount > 0 ? (
+              <>
+                {" "}
+                <Link
+                  href="/analytics?live=1"
+                  className="font-medium text-[var(--accent)] hover:underline whitespace-nowrap"
+                >
+                  View live data ({realCount} started) →
+                </Link>
+              </>
+            ) : null}
+          </p>
+        ) : (
+          <p className="flex-1 min-w-[200px]">
+            Live data computed from this cohort&apos;s real activity — stage
+            timings, course opens, quiz responses and progress.{" "}
+            <Link
+              href="/analytics?live=0"
+              className="font-medium text-[var(--accent)] hover:underline whitespace-nowrap"
+            >
+              View representative sample →
+            </Link>
+          </p>
+        )}
       </div>
 
       {/* KPI row */}
