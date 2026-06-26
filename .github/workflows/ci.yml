@@ -10,6 +10,12 @@ on:
   pull_request:
     branches: [main]
 
+# Cancel an in-flight run when a newer commit is pushed to the same branch/PR.
+# Frees runners and queue time so the latest commit isn't stuck behind a stale one.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   web:
     name: Web app (lint · types · unit · build)
@@ -26,11 +32,18 @@ jobs:
           node-version: 22
           cache: pnpm
 
+      # Persist the Next.js build cache across runs for faster `next build`.
+      - name: Cache Next.js build
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.next/cache
+          key: ${{ runner.os }}-nextjs-${{ hashFiles('pnpm-lock.yaml') }}-${{ hashFiles('src/**/*.[jt]s', 'src/**/*.[jt]sx') }}
+          restore-keys: |
+            ${{ runner.os }}-nextjs-${{ hashFiles('pnpm-lock.yaml') }}-
+
+      # postinstall already runs `prisma generate`, so no separate step is needed.
       - name: Install
         run: pnpm install --frozen-lockfile
-
-      - name: Prisma generate
-        run: pnpm prisma generate
 
       - name: Lint
         run: pnpm lint
@@ -82,11 +95,25 @@ jobs:
           node-version: 22
           cache: pnpm
 
+      - name: Cache Next.js build
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.next/cache
+          key: ${{ runner.os }}-nextjs-${{ hashFiles('pnpm-lock.yaml') }}-${{ hashFiles('src/**/*.[jt]s', 'src/**/*.[jt]sx') }}
+          restore-keys: |
+            ${{ runner.os }}-nextjs-${{ hashFiles('pnpm-lock.yaml') }}-
+
+      # Cache the downloaded browser binaries (the slow part of `playwright install`).
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('pnpm-lock.yaml') }}
+
+      # postinstall already runs `prisma generate`.
       - name: Install
         run: pnpm install --frozen-lockfile
-
-      - name: Prisma generate
-        run: pnpm prisma generate
 
       - name: Migrate + seed (DB-backed E2E)
         run: |
@@ -96,8 +123,15 @@ jobs:
       - name: Build
         run: pnpm build
 
+      # On a cache hit, only install the OS deps (fast); skip the browser download.
+      # On a miss, do the full install.
       - name: Install Playwright browser
-        run: pnpm exec playwright install --with-deps chromium
+        run: |
+          if [ "${{ steps.playwright-cache.outputs.cache-hit }}" = "true" ]; then
+            pnpm exec playwright install-deps chromium
+          else
+            pnpm exec playwright install --with-deps chromium
+          fi
 
       - name: E2E + axe (incl. DB-backed progress)
         run: pnpm exec playwright test

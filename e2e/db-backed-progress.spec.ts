@@ -855,3 +855,45 @@ describe("authored lesson narrative (CMS) overrides bundled copy", () => {
     ).toBeVisible();
   });
 });
+
+describe("demo access — one-click profile sign-in", () => {
+  const email = "demo321@seq-elevate.eu";
+
+  test.beforeAll(async () => {
+    await prisma.user.deleteMany({ where: { email } });
+  });
+  test.afterAll(async () => {
+    await prisma.user.deleteMany({ where: { email } });
+  });
+
+  test("wrong code is rejected; correct code signs in with the role", async ({
+    page,
+  }) => {
+    await page.goto("/en/demo");
+
+    // Wrong code → error, no sign-in.
+    await page.getByPlaceholder(/code you were given/i).fill("nope");
+    await page
+      .getByRole("button", { name: /enter as demo teacher/i })
+      .click();
+    await expect(page.getByText(/access code isn.t right/i)).toBeVisible();
+
+    // Correct code → provisioned + signed in as a facilitator.
+    await page.getByPlaceholder(/code you were given/i).fill("elevate-demo");
+    await page
+      .getByRole("button", { name: /enter as demo teacher/i })
+      .click();
+    await page.waitForURL(/\/en\/facilitator/, { timeout: 10000 });
+
+    const user = await prisma.user.findUnique({
+      where: { email },
+      include: { memberships: true, sessions: true },
+    });
+    expect(user, "demo user provisioned").toBeTruthy();
+    expect(
+      user?.memberships.some((m) => m.role === "FACILITATOR"),
+      "facilitator role granted"
+    ).toBe(true);
+    expect(user?.sessions.length ?? 0, "session created").toBeGreaterThan(0);
+  });
+});

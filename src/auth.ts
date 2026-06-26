@@ -17,6 +17,8 @@ import NextAuth from "next-auth";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import Resend from "next-auth/providers/resend";
 import { prisma } from "@/lib/prisma";
+import { DEMO_PROFILES } from "@/lib/demo-profiles";
+import type { Role } from "@prisma/client";
 
 const hasRealResendKey =
   !!process.env.RESEND_API_KEY &&
@@ -69,6 +71,32 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         session.user.id = user.id;
       }
       return session;
+    },
+  },
+  events: {
+    // A configured demo/staff email (e.g. stefan@senic.org) gets its project
+    // roles whether it signs in via magic link or the one-click demo page.
+    async signIn({ user }) {
+      if (!user?.id || !user.email) return;
+      const profile = DEMO_PROFILES.find((p) => p.email === user.email);
+      if (!profile) return;
+      for (const role of profile.roles) {
+        await prisma.membership.upsert({
+          where: {
+            userId_projectId_role: {
+              userId: user.id,
+              projectId: "seq-elevate",
+              role: role as Role,
+            },
+          },
+          create: {
+            userId: user.id,
+            projectId: "seq-elevate",
+            role: role as Role,
+          },
+          update: {},
+        });
+      }
     },
   },
 });

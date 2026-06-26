@@ -78,12 +78,20 @@ export function SignInForm({ callbackUrl }: { callbackUrl: string }) {
         </CardContent>
       </Card>
 
-      <Link
-        href="/"
-        className="mt-6 text-sm text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
-      >
-        {t("backToHome")}
-      </Link>
+      <div className="mt-6 flex flex-col items-center gap-2">
+        <Link
+          href="/demo"
+          className="text-sm font-medium text-[var(--accent)] hover:underline"
+        >
+          Demo / client access →
+        </Link>
+        <Link
+          href="/"
+          className="text-sm text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+        >
+          {t("backToHome")}
+        </Link>
+      </div>
     </div>
   );
 }

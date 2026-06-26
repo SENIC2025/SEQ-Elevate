@@ -120,6 +120,13 @@ Single source of truth for decisions made, decisions still open, and the rationa
 - The swappable content client (`CMS_SOURCE=local|strapi`, see D9) is **kept**, so a Strapi instance on Hetzner can slot in later without reworking the app.
 - **Enabler**: production DB migrations now run automatically on deploy. Neon's pooled endpoint can't run Prisma migrations (advisory locks need a direct connection), so the Vercel build derives the **direct** Neon endpoint (drops `-pooler`) and runs `prisma migrate deploy` before `next build` (`prisma/migrate-deploy.mjs` via the `vercel-build` script). DB reads of new content are defensive (try/catch → fall back to bundled content) so a missing table never breaks the live site.
 
+### D16 · Demo access — one-click profiles (staging only)
+**Decided**: 15 June 2026 · *Decider: client (SENIC principal)*
+- `/[locale]/demo` lets a client sign in with one click as a demo profile (Stefan = Admin+Content-Editor, Demo Editor, Demo Teacher, Demo Learner) — bypassing the magic-link email so testers can explore each role on the staging/showcase site.
+- Provisions the `User` + `Membership` rows on first use; `stefan@senic.org` also gets editor roles on a normal magic-link login (auth `signIn` event).
+- **Code-gated** (`DEMO_ACCESS_CODE`, default `elevate-demo`) and **kill-switchable** (`DEMO_LOGIN_DISABLED=true`).
+- ⚠️ **Production action**: this is a deliberate convenience for the showcase deploy with placeholder data. It is effectively a one-click admin login behind a shared code — **set `DEMO_LOGIN_DISABLED=true` on the real production domain** (and rely on magic-link there). Open item until production go-live.
+
 ### D15 · Moodle integration — scoped for later
 **Decided**: 15 June 2026 · *Decider: client (SENIC principal)*
 - Requirement noted; **not built now**. Three viable approaches when prioritised: **LTI 1.3** (Moodle as the front door, SSO + grade passback), **SCORM/xAPI export** (portable course packages + an LRS), or **Moodle Web-Services API sync** (users/cohorts/grades). Each is a sizable, separate workstream — revisit at/after kickoff with the consortium's actual Moodle usage in hand.
