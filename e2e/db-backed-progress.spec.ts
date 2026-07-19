@@ -1041,11 +1041,11 @@ describe("admin manages organisations, cohorts and people", () => {
     // --- Organisations & cohorts ---
     await page.goto("/en/admin/cohorts");
     await expect(
-      page.getByRole("heading", { name: /organisations & cohorts/i })
+      page.getByRole("heading", { name: /organisations & cohorts/i }).first()
     ).toBeVisible();
 
     await page.getByLabel(/^name$/i).first().fill(orgName);
-    await page.getByRole("button", { name: /add organisation/i }).click();
+    await page.getByRole("button", { name: /add organisation/i }).first().click();
 
     await expect(page.getByText(orgName).first()).toBeVisible({
       timeout: 10000,
@@ -1056,10 +1056,10 @@ describe("admin manages organisations, cohorts and people", () => {
 
     // Add a cohort inside it — scope to this organisation's own region so
     // other organisations' identical controls don't match.
-    const orgRegion = page.getByRole("region", { name: orgName });
-    await orgRegion.getByLabel(/new cohort/i).fill("E2E Autumn Cohort");
-    await orgRegion.getByRole("button", { name: /add cohort/i }).click();
-    await expect(orgRegion.getByText("E2E Autumn Cohort")).toBeVisible({
+    const orgRegion = page.getByRole("region", { name: orgName }).first();
+    await orgRegion.getByLabel(/new cohort/i).first().fill("E2E Autumn Cohort");
+    await orgRegion.getByRole("button", { name: /add cohort/i }).first().click();
+    await expect(orgRegion.getByText("E2E Autumn Cohort").first()).toBeVisible({
       timeout: 10000,
     });
 
@@ -1070,11 +1070,13 @@ describe("admin manages organisations, cohorts and people", () => {
 
     // --- People ---
     await page.goto("/en/admin/people");
-    await expect(page.getByRole("heading", { name: /^people$/i })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: /^people$/i }).first()
+    ).toBeVisible();
 
-    await page.getByLabel(/^email$/i).fill(addedEmail);
-    await page.getByLabel(/^role$/i).selectOption("FACILITATOR");
-    await page.getByRole("button", { name: /^add$/i }).click();
+    await page.getByLabel(/^email$/i).first().fill(addedEmail);
+    await page.getByLabel(/^role$/i).first().selectOption("FACILITATOR");
+    await page.getByRole("button", { name: /^add$/i }).first().click();
 
     const row = page.locator("tr", { hasText: addedEmail }).first();
     await expect(row).toBeVisible({ timeout: 10000 });
@@ -1094,6 +1096,7 @@ describe("admin manages organisations, cohorts and people", () => {
     // Assign them to the cohort we just created.
     await row
       .getByLabel(new RegExp(`cohort for ${addedEmail}`, "i"))
+      .first()
       .selectOption(cohort!.id);
     await page.waitForTimeout(1500);
 
@@ -1104,7 +1107,7 @@ describe("admin manages organisations, cohorts and people", () => {
     expect(assigned?.organisationId, "org carried from the cohort").toBe(org!.id);
 
     // Grant a second role via the chips — the cohort must survive.
-    await row.getByRole("button", { name: "Editor" }).click();
+    await row.getByRole("button", { name: "Editor" }).first().click();
     await page.waitForTimeout(1500);
     const roles = await prisma.membership.findMany({
       where: { userId: added!.id, projectId: "seq-elevate" },
@@ -1148,7 +1151,9 @@ describe("admin manages organisations, cohorts and people", () => {
       ["/en/admin/people", /^people$/i],
     ] as const) {
       await page.goto(path);
-      await expect(page.getByRole("heading", { name: heading })).toBeVisible();
+      await expect(
+        page.getByRole("heading", { name: heading }).first()
+      ).toBeVisible();
       const results = await new AxeBuilder({ page })
         .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"])
         .analyze();
@@ -1180,7 +1185,7 @@ describe("admin manages organisations, cohorts and people", () => {
     for (const path of ["/en/admin/people", "/en/admin/cohorts"]) {
       await page.goto(path);
       await expect(
-        page.getByRole("heading", { name: /admins only/i })
+        page.getByRole("heading", { name: /admins only/i }).first()
       ).toBeVisible();
       // No management controls are rendered at all.
       await expect(page.getByRole("button", { name: /^add$/i })).toHaveCount(0);
