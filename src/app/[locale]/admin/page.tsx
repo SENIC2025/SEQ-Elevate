@@ -1,5 +1,6 @@
 import { setRequestLocale } from "next-intl/server";
 import { getAdminCounts } from "@/lib/server-queries";
+import { isAdmin } from "@/lib/admin-queries";
 import { AdminDashboard } from "@/components/role/AdminDashboard";
 
 // Real-time DB counts — never prerender at build (no DB there).
@@ -12,6 +13,6 @@ export default async function Page({
 }) {
   const { locale } = await params;
   setRequestLocale(locale);
-  const counts = await getAdminCounts();
-  return <AdminDashboard counts={counts} />;
+  const [counts, canManage] = await Promise.all([getAdminCounts(), isAdmin()]);
+  return <AdminDashboard counts={counts} canManage={canManage} />;
 }

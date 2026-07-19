@@ -3,6 +3,7 @@
 import { useTranslations } from "next-intl";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Link } from "@/i18n/navigation";
 import {
   Users,
   Building2,
@@ -12,6 +13,7 @@ import {
   Download,
   Trash2,
   ToggleLeft,
+  ChevronRight,
 } from "lucide-react";
 
 export interface AdminCounts {
@@ -21,7 +23,14 @@ export interface AdminCounts {
   courses: number;
 }
 
-export function AdminDashboard({ counts }: { counts?: AdminCounts }) {
+export function AdminDashboard({
+  counts,
+  canManage = false,
+}: {
+  counts?: AdminCounts;
+  /** Only true admins get the management entry points. */
+  canManage?: boolean;
+}) {
   const t = useTranslations("admin");
   const tCommon = useTranslations("common");
 
@@ -59,6 +68,24 @@ export function AdminDashboard({ counts }: { counts?: AdminCounts }) {
           subtle="EU residency · DPIA on file"
         />
       </div>
+
+      {/* Management entry points — admins only */}
+      {canManage ? (
+        <div className="mt-6 grid sm:grid-cols-2 gap-4">
+          <ManageLink
+            href="/admin/cohorts"
+            icon={<Building2 className="h-5 w-5" />}
+            title="Organisations & cohorts"
+            desc="Add partner organisations and the cohorts learners belong to."
+          />
+          <ManageLink
+            href="/admin/people"
+            icon={<Users className="h-5 w-5" />}
+            title="People & roles"
+            desc="Invite people, set what they can do, assign them to a cohort."
+          />
+        </div>
+      ) : null}
 
       <div className="mt-8 grid lg:grid-cols-2 gap-6">
         {/* GDPR self-service */}
@@ -136,11 +163,40 @@ export function AdminDashboard({ counts }: { counts?: AdminCounts }) {
           {tCommon("demoBannerLine1")}
         </p>
         <p className="mt-1">
-          The admin dashboard renders against real data once partners are onboarded.
-          User management, cohort hierarchy, organisations and roles are all wired through RBAC.
+          {canManage
+            ? "Counts above are live. Organisations, cohorts, people and roles are editable from the two panels above — every change is written to the database and recorded in the audit log."
+            : "Counts above are live. Managing organisations, cohorts and people requires an admin account."}
         </p>
       </div>
     </div>
+  );
+}
+
+function ManageLink({
+  href,
+  icon,
+  title,
+  desc,
+}: {
+  href: string;
+  icon: React.ReactNode;
+  title: string;
+  desc: string;
+}) {
+  return (
+    <Link
+      href={href}
+      className="group rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5 flex items-center gap-4 hover:border-[var(--accent)] transition-colors"
+    >
+      <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-lg bg-[var(--accent)]/10 text-[var(--accent)]">
+        {icon}
+      </div>
+      <div className="min-w-0">
+        <p className="font-semibold">{title}</p>
+        <p className="text-xs text-[var(--muted-foreground)] mt-0.5">{desc}</p>
+      </div>
+      <ChevronRight className="ml-auto h-5 w-5 flex-shrink-0 text-[var(--muted-foreground)] group-hover:text-[var(--accent)]" />
+    </Link>
   );
 }
 

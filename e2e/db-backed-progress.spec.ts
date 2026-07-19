@@ -957,6 +957,246 @@ describe("statistics showcase (staff)", () => {
   });
 });
 
+describe("admin manages organisations, cohorts and people", () => {
+  const adminEmail = "e2e-admin@example.com";
+  const learnerEmail = "e2e-admin-learner@example.com";
+  // The admin adds this person through the UI — it must not pre-exist.
+  const addedEmail = "e2e-added-person@example.com";
+  const allEmails = [adminEmail, learnerEmail, addedEmail];
+  let adminId: string;
+  let adminSession: string;
+  let learnerSession: string;
+  const orgName = `E2E Partner ${Date.now()}`;
+
+  test.beforeAll(async () => {
+    await prisma.user.deleteMany({ where: { email: { in: allEmails } } });
+
+    const admin = await prisma.user.create({
+      data: { email: adminEmail, emailVerified: new Date() },
+    });
+    adminId = admin.id;
+    await prisma.membership.create({
+      data: { userId: admin.id, projectId: "seq-elevate", role: "ADMIN" },
+    });
+    adminSession = `e2e-admin-${Date.now()}`;
+    await prisma.session.create({
+      data: {
+        sessionToken: adminSession,
+        userId: admin.id,
+        expires: new Date(Date.now() + 86_400_000),
+      },
+    });
+
+    // A plain learner — used to prove the RBAC gate actually blocks.
+    const learner = await prisma.user.create({
+      data: { email: learnerEmail, emailVerified: new Date() },
+    });
+    await prisma.membership.create({
+      data: { userId: learner.id, projectId: "seq-elevate", role: "LEARNER" },
+    });
+    learnerSession = `e2e-admin-learner-${Date.now()}`;
+    await prisma.session.create({
+      data: {
+        sessionToken: learnerSession,
+        userId: learner.id,
+        expires: new Date(Date.now() + 86_400_000),
+      },
+    });
+  });
+
+  test.afterAll(async () => {
+    await prisma.auditLog.deleteMany({ where: { actorId: adminId } });
+    // Sweep every "E2E Partner …" org, not just this run's — a failed run
+    // leaves one behind and the next run then sees ambiguous UI.
+    // Cohorts go first: the org refuses to delete while it still has them.
+    const orgs = await prisma.organisation.findMany({
+      where: { name: { startsWith: "E2E Partner " } },
+      select: { id: true },
+    });
+    const orgIds = orgs.map((o) => o.id);
+    if (orgIds.length) {
+      await prisma.cohort.deleteMany({
+        where: { organisationId: { in: orgIds } },
+      });
+      await prisma.organisation.deleteMany({ where: { id: { in: orgIds } } });
+    }
+    await prisma.user.deleteMany({ where: { email: { in: allEmails } } });
+  });
+
+  test("creates an organisation + cohort, adds a person, assigns them", async ({
+    page,
+    context,
+  }) => {
+    await context.addCookies([
+      {
+        name: "authjs.session-token",
+        value: adminSession,
+        domain: "localhost",
+        path: "/",
+        httpOnly: true,
+        sameSite: "Lax",
+      },
+    ]);
+
+    // --- Organisations & cohorts ---
+    await page.goto("/en/admin/cohorts");
+    await expect(
+      page.getByRole("heading", { name: /organisations & cohorts/i })
+    ).toBeVisible();
+
+    await page.getByLabel(/^name$/i).first().fill(orgName);
+    await page.getByRole("button", { name: /add organisation/i }).click();
+
+    await expect(page.getByText(orgName).first()).toBeVisible({
+      timeout: 10000,
+    });
+
+    const org = await prisma.organisation.findFirst({ where: { name: orgName } });
+    expect(org, "organisation created in the DB").toBeTruthy();
+
+    // Add a cohort inside it — scope to this organisation's own region so
+    // other organisations' identical controls don't match.
+    const orgRegion = page.getByRole("region", { name: orgName });
+    await orgRegion.getByLabel(/new cohort/i).fill("E2E Autumn Cohort");
+    await orgRegion.getByRole("button", { name: /add cohort/i }).click();
+    await expect(orgRegion.getByText("E2E Autumn Cohort")).toBeVisible({
+      timeout: 10000,
+    });
+
+    const cohort = await prisma.cohort.findFirst({
+      where: { organisationId: org!.id, name: "E2E Autumn Cohort" },
+    });
+    expect(cohort, "cohort created in the DB").toBeTruthy();
+
+    // --- People ---
+    await page.goto("/en/admin/people");
+    await expect(page.getByRole("heading", { name: /^people$/i })).toBeVisible();
+
+    await page.getByLabel(/^email$/i).fill(addedEmail);
+    await page.getByLabel(/^role$/i).selectOption("FACILITATOR");
+    await page.getByRole("button", { name: /^add$/i }).click();
+
+    const row = page.locator("tr", { hasText: addedEmail }).first();
+    await expect(row).toBeVisible({ timeout: 10000 });
+
+    const added = await prisma.user.findUnique({
+      where: { email: addedEmail },
+      include: { memberships: true },
+    });
+    expect(added, "person provisioned").toBeTruthy();
+    expect(
+      added?.memberships.some((m) => m.role === "FACILITATOR"),
+      "role granted"
+    ).toBe(true);
+    // Passwordless: no credential is stored for the new person.
+    expect(added?.emailVerified, "not verified until they sign in").toBeNull();
+
+    // Assign them to the cohort we just created.
+    await row
+      .getByLabel(new RegExp(`cohort for ${addedEmail}`, "i"))
+      .selectOption(cohort!.id);
+    await page.waitForTimeout(1500);
+
+    const assigned = await prisma.membership.findFirst({
+      where: { userId: added!.id, projectId: "seq-elevate" },
+    });
+    expect(assigned?.cohortId, "cohort assigned").toBe(cohort!.id);
+    expect(assigned?.organisationId, "org carried from the cohort").toBe(org!.id);
+
+    // Grant a second role via the chips — the cohort must survive.
+    await row.getByRole("button", { name: "Editor" }).click();
+    await page.waitForTimeout(1500);
+    const roles = await prisma.membership.findMany({
+      where: { userId: added!.id, projectId: "seq-elevate" },
+    });
+    expect(roles.map((r) => r.role).sort(), "both roles held").toEqual([
+      "CONTENT_EDITOR",
+      "FACILITATOR",
+    ]);
+    expect(
+      roles.every((r) => r.cohortId === cohort!.id),
+      "cohort carried onto the new role row"
+    ).toBe(true);
+
+    // Every change left an audit trail.
+    const actions = (
+      await prisma.auditLog.findMany({ where: { actorId: adminId } })
+    ).map((a) => a.action);
+    expect(actions).toContain("org.created");
+    expect(actions).toContain("cohort.created");
+    expect(actions).toContain("member.added");
+    expect(actions).toContain("member.cohort_changed");
+  });
+
+  test("management screens have no serious a11y violations", async ({
+    page,
+    context,
+  }) => {
+    await context.addCookies([
+      {
+        name: "authjs.session-token",
+        value: adminSession,
+        domain: "localhost",
+        path: "/",
+        httpOnly: true,
+        sameSite: "Lax",
+      },
+    ]);
+
+    for (const [path, heading] of [
+      ["/en/admin/cohorts", /organisations & cohorts/i],
+      ["/en/admin/people", /^people$/i],
+    ] as const) {
+      await page.goto(path);
+      await expect(page.getByRole("heading", { name: heading })).toBeVisible();
+      const results = await new AxeBuilder({ page })
+        .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"])
+        .analyze();
+      const serious = results.violations.filter(
+        (v) => v.impact === "serious" || v.impact === "critical"
+      );
+      expect(
+        serious,
+        `${path}: ${JSON.stringify(serious.map((x) => x.id), null, 2)}`
+      ).toEqual([]);
+    }
+  });
+
+  test("a non-admin cannot reach the management screens", async ({
+    page,
+    context,
+  }) => {
+    await context.addCookies([
+      {
+        name: "authjs.session-token",
+        value: learnerSession,
+        domain: "localhost",
+        path: "/",
+        httpOnly: true,
+        sameSite: "Lax",
+      },
+    ]);
+
+    for (const path of ["/en/admin/people", "/en/admin/cohorts"]) {
+      await page.goto(path);
+      await expect(
+        page.getByRole("heading", { name: /admins only/i })
+      ).toBeVisible();
+      // No management controls are rendered at all.
+      await expect(page.getByRole("button", { name: /^add$/i })).toHaveCount(0);
+      await expect(
+        page.getByRole("button", { name: /add organisation/i })
+      ).toHaveCount(0);
+    }
+
+    // …and the entry points are hidden on the admin overview.
+    await page.goto("/en/admin");
+    await expect(page.getByRole("link", { name: /people & roles/i })).toHaveCount(
+      0
+    );
+  });
+});
+
 describe("statistics dashboard — live data from real events", () => {
   const staffEmail = "e2e-live-staff@example.com";
   const learnerEmails = Array.from(

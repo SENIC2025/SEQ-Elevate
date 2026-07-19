@@ -38,7 +38,7 @@ It is **multi-tenant by design** (a `Project` roots all data) and **trilingual**
 - **Learner** — walks courses.
 - **Facilitator / teacher** — tracks a cohort, observes, validates, sees statistics.
 - **Content editor** — authors lesson content (text, video, documents).
-- **Admin** — runs the project (dashboard, GDPR).
+- **Admin** — runs the project (dashboard, organisations, cohorts, people & roles, GDPR).
 
 A single person can hold several roles, and the same human can belong to
 multiple projects with different roles.
@@ -62,6 +62,8 @@ multiple projects with different roles.
 /[locale]/content                 Content editor (CMS authoring surface)
 /[locale]/content/preview         Live content preview (split-screen)
 /[locale]/admin                   Admin dashboard (aggregate counts)
+/[locale]/admin/cohorts           Manage organisations + cohorts (admin only)
+/[locale]/admin/people            Manage people, roles, cohort assignment (admin only)
 /[locale]/account                 Account + GDPR (export, delete)
 /[locale]/dev/storybook           Component gallery (transparency)
 /[locale]/dev/cms-check           CMS source check (transparency)
@@ -163,7 +165,7 @@ plays through the same engine.
 
 **Client / demo** — Open `/demo`, enter the access code, click a profile → instantly signed in as that role (no email). Best entry point for showcasing.
 
-**Admin** — Sign in → `/admin` (aggregate counts) and full content/facilitator/analytics access.
+**Admin** — Sign in → `/admin` (aggregate counts) → **`/admin/cohorts`** to add partner organisations and their cohorts (with start/end dates) → **`/admin/people`** to add someone by email, toggle their roles (Learner / Facilitator / Editor / Admin), assign them to a cohort, or remove them from the project. Adding a person never sets a password — sign-in stays passwordless magic-link, so they simply sign in at `/signin` with that email. Every change is audit-logged. Admins also have full content/facilitator/analytics access.
 
 **GDPR** — `/account` → Download my data (JSON) or Delete my account (confirmed; anonymises the audit trail).
 

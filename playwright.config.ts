@@ -6,7 +6,14 @@ import { defineConfig, devices } from "@playwright/test";
  * Runs against a local Next dev server (the demo flows are client-state
  * driven and need no database). Run: `pnpm test:e2e`
  * (after `npx playwright install chromium`).
+ *
+ * Port: defaults to 3000, override with E2E_PORT. `reuseExistingServer` will
+ * happily attach to whatever already holds the port — if another project's
+ * dev server is on 3000, run `E2E_PORT=3100 pnpm test:e2e` instead of killing it.
  */
+const PORT = process.env.E2E_PORT ?? "3000";
+const BASE_URL = `http://localhost:${PORT}`;
+
 export default defineConfig({
   testDir: "./e2e",
   fullyParallel: true,
@@ -18,7 +25,7 @@ export default defineConfig({
   reporter: "list",
   expect: { timeout: 10_000 },
   use: {
-    baseURL: "http://localhost:3000",
+    baseURL: BASE_URL,
     trace: "on-first-retry",
   },
   projects: [
@@ -27,8 +34,8 @@ export default defineConfig({
   webServer: {
     // Production server starts instantly (no per-request compilation).
     // Build first: `pnpm build`. CI builds before the e2e step.
-    command: "pnpm start",
-    url: "http://localhost:3000/en",
+    command: `pnpm start --port ${PORT}`,
+    url: `${BASE_URL}/en`,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
   },
