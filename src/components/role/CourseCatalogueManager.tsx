@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import {
   getCatalogue,
   setCourseStatus,
+  createCourse,
   type CatalogueEntry,
   type CourseStatus,
 } from "@/app/actions/course";
@@ -21,7 +22,12 @@ import {
   AlertTriangle,
   Users,
   Clock,
+  Plus,
+  Info,
 } from "lucide-react";
+
+const inputCls =
+  "rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm";
 
 const STATUS_LABEL: Record<CourseStatus, string> = {
   published: "Published",
@@ -40,6 +46,10 @@ export function CourseCatalogueManager({ locale }: { locale: Locale }) {
   const [pending, setPending] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [reloadKey, setReloadKey] = React.useState(0);
+  const [newTitle, setNewTitle] = React.useState("");
+  const [newTagline, setNewTagline] = React.useState("");
+  const [newCluster, setNewCluster] = React.useState("");
+  const [newDuration, setNewDuration] = React.useState("20");
 
   React.useEffect(() => {
     let cancelled = false;
@@ -68,6 +78,38 @@ export function CourseCatalogueManager({ locale }: { locale: Locale }) {
           : res.error === "unknown-course"
             ? "That course isn't in the CMS."
             : "Something went wrong."
+      );
+    }
+    setPending(null);
+  }
+
+  async function onCreate() {
+    if (!newTitle.trim()) return;
+    setPending("new");
+    const res = await createCourse({
+      title: newTitle,
+      tagline: newTagline,
+      cluster: newCluster.toLowerCase().replace(/[^a-z]+/g, "-") || "communication",
+      clusterLabel: newCluster || "Skill",
+      durationMinutes: Number(newDuration) || 20,
+      locale,
+    });
+    if (res.ok) {
+      setError(null);
+      setNewTitle("");
+      setNewTagline("");
+      setNewCluster("");
+      setReloadKey((k) => k + 1);
+      router.refresh();
+    } else {
+      setError(
+        res.error === "forbidden"
+          ? "Editors and admins only."
+          : res.error === "slug-taken"
+            ? "A course with that name already exists."
+            : res.error === "title-required" || res.error === "bad-title"
+              ? "Give the course a name with some letters or numbers in it."
+              : "Something went wrong."
       );
     }
     setPending(null);
@@ -165,6 +207,75 @@ export function CourseCatalogueManager({ locale }: { locale: Locale }) {
             ))}
           </ul>
         )}
+
+        {/* New course */}
+        <div className="mt-4 border-t border-[var(--border)] pt-3">
+          <p className="text-sm font-semibold mb-2 flex items-center gap-1.5">
+            <Plus className="h-4 w-4 text-[var(--accent)]" />
+            New course
+          </p>
+          <div className="flex flex-wrap items-end gap-2">
+            <label className="text-xs text-[var(--muted-foreground)]">
+              <span className="block mb-1">Title</span>
+              <input
+                value={newTitle}
+                onChange={(e) => setNewTitle(e.target.value)}
+                placeholder="e.g. Asking for what you need"
+                className={`${inputCls} w-60`}
+              />
+            </label>
+            <label className="text-xs text-[var(--muted-foreground)]">
+              <span className="block mb-1">Tagline</span>
+              <input
+                value={newTagline}
+                onChange={(e) => setNewTagline(e.target.value)}
+                placeholder="one line for the card"
+                className={`${inputCls} w-56`}
+              />
+            </label>
+            <label className="text-xs text-[var(--muted-foreground)]">
+              <span className="block mb-1">Skill area</span>
+              <input
+                value={newCluster}
+                onChange={(e) => setNewCluster(e.target.value)}
+                placeholder="e.g. Communication"
+                className={`${inputCls} w-40`}
+              />
+            </label>
+            <label className="text-xs text-[var(--muted-foreground)]">
+              <span className="block mb-1">Minutes</span>
+              <input
+                type="number"
+                min={1}
+                max={240}
+                value={newDuration}
+                onChange={(e) => setNewDuration(e.target.value)}
+                className={`${inputCls} w-20`}
+              />
+            </label>
+            <Button
+              size="sm"
+              onClick={onCreate}
+              disabled={!newTitle.trim() || pending === "new"}
+            >
+              {pending === "new" ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Plus className="h-4 w-4" />
+              )}
+              Create draft
+            </Button>
+          </div>
+          <p className="mt-2 text-xs text-[var(--muted-foreground)] flex items-start gap-1.5">
+            <Info className="h-3.5 w-3.5 text-[var(--accent)] flex-shrink-0 mt-0.5" />
+            A new course starts as a <strong>draft</strong> with the four
+            narrative stages (context, concept, behaviour, reflection) — write
+            them below in &ldquo;Edit lesson narrative&rdquo;, attach video and
+            documents, then publish. Simulations, branching scenarios and
+            quizzes need the interactive structure editor, which is still on the
+            roadmap.
+          </p>
+        </div>
       </CardContent>
     </Card>
   );

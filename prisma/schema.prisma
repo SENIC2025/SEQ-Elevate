@@ -286,6 +286,10 @@ model Course {
   badgeId         String?
   status          String  @default("draft") // "draft" | "published" | "archived"
   publishedAt     DateTime?
+  // Per-locale copy for courses CREATED IN THE CMS (no bundled definition):
+  // { en: { title, tagline, clusterLabel }, de: {...}, el: {...} }.
+  // Null for bundled courses, whose copy comes from the message catalogue.
+  meta            Json?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 

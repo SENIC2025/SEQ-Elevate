@@ -11,6 +11,7 @@ import { localProvider } from "./local-provider";
 import { strapiProvider } from "./strapi-provider";
 import { applyLessonMedia } from "./lesson-overlay";
 import { applyCourseStatus } from "./course-overlay";
+import { listDbCourses, getDbCourse } from "./db-course";
 import type { Locale, CourseContent, CourseSummary, CompCardTemplate } from "./types";
 
 function provider(): CMSProvider {
@@ -28,8 +29,16 @@ export async function listCourses(
   locale: Locale,
   opts?: { includeUnpublished?: boolean }
 ): Promise<CourseSummary[]> {
-  const summaries = await provider().listCourses(projectId, locale);
-  return applyCourseStatus(projectId, summaries, opts?.includeUnpublished);
+  const [bundled, created] = await Promise.all([
+    provider().listCourses(projectId, locale),
+    // Courses an editor created in the CMS; they have no bundled definition.
+    listDbCourses(projectId, locale),
+  ]);
+  return applyCourseStatus(
+    projectId,
+    [...bundled, ...created],
+    opts?.includeUnpublished
+  );
 }
 
 export async function getCourse(
@@ -37,7 +46,11 @@ export async function getCourse(
   slug: string,
   locale: Locale
 ): Promise<CourseContent | null> {
-  const content = await provider().getCourse(projectId, slug, locale);
+  // A bundled course comes from the provider; a course created in the CMS is
+  // assembled from its DB rows. Bundled wins if a slug somehow exists in both.
+  const content =
+    (await provider().getCourse(projectId, slug, locale)) ??
+    (await getDbCourse(projectId, slug, locale));
   if (!content) return null;
   // Overlay author-attached lesson media (video + documents) from the DB.
   return applyLessonMedia(projectId, slug, content);

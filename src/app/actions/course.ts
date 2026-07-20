@@ -15,6 +15,7 @@
 import { getCurrentUser, hasRole } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
 import { listCourses } from "@/lib/cms";
+import { slugify } from "@/lib/slug";
 import type { Locale } from "@/lib/cms/types";
 
 const PROJECT = "seq-elevate";
@@ -89,6 +90,60 @@ export async function getCatalogue(
   } catch {
     return [];
   }
+}
+
+/**
+ * Create a brand-new course from the CMS — no code, no deploy.
+ *
+ * It starts as a DRAFT carrying the narrative stages (context → concept →
+ * behaviour → reflection). The interactive stages (simulation, branching
+ * scenario, assessment) need the structure editor that is still on the
+ * roadmap, so a new course does not pretend to have them.
+ */
+export async function createCourse(input: {
+  title: string;
+  tagline: string;
+  cluster: string;
+  clusterLabel: string;
+  durationMinutes: number;
+  locale: Locale;
+}) {
+  const editor = await requireEditor();
+  if (!editor) return { ok: false as const, error: "forbidden" };
+
+  const title = input.title.trim().slice(0, 120);
+  if (!title) return { ok: false as const, error: "title-required" };
+  const slug = slugify(title);
+  if (!slug) return { ok: false as const, error: "bad-title" };
+
+  // A CMS course must never shadow a bundled one, or `getCourse` would keep
+  // serving the bundled content and the editor's work would look lost.
+  const all = await listCourses(PROJECT, "en", { includeUnpublished: true });
+  if (all.some((c) => c.slug === slug)) {
+    return { ok: false as const, error: "slug-taken" };
+  }
+
+  const duration = Math.min(Math.max(input.durationMinutes || 20, 1), 240);
+  await prisma.course.create({
+    data: {
+      projectId: PROJECT,
+      strapiId: `cms-${slug}`,
+      slug,
+      cluster: input.cluster.trim() || "communication",
+      durationMinutes: duration,
+      status: "draft",
+      meta: {
+        [input.locale]: {
+          title,
+          tagline: input.tagline.trim().slice(0, 200),
+          clusterLabel: input.clusterLabel.trim().slice(0, 60) || "Skill",
+        },
+      },
+    },
+  });
+
+  await audit(editor.id, "course.created", slug, "draft");
+  return { ok: true as const, slug };
 }
 
 /**

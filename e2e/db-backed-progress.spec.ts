@@ -1437,6 +1437,197 @@ describe("course lifecycle — publish / unpublish from the CMS", () => {
   });
 });
 
+describe("creating a course in the CMS (no code)", () => {
+  const editorEmail = "e2e-create-editor@example.com";
+  const learnerEmail = "e2e-create-learner@example.com";
+  const allEmails = [editorEmail, learnerEmail];
+  const TITLE = "E2E Asking for what you need";
+  const SLUG = "e2e-asking-for-what-you-need";
+  let editorId: string;
+  let editorSession: string;
+  let learnerSession: string;
+
+  test.beforeAll(async () => {
+    await prisma.user.deleteMany({ where: { email: { in: allEmails } } });
+    await prisma.lesson.deleteMany({ where: { courseSlug: SLUG } });
+    await prisma.course.deleteMany({ where: { slug: SLUG } });
+
+    const editor = await prisma.user.create({
+      data: { email: editorEmail, emailVerified: new Date() },
+    });
+    editorId = editor.id;
+    await prisma.membership.create({
+      data: {
+        userId: editor.id,
+        projectId: "seq-elevate",
+        role: "CONTENT_EDITOR",
+      },
+    });
+    editorSession = `e2e-create-editor-${Date.now()}`;
+    await prisma.session.create({
+      data: {
+        sessionToken: editorSession,
+        userId: editor.id,
+        expires: new Date(Date.now() + 86_400_000),
+      },
+    });
+
+    const learner = await prisma.user.create({
+      data: { email: learnerEmail, emailVerified: new Date() },
+    });
+    await prisma.membership.create({
+      data: { userId: learner.id, projectId: "seq-elevate", role: "LEARNER" },
+    });
+    learnerSession = `e2e-create-learner-${Date.now()}`;
+    await prisma.session.create({
+      data: {
+        sessionToken: learnerSession,
+        userId: learner.id,
+        expires: new Date(Date.now() + 86_400_000),
+      },
+    });
+  });
+
+  test.afterAll(async () => {
+    await prisma.lesson.deleteMany({ where: { courseSlug: SLUG } });
+    await prisma.course.deleteMany({ where: { slug: SLUG } });
+    await prisma.auditLog.deleteMany({ where: { actorId: editorId } });
+    await prisma.user.deleteMany({ where: { email: { in: allEmails } } });
+  });
+
+  async function asEditor(context: import("@playwright/test").BrowserContext) {
+    await context.clearCookies();
+    await context.addCookies([
+      {
+        name: "authjs.session-token",
+        value: editorSession,
+        domain: "localhost",
+        path: "/",
+        httpOnly: true,
+        sameSite: "Lax",
+      },
+    ]);
+  }
+
+  test("an editor creates a course; it starts as an invisible draft", async ({
+    page,
+    context,
+  }) => {
+    await asEditor(context);
+    await page.goto("/en/content");
+
+    await page.getByLabel(/^title$/i).first().fill(TITLE);
+    await page.getByLabel(/^tagline$/i).first().fill("Say the thing, kindly");
+    await page.getByLabel(/skill area/i).first().fill("Communication");
+    await page.getByRole("button", { name: /create draft/i }).first().click();
+
+    // It appears in the catalogue as a draft.
+    const row = page.locator("li", { hasText: TITLE }).first();
+    await expect(row).toBeVisible({ timeout: 15000 });
+    await expect(row.getByText(/^draft$/i).first()).toBeVisible();
+
+    const course = await prisma.course.findFirst({ where: { slug: SLUG } });
+    expect(course, "course row created").toBeTruthy();
+    expect(course?.status, "starts as a draft").toBe("draft");
+    expect(
+      (course?.meta as Record<string, { title?: string }> | null)?.en?.title,
+      "per-locale title stored"
+    ).toBe(TITLE);
+
+    const log = await prisma.auditLog.findFirst({
+      where: { actorId: editorId, action: "course.created", entityId: SLUG },
+    });
+    expect(log, "creation audited").toBeTruthy();
+
+    // A learner cannot see it yet.
+    await context.clearCookies();
+    await context.addCookies([
+      {
+        name: "authjs.session-token",
+        value: learnerSession,
+        domain: "localhost",
+        path: "/",
+        httpOnly: true,
+        sameSite: "Lax",
+      },
+    ]);
+    await page.goto("/en/learner");
+    await expect(page.getByText(TITLE)).toHaveCount(0);
+  });
+
+  test("the same title twice is refused rather than shadowing", async ({
+    page,
+    context,
+  }) => {
+    await asEditor(context);
+    await page.goto("/en/content");
+    await page.getByLabel(/^title$/i).first().fill(TITLE);
+    await page.getByRole("button", { name: /create draft/i }).first().click();
+    await expect(page.getByText(/already exists/i).first()).toBeVisible({
+      timeout: 15000,
+    });
+    expect(
+      await prisma.course.count({ where: { slug: SLUG } }),
+      "still exactly one course with that slug"
+    ).toBe(1);
+  });
+
+  test("authored narrative renders, and publishing shows it to learners", async ({
+    page,
+    context,
+  }) => {
+    // Author the first stage directly (the narrative editor is covered by its
+    // own test) — this test is about a CMS-created course actually playing.
+    await prisma.lesson.create({
+      data: {
+        projectId: "seq-elevate",
+        courseSlug: SLUG,
+        stageKey: "context",
+        narrative: {
+          en: {
+            title: "Why asking is hard",
+            subtitle: "Stage one",
+            blocks: [
+              { kind: "paragraph", text: "Authored entirely in the CMS." },
+            ],
+          },
+        },
+      },
+    });
+    await prisma.course.updateMany({
+      where: { slug: SLUG },
+      data: { status: "published", publishedAt: new Date() },
+    });
+
+    await context.clearCookies();
+    await context.addCookies([
+      {
+        name: "authjs.session-token",
+        value: learnerSession,
+        domain: "localhost",
+        path: "/",
+        httpOnly: true,
+        sameSite: "Lax",
+      },
+    ]);
+
+    // On the dashboard…
+    await page.goto("/en/learner");
+    await expect(page.getByText(TITLE).first()).toBeVisible({ timeout: 15000 });
+
+    // …and it plays, with the authored copy.
+    await page.goto(`/en/learner/course/${SLUG}`);
+    await expect(
+      page.getByRole("heading", { name: /why asking is hard/i })
+    ).toBeVisible({ timeout: 15000 });
+    await expect(
+      page.getByText("Authored entirely in the CMS.").first()
+    ).toBeVisible();
+    // No draft banner — it is genuinely published.
+    await expect(page.getByText(/draft preview/i)).toHaveCount(0);
+  });
+});
+
 describe("statistics dashboard — live data from real events", () => {
   const staffEmail = "e2e-live-staff@example.com";
   const learnerEmails = Array.from(
