@@ -10,6 +10,7 @@ import { VideoBlockAuthor } from "@/components/role/VideoBlockAuthor";
 import { LessonDocumentManager } from "@/components/role/LessonDocumentManager";
 import { LessonNarrativeEditor } from "@/components/role/LessonNarrativeEditor";
 import { CourseCatalogueManager } from "@/components/role/CourseCatalogueManager";
+import { CompCardTemplateEditor } from "@/components/role/CompCardTemplateEditor";
 import type { Locale } from "@/lib/cms/types";
 import {
   BookOpen,
@@ -202,6 +203,10 @@ export function ContentEditor({
       {/* Lesson documents — upload and attach files to a lesson */}
       <h2 className="mt-8 mb-3 text-lg font-semibold">Lesson documents</h2>
       <LessonDocumentManager courses={courses} />
+
+      {/* Comp Card template — reword/reorder/hide the reflection fields */}
+      <h2 className="mt-8 mb-3 text-lg font-semibold">Comp Card template</h2>
+      <CompCardTemplateEditor />
 
       {/* Content models */}
       <h2 className="mt-8 mb-3 text-lg font-semibold">Content models</h2>

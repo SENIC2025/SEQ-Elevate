@@ -1628,6 +1628,158 @@ describe("creating a course in the CMS (no code)", () => {
   });
 });
 
+describe("Comp Card template — editable wording (CMS)", () => {
+  const editorEmail = "e2e-cc-editor@example.com";
+  let editorId: string;
+  let editorSession: string;
+
+  test.beforeAll(async () => {
+    await prisma.user.deleteMany({ where: { email: editorEmail } });
+    // Start clean: no Comp Card override for the project.
+    await prisma.$executeRawUnsafe(
+      `UPDATE "Project" SET "compCardTemplate" = NULL WHERE id = 'seq-elevate'`
+    );
+
+    const editor = await prisma.user.create({
+      data: { email: editorEmail, emailVerified: new Date() },
+    });
+    editorId = editor.id;
+    await prisma.membership.create({
+      data: {
+        userId: editor.id,
+        projectId: "seq-elevate",
+        role: "CONTENT_EDITOR",
+      },
+    });
+    editorSession = `e2e-cc-editor-${Date.now()}`;
+    await prisma.session.create({
+      data: {
+        sessionToken: editorSession,
+        userId: editor.id,
+        expires: new Date(Date.now() + 86_400_000),
+      },
+    });
+  });
+
+  test.afterAll(async () => {
+    await prisma.$executeRawUnsafe(
+      `UPDATE "Project" SET "compCardTemplate" = NULL WHERE id = 'seq-elevate'`
+    );
+    await prisma.auditLog.deleteMany({ where: { actorId: editorId } });
+    await prisma.user.deleteMany({ where: { email: editorEmail } });
+  });
+
+  test("an editor rewords a field and learners see the new wording", async ({
+    page,
+    context,
+  }) => {
+    await context.addCookies([
+      {
+        name: "authjs.session-token",
+        value: editorSession,
+        domain: "localhost",
+        path: "/",
+        httpOnly: true,
+        sameSite: "Lax",
+      },
+    ]);
+
+    await page.goto("/en/content");
+    // The Comp Card editor is a labelled region; edit its first "Question".
+    const panel = page.getByRole("region", { name: /comp card wording/i });
+    await expect(panel).toBeVisible({ timeout: 15000 });
+    const firstQuestion = panel.getByLabel(/^question$/i).first();
+    await firstQuestion.fill("E2E — your biggest win this week");
+    await page.getByRole("button", { name: /save wording/i }).first().click();
+    await expect(page.getByText(/^saved$/i).first()).toBeVisible({
+      timeout: 15000,
+    });
+
+    // Persisted to the Project row.
+    const project = await prisma.project.findUnique({
+      where: { id: "seq-elevate" },
+      select: { compCardTemplate: true },
+    });
+    const override = project?.compCardTemplate as Record<
+      string,
+      { fields?: Record<string, { label?: string }> }
+    > | null;
+    const enFields = override?.en?.fields ?? {};
+    expect(
+      Object.values(enFields).some(
+        (f) => f.label === "E2E — your biggest win this week"
+      ),
+      "reworded label saved"
+    ).toBe(true);
+
+    const log = await prisma.auditLog.findFirst({
+      where: { actorId: editorId, action: "compcard.template_saved" },
+    });
+    expect(log, "save audited").toBeTruthy();
+
+    // A learner opening their Comp Card sees the new wording.
+    await page.goto("/en/learner/comp-card");
+    await expect(
+      page.getByText("E2E — your biggest win this week").first()
+    ).toBeVisible({ timeout: 15000 });
+  });
+
+  test("reverting restores the bundled wording", async ({ page, context }) => {
+    // Seed an override directly, then revert through the UI.
+    await prisma.project.update({
+      where: { id: "seq-elevate" },
+      data: {
+        compCardTemplate: {
+          en: { fields: { wentWell: { label: "TEMP override label" } } },
+        },
+      },
+    });
+    await context.addCookies([
+      {
+        name: "authjs.session-token",
+        value: editorSession,
+        domain: "localhost",
+        path: "/",
+        httpOnly: true,
+        sameSite: "Lax",
+      },
+    ]);
+    await page.goto("/en/learner/comp-card");
+    await expect(page.getByText("TEMP override label").first()).toBeVisible({
+      timeout: 15000,
+    });
+
+    await page.goto("/en/content");
+    await page
+      .getByRole("button", { name: /revert to default/i })
+      .first()
+      .click();
+    await page.waitForTimeout(1500);
+
+    const project = await prisma.project.findUnique({
+      where: { id: "seq-elevate" },
+      select: { compCardTemplate: true },
+    });
+    const override = project?.compCardTemplate as Record<string, unknown> | null;
+    expect(override?.en, "en override cleared").toBeUndefined();
+
+    // The learner is back to bundled copy.
+    await page.goto("/en/learner/comp-card");
+    await expect(page.getByText("TEMP override label")).toHaveCount(0);
+  });
+
+  test("a learner cannot reach the template editor (RBAC)", async ({
+    page,
+  }) => {
+    // No session = guest. The content page is staff-only; the panel returns
+    // null for a non-editor even if the page renders.
+    await page.goto("/en/content");
+    await expect(
+      page.getByRole("button", { name: /save wording/i })
+    ).toHaveCount(0);
+  });
+});
+
 describe("statistics dashboard — live data from real events", () => {
   const staffEmail = "e2e-live-staff@example.com";
   const learnerEmails = Array.from(

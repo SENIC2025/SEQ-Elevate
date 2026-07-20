@@ -19,8 +19,18 @@ import {
   Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import type { CompCardTemplate } from "@/lib/cms/types";
 
-export function CompCard() {
+export function CompCard({
+  template,
+}: {
+  /**
+   * Field wording resolved server-side (bundled copy + the editor's CMS
+   * override). Absent = fall back to the message catalogue, which keeps the
+   * component usable in isolation (storybook, tests).
+   */
+  template?: CompCardTemplate;
+}) {
   const t = useTranslations("compCard");
   const locale = useLocale();
 
@@ -28,6 +38,19 @@ export function CompCard() {
   const c = state.compCard;
   const set = (patch: Partial<typeof c>) =>
     dispatch({ type: "updateCompCard", patch });
+
+  // Template-driven wording, with the bundled copy as the fallback.
+  const tpl = template?.fields;
+  const field = (key: string) => tpl?.find((f) => f.key === key);
+  const shown = (key: string) => (tpl ? Boolean(field(key)) : true);
+  const labelFor = (key: string, fallback: string) =>
+    field(key)?.label ?? fallback;
+  const placeholderFor = (key: string, fallback: string) =>
+    field(key)?.placeholder ?? fallback;
+  // Editors may reorder; without a template keep the canonical order.
+  const textKeys = tpl
+    ? tpl.filter((f) => f.kind !== "confidence").map((f) => f.key)
+    : ["wentWell", "difficult", "improve", "behaviour"];
 
   // Evidence + course title come from what the learner actually did
   // (stored when they played), so the Comp Card is course-agnostic.
@@ -115,35 +138,51 @@ export function CompCard() {
 
             {/* Form fields */}
             <div className="mt-6 space-y-5">
-              <Field
-                label={t("fieldWentWell")}
-                value={c.wentWell}
-                placeholder={t("placeholder.wentWell")}
-                onChange={(v) => set({ wentWell: v })}
-              />
-              <Field
-                label={t("fieldDifficult")}
-                value={c.difficult}
-                placeholder={t("placeholder.difficult")}
-                onChange={(v) => set({ difficult: v })}
-              />
-              <Field
-                label={t("fieldImprove")}
-                value={c.improve}
-                placeholder={t("placeholder.improve")}
-                onChange={(v) => set({ improve: v })}
-              />
-              <Field
-                label={t("fieldBehaviour")}
-                value={c.behaviour}
-                placeholder={t("placeholder.behaviour")}
-                onChange={(v) => set({ behaviour: v })}
-              />
+              {textKeys.map((key) => {
+                // Each key maps to a real CompCard column — the template can
+                // reword and reorder these, never invent new ones.
+                const defaults: Record<
+                  string,
+                  { label: string; placeholder: string; value: string }
+                > = {
+                  wentWell: {
+                    label: t("fieldWentWell"),
+                    placeholder: t("placeholder.wentWell"),
+                    value: c.wentWell,
+                  },
+                  difficult: {
+                    label: t("fieldDifficult"),
+                    placeholder: t("placeholder.difficult"),
+                    value: c.difficult,
+                  },
+                  improve: {
+                    label: t("fieldImprove"),
+                    placeholder: t("placeholder.improve"),
+                    value: c.improve,
+                  },
+                  behaviour: {
+                    label: t("fieldBehaviour"),
+                    placeholder: t("placeholder.behaviour"),
+                    value: c.behaviour,
+                  },
+                };
+                const d = defaults[key];
+                if (!d) return null;
+                return (
+                  <Field
+                    key={key}
+                    label={labelFor(key, d.label)}
+                    value={d.value}
+                    placeholder={placeholderFor(key, d.placeholder)}
+                    onChange={(v) => set({ [key]: v } as Partial<typeof c>)}
+                  />
+                );
+              })}
 
               {/* Confidence */}
-              <div>
+              <div hidden={!shown("confidence")}>
                 <label className="block text-sm font-medium mb-2">
-                  {t("fieldConfidence")}
+                  {labelFor("confidence", t("fieldConfidence"))}
                 </label>
                 <div className="flex flex-wrap gap-1.5">
                   {[1, 2, 3, 4, 5].map((n) => (
@@ -240,6 +279,7 @@ export function CompCard() {
         dateStr={dateStr}
         scenarioSummary={scenarioSummary}
         compCard={c}
+        template={template}
       />
     </>
   );

@@ -12,6 +12,7 @@ import { strapiProvider } from "./strapi-provider";
 import { applyLessonMedia } from "./lesson-overlay";
 import { applyCourseStatus } from "./course-overlay";
 import { listDbCourses, getDbCourse } from "./db-course";
+import { applyCompCardTemplate } from "./comp-card-overlay";
 import type { Locale, CourseContent, CourseSummary, CompCardTemplate } from "./types";
 
 function provider(): CMSProvider {
@@ -56,11 +57,25 @@ export async function getCourse(
   return applyLessonMedia(projectId, slug, content);
 }
 
-export function getCompCardTemplate(
+/**
+ * The bundled template with NO editor override applied. The template editor
+ * needs this: the effective template omits hidden fields, so editing from it
+ * alone would make a hidden field impossible to bring back.
+ */
+export function getBaseCompCardTemplate(
   projectId: string,
   locale: Locale
 ): Promise<CompCardTemplate> {
   return provider().getCompCardTemplate(projectId, locale);
+}
+
+export async function getCompCardTemplate(
+  projectId: string,
+  locale: Locale
+): Promise<CompCardTemplate> {
+  const base = await provider().getCompCardTemplate(projectId, locale);
+  // Overlay the editor's per-locale wording from the DB.
+  return applyCompCardTemplate(projectId, locale, base);
 }
 
 export type {

@@ -46,6 +46,11 @@ model Project {
   partners       String[] // consortium partner short names
   strapiSpaceId  String?  // Strapi tenant/space identifier for content
   productionUrl  String?
+  // Per-locale Comp Card wording set by content editors, e.g.
+  // { en: { fields: { wentWell: { label, placeholder } }, hidden: [], order: [] } }.
+  // Null = use the bundled message-catalogue copy. Field KEYS are fixed
+  // (they map to CompCard columns); editors reword, reorder and hide.
+  compCardTemplate Json?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
