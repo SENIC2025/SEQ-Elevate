@@ -10,17 +10,26 @@ import { getCMSSource, type CMSProvider } from "./provider";
 import { localProvider } from "./local-provider";
 import { strapiProvider } from "./strapi-provider";
 import { applyLessonMedia } from "./lesson-overlay";
+import { applyCourseStatus } from "./course-overlay";
 import type { Locale, CourseContent, CourseSummary, CompCardTemplate } from "./types";
 
 function provider(): CMSProvider {
   return getCMSSource() === "strapi" ? strapiProvider : localProvider;
 }
 
-export function listCourses(
+/**
+ * The course catalogue, with editorial status applied from the DB.
+ *
+ * Learner surfaces call this as-is and never see a draft. Staff surfaces pass
+ * `{ includeUnpublished: true }` to see and manage drafts.
+ */
+export async function listCourses(
   projectId: string,
-  locale: Locale
+  locale: Locale,
+  opts?: { includeUnpublished?: boolean }
 ): Promise<CourseSummary[]> {
-  return provider().listCourses(projectId, locale);
+  const summaries = await provider().listCourses(projectId, locale);
+  return applyCourseStatus(projectId, summaries, opts?.includeUnpublished);
 }
 
 export async function getCourse(

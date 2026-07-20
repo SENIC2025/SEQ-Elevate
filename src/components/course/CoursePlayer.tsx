@@ -29,7 +29,14 @@ import { ChevronLeft } from "lucide-react";
  * WP3 7-stage sequence is enforced via the STAGES order; the player walks
  * the stages present in course.stages in that canonical order.
  */
-export function CoursePlayer({ course }: { course: CourseContent }) {
+export function CoursePlayer({
+  course,
+  draftPreview = false,
+}: {
+  course: CourseContent;
+  /** Editor previewing an unpublished course — learners never see this. */
+  draftPreview?: boolean;
+}) {
   const tStage = useTranslations("course.stageLabel");
 
   const { state, dispatch } = useDemoState();
@@ -159,6 +166,16 @@ export function CoursePlayer({ course }: { course: CourseContent }) {
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-6 sm:py-8">
+      {draftPreview ? (
+        <p
+          role="status"
+          className="mb-4 rounded-lg border border-[var(--warning)] bg-[var(--warning)]/10 px-3 py-2 text-sm text-[var(--foreground)]"
+        >
+          <strong>Draft preview.</strong> This course is not published —
+          learners cannot see it yet. Publish it from the content editor.
+        </p>
+      ) : null}
+
       {/* Top bar */}
       <div className="mb-4 flex items-start justify-between gap-3">
         <Link

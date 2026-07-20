@@ -11,9 +11,12 @@ export default async function Page({
   const { locale } = await params;
   setRequestLocale(locale);
   const loc = (["en", "de", "el"].includes(locale) ? locale : "en") as Locale;
-  const courses = await listCourses("seq-elevate", loc);
+  // Editors author drafts too, so the picker must include unpublished courses.
+  const courses = await listCourses("seq-elevate", loc, {
+    includeUnpublished: true,
+  });
   const courseOptions = courses
     .filter((c) => !c.comingSoon)
     .map((c) => ({ slug: c.slug, title: c.title }));
-  return <ContentEditor courses={courseOptions} />;
+  return <ContentEditor courses={courseOptions} locale={loc} />;
 }

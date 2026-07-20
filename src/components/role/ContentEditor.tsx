@@ -9,6 +9,8 @@ import { useProject } from "@/components/ProjectThemeProvider";
 import { VideoBlockAuthor } from "@/components/role/VideoBlockAuthor";
 import { LessonDocumentManager } from "@/components/role/LessonDocumentManager";
 import { LessonNarrativeEditor } from "@/components/role/LessonNarrativeEditor";
+import { CourseCatalogueManager } from "@/components/role/CourseCatalogueManager";
+import type { Locale } from "@/lib/cms/types";
 import {
   BookOpen,
   Compass,
@@ -108,8 +110,10 @@ const COURSE_TREE = [
 
 export function ContentEditor({
   courses = [],
+  locale = "en",
 }: {
   courses?: { slug: string; title: string }[];
+  locale?: Locale;
 }) {
   const t = useTranslations("content");
   const tCommon = useTranslations("common");
@@ -182,6 +186,10 @@ export function ContentEditor({
           </div>
         </CardContent>
       </Card>
+
+      {/* Course lifecycle — publish / unpublish the catalogue */}
+      <h2 className="mt-8 mb-3 text-lg font-semibold">Courses</h2>
+      <CourseCatalogueManager locale={locale} />
 
       {/* Lesson narrative — edit the teaching text per language */}
       <h2 className="mt-8 mb-3 text-lg font-semibold">Edit lesson narrative</h2>

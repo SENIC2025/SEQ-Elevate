@@ -1202,6 +1202,241 @@ describe("admin manages organisations, cohorts and people", () => {
   });
 });
 
+describe("course lifecycle — publish / unpublish from the CMS", () => {
+  const editorEmail = "e2e-course-editor@example.com";
+  const learnerEmail = "e2e-course-learner@example.com";
+  const allEmails = [editorEmail, learnerEmail];
+  // receiving-feedback is the second bundled course — unpublishing it leaves
+  // workplace-conflict live, so the dashboard is never empty mid-test.
+  const SLUG = "receiving-feedback";
+  let editorId: string;
+  let editorSession: string;
+  let learnerSession: string;
+
+  test.beforeAll(async () => {
+    await prisma.user.deleteMany({ where: { email: { in: allEmails } } });
+
+    const editor = await prisma.user.create({
+      data: { email: editorEmail, emailVerified: new Date() },
+    });
+    editorId = editor.id;
+    await prisma.membership.create({
+      data: {
+        userId: editor.id,
+        projectId: "seq-elevate",
+        role: "CONTENT_EDITOR",
+      },
+    });
+    editorSession = `e2e-course-editor-${Date.now()}`;
+    await prisma.session.create({
+      data: {
+        sessionToken: editorSession,
+        userId: editor.id,
+        expires: new Date(Date.now() + 86_400_000),
+      },
+    });
+
+    const learner = await prisma.user.create({
+      data: { email: learnerEmail, emailVerified: new Date() },
+    });
+    await prisma.membership.create({
+      data: { userId: learner.id, projectId: "seq-elevate", role: "LEARNER" },
+    });
+    learnerSession = `e2e-course-learner-${Date.now()}`;
+    await prisma.session.create({
+      data: {
+        sessionToken: learnerSession,
+        userId: learner.id,
+        expires: new Date(Date.now() + 86_400_000),
+      },
+    });
+  });
+
+  test.afterAll(async () => {
+    // Always put the course back on the shelf, even if the test failed.
+    await prisma.course.updateMany({
+      where: { projectId: "seq-elevate", slug: SLUG },
+      data: { status: "published" },
+    });
+    await prisma.auditLog.deleteMany({ where: { actorId: editorId } });
+    await prisma.user.deleteMany({ where: { email: { in: allEmails } } });
+  });
+
+  async function setStatus(status: string) {
+    await prisma.course.updateMany({
+      where: { projectId: "seq-elevate", slug: SLUG },
+      data: { status },
+    });
+  }
+
+  test("an editor unpublishes a course and learners stop seeing it", async ({
+    page,
+    context,
+  }) => {
+    await setStatus("published");
+    await context.addCookies([
+      {
+        name: "authjs.session-token",
+        value: editorSession,
+        domain: "localhost",
+        path: "/",
+        httpOnly: true,
+        sameSite: "Lax",
+      },
+    ]);
+
+    await page.goto("/en/content");
+    const catalogue = page
+      .locator("li", { hasText: /receiving feedback without flinching/i })
+      .first();
+    await expect(catalogue).toBeVisible({ timeout: 15000 });
+
+    await catalogue.getByRole("button", { name: /unpublish/i }).first().click();
+    await expect(catalogue.getByText(/^draft$/i).first()).toBeVisible({
+      timeout: 15000,
+    });
+
+    const row = await prisma.course.findFirst({
+      where: { projectId: "seq-elevate", slug: SLUG },
+    });
+    expect(row?.status, "status persisted to the DB").toBe("draft");
+
+    const log = await prisma.auditLog.findFirst({
+      where: { actorId: editorId, action: "course.draft", entityId: SLUG },
+    });
+    expect(log, "unpublish audited").toBeTruthy();
+  });
+
+  test("a draft course is hidden from the learner dashboard and 404s", async ({
+    page,
+    context,
+  }) => {
+    await setStatus("draft");
+    await context.addCookies([
+      {
+        name: "authjs.session-token",
+        value: learnerSession,
+        domain: "localhost",
+        path: "/",
+        httpOnly: true,
+        sameSite: "Lax",
+      },
+    ]);
+
+    await page.goto("/en/learner");
+    await expect(page.getByText(learnerEmail).first()).toBeVisible();
+    // The published course is still there; the draft one is gone entirely.
+    await expect(
+      page.getByText(/handling a small workplace conflict/i).first()
+    ).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: /receiving feedback without flinching/i })
+    ).toHaveCount(0);
+
+    // Deep-linking straight to it is a 404, not a back door.
+    await page.goto(`/en/learner/course/${SLUG}`);
+    await expect(page.getByText(/couldn.t find|not found/i).first()).toBeVisible(
+      { timeout: 15000 }
+    );
+  });
+
+  test("an editor can still preview the draft, clearly marked", async ({
+    page,
+    context,
+  }) => {
+    await setStatus("draft");
+    await context.addCookies([
+      {
+        name: "authjs.session-token",
+        value: editorSession,
+        domain: "localhost",
+        path: "/",
+        httpOnly: true,
+        sameSite: "Lax",
+      },
+    ]);
+    await page.goto(`/en/learner/course/${SLUG}`);
+    await expect(page.getByText(/draft preview/i).first()).toBeVisible({
+      timeout: 15000,
+    });
+  });
+
+  test("republishing puts it back on the learner dashboard", async ({
+    page,
+    context,
+  }) => {
+    await setStatus("draft");
+    await context.addCookies([
+      {
+        name: "authjs.session-token",
+        value: editorSession,
+        domain: "localhost",
+        path: "/",
+        httpOnly: true,
+        sameSite: "Lax",
+      },
+    ]);
+    await page.goto("/en/content");
+    const catalogue = page
+      .locator("li", { hasText: /receiving feedback without flinching/i })
+      .first();
+    await catalogue.getByRole("button", { name: /^publish$/i }).first().click();
+    await expect(catalogue.getByText(/^published$/i).first()).toBeVisible({
+      timeout: 15000,
+    });
+
+    const row = await prisma.course.findFirst({
+      where: { projectId: "seq-elevate", slug: SLUG },
+    });
+    expect(row?.status).toBe("published");
+    expect(row?.publishedAt, "publication stamped").toBeTruthy();
+
+    // The learner sees it again.
+    await context.clearCookies();
+    await context.addCookies([
+      {
+        name: "authjs.session-token",
+        value: learnerSession,
+        domain: "localhost",
+        path: "/",
+        httpOnly: true,
+        sameSite: "Lax",
+      },
+    ]);
+    await page.goto("/en/learner");
+    await expect(
+      page.getByText(/receiving feedback without flinching/i).first()
+    ).toBeVisible({ timeout: 15000 });
+  });
+
+  test("a learner cannot change course status (RBAC)", async ({ context }) => {
+    await setStatus("published");
+    await context.addCookies([
+      {
+        name: "authjs.session-token",
+        value: learnerSession,
+        domain: "localhost",
+        path: "/",
+        httpOnly: true,
+        sameSite: "Lax",
+      },
+    ]);
+    // No catalogue panel is rendered for a non-editor on /content.
+    const page = await context.newPage();
+    await page.goto("/en/content");
+    await expect(
+      page.getByRole("button", { name: /unpublish/i })
+    ).toHaveCount(0);
+    await page.close();
+
+    // And the course stayed published — nothing slipped through.
+    const row = await prisma.course.findFirst({
+      where: { projectId: "seq-elevate", slug: SLUG },
+    });
+    expect(row?.status).toBe("published");
+  });
+});
+
 describe("statistics dashboard — live data from real events", () => {
   const staffEmail = "e2e-live-staff@example.com";
   const learnerEmails = Array.from(

@@ -129,11 +129,13 @@ async function main() {
         status: "published",
         publishedAt: new Date(),
       },
+      // NOTE: `status` is deliberately absent here. Editors publish and
+      // unpublish courses from the CMS, and re-seeding must not silently
+      // republish something they took off the shelf.
       update: {
         cluster: def.cluster,
         durationMinutes: def.durationMinutes,
         badgeId: badge.id,
-        status: "published",
       },
     });
     console.log(`  ✓ Course: ${course.slug} (badge ${badge.slug})`);
