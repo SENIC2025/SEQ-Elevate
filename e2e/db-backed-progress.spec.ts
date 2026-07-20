@@ -1780,6 +1780,221 @@ describe("Comp Card template — editable wording (CMS)", () => {
   });
 });
 
+describe("CMS-created course with authored interactive stages plays + grades", () => {
+  const learnerEmail = "e2e-struct-learner@example.com";
+  const SLUG = "e2e-structured-course";
+  let learnerSession: string;
+  let learnerId: string;
+
+  test.beforeAll(async () => {
+    await prisma.user.deleteMany({ where: { email: learnerEmail } });
+    await prisma.lesson.deleteMany({ where: { courseSlug: SLUG } });
+    await prisma.course.deleteMany({ where: { slug: SLUG } });
+
+    // A published CMS course (meta present) with authored narrative + all
+    // three interactive stages, written straight to the DB — this test is
+    // about the READ/PLAY path; authoring UIs are covered separately.
+    await prisma.course.create({
+      data: {
+        projectId: "seq-elevate",
+        strapiId: `cms-${SLUG}`,
+        slug: SLUG,
+        cluster: "communication",
+        durationMinutes: 15,
+        status: "published",
+        publishedAt: new Date(),
+        meta: {
+          en: {
+            title: "E2E Structured Course",
+            tagline: "authored end to end",
+            clusterLabel: "Communication",
+          },
+        },
+      },
+    });
+    // Minimal narrative so the early stages have content.
+    for (const stageKey of ["context", "concept", "behaviour", "reflection"]) {
+      await prisma.lesson.create({
+        data: {
+          projectId: "seq-elevate",
+          courseSlug: SLUG,
+          stageKey,
+          narrative: {
+            en: {
+              title: `Stage ${stageKey}`,
+              blocks: [{ kind: "paragraph", text: `Content for ${stageKey}.` }],
+            },
+          },
+        },
+      });
+    }
+    // Simulation — option "b" is the best response.
+    await prisma.lesson.create({
+      data: {
+        projectId: "seq-elevate",
+        courseSlug: SLUG,
+        stageKey: "simulation",
+        structure: {
+          kind: "simulation",
+          title: { en: "Practise the response" },
+          prompt: { en: "A teammate takes credit for your work. You…" },
+          instruction: { en: "Choose the strongest response." },
+          options: [
+            { id: "a", isBest: false, text: { en: "Say nothing" }, feedback: { en: "It festers." } },
+            { id: "b", isBest: true, text: { en: "Name it calmly, in private" }, feedback: { en: "Clear and low-heat." } },
+            { id: "c", isBest: false, text: { en: "Call them out in the meeting" }, feedback: { en: "Escalates." } },
+          ],
+        },
+      },
+    });
+    // Scenario — one root with one follow-up.
+    await prisma.lesson.create({
+      data: {
+        projectId: "seq-elevate",
+        courseSlug: SLUG,
+        stageKey: "scenario",
+        structure: {
+          kind: "scenario",
+          title: { en: "Play it out" },
+          setup: { en: "The credit-taking happened again." },
+          question: { en: "What is your first move?" },
+          followupQuestion: { en: "They get defensive. Now what?" },
+          choices: [
+            {
+              id: "private",
+              quality: "best",
+              text: { en: "Ask for a quick private word" },
+              outcome: { en: "They listen." },
+              followups: [
+                { id: "listen", quality: "best", text: { en: "Hear them out, restate your ask" }, outcome: { en: "Resolved." } },
+              ],
+            },
+            {
+              id: "public",
+              quality: "poor",
+              text: { en: "Confront them publicly" },
+              outcome: { en: "It blows up." },
+            },
+          ],
+        },
+      },
+    });
+    // Assessment — single question, correct = "b".
+    await prisma.lesson.create({
+      data: {
+        projectId: "seq-elevate",
+        courseSlug: SLUG,
+        stageKey: "assessment",
+        structure: {
+          kind: "assessment",
+          title: { en: "Quick check" },
+          intro: { en: "One question to finish." },
+          questions: [
+            {
+              id: "q1",
+              correctOptionId: "b",
+              question: { en: "Which is an I-statement?" },
+              options: [
+                { id: "a", text: { en: "You always ignore me" } },
+                { id: "b", text: { en: "I feel sidelined when that happens" } },
+              ],
+            },
+          ],
+        },
+      },
+    });
+
+    const learner = await prisma.user.create({
+      data: { email: learnerEmail, emailVerified: new Date() },
+    });
+    learnerId = learner.id;
+    await prisma.membership.create({
+      data: { userId: learner.id, projectId: "seq-elevate", role: "LEARNER" },
+    });
+    learnerSession = `e2e-struct-${Date.now()}`;
+    await prisma.session.create({
+      data: {
+        sessionToken: learnerSession,
+        userId: learner.id,
+        expires: new Date(Date.now() + 86_400_000),
+      },
+    });
+  });
+
+  test.afterAll(async () => {
+    await prisma.courseEnrollment.deleteMany({ where: { userId: learnerId } });
+    await prisma.lesson.deleteMany({ where: { courseSlug: SLUG } });
+    await prisma.course.deleteMany({ where: { slug: SLUG } });
+    await prisma.user.deleteMany({ where: { email: learnerEmail } });
+  });
+
+  test("all seven stages render, the interactive ones grade, and it completes", async ({
+    page,
+    context,
+  }) => {
+    await context.addCookies([
+      {
+        name: "authjs.session-token",
+        value: learnerSession,
+        domain: "localhost",
+        path: "/",
+        httpOnly: true,
+        sameSite: "Lax",
+      },
+    ]);
+
+    await page.goto(`/en/learner/course/${SLUG}`);
+    const cont = () => page.getByRole("button", { name: /^continue$/i }).first();
+
+    // context → concept → behaviour → simulation
+    await expect(
+      page.getByText("Content for context.").first()
+    ).toBeVisible({ timeout: 15000 });
+    await cont().click();
+    await cont().click();
+    await cont().click();
+
+    // Simulation: the authored prompt renders; pick the best option.
+    await expect(
+      page.getByText(/takes credit for your work/i).first()
+    ).toBeVisible();
+    await page.getByText(/name it calmly, in private/i).click();
+    await expect(page.getByText(/clear and low-heat/i).first()).toBeVisible();
+    await cont().click();
+
+    // Scenario: root + follow-up, both authored.
+    await expect(page.getByText(/first move/i).first()).toBeVisible();
+    await page.getByText(/ask for a quick private word/i).click();
+    await page.getByText(/hear them out, restate your ask/i).click();
+    await cont().click();
+
+    // reflection → assessment
+    await cont().click();
+
+    // Assessment: answer correctly, check, finish.
+    await expect(page.getByText(/i feel sidelined/i).first()).toBeVisible();
+    await page.getByText(/i feel sidelined/i).click();
+    await page.getByRole("button", { name: /check answers/i }).click();
+    await cont().click();
+
+    await expect(
+      page.getByRole("heading", { name: /course complete/i })
+    ).toBeVisible({ timeout: 15000 });
+
+    // Progress persisted for the CMS course.
+    await page.waitForTimeout(2000);
+    const course = await prisma.course.findFirst({ where: { slug: SLUG } });
+    const enrollment = await prisma.courseEnrollment.findFirst({
+      where: { userId: learnerId, courseId: course!.id },
+    });
+    expect(enrollment?.completedAt, "CMS course completed").toBeTruthy();
+    expect(
+      enrollment?.stagesCompleted.length,
+      "all interactive stages walked"
+    ).toBeGreaterThan(5);
+  });
+});
+
 describe("statistics dashboard — live data from real events", () => {
   const staffEmail = "e2e-live-staff@example.com";
   const learnerEmails = Array.from(

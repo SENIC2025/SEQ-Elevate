@@ -82,6 +82,10 @@ model Lesson {
   // Per-locale narrative override: { en: { title, subtitle, blocks }, … }.
   // Overrides the bundled content for the locales present; others fall back.
   narrative  Json?
+  // Interactive-stage structure for CMS-created courses (simulation / scenario
+  // / assessment). Language-neutral shape + per-locale text; see
+  // src/lib/cms/structure.ts. Null for narrative stages and bundled courses.
+  structure  Json?
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 

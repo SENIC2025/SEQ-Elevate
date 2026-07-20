@@ -9,26 +9,45 @@ import "server-only";
  * in `Lesson.narrative` rows — the same rows the existing narrative editor
  * already writes.
  *
- * SCOPE, deliberately: a CMS-created course carries the NARRATIVE stages
- * (context → concept → behaviour → reflection). The interactive stages
- * (simulation, branching scenario, assessment) still need the structure editor
- * that is on the roadmap, so they are omitted rather than faked. The player
- * already renders exactly the stages present in `stages`, so a shorter course
- * is a first-class citizen, not a broken one.
+ * A CMS-created course always carries the NARRATIVE stages (context → concept
+ * → behaviour → reflection). The INTERACTIVE stages (simulation, branching
+ * scenario, assessment) appear only once an editor has authored their
+ * structure (Lesson.structure); until then they're omitted rather than faked.
+ * The player renders exactly the stages present, in canonical order, so a
+ * course with or without the interactive stages is a first-class citizen.
  */
 
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import {
+  resolveStructure,
+  pickText,
+  type StoredStructure,
+  type StructureStageKey,
+} from "./structure";
 import type {
   CourseContent,
   CourseStage,
   CourseSummary,
   Locale,
   NarrativeBlock,
+  StageKey,
 } from "./types";
 
-/** Stages a CMS-created course ships with, in canonical order. */
-const CMS_STAGES = ["context", "concept", "behaviour", "reflection"] as const;
+/**
+ * The full WP3 sequence, in order. Narrative stages always render; the three
+ * interactive stages render only when authored. Kept in this canonical order
+ * so a CMS course reads simulation → scenario → assessment like a bundled one.
+ */
+const CANONICAL_ORDER: StageKey[] = [
+  "context",
+  "concept",
+  "behaviour",
+  "simulation",
+  "scenario",
+  "reflection",
+  "assessment",
+];
 
 export interface CourseMetaEntry {
   title: string;
@@ -136,18 +155,60 @@ export async function getDbCourse(
       where: { projectId, courseSlug: slug },
     });
     const byStage = new Map(lessons.map((l) => [l.stageKey, l]));
+    const isInteractive = (k: StageKey): k is StructureStageKey =>
+      k === "simulation" || k === "scenario" || k === "assessment";
 
     const stages: CourseStage[] = [];
-    for (const key of CMS_STAGES) {
+    for (const key of CANONICAL_ORDER) {
       const lesson = byStage.get(key);
+
+      if (isInteractive(key)) {
+        // Interactive stages render only when their structure is authored.
+        const structure = (lesson?.structure ?? null) as StoredStructure | null;
+        if (!structure) continue;
+        const DEFAULT_TITLE: Record<StructureStageKey, string> = {
+          simulation: "Practice",
+          scenario: "Branching scenario",
+          assessment: "Quick check",
+        };
+        stages.push({
+          key,
+          title: pickText(structure.title, locale) || DEFAULT_TITLE[key],
+          ...resolveStructure(structure, locale),
+        });
+        continue;
+      }
+
+      // Narrative-family stage — always present (may be empty until authored).
       const narrative = (lesson?.narrative ?? null) as Record<
         string,
         { title?: string; subtitle?: string; blocks?: NarrativeBlock[] }
       > | null;
       const authored = narrative?.[locale] ?? narrative?.en ?? null;
 
-      // A stage with no authored copy yet still appears, so the editor can
-      // see the shape of the course they're building.
+      if (key === "reflection") {
+        // Reflection is a journaling stage: the player's ReflectionStage needs
+        // a `reflection` object (intro + prompts), not narrative blocks. Reuse
+        // any authored copy as the intro and provide generic private prompts.
+        const introText =
+          authored?.blocks?.find((b) => b.kind === "paragraph")?.text ??
+          authored?.subtitle ??
+          "Take a moment to reflect on what you just practised.";
+        stages.push({
+          key,
+          title: authored?.title ?? `${entry.title} — reflection`,
+          reflection: {
+            intro: introText,
+            prompts: [
+              { label: "What went well?", placeholder: "" },
+              { label: "What was hard?", placeholder: "" },
+              { label: "What will you try next time?", placeholder: "" },
+            ],
+          },
+        });
+        continue;
+      }
+
       stages.push({
         key,
         title: authored?.title ?? `${entry.title} — ${key}`,
