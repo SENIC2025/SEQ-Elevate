@@ -192,6 +192,19 @@ If any decision slips past kickoff, the default ships and we revisit in Week 4.
 - **One infra step remaining (client/Vercel dashboard)**: create a Blob store on the Vercel project → Vercel auto-adds **`BLOB_READ_WRITE_TOKEN`** to the env → redeploy. Real uploads then work in production.
 - **⚠️ GDPR follow-up**: Vercel Blob is US-default storage. Before real learner videos (identifiable vulnerable youth) go in, confirm the region/DPA or move uploads to an EU bucket. Acceptable for staging/kickoff demos; flag at kickoff alongside the DPIA (O6). The code is storage-pluggable — swapping to an S3-compatible EU bucket later is an adapter change, not a rewrite.
 
+### D17 · Course lifecycle lives in the DB, not in code
+**Decided**: 16 June 2026 · *Decider: SENIC (build decision)*
+- `Course.status` is the **authority** on what learners can see. The bundled provider hardcoded `"published"`; a DB overlay now applies the real status, so editors publish/unpublish without a developer.
+- A draft is a **404 for learners**, not merely hidden from the dashboard — deep links are not a back door. Editors preview drafts behind a "Draft preview" banner.
+- Courses **created in the CMS** carry their per-locale copy in `Course.meta` (migration `course_meta`) and their teaching text in the existing `Lesson.narrative` rows. Bundled courses are unaffected and keep using the message catalogue.
+- **Scope, deliberate**: a CMS-created course ships the four *narrative* stages (context → concept → behaviour → reflection). Simulations, branching scenarios and assessments still require the **interactive structure editor** (see roadmap) and are omitted rather than faked — the authoring UI states this to the editor.
+- Consistent with D14 (hybrid CMS: DB now, Strapi later). If Strapi arrives, the status overlay and the DB-course builder are the two seams to revisit.
+
+### D18 · Failure direction for the catalogue: fail open
+**Decided**: 16 June 2026 · *Decider: SENIC (build decision)*
+- If the database is unreachable, or a `status` value is unrecognised, the catalogue **falls back to showing the course** rather than hiding it. An unexplained empty dashboard is a worse failure for a NEET learner than a course that shouldn't have been listed for a few minutes.
+- Consequence, accepted and mitigated: because every DB read on this path is caught, a missing migration would look identical to "nothing created yet". `/dev/cms-check` therefore **reports the error instead of swallowing it**, so a deploy can be verified rather than assumed.
+
 ---
 
 ## 📝 Notes & change requests

@@ -39,6 +39,7 @@ It is **multi-tenant by design** (a `Project` roots all data) and **trilingual**
 - **Facilitator / teacher** — tracks a cohort, observes, validates, sees statistics.
 - **Content editor** — authors lesson content (text, video, documents).
 - **Admin** — runs the project (dashboard, organisations, cohorts, people & roles, GDPR).
+- **Course lifecycle** — editors own the catalogue: create a course, publish it, take it back off the shelf. A draft is invisible to learners and 404s on a deep link; editors preview it behind a draft banner.
 
 A single person can hold several roles, and the same human can belong to
 multiple projects with different roles.
@@ -159,7 +160,7 @@ plays through the same engine.
 
 **Learner** — Land → pick a role (guest) or sign in → dashboard (overall completion, courses) → open a course → walk the 7 stages (read → watch video + answer pop-up quiz → open documents → simulate → branch a scenario → reflect → assessment) → earn a badge → completion. Progress saves automatically (DB if signed in, localStorage if guest; guest progress migrates up on sign-in).
 
-**Content editor** — Sign in (editor) → `/content` → choose course + lesson + language → edit the narrative / attach a video with quiz cues / upload, order and publish documents → save → learners see the change immediately (DB overlay). Live preview available.
+**Content editor** — Sign in (editor) → `/content` → **create a course** (starts as a draft) or **publish / unpublish / archive** any course in the catalogue → choose course + lesson + language → edit the narrative / attach a video with quiz cues / upload, order and publish documents → save → learners see the change immediately (DB overlay). Live preview available.
 
 **Facilitator / teacher** — Sign in → `/facilitator` → cohort completion + learner list → open a learner → read their Comp Card (privacy-respecting) + activity, time-on-task and quiz results → record an observation or validate a competence → jump to `/analytics` for cohort statistics.
 
