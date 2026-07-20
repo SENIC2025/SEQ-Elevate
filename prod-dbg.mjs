@@ -1,0 +1,13 @@
+import { chromium } from "@playwright/test";
+const BASE = "https://seq-elevate-demo.vercel.app";
+const b = await chromium.launch();
+const p = await b.newPage();
+await p.goto(`${BASE}/en/demo`, { waitUntil: "domcontentloaded" });
+await p.getByPlaceholder(/code you were given/i).first().fill("elevate-demo");
+await p.getByRole("button", { name: /stefan/i }).first().click();
+await p.waitForTimeout(6000);
+await p.goto(`${BASE}/en/content`, { waitUntil: "networkidle" });
+await p.waitForTimeout(7000);
+const body = await p.locator("body").innerText();
+const i = body.indexOf("Interactive stages");
+console.log(i >= 0 ? body.slice(i, i + 300) : "'Interactive stages' heading NOT found");

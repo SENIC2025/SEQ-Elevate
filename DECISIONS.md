@@ -212,6 +212,13 @@ If any decision slips past kickoff, the default ships and we revisit in Week 4.
 - The override is untrusted JSON in a DB column, so unknown keys are dropped on read and existing learner answers are never touched by the template.
 - Consistency guarantee: the form **and** the printable/exported Comp Card read the same template, so wording/order/visibility match between what a learner fills in and what they take away.
 
+### D20 · Interactive structure: correctness is language-neutral, text is per-locale
+**Decided**: 16 June 2026 · *Decider: SENIC (build decision)*
+- CMS-created courses author their **simulation / branching scenario / assessment** stages in the DB (`Lesson.structure`), so a course can be built end-to-end without code.
+- The **structural facts** — which option is best, a branch's quality, an assessment's correct answer — are stored **once, language-neutral**. Only the human text is per-locale `{ en, de, el }` with fallback. Rationale: if correctness could differ between languages, a translation slip would mis-grade a whole cohort. This deliberately mirrors the bundled model (structure in code, text in messages), not the narrative overlay (independent per-locale copies).
+- `validateStructure` gates saving (≥2 options, exactly one best, the correct id must be a real option, text in ≥1 language), so a published CMS course's interactive stages are always coherent — no separate publish-time gate needed.
+- **Still bundled-only**: the reflection stage of a CMS course uses generic default journaling prompts (the interactive three are fully authorable). A dedicated reflection-prompt editor is a future nicety, not a gap.
+
 ---
 
 ## 📝 Notes & change requests
