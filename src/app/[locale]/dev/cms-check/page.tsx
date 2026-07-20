@@ -1,6 +1,7 @@
 import { setRequestLocale } from "next-intl/server";
 import { getCourse, listCourses } from "@/lib/cms";
 import { getCMSSource } from "@/lib/cms/provider";
+import { probeDbCourses } from "@/lib/cms/db-course";
 import type { Locale } from "@/lib/cms/types";
 
 /**
@@ -22,8 +23,11 @@ export default async function Page({
       ? "source: Strapi (CMS_SOURCE=strapi)"
       : "source: local (bundled content)";
 
-  const summaries = await listCourses("seq-elevate", loc);
+  const summaries = await listCourses("seq-elevate", loc, {
+    includeUnpublished: true,
+  });
   const course = await getCourse("seq-elevate", "workplace-conflict", loc);
+  const dbCourses = await probeDbCourses("seq-elevate");
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-8 font-mono text-sm">
@@ -41,6 +45,21 @@ export default async function Page({
           </li>
         ))}
       </ul>
+
+      <h2 className="font-bold mt-4 mb-1">CMS-created courses (DB)</h2>
+      <div className="mb-6">
+        {dbCourses.ok ? (
+          <p className="text-[var(--success)]">
+            ✓ schema OK (Course.meta present) — {dbCourses.count} course
+            {dbCourses.count === 1 ? "" : "s"} created in the CMS
+          </p>
+        ) : (
+          <p className="text-[var(--danger)]">
+            ✗ DB course path unavailable — migration may not have been applied:{" "}
+            {dbCourses.error}
+          </p>
+        )}
+      </div>
 
       <h2 className="font-bold mt-4 mb-1">getCourse(&quot;workplace-conflict&quot;)</h2>
       {course ? (

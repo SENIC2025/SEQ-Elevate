@@ -68,6 +68,28 @@ function toSummary(
   };
 }
 
+/**
+ * Health probe for the CMS-created-course path, for /dev/cms-check.
+ *
+ * Every read here is deliberately wrapped in try/catch so a DB problem
+ * degrades instead of breaking the catalogue — which also means a missing
+ * migration looks identical to "no courses created yet". This probe is the one
+ * place that reports the error instead of swallowing it, so a deploy can be
+ * verified rather than assumed.
+ */
+export async function probeDbCourses(
+  projectId: string
+): Promise<{ ok: boolean; count: number; error?: string }> {
+  try {
+    const count = await prisma.course.count({
+      where: { projectId, NOT: { meta: { equals: Prisma.DbNull } } },
+    });
+    return { ok: true, count };
+  } catch (e) {
+    return { ok: false, count: 0, error: (e as Error).message.slice(0, 200) };
+  }
+}
+
 /** Summaries for every CMS-created course (those carrying `meta`). */
 export async function listDbCourses(
   projectId: string,
