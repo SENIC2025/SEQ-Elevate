@@ -88,7 +88,8 @@ describe("DB-backed learner progress", () => {
 
   test.afterAll(async () => {
     await prisma.user.deleteMany({ where: { email } });
-    await prisma.$disconnect();
+    // No $disconnect() here: describes share this module-level client and may
+    // run later on the same worker. Prisma releases the pool on worker exit.
   });
 
   test("walking a course persists enrollment, badge and membership", async ({
@@ -1992,6 +1993,184 @@ describe("CMS-created course with authored interactive stages plays + grades", (
       enrollment?.stagesCompleted.length,
       "all interactive stages walked"
     ).toBeGreaterThan(5);
+  });
+});
+
+describe("authoring an interactive stage in the CMS", () => {
+  const editorEmail = "e2e-struct-editor@example.com";
+  const SLUG = "e2e-authored-structure";
+  let editorId: string;
+  let editorSession: string;
+
+  test.beforeAll(async () => {
+    await prisma.user.deleteMany({ where: { email: editorEmail } });
+    await prisma.lesson.deleteMany({ where: { courseSlug: SLUG } });
+    await prisma.course.deleteMany({ where: { slug: SLUG } });
+
+    // A CMS course to author against (meta present, draft).
+    await prisma.course.create({
+      data: {
+        projectId: "seq-elevate",
+        strapiId: `cms-${SLUG}`,
+        slug: SLUG,
+        cluster: "communication",
+        durationMinutes: 15,
+        status: "draft",
+        meta: {
+          en: {
+            title: "E2E Authored Structure",
+            tagline: "author me",
+            clusterLabel: "Communication",
+          },
+        },
+      },
+    });
+
+    const editor = await prisma.user.create({
+      data: { email: editorEmail, emailVerified: new Date() },
+    });
+    editorId = editor.id;
+    await prisma.membership.create({
+      data: {
+        userId: editor.id,
+        projectId: "seq-elevate",
+        role: "CONTENT_EDITOR",
+      },
+    });
+    editorSession = `e2e-struct-ed-${Date.now()}`;
+    await prisma.session.create({
+      data: {
+        sessionToken: editorSession,
+        userId: editor.id,
+        expires: new Date(Date.now() + 86_400_000),
+      },
+    });
+  });
+
+  test.afterAll(async () => {
+    await prisma.lesson.deleteMany({ where: { courseSlug: SLUG } });
+    await prisma.course.deleteMany({ where: { slug: SLUG } });
+    await prisma.auditLog.deleteMany({ where: { actorId: editorId } });
+    await prisma.user.deleteMany({ where: { email: editorEmail } });
+  });
+
+  test("an editor authors a simulation; validation gates; it persists", async ({
+    page,
+    context,
+  }) => {
+    await context.addCookies([
+      {
+        name: "authjs.session-token",
+        value: editorSession,
+        domain: "localhost",
+        path: "/",
+        httpOnly: true,
+        sameSite: "Lax",
+      },
+    ]);
+
+    await page.goto("/en/content");
+    const panel = page.getByRole("region", { name: /interactive stage/i });
+    await expect(panel).toBeVisible({ timeout: 15000 });
+
+    // Select our course (default kind is simulation).
+    await panel.getByLabel(/^course$/i).selectOption(SLUG);
+
+    // Try to save the empty default → validation must block it.
+    await page.getByRole("button", { name: /save stage/i }).first().click();
+    await expect(page.getByText(/not ready to save/i)).toBeVisible({
+      timeout: 15000,
+    });
+    // Nothing written yet.
+    expect(
+      await prisma.lesson.count({
+        where: { courseSlug: SLUG, stageKey: "simulation" },
+      })
+    ).toBe(0);
+
+    // Fill the required fields. The first option is starred best by default.
+    await panel.getByLabel(/prompt/i).first().fill("A teammate interrupts you.");
+    const optionText = panel.getByLabel(/option text/i);
+    await optionText.nth(0).fill("Name it calmly");
+    await optionText.nth(1).fill("Say nothing");
+
+    await page.getByRole("button", { name: /save stage/i }).first().click();
+    await expect(page.getByText(/^saved$/i).first()).toBeVisible({
+      timeout: 15000,
+    });
+
+    // Persisted with the correct shape.
+    const lesson = await prisma.lesson.findFirst({
+      where: { courseSlug: SLUG, stageKey: "simulation" },
+    });
+    const structure = lesson?.structure as {
+      kind?: string;
+      prompt?: { en?: string };
+      options?: { isBest?: boolean; text?: { en?: string } }[];
+    } | null;
+    expect(structure?.kind).toBe("simulation");
+    expect(structure?.prompt?.en).toBe("A teammate interrupts you.");
+    const best = structure?.options?.filter((o) => o.isBest) ?? [];
+    expect(best, "exactly one best option").toHaveLength(1);
+    expect(best[0].text?.en).toBe("Name it calmly");
+
+    const log = await prisma.auditLog.findFirst({
+      where: {
+        actorId: editorId,
+        action: "structure.saved",
+        entityId: `${SLUG}:simulation`,
+      },
+    });
+    expect(log, "save audited").toBeTruthy();
+  });
+
+  test("an editor authors an assessment; the ticked answer is the correct id", async ({
+    page,
+    context,
+  }) => {
+    await context.addCookies([
+      {
+        name: "authjs.session-token",
+        value: editorSession,
+        domain: "localhost",
+        path: "/",
+        httpOnly: true,
+        sameSite: "Lax",
+      },
+    ]);
+
+    await page.goto("/en/content");
+    const panel = page.getByRole("region", { name: /interactive stage/i });
+    await expect(panel).toBeVisible({ timeout: 15000 });
+    await panel.getByLabel(/^course$/i).selectOption(SLUG);
+    await panel.getByLabel(/^stage$/i).selectOption("assessment");
+
+    await panel.getByLabel(/^intro$/i).fill("One question to finish.");
+    await panel.getByLabel(/^question$/i).first().fill("Which is an I-statement?");
+    const answers = panel.getByLabel(/^answer \d$/i);
+    await answers.nth(0).fill("You always ignore me");
+    await answers.nth(1).fill("I feel sidelined");
+    // Tick the SECOND answer as correct.
+    await panel.getByLabel(/answer 2 is correct/i).check();
+
+    await page.getByRole("button", { name: /save stage/i }).first().click();
+    await expect(page.getByText(/^saved$/i).first()).toBeVisible({
+      timeout: 15000,
+    });
+
+    const lesson = await prisma.lesson.findFirst({
+      where: { courseSlug: SLUG, stageKey: "assessment" },
+    });
+    const s = lesson?.structure as {
+      questions?: {
+        correctOptionId?: string;
+        options?: { id: string; text?: { en?: string } }[];
+      }[];
+    } | null;
+    const q = s?.questions?.[0];
+    // The correct id must point at the "I feel sidelined" answer.
+    const correct = q?.options?.find((o) => o.id === q.correctOptionId);
+    expect(correct?.text?.en).toBe("I feel sidelined");
   });
 });
 

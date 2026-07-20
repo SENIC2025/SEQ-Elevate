@@ -11,6 +11,7 @@ import { LessonDocumentManager } from "@/components/role/LessonDocumentManager";
 import { LessonNarrativeEditor } from "@/components/role/LessonNarrativeEditor";
 import { CourseCatalogueManager } from "@/components/role/CourseCatalogueManager";
 import { CompCardTemplateEditor } from "@/components/role/CompCardTemplateEditor";
+import { StructureAuthor } from "@/components/role/StructureAuthor";
 import type { Locale } from "@/lib/cms/types";
 import {
   BookOpen,
@@ -203,6 +204,10 @@ export function ContentEditor({
       {/* Lesson documents — upload and attach files to a lesson */}
       <h2 className="mt-8 mb-3 text-lg font-semibold">Lesson documents</h2>
       <LessonDocumentManager courses={courses} />
+
+      {/* Interactive stages — simulation / scenario / assessment authoring */}
+      <h2 className="mt-8 mb-3 text-lg font-semibold">Interactive stages</h2>
+      <StructureAuthor />
 
       {/* Comp Card template — reword/reorder/hide the reflection fields */}
       <h2 className="mt-8 mb-3 text-lg font-semibold">Comp Card template</h2>
