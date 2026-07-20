@@ -40,6 +40,7 @@ It is **multi-tenant by design** (a `Project` roots all data) and **trilingual**
 - **Content editor** — authors lesson content (text, video, documents).
 - **Admin** — runs the project (dashboard, organisations, cohorts, people & roles, GDPR).
 - **Course lifecycle** — editors own the catalogue: create a course, publish it, take it back off the shelf. A draft is invisible to learners and 404s on a deep link; editors preview it behind a draft banner.
+- **Comp Card template** — editors reword, reorder and hide the reflection questions per language; the change flows to both the form learners fill in and the Comp Card they export. Field structure is fixed (each maps to a stored column).
 
 A single person can hold several roles, and the same human can belong to
 multiple projects with different roles.

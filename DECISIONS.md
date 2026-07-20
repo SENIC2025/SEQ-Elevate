@@ -205,6 +205,13 @@ If any decision slips past kickoff, the default ships and we revisit in Week 4.
 - If the database is unreachable, or a `status` value is unrecognised, the catalogue **falls back to showing the course** rather than hiding it. An unexplained empty dashboard is a worse failure for a NEET learner than a course that shouldn't have been listed for a few minutes.
 - Consequence, accepted and mitigated: because every DB read on this path is caught, a missing migration would look identical to "nothing created yet". `/dev/cms-check` therefore **reports the error instead of swallowing it**, so a deploy can be verified rather than assumed.
 
+### D19 · Comp Card fields are editable copy, fixed structure
+**Decided**: 16 June 2026 · *Decider: SENIC (build decision)*
+- Content editors **reword, reorder and hide** the Comp Card questions per language (`Project.compCardTemplate`), so the reflection instrument adapts to each cohort without a developer.
+- The **field keys are fixed** — each maps to a column on the `CompCard` table (`wentWell`, `difficult`, `improve`, `behaviour`, `confidence`). Adding a genuinely new field is a **schema change**, not a content change, and the editor UI says so rather than offering a control that would silently fail to store answers.
+- The override is untrusted JSON in a DB column, so unknown keys are dropped on read and existing learner answers are never touched by the template.
+- Consistency guarantee: the form **and** the printable/exported Comp Card read the same template, so wording/order/visibility match between what a learner fills in and what they take away.
+
 ---
 
 ## 📝 Notes & change requests
