@@ -470,3 +470,10 @@ Delivers acceptance item O7 (the legal-page rendering surface) toward production
 - `[BUILD]` `SiteFooter` in the locale layout — one site-wide footer landmark with localised links to all four docs + the SENIC credit. Removed the landing page's duplicate footer (kept its demo-only "Reset demo" as a plain control) so there's exactly one `contentinfo`.
 - `[VERIFY]` 2 new E2E: all four legal pages render and pass **axe WCAG 2.2 AA**; the footer links through to `/legal/privacy` from the landing. Build ✓ lint ✓ types ✓.
 - `[NOTE]` The cookie page states the platform truthfully: one essential session cookie, **no** tracking/ad cookies, cookieless Plausible analytics → **no consent banner required**. Privacy/Terms final wording + DE/EL translations are consortium legal tasks.
+
+### Go-live prep — rate-limiting the magic-link + upload endpoints (2026-06-16)
+Closes the "no rate-limiting" gap flagged in the go-live assessment.
+- `[BUILD]` Migration `rate_limit` — `RateLimit` model: a fixed-window counter, one row per (key, time-bucket). Keys are **hashed**, so no PII is stored.
+- `[BUILD]` `src/lib/rate-limit.ts` — `checkRateLimit(key, { limit, windowMs })` (fixed window via `floor(now/windowMs)` bucket, atomic upsert-increment, opportunistic cleanup of stale buckets) + `hashKey(prefix, value)` (sha256, case/space-insensitive). **Fails open**: a limiter error allows the request — abuse mitigation must never lock a real learner out of signing in.
+- `[SECURITY]` The magic-link sender (`auth.ts`) now caps **5 requests / 15 min per email** (keyed by a hash of the address), so the public sign-in endpoint can't be used to flood a victim's inbox. Both Blob upload routes cap **30 token requests / min per author** as defence in depth (already staff-gated).
+- `[VERIFY]` Verified the fixed-window behaviour against Postgres (requests 1–5 pass, 6th+ blocked at limit 5; key is case/space-insensitive). Build ✓ lint ✓ types ✓ 57 unit ✓ 46 E2E ✓ (no regression from the auth/upload changes).

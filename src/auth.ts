@@ -18,7 +18,14 @@ import { PrismaAdapter } from "@auth/prisma-adapter";
 import Resend from "next-auth/providers/resend";
 import { prisma } from "@/lib/prisma";
 import { DEMO_PROFILES } from "@/lib/demo-profiles";
+import { checkRateLimit, hashKey } from "@/lib/rate-limit";
 import type { Role } from "@prisma/client";
+
+// Cap magic-link requests per email so the endpoint can't be used to
+// email-bomb a victim's inbox. Generous enough that a real user retrying
+// never hits it; abuse does.
+const MAGIC_LINK_LIMIT = 5;
+const MAGIC_LINK_WINDOW_MS = 15 * 60 * 1000;
 
 const hasRealResendKey =
   !!process.env.RESEND_API_KEY &&
@@ -40,6 +47,19 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       apiKey: process.env.RESEND_API_KEY ?? "re_placeholder",
       from: process.env.EMAIL_FROM ?? "SEQ Elevate <no-reply@senic.world>",
       async sendVerificationRequest({ identifier, url }) {
+        // Abuse guard: cap how often a link can be requested for one email, so
+        // the endpoint can't be turned into an inbox-flooding tool. Keyed by a
+        // hash of the email — no address is stored in the limiter.
+        const rl = await checkRateLimit(hashKey("magiclink", identifier), {
+          limit: MAGIC_LINK_LIMIT,
+          windowMs: MAGIC_LINK_WINDOW_MS,
+        });
+        if (!rl.ok) {
+          throw new Error(
+            "Too many sign-in link requests. Please wait a few minutes and try again."
+          );
+        }
+
         // Dev / no-key fallback: log the magic link so auth is testable
         // without email delivery configured.
         if (!hasRealResendKey) {

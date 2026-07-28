@@ -7,6 +7,7 @@
 
 import { handleUpload, type HandleUploadBody } from "@vercel/blob/client";
 import { getCurrentUser, getProjectMemberships } from "@/lib/auth-helpers";
+import { checkRateLimit } from "@/lib/rate-limit";
 
 const PROJECT = "seq-elevate";
 const MAX_BYTES = 50 * 1024 * 1024; // 50 MB
@@ -40,6 +41,11 @@ export async function POST(request: Request): Promise<Response> {
         if (!roles.includes("ADMIN") && !roles.includes("CONTENT_EDITOR")) {
           throw new Error("Not authorised to upload");
         }
+        const rl = await checkRateLimit(`upload-doc:${user.id}`, {
+          limit: 30,
+          windowMs: 60_000,
+        });
+        if (!rl.ok) throw new Error("Too many uploads — please slow down.");
         return {
           allowedContentTypes: ALLOWED,
           maximumSizeInBytes: MAX_BYTES,
