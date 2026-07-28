@@ -219,6 +219,12 @@ If any decision slips past kickoff, the default ships and we revisit in Week 4.
 - `validateStructure` gates saving (≥2 options, exactly one best, the correct id must be a real option, text in ≥1 language), so a published CMS course's interactive stages are always coherent — no separate publish-time gate needed.
 - **Still bundled-only**: the reflection stage of a CMS course uses generic default journaling prompts (the interactive three are fully authorable). A dedicated reflection-prompt editor is a future nicety, not a gap.
 
+### D21 · The demo CMS course is build-seeded, not hand-authored
+**Decided**: 16 June 2026 · *Decider: SENIC (build decision)*
+- The client-facing demo course (`demo-speaking-up`) is seeded by `prisma/seed-demo.mjs` during the Vercel build, not clicked in by hand. Rationale: it runs in Vercel's environment (so the Neon credential is never handled outside Vercel), it's idempotent (redeploys refresh it, never duplicate), and it's reviewable code rather than an unreproducible manual artifact.
+- Gated by `DEMO_LOGIN_DISABLED=true` (the D16 kill-switch): present on the demo deploy, absent on real prod — so the demo course appears exactly where demo sign-in does and nowhere else.
+- The course is authored in English; DE/EL render via the resolver's fallback until translated, which conveniently demonstrates the platform's graceful per-language fallback to clients.
+
 ---
 
 ## 📝 Notes & change requests
