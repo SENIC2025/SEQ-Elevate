@@ -9,6 +9,7 @@ import { AccessibilityProvider } from "@/components/a11y/AccessibilityProvider";
 import { ProjectThemeProvider } from "@/components/ProjectThemeProvider";
 import { SessionProviderWrapper } from "@/components/SessionProviderWrapper";
 import { Analytics } from "@/components/Analytics";
+import { SiteFooter } from "@/components/SiteFooter";
 import "../globals.css";
 
 const inter = Inter({
@@ -78,6 +79,7 @@ export default async function LocaleLayout({
             <ProjectThemeProvider>
               <AccessibilityProvider>
                 <DemoStateProvider>{children}</DemoStateProvider>
+                <SiteFooter locale={locale} />
               </AccessibilityProvider>
             </ProjectThemeProvider>
           </SessionProviderWrapper>

@@ -42,3 +42,30 @@ test("Comp Card has no serious a11y violations", async ({ page }) => {
   const v = await scan(page);
   expect(v, JSON.stringify(v.map((x) => x.id), null, 2)).toEqual([]);
 });
+
+test("legal pages render and have no serious a11y violations", async ({
+  page,
+}) => {
+  for (const [doc, marker] of [
+    ["privacy", /who is responsible for your data/i],
+    ["terms", /using the platform/i],
+    ["cookies", /essential cookies only/i],
+    ["accessibility", /conformance/i],
+  ] as const) {
+    await page.goto(`/en/legal/${doc}`);
+    await expect(page.getByRole("heading", { name: marker }).first()).toBeVisible();
+    const v = await scan(page);
+    expect(v, `${doc}: ${JSON.stringify(v.map((x) => x.id))}`).toEqual([]);
+  }
+});
+
+test("the footer links to the legal pages from any page", async ({ page }) => {
+  await page.goto("/en");
+  const footer = page.getByRole("contentinfo");
+  await expect(footer).toBeVisible();
+  await footer.getByRole("link", { name: /privacy/i }).first().click();
+  await expect(page).toHaveURL(/\/en\/legal\/privacy/);
+  await expect(
+    page.getByRole("heading", { name: /privacy policy/i }).first()
+  ).toBeVisible();
+});

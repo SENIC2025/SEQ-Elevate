@@ -129,9 +129,10 @@ export function LandingPage() {
         </div>
       </main>
 
-      <footer className="border-t border-[var(--border)] py-6 text-center text-xs text-[var(--muted-foreground)] flex flex-col sm:flex-row items-center justify-center gap-3">
-        <span>Created and Powered by SENIC · senic.world</span>
-        <span className="hidden sm:inline">·</span>
+      {/* Demo-only utility. The SENIC credit + legal links live in the global
+          SiteFooter (locale layout), so this is a plain div, not a second
+          footer landmark. */}
+      <div className="py-6 text-center text-xs text-[var(--muted-foreground)]">
         <button
           type="button"
           onClick={() => {
@@ -150,7 +151,7 @@ export function LandingPage() {
           <RotateCcw className="h-3 w-3" />
           Reset demo
         </button>
-      </footer>
+      </div>
     </div>
   );
 }
