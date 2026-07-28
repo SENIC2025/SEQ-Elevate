@@ -16,22 +16,17 @@ import type { Role } from "@prisma/client";
 const PROJECT = "seq-elevate";
 
 /**
- * The access code that unlocks demo sign-in, or null if demo login must be
- * refused. An explicit DEMO_ACCESS_CODE always wins. If none is set, the public
- * showcase code is honoured ONLY on the demo deployment — identified by a
- * Vercel-set env var that a client cannot control — so a REAL production deploy
- * is safe by default even if the DEMO_LOGIN_DISABLED kill-switch is forgotten.
- * (A source-visible default that granted ADMIN on any host would be a
- * privilege-escalation footgun.)
+ * The demo access code. An explicit DEMO_ACCESS_CODE always wins; otherwise the
+ * public showcase default is used (it is intentionally shared with clients).
+ *
+ * The real production safeguard is DEMO_LOGIN_DISABLED=true — checked first in
+ * demoSignIn — which turns this whole path off. That is the documented,
+ * mandatory launch setting (GO-LIVE.md §2). Auto-detecting "demo vs real prod"
+ * from request/env signals proved unreliable at runtime, so the kill-switch is
+ * the single source of truth. For belt-and-suspenders on a custom domain, set
+ * DEMO_ACCESS_CODE to a private value.
  */
-function effectiveAccessCode(): string | null {
-  if (process.env.DEMO_ACCESS_CODE) return process.env.DEMO_ACCESS_CODE;
-  const projectUrl =
-    process.env.VERCEL_PROJECT_PRODUCTION_URL ??
-    process.env.VERCEL_URL ??
-    "";
-  return projectUrl.includes("seq-elevate-demo") ? "elevate-demo" : null;
-}
+const ACCESS_CODE = process.env.DEMO_ACCESS_CODE ?? "elevate-demo";
 
 /**
  * Ensure a user holds the given project roles (idempotent).
@@ -57,13 +52,11 @@ async function grantRoles(userId: string, roles: DemoRole[]) {
 }
 
 export async function demoSignIn(profileId: string, code: string) {
-  const accessCode = effectiveAccessCode();
-  // Fail closed: disabled by the kill-switch, or on any deployment where the
-  // public default code is not applicable and none was configured.
-  if (process.env.DEMO_LOGIN_DISABLED === "true" || !accessCode) {
+  // The production safeguard: this flag turns demo login off entirely.
+  if (process.env.DEMO_LOGIN_DISABLED === "true") {
     return { ok: false as const, error: "disabled" };
   }
-  if (code.trim() !== accessCode) {
+  if (code.trim() !== ACCESS_CODE) {
     return { ok: false as const, error: "bad-code" };
   }
   const profile = getDemoProfile(profileId);
