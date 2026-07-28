@@ -14,10 +14,33 @@ import { getDemoProfile, type DemoRole } from "@/lib/demo-profiles";
 import type { Role } from "@prisma/client";
 
 const PROJECT = "seq-elevate";
-const ACCESS_CODE = process.env.DEMO_ACCESS_CODE ?? "elevate-demo";
 
-/** Ensure a user holds the given project roles (idempotent). */
-export async function grantRoles(userId: string, roles: DemoRole[]) {
+/**
+ * The access code that unlocks demo sign-in, or null if demo login must be
+ * refused. An explicit DEMO_ACCESS_CODE always wins. If none is set, the public
+ * showcase code is honoured ONLY on the demo deployment — identified by a
+ * Vercel-set env var that a client cannot control — so a REAL production deploy
+ * is safe by default even if the DEMO_LOGIN_DISABLED kill-switch is forgotten.
+ * (A source-visible default that granted ADMIN on any host would be a
+ * privilege-escalation footgun.)
+ */
+function effectiveAccessCode(): string | null {
+  if (process.env.DEMO_ACCESS_CODE) return process.env.DEMO_ACCESS_CODE;
+  const projectUrl =
+    process.env.VERCEL_PROJECT_PRODUCTION_URL ??
+    process.env.VERCEL_URL ??
+    "";
+  return projectUrl.includes("seq-elevate-demo") ? "elevate-demo" : null;
+}
+
+/**
+ * Ensure a user holds the given project roles (idempotent).
+ *
+ * NOT exported: a `"use server"` export is a public HTTP endpoint, and this
+ * function grants roles with no auth check. It must only be reachable through
+ * `demoSignIn` below, which enforces the demo gates first.
+ */
+async function grantRoles(userId: string, roles: DemoRole[]) {
   for (const role of roles) {
     await prisma.membership.upsert({
       where: {
@@ -34,10 +57,13 @@ export async function grantRoles(userId: string, roles: DemoRole[]) {
 }
 
 export async function demoSignIn(profileId: string, code: string) {
-  if (process.env.DEMO_LOGIN_DISABLED === "true") {
+  const accessCode = effectiveAccessCode();
+  // Fail closed: disabled by the kill-switch, or on any deployment where the
+  // public default code is not applicable and none was configured.
+  if (process.env.DEMO_LOGIN_DISABLED === "true" || !accessCode) {
     return { ok: false as const, error: "disabled" };
   }
-  if (code.trim() !== ACCESS_CODE) {
+  if (code.trim() !== accessCode) {
     return { ok: false as const, error: "bad-code" };
   }
   const profile = getDemoProfile(profileId);

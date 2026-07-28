@@ -35,6 +35,9 @@ export default defineConfig({
     // Production server starts instantly (no per-request compilation).
     // Build first: `pnpm build`. CI builds before the e2e step.
     command: `pnpm start --port ${PORT}`,
+    // Demo login now requires an explicit access code off the demo host
+    // (safe-by-default on real prod); set it so the demo-access E2E can sign in.
+    env: { ...process.env, DEMO_ACCESS_CODE: "elevate-demo" },
     url: `${BASE_URL}/en`,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,

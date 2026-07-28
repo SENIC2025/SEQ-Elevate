@@ -20,7 +20,7 @@ Legend: **[SENIC]** engineering can do · **[Dashboard]** set in Vercel/Resend U
 | `RESEND_API_KEY` | `re_…` restricted **sending** key | From Resend. Sending-only scope. |
 | `EMAIL_FROM` | `SEQ Elevate <no-reply@your-domain>` | Must be on a **verified** Resend domain (see §4). |
 | `DEMO_LOGIN_DISABLED` | `true` | **The launch switch.** Disables one-click demo logins **and** the seeded demo course. |
-| `DEMO_ACCESS_CODE` | *(unset on prod)* | Only relevant when demo login is enabled. |
+| `DEMO_ACCESS_CODE` | *(leave unset on real prod)* | Demo login is **off by default on any non-demo host** — the public showcase code only works on the demo deployment. Set this only to deliberately enable demo login on a custom domain. |
 | `BLOB_READ_WRITE_TOKEN` | auto-set by Vercel Blob | Present once a Blob store is connected. Confirm region (see §5). |
 | `NEXT_PUBLIC_PLAUSIBLE_DOMAIN` | your domain | Enables cookieless analytics. Optional. |
 | `CMS_SOURCE` | *(unset = `local`)* | Leave unset; the in-app DB CMS is the content source. Only set to `strapi` if Strapi is ever adopted. |
@@ -38,6 +38,12 @@ Setting **`DEMO_LOGIN_DISABLED=true`** on the production project does three thin
 3. Everything else (real courses, cohorts, learners) is unaffected.
 
 This is the single most important production setting. Verify it before the first real learner.
+
+> **Defense in depth:** even if this flag is forgotten, demo login is already
+> **off by default on any host that isn't the demo deployment** — the public
+> showcase access code is only honoured on `seq-elevate-demo.*`. A real
+> production domain will not accept demo sign-in unless `DEMO_ACCESS_CODE` is
+> explicitly set. Set the flag anyway; don't rely on the fallback alone.
 
 ---
 
