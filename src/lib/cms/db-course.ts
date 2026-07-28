@@ -49,6 +49,55 @@ const CANONICAL_ORDER: StageKey[] = [
   "assessment",
 ];
 
+/**
+ * Localised generic strings for the system-provided slots of a CMS course —
+ * the reflection stage (a journaling stage the author doesn't write) and the
+ * completion heading. Authored content overrides these; they exist so a fully
+ * translated course doesn't leak English in the parts the author never types.
+ */
+const DEFAULTS: Record<
+  Locale,
+  {
+    completionTitle: string;
+    reflectionTitle: string;
+    reflectionIntro: string;
+    reflectionPrompts: string[];
+  }
+> = {
+  en: {
+    completionTitle: "Course complete",
+    reflectionTitle: "Reflection",
+    reflectionIntro: "Take a moment to reflect on what you just practised.",
+    reflectionPrompts: [
+      "What went well?",
+      "What was hard?",
+      "What will you try next time?",
+    ],
+  },
+  de: {
+    completionTitle: "Kurs abgeschlossen",
+    reflectionTitle: "Reflexion",
+    reflectionIntro:
+      "Nimm dir einen Moment, um über das eben Geübte nachzudenken.",
+    reflectionPrompts: [
+      "Was ist gut gelaufen?",
+      "Was war schwierig?",
+      "Was probierst du beim nächsten Mal?",
+    ],
+  },
+  el: {
+    completionTitle: "Το μάθημα ολοκληρώθηκε",
+    reflectionTitle: "Αναστοχασμός",
+    reflectionIntro:
+      "Αφιέρωσε μια στιγμή για να σκεφτείς αυτό που μόλις εξασκήθηκες.",
+    reflectionPrompts: [
+      "Τι πήγε καλά;",
+      "Τι ήταν δύσκολο;",
+      "Τι θα δοκιμάσεις την επόμενη φορά;",
+    ],
+  },
+};
+
 export interface CourseMetaEntry {
   title: string;
   tagline: string;
@@ -189,21 +238,22 @@ export async function getDbCourse(
       if (key === "reflection") {
         // Reflection is a journaling stage: the player's ReflectionStage needs
         // a `reflection` object (intro + prompts), not narrative blocks. Reuse
-        // any authored copy as the intro and provide generic private prompts.
+        // any authored copy as the intro and provide generic private prompts,
+        // localised so a translated course doesn't fall back to English here.
+        const d = DEFAULTS[locale] ?? DEFAULTS.en;
         const introText =
           authored?.blocks?.find((b) => b.kind === "paragraph")?.text ??
           authored?.subtitle ??
-          "Take a moment to reflect on what you just practised.";
+          d.reflectionIntro;
         stages.push({
           key,
-          title: authored?.title ?? `${entry.title} — reflection`,
+          title: authored?.title ?? d.reflectionTitle,
           reflection: {
             intro: introText,
-            prompts: [
-              { label: "What went well?", placeholder: "" },
-              { label: "What was hard?", placeholder: "" },
-              { label: "What will you try next time?", placeholder: "" },
-            ],
+            prompts: d.reflectionPrompts.map((label) => ({
+              label,
+              placeholder: "",
+            })),
           },
         });
         continue;
@@ -232,7 +282,7 @@ export async function getDbCourse(
       },
       stages,
       completion: {
-        title: "Course complete",
+        title: (DEFAULTS[locale] ?? DEFAULTS.en).completionTitle,
         body: entry.tagline,
       },
     };
