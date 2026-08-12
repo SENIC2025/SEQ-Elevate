@@ -22,14 +22,17 @@ managed-cloud providers (sub-processors):
 |---|---|---|---|
 | Application / compute (serverless) | **Vercel** (Vercel Inc., US) | EU-configurable compute region | Processes requests in transit |
 | Primary database (PostgreSQL) | **Neon** (Neon Inc., US) | **EU — Frankfurt (AWS eu-central-1)** | All stored personal data |
-| File/media storage (uploaded documents & lesson videos) | **Vercel Blob** | **US-default** ⚠️ | Any files an author uploads |
+| File/media storage (uploaded documents & lesson videos) | **Vercel Blob** | **EU — Frankfurt (`fra1`, AWS eu-central-1)** | **Staff-authored course media only** — learners upload nothing |
 | Transactional email (sign-in links) | **Resend** (Resend Inc., US) | US | Recipient email address |
 | Web analytics | **Plausible** (Plausible Insights OÜ, Estonia, EU) | EU | **None** — cookieless, no personal data, no IP retention |
 
-> ⚠️ **Action for the controller (D13):** Vercel Blob defaults to US storage.
-> Before real learners upload identifiable material, confirm an EU region + DPA,
-> or SENIC can switch file uploads to an EU S3-compatible bucket (the storage
-> layer is pluggable). Learner **records** (database) are already EU-hosted.
+> **File storage residency (D13):** file uploads use a Vercel Blob store in the
+> **Frankfurt (`fra1`) region → data on AWS eu-central-1, Germany**. The store
+> holds **staff-authored course media only** (lesson videos/documents); learners
+> upload no files. Learner **records** (database) are EU-hosted (Neon,
+> Frankfurt). Keep Vercel's DPA/SCCs on file (Vercel Inc. is US-domiciled; the
+> data resides in the EU). _Operational: create the `fra1` store in the Vercel
+> dashboard — see GO-LIVE.md §5._
 
 Because Vercel, Neon and Resend are US companies, transfers to them are
 **third-country transfers** requiring an Art. 28 DPA + SCCs (see §7).
@@ -200,7 +203,7 @@ For the controller's file:
 1. **Controller ↔ Processor DPA** — between the **data controller** (consortium /
    the named controller) and **SENIC** (processor operating the platform).
 2. **Sub-processor DPAs / SCCs**, held by SENIC and disclosed to the controller:
-   - **Vercel** (hosting + Blob storage) — US → SCCs.
+   - **Vercel** (hosting + Blob storage) — US company; compute EU-configurable, **Blob store in Frankfurt (`fra1`)** → DPA + SCCs.
    - **Neon** (database) — US company, EU-hosted data → DPA + SCCs.
    - **Resend** (email) — US → SCCs.
    - **Plausible** — EU (Estonia); processes no personal data (DPA still advisable).

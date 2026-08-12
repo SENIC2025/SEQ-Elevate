@@ -21,7 +21,7 @@ Legend: **[SENIC]** engineering can do · **[Dashboard]** set in Vercel/Resend U
 | `EMAIL_FROM` | `SEQ Elevate <no-reply@your-domain>` | Must be on a **verified** Resend domain (see §4). |
 | `DEMO_LOGIN_DISABLED` | `true` | **The launch switch.** Disables one-click demo logins **and** the seeded demo course. |
 | `DEMO_ACCESS_CODE` | *(unset)* | The demo-login code. Governed by `DEMO_LOGIN_DISABLED` — set that to `true` on real prod to turn demo login off entirely (§2). Optionally set a private value here as belt-and-suspenders. |
-| `BLOB_READ_WRITE_TOKEN` | auto-set by Vercel Blob | Present once a Blob store is connected. Confirm region (see §5). |
+| `BLOB_READ_WRITE_TOKEN` | auto-set by Vercel Blob | Present once a Blob store is connected. **Use a Frankfurt (`fra1`) store — see §5.** |
 | `NEXT_PUBLIC_PLAUSIBLE_DOMAIN` | your domain | Enables cookieless analytics. Optional. |
 | `CMS_SOURCE` | *(unset = `local`)* | Leave unset; the in-app DB CMS is the content source. Only set to `strapi` if Strapi is ever adopted. |
 | `SENTRY_DSN` / `NEXT_PUBLIC_SENTRY_DSN` | *(paste DSN to activate)* | Sentry is already wired + inert; set both to your DSN and redeploy. See §6. |
@@ -63,11 +63,22 @@ Sign-in is passwordless — if email doesn't deliver, no one can log in.
 
 ---
 
-## 5. File storage region + DPA (GDPR)  **[Consortium/legal] [Dashboard]**  *(Decision D13)*
+## 5. File storage region — **EU / Frankfurt**  **[Dashboard]**  *(Decision D13)*
 
-Vercel Blob is US-default. **Before real learners upload identifiable video**:
-- Confirm an **EU** storage region (or a signed DPA covering the transfer), **or**
-- Ask SENIC to switch uploads to an EU S3-compatible bucket — the upload code is storage-pluggable, so this is an adapter change, not a rewrite.
+Uploads must live in the EU. **Decision: use a Vercel Blob store in the
+`fra1` (Frankfurt, Germany) region** — data then resides on AWS eu-central-1.
+No code change is needed (region is a store property). A store's region
+**cannot** be changed after creation, so:
+
+1. In the Vercel dashboard → Storage → **create a new Blob store**, region **Frankfurt (`fra1`)**
+   (or CLI: `vercel blob store add <name> --region fra1`).
+2. **Connect it to the production project** — Vercel sets `BLOB_READ_WRITE_TOKEN` to the new store.
+3. Remove/disconnect the old US-region store.
+4. **Redeploy.**
+
+**No migration needed** — the current store holds only staff-authored course
+media, nothing production-critical. Keep **Vercel's DPA/SCCs** on file (Vercel
+Inc. is a US company; the data resides in Germany).
 
 ---
 

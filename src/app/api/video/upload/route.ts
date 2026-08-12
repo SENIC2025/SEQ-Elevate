@@ -7,6 +7,11 @@
  * Requires BLOB_READ_WRITE_TOKEN (set automatically when a Vercel Blob store
  * is connected to the project). Without it, uploads fail and the authoring UI
  * falls back to an in-browser preview — see VideoBlockAuthor.
+ *
+ * GDPR / data residency (D13): the connected Blob store MUST be in the EU —
+ * region `fra1` (Frankfurt / AWS eu-central-1). Region is a store property set
+ * at creation and cannot be changed later, so connect an EU store, not the
+ * US default. Nothing in this file depends on the region. See GO-LIVE.md §5.
  */
 
 import { handleUpload, type HandleUploadBody } from "@vercel/blob/client";
