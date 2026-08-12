@@ -15,9 +15,12 @@ export default function Error({
   const t = useTranslations("system");
 
   useEffect(() => {
-    // In production this is where Sentry.captureException(error) goes
-    // (wired via SENTRY_DSN). Logged for now.
     console.error(error);
+    // Report to Sentry when configured. Gated on the build-time public DSN, so
+    // this dynamic import is tree-shaken out when monitoring is off.
+    if (process.env.NEXT_PUBLIC_SENTRY_DSN) {
+      import("@sentry/nextjs").then((Sentry) => Sentry.captureException(error));
+    }
   }, [error]);
 
   return (

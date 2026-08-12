@@ -24,7 +24,7 @@ Legend: **[SENIC]** engineering can do · **[Dashboard]** set in Vercel/Resend U
 | `BLOB_READ_WRITE_TOKEN` | auto-set by Vercel Blob | Present once a Blob store is connected. Confirm region (see §5). |
 | `NEXT_PUBLIC_PLAUSIBLE_DOMAIN` | your domain | Enables cookieless analytics. Optional. |
 | `CMS_SOURCE` | *(unset = `local`)* | Leave unset; the in-app DB CMS is the content source. Only set to `strapi` if Strapi is ever adopted. |
-| `SENTRY_DSN` / `NEXT_PUBLIC_SENTRY_DSN` | *(when ready)* | See §6 — provide a DSN and SENIC wires Sentry in ~15 min. |
+| `SENTRY_DSN` / `NEXT_PUBLIC_SENTRY_DSN` | *(paste DSN to activate)* | Sentry is already wired + inert; set both to your DSN and redeploy. See §6. |
 
 > After changing env vars, **redeploy** so they take effect.
 
@@ -71,12 +71,23 @@ Vercel Blob is US-default. **Before real learners upload identifiable video**:
 
 ---
 
-## 6. Error monitoring / observability  **[Consortium provides DSN] [SENIC wires]**
+## 6. Error monitoring / observability — **wired, activate with a DSN**  **[Dashboard]**
 
-There's an error boundary but no aggregation/alerting yet.
-- Create a Sentry (or equivalent) project → get a **DSN**.
-- Give the DSN to SENIC; wiring `@sentry/nextjs` gated on `SENTRY_DSN` is ~15 minutes and inert until the DSN is set.
-- Vercel's function logs + the in-app audit log are available in the meantime.
+Sentry is fully wired and **inert until a DSN is set** (server + edge via
+`src/instrumentation.ts`, browser via `src/instrumentation-client.ts`, plus
+`captureException` in both error boundaries). To turn it on:
+1. Create a Sentry project → copy its **DSN**.
+2. In Vercel, set **`SENTRY_DSN`** and **`NEXT_PUBLIC_SENTRY_DSN`** to that same DSN value.
+3. Redeploy. That's it — errors start reporting.
+
+Notes:
+- Privacy-conservative by default: **no PII, no performance tracing, no session
+  replay** (replay would record a vulnerable learner's screen — only enable it
+  deliberately, with a DPIA). Raise `tracesSampleRate` if you want performance data.
+- With no DSN, the Sentry client SDK is **tree-shaken out** — zero cost to learners.
+- Readable stack traces (source-map upload) are **not** wired, to keep the
+  Turbopack build clean. To add them later: enable `withSentryConfig` and set
+  `SENTRY_AUTH_TOKEN`.
 
 ---
 
@@ -105,7 +116,7 @@ There's an error boundary but no aggregation/alerting yet.
 
 - [x] Legal-page render surface + footer — **done**
 - [x] Rate-limiting on sign-in + uploads — **done**
-- [ ] Sentry wiring — pending consortium DSN (§6)
+- [x] Sentry wiring — **done**; activate by setting the DSN env vars (§6)
 - [ ] Security review pass of the recent server actions / upload routes
 - [ ] Confirm Neon backup / point-in-time-recovery retention tier **[Dashboard]**
 - [ ] (Optional) external WCAG 2.2 AA audit — internal audit passes today *(O5)*

@@ -8,6 +8,9 @@ onlyBuiltDependencies:
 allowBuilds:
   '@parcel/watcher': true
   '@prisma/engines': true
+  # We use Sentry's runtime SDK only, not source-map upload (no withSentryConfig),
+  # so @sentry/cli's postinstall binary download is not needed.
+  '@sentry/cli': false
   '@swc/core': true
   esbuild: true
   prisma: true

@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect } from "react";
+
 /**
  * Root error boundary — replaces the whole document when the root layout
  * throws. No providers available here, so it's self-contained + English.
@@ -11,6 +13,14 @@ export default function GlobalError({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  useEffect(() => {
+    // Report to Sentry when configured (gated on the build-time DSN, so the
+    // import is tree-shaken out when monitoring is off).
+    if (process.env.NEXT_PUBLIC_SENTRY_DSN) {
+      import("@sentry/nextjs").then((Sentry) => Sentry.captureException(error));
+    }
+  }, [error]);
+
   return (
     <html lang="en">
       <body
