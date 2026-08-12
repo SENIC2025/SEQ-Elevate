@@ -63,22 +63,16 @@ Sign-in is passwordless — if email doesn't deliver, no one can log in.
 
 ---
 
-## 5. File storage region — **EU / Frankfurt**  **[Dashboard]**  *(Decision D13)*
+## 5. File storage region — **EU / Frankfurt (already done)**  **[Dashboard]**  *(Decision D13)*
 
-Uploads must live in the EU. **Decision: use a Vercel Blob store in the
-`fra1` (Frankfurt, Germany) region** — data then resides on AWS eu-central-1.
-No code change is needed (region is a store property). A store's region
-**cannot** be changed after creation, so:
+✅ **Verified:** the Blob store `seq-elevate-demo-blob` is region **`FRA1`
+(Frankfurt / AWS eu-central-1, Germany)**. Uploads already reside in the EU —
+nothing to do here for the current deployment. Keep **Vercel's DPA/SCCs** on
+file (Vercel Inc. is US-domiciled; the data is in Germany).
 
-1. In the Vercel dashboard → Storage → **create a new Blob store**, region **Frankfurt (`fra1`)**
-   (or CLI: `vercel blob store add <name> --region fra1`).
-2. **Connect it to the production project** — Vercel sets `BLOB_READ_WRITE_TOKEN` to the new store.
-3. Remove/disconnect the old US-region store.
-4. **Redeploy.**
-
-**No migration needed** — the current store holds only staff-authored course
-media, nothing production-critical. Keep **Vercel's DPA/SCCs** on file (Vercel
-Inc. is a US company; the data resides in Germany).
+Only if you stand up a **separate real-production project** later:
+1. Create its Blob store in region **Frankfurt (`fra1`)** — region can't be changed after creation.
+2. **Connect it to that project** so `BLOB_READ_WRITE_TOKEN` is set, then redeploy.
 
 ---
 
