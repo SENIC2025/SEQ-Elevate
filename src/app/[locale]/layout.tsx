@@ -19,8 +19,11 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
+  // Canonical base for absolute OG/social URLs. AUTH_URL pins it in every real
+  // environment (staging + production); the literal is only a build-time
+  // fallback when AUTH_URL is unset. Production host is the apex seq-elevate.eu.
   metadataBase: new URL(
-    process.env.AUTH_URL ?? "https://seq-elevate-demo.vercel.app"
+    process.env.AUTH_URL ?? "https://seq-elevate.eu"
   ),
   title: {
     default: "SEQ Elevate",

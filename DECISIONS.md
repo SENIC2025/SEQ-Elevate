@@ -87,15 +87,33 @@ Single source of truth for decisions made, decisions still open, and the rationa
 - Rationale: hits the deadline with Strapi while staying swappable — if the 5-year Strapi maintenance proves heavy, migrate to native-Postgres authoring with zero app-code changes.
 - Mitigates the 5-year-maintenance concern (D-risk): content is authored once then mostly idle; Strapi version pinned; clean migration path preserved.
 
+### D22 · Production hosting — Vercel (supersedes D1 Hetzner for production)
+**Decided**: 21 August 2026 · *Decider: SENIC principal*
+- Production runs on **Vercel** (the platform staging/demo already runs there), **not** the Hetzner Cloud VPS named in **D1 / D5 / the signed proposal §4**. Hostinger considered and declined.
+- **Rationale**: the app is architected for Vercel — Vercel Blob for uploads (Vercel-proprietary, EU/FRA1), serverless Server Actions + API routes, auto-migrate on deploy (D14), EU-configurable compute region, one-click rollback. A Hostinger/Hetzner VPS would mean self-managed Node server, SSL, deploys, scaling, monitoring, and losing the Blob integration — a re-architecture for no pilot-stage benefit. The auth layer is already host-agnostic (`trustHost: true`), so self-hosting isn't *blocked*; the cost is Blob + ops.
+- ⚠️ **Commercial note — flag to consortium**: D1 budgeted Hetzner (~€660–720 / 5y) inside the €5,500 hosting/maintenance lump. Vercel is a different, SaaS-recurring cost profile (Vercel Pro ~€20/seat/mo + Neon + Blob; still within €5,500 at pilot scale, but ongoing not fixed-VPS). This departs from the signed proposal's stated infrastructure — a **conscious choice, not an oversight**. Confirm the commercial framing with the consortium.
+- **Hostinger** remains available for the **marketing/landing site** (its original D1 role) — not the app.
+
+### D23 · Production environment — reuse the demo Vercel project (not a separate clean project)
+**Decided**: 21 August 2026 · *Decider: SENIC principal*
+- Production **reuses the existing demo deployment** (same Vercel project + Neon DB + FRA1 Blob), flipped to production mode — rather than standing up an isolated clean project/DB/Blob.
+- SENIC recommended a **separate clean environment** for real learners' data (incl. under-18s), so demo activity can never touch real PII; the principal chose reuse for speed. Recorded so the trade-off is explicit.
+- **Required hygiene before the first real learner** (because prod shares the demo DB):
+  1. `DEMO_LOGIN_DISABLED=true` — turns off one-click demo admin login **and** stops the demo course re-seeding (D16/D21).
+  2. **Rotate `AUTH_SECRET`** to a fresh strong value — invalidates any lingering demo sessions (a demo login can hold an ADMIN session).
+  3. **Purge demo data** — remove the seeded demo course (`demo-speaking-up`) and demo users/memberships so the production DB starts clean. SENIC can provide a guarded cleanup script on request.
+- Consequence, accepted: real learner records and demo/test records live in the same database; the isolation is by the above steps + RBAC, not by separate infrastructure.
+
 ---
 
 ## 🟡 Open — must close before kickoff or Week 1
 
-### O1 · Production domain
-**Status**: Open · **Decide by**: end of Week 1 in production (~7 July 2026)
-- Options: subdomain of `seqelevate.eu` (e.g. `platform.seqelevate.eu`, `learn.seqelevate.eu`, `app.seqelevate.eu`) vs separate domain
-- DNS configuration owned by consortium (they hold `seqelevate.eu`)
-- Staging URL stays on `senic.world` until this is decided
+### O1 · Production domain — ✅ CLOSED → `seq-elevate.eu` (apex)
+**Decided**: 21 August 2026 · *Decider: SENIC principal*
+- Production platform is served at the **apex `seq-elevate.eu`**, with **`www.seq-elevate.eu` → redirect to apex** (Vercel wires the redirect when both are added).
+- DNS: apex can't `CNAME` (DNS rule) → add Vercel's **A record** for `seq-elevate.eu`; `www` gets a `CNAME`. `AUTH_URL=https://seq-elevate.eu` (pins host detection + magic-link base). Email (`no-reply@seq-elevate.eu`, SPF/DKIM/MX) is on different record types and is unaffected by the A record.
+- ⚠️ **Name check — hyphen vs no-hyphen**: earlier notes (D4, this item's old options) referenced the brand/marketing site as **`seqelevate.eu`** (no hyphen). The domain set up for the platform is **`seq-elevate.eu`** (with hyphen). Confirm these are intentional — if the brand lives on the no-hyphen domain, the hyphenated platform URL could split the brand / confuse learners. Proceeding with `seq-elevate.eu` as instructed; reconcile with the consortium.
+- Supersedes the interim staging plan of keeping the app on `senic.world` (D3/D10).
 
 ### D10 · Interim staging on Vercel (delay Hetzner until contract/payment confirmed)
 **Decided**: 13 June 2026 · *Decider: client (SENIC principal)*

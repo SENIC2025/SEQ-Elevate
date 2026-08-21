@@ -4,6 +4,11 @@ This is the checklist to take SEQ Elevate from the **demo deploy**
 (`seq-elevate-demo.vercel.app`, demo login on, placeholder data) to a
 **real production launch** serving NEET learners.
 
+**Decided (21 Aug 2026):** hosting stays on **Vercel** (D22); production **reuses
+the existing demo Vercel project** flipped to production mode (D23); public host
+is the apex **`seq-elevate.eu`** (O1). Because prod reuses the demo project/DB,
+follow the **cutover hygiene in §2a** before the first real learner.
+
 Legend: **[SENIC]** engineering can do · **[Dashboard]** set in Vercel/Resend UI ·
 **[Consortium]** owned by the programme.
 
@@ -16,7 +21,7 @@ Legend: **[SENIC]** engineering can do · **[Dashboard]** set in Vercel/Resend U
 | `DATABASE_URL` | Neon **pooled** connection string | Already set for the app. EU region. |
 | `DIRECT_URL` | *(optional)* Neon **direct** string | Only if the auto-derived direct endpoint (pooled host minus `-pooler`) is wrong. Used for migrations. |
 | `AUTH_SECRET` | **a fresh strong secret** | Generate: `openssl rand -base64 33`. **Must not** be the dev placeholder. Rotating it signs everyone out. |
-| `AUTH_URL` | `https://<your-domain>` | The canonical production URL. Pins host detection + magic-link base. |
+| `AUTH_URL` | `https://seq-elevate.eu` | The canonical production URL (decided — apex, O1). Pins host detection + magic-link base. |
 | `RESEND_API_KEY` | `re_…` restricted **sending** key | From Resend. Sending-only scope. |
 | `EMAIL_FROM` | `SEQ Elevate <no-reply@your-domain>` | Must be on a **verified** Resend domain (see §4). |
 | `DEMO_LOGIN_DISABLED` | `true` | **The launch switch.** Disables one-click demo logins **and** the seeded demo course. |
@@ -45,12 +50,35 @@ real learner**. (For extra safety on a custom domain you can also set a private
 
 ---
 
-## 3. Domain + DNS  **[Consortium owns DNS] [SENIC assists]**
+## 2a. Cutover hygiene — because production reuses the demo project  **[Dashboard] + [SENIC]**  *(Decision D23)*
 
-- Pick the production hostname (e.g. `learn.seqelevate.eu`). *(Decision O1.)*
-- In Vercel: add the domain to the production project.
-- In DNS (consortium holds `seqelevate.eu`): add the `CNAME`/`A` records Vercel shows.
-- Set `AUTH_URL` to `https://<that domain>` and redeploy.
+Production shares the demo project's database and Blob store, so isolation is by
+these steps, not by separate infrastructure. Do all three **before the first real learner**:
+
+1. **`DEMO_LOGIN_DISABLED=true`** (see §2) — kills one-click demo admin login and stops the demo course re-seeding.
+2. **Rotate `AUTH_SECRET`** to a fresh strong value (`openssl rand -base64 33`). This invalidates any lingering demo session — a demo login could otherwise still hold an ADMIN cookie. Rotating signs everyone out; do it before real accounts exist.
+3. **Purge demo data** so the production DB starts clean: remove the seeded demo course (`demo-speaking-up`) and the demo users/memberships (Stefan-demo, Demo Editor/Teacher/Learner). **[SENIC]** can supply a guarded cleanup script — ask before real learners join.
+
+After these, real learner records and any leftover test records share one
+database, governed by RBAC + the above. If the consortium later wants hard
+infrastructure isolation, migrating to a separate clean project/DB is an option
+(reverses D23).
+
+---
+
+## 3. Domain + DNS — **`seq-elevate.eu` (apex)**  **[Consortium/SENIC owns DNS] [SENIC assists]**  *(Decision O1 — closed)*
+
+Production host is the **apex `seq-elevate.eu`** (decided), with **`www` redirecting to it**.
+
+1. In Vercel → the project → **Domains**: add **`seq-elevate.eu`** *and* **`www.seq-elevate.eu`**. Vercel offers to auto-redirect `www` → apex — accept it.
+2. In DNS for `seq-elevate.eu`:
+   - **Apex** can't use a `CNAME` (DNS rule) → add the **A record** Vercel shows (Vercel's anycast IP, currently `76.76.21.21` — use whatever the dashboard displays).
+   - **`www`** → add the **`CNAME`** Vercel shows (`cname.vercel-dns.com`).
+   - Vercel auto-verifies and issues the SSL certificate.
+3. Set **`AUTH_URL=https://seq-elevate.eu`** and **redeploy**.
+4. Email is unaffected: `no-reply@seq-elevate.eu` (SPF/DKIM/MX, §4) uses different record types than the A record — mail keeps working.
+
+> ⚠️ **Hyphen check**: the consortium's brand/marketing site was noted as `seqelevate.eu` (no hyphen). The platform domain is `seq-elevate.eu` (with hyphen). Confirm both are intentional so the brand isn't split — see DECISIONS O1.
 
 ---
 
