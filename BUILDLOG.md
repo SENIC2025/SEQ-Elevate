@@ -519,3 +519,10 @@ Client raised the project's cost shape: short active pilot (~120 learners, ~1 ye
 - `[NOTE]` **Corrected my earlier ~€2,400/5y figure** — it wrongly counted sunk Vercel Pro and assumed paid Neon for 5 years. Real marginal is the Launch year only.
 - `[NOTE]` **Hostinger VPS rejected for the app**: ~€400–600 that never drops when passive, needs patching when idle, forces a Blob→S3 rewrite, and puts self-managed risk into the live pilot. It stays the marketing-site host. Neon Scale ($701/mo, 100 GB high-load) is enterprise-scale, irrelevant at 120 learners.
 - `[BUILD]` GO-LIVE.md §12 "Cost lifecycle" added with the exact Launch→Free downgrade steps (and the "downgrade, don't cancel" warning).
+
+### Go-live prep — production front door (2026-08-21)
+Verified on the live site that the home page was still the demo role-picker shell (unconditional `<LandingPage/>`), independent of `DEMO_LOGIN_DISABLED`. Built a real production landing gated on the same launch switch.
+- `[BUILD]` `src/components/ProductionLanding.tsx` — real welcome (reuses `landing.title`/`landing.subtitle`) with a single magic-link **Sign in** CTA (→ `/signin`); drops the demo badge, role-picker cards, demo banner and "Reset demo". Keeps the language switcher + accessibility toolbar; footer stays the global `SiteFooter`. Uses only existing trilingual strings — **no new i18n**.
+- `[BUILD]` `[locale]/page.tsx` now renders `ProductionLanding` when `DEMO_LOGIN_DISABLED === "true"`, else the demo `LandingPage`. So the **one launch switch** both disables demo login (D16) *and* flips the front door — no separate step, and the change is inert on the demo deploy.
+- `[VERIFY]` `tsc --noEmit` ✓, eslint ✓. Live visual preview deferred (gated component — visible once the flag is set on prod).
+- `[NOTE]` Deeper item, separate from the front door: the authenticated dashboards (`/learner`, `/facilitator`, `/admin`) are hybrid demo-state/real-session; only sign-in, the course player and the account page read the real session server-side. Whether every dashboard shows real data vs demo-state is a bigger pre-launch audit — flagged, not yet done.
