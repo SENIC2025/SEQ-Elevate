@@ -181,6 +181,24 @@ Notes:
 
 ---
 
+## 12. Cost lifecycle — pay for the pilot, drop to ~€0 when passive  *(Decision D24)*
+
+The platform has a short **active** phase (~120 learners, ~1 year) then a long **passive** phase. Match the database plan to that; Vercel Pro is already paid, so the only new cost is Neon.
+
+| Phase | Neon plan | Cost | Action |
+|---|---|---|---|
+| **Active** (pilot) | **Launch** (usage-based) | ~$15/mo (~€165 for the year) | Default for go-live — no cap, no cold-start lag, includes point-in-time recovery |
+| **Passive** (project ended) | **Free** | **$0** | Downgrade when activity drops off |
+
+**When activity goes passive — downgrade, don't cancel:**
+1. Neon dashboard → the project → **Settings / Billing** → change plan **Launch → Free**. Same database, same connection string, **no migration, no code change**. (120 learners' data is tens of MB — far inside Free's 0.5 GB.)
+2. That's it — cost drops to $0; the platform stays live (Free auto-sleeps and wakes on the next visit).
+3. **Never "cancel"/delete the Neon project** while the app is live — that destroys the database. To fully mothball later: `pg_dump` the DB, take the Vercel deployment offline → true €0, redeployable if ever needed.
+
+> Total new cost across the whole lifecycle ≈ **€150–200 for the pilot year, then ≈ €0**. A Hostinger VPS (~€400–600) was considered and rejected: it never drops to zero, still needs patching when idle, and would force a Blob→S3 rewrite (D24).
+
+---
+
 *Realistic critical path: the SENIC engineering items are ~1–2 days. The launch
 gating items are the **consortium** ones — domain, DPIA + legal text, verified
 email domain, and at least one real course.*

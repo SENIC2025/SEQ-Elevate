@@ -104,6 +104,15 @@ Single source of truth for decisions made, decisions still open, and the rationa
   3. **Purge demo data** — remove the seeded demo course (`demo-speaking-up`) and demo users/memberships so the production DB starts clean. SENIC can provide a guarded cleanup script on request.
 - Consequence, accepted: real learner records and demo/test records live in the same database; the isolation is by the above steps + RBAC, not by separate infrastructure.
 
+### D24 · Cost lifecycle — Neon Launch during the pilot, downgrade to Neon Free when passive
+**Decided**: 21 August 2026 · *Decider: SENIC principal*
+- The project has a **short active phase** (pilot with ~120 learners, ~1 year to ~Sept 2027) then a **long passive/archive phase** (little to no activity). Hosting cost is matched to that shape rather than paid flat for 5 years.
+- **Vercel Pro is a sunk cost** — SENIC keeps it regardless — so the only *new* recurring cost of the platform is the database (Blob is pennies; teaching video goes to YouTube/Vimeo, not Blob).
+- **Active phase → Neon Launch** (usage-based; verified on Neon's pricing page, "typical $15/mo" for intermittent load + 1 GB — the pilot's exact profile, likely ≤$15). Buys off the Free tier's 100 CU-hr/month cap and auto-suspend cold-starts during live use, and includes point-in-time recovery (also answers the "backup retention tier" gap in DATA-PROTECTION §6 / DPA Annex II).
+- **Passive phase → downgrade to Neon Free ($0)**. 120 learners' records are tens of MB — far inside Free's 0.5 GB. Auto-sleep/cold-start is irrelevant when passive. The downgrade is a **billing toggle in the Neon dashboard: same DB, no migration, no code change.** (Do *not* "cancel" Neon — that deletes the DB; downgrade, don't cancel. To fully mothball, `pg_dump` and take the deployment offline for true €0.)
+- **Total new cost over the lifecycle ≈ €150–200 for the pilot year, then ≈ €0** — corrects the earlier ~€2,400/5y figure (which wrongly counted sunk Vercel Pro and assumed paid Neon for all 5 years).
+- **Hostinger VPS rejected for the app** (considered per the principal's cost question): ~€400–600 that *never* drops when passive, still needs security patching when idle, forces a Blob→S3 code migration now, and puts self-managed-server risk into the live pilot. The managed path is the one that actually scales to ~€0 when passive. (Existing Hostinger stays the marketing-site host, its D1 role.) Neon's Scale tier ($701/mo, "high load, 100 GB") is enterprise-scale and irrelevant here.
+
 ---
 
 ## 🟡 Open — must close before kickoff or Week 1
