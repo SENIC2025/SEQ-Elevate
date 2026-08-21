@@ -13,6 +13,7 @@
     "db:migrate": "prisma migrate dev",
     "db:reset": "prisma migrate reset",
     "db:seed": "prisma db seed",
+    "db:purge-demo": "node prisma/purge-demo.mjs",
     "db:studio": "prisma studio",
     "test": "vitest run",
     "test:watch": "vitest",

@@ -57,7 +57,12 @@ these steps, not by separate infrastructure. Do all three **before the first rea
 
 1. **`DEMO_LOGIN_DISABLED=true`** (see §2) — kills one-click demo admin login and stops the demo course re-seeding.
 2. **Rotate `AUTH_SECRET`** to a fresh strong value (`openssl rand -base64 33`). This invalidates any lingering demo session — a demo login could otherwise still hold an ADMIN cookie. Rotating signs everyone out; do it before real accounts exist.
-3. **Purge demo data** so the production DB starts clean: remove the seeded demo course (`demo-speaking-up`) and the demo users/memberships (Stefan-demo, Demo Editor/Teacher/Learner). **[SENIC]** can supply a guarded cleanup script — ask before real learners join.
+3. **Purge demo data** so the production DB starts clean — run [`prisma/purge-demo.mjs`](prisma/purge-demo.mjs) (built, guarded, **dry-run by default**). It removes the seeded demo course (`demo-speaking-up`) and the four one-click demo accounts (Stefan-demo, Demo Editor/Teacher/Learner); it never touches the project/orgs/cohorts/bundled courses.
+   ```bash
+   node prisma/purge-demo.mjs            # dry run — prints the plan, changes nothing
+   node prisma/purge-demo.mjs --confirm  # actually delete the demo data
+   ```
+   For a full clean slate (no real learners exist yet at cutover): `KEEP_EMAILS="you@real.email" node prisma/purge-demo.mjs --all-users --confirm`. After purging, re-establish your admin by signing in with your **real** email and granting yourself ADMIN via **People**.
 
 After these, real learner records and any leftover test records share one
 database, governed by RBAC + the above. If the consortium later wants hard
