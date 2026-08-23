@@ -526,3 +526,13 @@ Verified on the live site that the home page was still the demo role-picker shel
 - `[BUILD]` `[locale]/page.tsx` now renders `ProductionLanding` when `DEMO_LOGIN_DISABLED === "true"`, else the demo `LandingPage`. So the **one launch switch** both disables demo login (D16) *and* flips the front door — no separate step, and the change is inert on the demo deploy.
 - `[VERIFY]` `tsc --noEmit` ✓, eslint ✓. Live visual preview deferred (gated component — visible once the flag is set on prod).
 - `[NOTE]` Deeper item, separate from the front door: the authenticated dashboards (`/learner`, `/facilitator`, `/admin`) are hybrid demo-state/real-session; only sign-in, the course player and the account page read the real session server-side. Whether every dashboard shows real data vs demo-state is a bigger pre-launch audit — flagged, not yet done.
+
+### Go-live prep — authenticated-experience audit (2026-08-21)
+Traced the data source of every authenticated route to confirm real signed-in users get real DB data, not the client-side demo-state. Result: the app is production-real and correctly authorization-gated; demo mocks render only for guests/showcase.
+- `[VERIFY]` **Learner** (`/learner`, course player, Comp Card, badges): the demo-state store is local-first but **hydrates from Postgres on mount and saves on every change when authenticated** (`store/demo-state.tsx` effects → `learner.ts` upserts of `courseEnrollment`/`compCard`/`userBadge`). localStorage is guests-only. Real, per-account, cross-device.
+- `[VERIFY]` **Facilitator** (`/facilitator`): `getProjectLearners` is staff-gated (returns null unless FACILITATOR/ADMIN) → `RealFacilitatorView` with real cohort learners; the hardcoded `FacilitatorWorkspace` mock shows only to guests/demo.
+- `[VERIFY]` **Admin** (`getAdminCounts` + `admin.ts`, `isAdmin`-gated), **Content** (CMS + auth-gated `course.ts`), **Account** (`requireUser` + real Prisma): all real.
+- `[VERIFY]` Authorization enforced server-side — no client-trust path to staff data.
+- `[NOTE]` **Caveat 1 — analytics sample default:** `/analytics` shows a labelled "representative sample" below `MIN_LIVE_LEARNERS=5` (live above, or `?live=1`). For production, lower the threshold / default to live so facilitators see their real (even if small) cohort.
+- `[NOTE]` **Caveat 2 — stale /demo links:** `SignInForm.tsx:83` and `analytics/page.tsx:42-48` still point users at the now-disabled `/demo`. Gate on the launch flag or remove.
+- `[NOTE]` Static trace only; the definitive check is a live magic-link sign-in → complete a course → `/account` reflects the enrolment/badge.
