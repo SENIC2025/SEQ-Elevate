@@ -113,6 +113,15 @@ Single source of truth for decisions made, decisions still open, and the rationa
 - **Total new cost over the lifecycle ≈ €150–200 for the pilot year, then ≈ €0** — corrects the earlier ~€2,400/5y figure (which wrongly counted sunk Vercel Pro and assumed paid Neon for all 5 years).
 - **Hostinger VPS rejected for the app** (considered per the principal's cost question): ~€400–600 that *never* drops when passive, still needs security patching when idle, forces a Blob→S3 code migration now, and puts self-managed-server risk into the live pilot. The managed path is the one that actually scales to ~€0 when passive. (Existing Hostinger stays the marketing-site host, its D1 role.) Neon's Scale tier ($701/mo, "high load, 100 GB") is enterprise-scale and irrelevant here.
 
+### D25 · Onboarding & roles — passwordless (sign-in = sign-up), roles granted not self-selected
+**Decided**: 21 August 2026 · *Decider: SENIC principal*
+- **No separate sign-up page.** Sign-in is passwordless (magic link); the first click creates the account. A newcomer and a returning user use the same page.
+- **Roles are granted, never chosen.** A public "choose admin" role picker would let a stranger reach every learner's PII and GDPR deletion — unacceptable on a vulnerable-youth platform. A brand-new user lands with **no elevated role**; `ensureLearnerMembership` adds LEARNER when they use learner features.
+- **Admin bootstrap = `ADMIN_EMAILS` allow-list** (the chosen option over "SENIC provisions each by hand" and "self-service request+approval"). Emails you configure in the env auto-receive **ADMIN + CONTENT_EDITOR** on sign-in (so admins can manage people *and* author courses). Server-controlled; wired in `auth.ts` `events.signIn`, decoupled from the demo profiles.
+- **Demo-profile role grants are now gated to showcase deploys** (`DEMO_LOGIN_DISABLED !== "true"`), so a hardcoded demo email (e.g. `stefan@senic.org`) never silently becomes admin on real production — only `ADMIN_EMAILS` governs there.
+- **Everyone else is added by an admin** via Admin → People (`admin.ts addMember(email, role)` — already built): trainers/teachers (FACILITATOR), content editors, learners, or other admins, by email + org + cohort. They sign in via magic link and land in their role.
+- **Open sub-decision (consortium):** an ADMIN sees **project-wide** data today; whether each partner admin is siloed to their own organisation is the per-org siloing decision left with the consortium (DATA-PROTECTION §3).
+
 ---
 
 ## 🟡 Open — must close before kickoff or Week 1

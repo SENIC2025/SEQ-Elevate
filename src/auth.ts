@@ -32,6 +32,19 @@ const hasRealResendKey =
   process.env.RESEND_API_KEY.startsWith("re_") &&
   process.env.RESEND_API_KEY !== "re_placeholder";
 
+// Production admin bootstrap. Emails listed in ADMIN_EMAILS (comma / space /
+// newline separated, case-insensitive) auto-receive ADMIN + CONTENT_EDITOR on
+// sign-in, so the consortium's admins can manage people and author courses
+// without anyone self-selecting a role. This is the only production path to the
+// admin role; everyone else is added by an admin via Admin → People. Set it in
+// Vercel and redeploy — read once at startup.
+const ADMIN_EMAILS = new Set(
+  (process.env.ADMIN_EMAILS ?? "")
+    .split(/[\s,]+/)
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean)
+);
+
 export const { handlers, auth, signIn, signOut } = NextAuth({
   adapter: PrismaAdapter(prisma),
   // Self-hosted (Hetzner) — not behind Vercel's host detection, so we
@@ -94,26 +107,39 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     },
   },
   events: {
-    // A configured demo/staff email (e.g. stefan@senic.org) gets its project
-    // roles whether it signs in via magic link or the one-click demo page.
+    // Role bootstrap on sign-in. Two server-controlled sources — a signed-in
+    // user can never choose their own role:
+    //   1. ADMIN_EMAILS allow-list (production path) → ADMIN + CONTENT_EDITOR.
+    //   2. Demo profiles → showcase only; skipped once demo login is disabled,
+    //      so a hardcoded demo email never silently becomes admin on real prod.
+    // Everyone else signs in with no elevated role and is added via People.
     async signIn({ user }) {
       if (!user?.id || !user.email) return;
-      const profile = DEMO_PROFILES.find((p) => p.email === user.email);
-      if (!profile) return;
-      for (const role of profile.roles) {
+      const email = user.email.trim().toLowerCase();
+      const rolesToGrant = new Set<Role>();
+
+      // 1. Production admin allow-list.
+      if (ADMIN_EMAILS.has(email)) {
+        rolesToGrant.add("ADMIN");
+        rolesToGrant.add("CONTENT_EDITOR");
+      }
+
+      // 2. Demo profiles — only while demo login is enabled (showcase deploys).
+      if (process.env.DEMO_LOGIN_DISABLED !== "true") {
+        const profile = DEMO_PROFILES.find((p) => p.email === email);
+        if (profile) for (const r of profile.roles) rolesToGrant.add(r as Role);
+      }
+
+      for (const role of rolesToGrant) {
         await prisma.membership.upsert({
           where: {
             userId_projectId_role: {
               userId: user.id,
               projectId: "seq-elevate",
-              role: role as Role,
+              role,
             },
           },
-          create: {
-            userId: user.id,
-            projectId: "seq-elevate",
-            role: role as Role,
-          },
+          create: { userId: user.id, projectId: "seq-elevate", role },
           update: {},
         });
       }
