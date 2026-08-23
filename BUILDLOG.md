@@ -536,3 +536,9 @@ Traced the data source of every authenticated route to confirm real signed-in us
 - `[NOTE]` **Caveat 1 — analytics sample default:** `/analytics` shows a labelled "representative sample" below `MIN_LIVE_LEARNERS=5` (live above, or `?live=1`). For production, lower the threshold / default to live so facilitators see their real (even if small) cohort.
 - `[NOTE]` **Caveat 2 — stale /demo links:** `SignInForm.tsx:83` and `analytics/page.tsx:42-48` still point users at the now-disabled `/demo`. Gate on the launch flag or remove.
 - `[NOTE]` Static trace only; the definitive check is a live magic-link sign-in → complete a course → `/account` reflects the enrolment/badge.
+
+### Go-live prep — audit caveats fixed (demo dead-links + analytics live-by-default) (2026-08-21)
+Applied the two fixes from the authenticated-experience audit.
+- `[FIX]` **Stale /demo dead-ends gated on the launch flag.** `SignInForm` gains a server-derived `demoEnabled` prop (from `signin/page.tsx`, `DEMO_LOGIN_DISABLED !== "true"`) and only shows the "Demo / client access" link when demo is on. `analytics/page.tsx`'s non-staff message + Demo-access button are gated on `production`; in prod it reads "Ask your project administrator to grant you access" with no /demo link. Both links now render on the showcase only, never in production.
+- `[FIX]` **Analytics live-by-default in production.** The sample→live threshold is now environment-aware: `MIN_LIVE_PROD = 1` (prod shows real data from the first started learner) vs `MIN_LIVE_SHOWCASE = 5` (showcase keeps the representative sample full). `?live=1`/`?live=0` still override. So a facilitator sees their real cohort from day one; the labelled sample only appears on the demo deploy or an empty prod cohort.
+- `[VERIFY]` `tsc --noEmit` ✓, eslint ✓, secret scan 0. Both effects are driven by the same `DEMO_LOGIN_DISABLED` launch switch, consistent with the front door + demo-login gating.

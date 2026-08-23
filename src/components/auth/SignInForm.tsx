@@ -8,7 +8,15 @@ import { Button } from "@/components/ui/button";
 import { signInWithEmail } from "@/app/actions/auth";
 import { Sparkles, Mail, ArrowRight, Loader2 } from "lucide-react";
 
-export function SignInForm({ callbackUrl }: { callbackUrl: string }) {
+export function SignInForm({
+  callbackUrl,
+  demoEnabled = false,
+}: {
+  callbackUrl: string;
+  /** Server-derived: show the demo/client-access link only where demo login
+   * is on. In production (DEMO_LOGIN_DISABLED=true) it would be a dead end. */
+  demoEnabled?: boolean;
+}) {
   const t = useTranslations("auth");
   const tCommon = useTranslations("common");
   const [pending, setPending] = useState(false);
@@ -79,12 +87,14 @@ export function SignInForm({ callbackUrl }: { callbackUrl: string }) {
       </Card>
 
       <div className="mt-6 flex flex-col items-center gap-2">
-        <Link
-          href="/demo"
-          className="text-sm font-medium text-[var(--accent)] hover:underline"
-        >
-          Demo / client access →
-        </Link>
+        {demoEnabled ? (
+          <Link
+            href="/demo"
+            className="text-sm font-medium text-[var(--accent)] hover:underline"
+          >
+            Demo / client access →
+          </Link>
+        ) : null}
         <Link
           href="/"
           className="text-sm text-[var(--muted-foreground)] hover:text-[var(--foreground)]"

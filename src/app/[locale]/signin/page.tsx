@@ -11,5 +11,12 @@ export default async function Page({
   const { locale } = await params;
   const { callbackUrl } = await searchParams;
   setRequestLocale(locale);
-  return <SignInForm callbackUrl={callbackUrl ?? `/${locale}/learner`} />;
+  // Demo link only where demo login is on; hidden on real prod (dead end there).
+  const demoEnabled = process.env.DEMO_LOGIN_DISABLED !== "true";
+  return (
+    <SignInForm
+      callbackUrl={callbackUrl ?? `/${locale}/learner`}
+      demoEnabled={demoEnabled}
+    />
+  );
 }
