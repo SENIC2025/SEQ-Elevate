@@ -167,7 +167,8 @@ Sign-in **is** sign-up (passwordless: the first magic-link click creates the acc
 - [x] Rate-limiting on sign-in + uploads — **done**
 - [x] Sentry wiring — **done**; activate by setting the DSN env vars (§6)
 - [ ] Security review pass of the recent server actions / upload routes
-- [ ] Confirm Neon backup / point-in-time-recovery retention tier **[Dashboard]**
+- [x] **Daily off-site DB backups, 30-day retention** — `.github/workflows/db-backup.yml` (see [BACKUP.md](BACKUP.md)); **[Dashboard]** create the S3-compatible EU bucket + add the repo secrets to activate. Neon PITR (~7 days on Launch) is the second layer.
+- [ ] **Hosting substitution approved** by the consortium (Vercel/Neon vs the proposal's Hetzner) — send [HOSTING-SUBSTITUTION.md](HOSTING-SUBSTITUTION.md). Needed for a clean Item 2 invoice.
 - [ ] (Optional) external WCAG 2.2 AA audit — internal audit passes today *(O5)*
 
 ---

@@ -1,0 +1,105 @@
+name: DB backup (daily, 30-day retention)
+
+# Fulfils the maintenance-package commitment: automated database backups, daily,
+# retained 30 days, to an S3-compatible EU object store (Contract Item 2 §7).
+#
+# Design:
+#   • pg_dump (custom/compressed format) of the Neon Postgres database.
+#   • Uploaded to an S3-compatible, EU-region bucket you control (Hetzner Object
+#     Storage / Cloudflare R2 EU / Scaleway / AWS eu-central-1 — anything with an
+#     S3 API). The bucket is PRIVATE and encrypted at rest.
+#   • A prune step deletes dumps older than 30 days, so retention is enforced by
+#     the workflow regardless of bucket lifecycle config.
+#
+# Required repo secrets (Settings → Secrets and variables → Actions). None are in
+# this file — set them in GitHub:
+#   BACKUP_DATABASE_URL   Neon DIRECT (non-pooler) connection string
+#   BACKUP_S3_BUCKET      bucket name
+#   BACKUP_S3_ENDPOINT    S3 endpoint URL (e.g. https://<region>.your-objectstorage.com)
+#   BACKUP_S3_REGION      region (e.g. eu-central-1 / eu-central)
+#   AWS_ACCESS_KEY_ID     bucket access key
+#   AWS_SECRET_ACCESS_KEY bucket secret key
+#
+# Restore + full notes: BACKUP.md. Until the secrets are set the job is a
+# visible no-op (it never silently fails).
+
+on:
+  schedule:
+    # 02:30 UTC daily — off-peak for an EU-evening audience.
+    - cron: "30 2 * * *"
+  workflow_dispatch: {} # manual "run backup now" for testing / on demand
+
+concurrency:
+  group: db-backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    name: Dump → S3-compatible EU bucket → prune > 30 days
+    runs-on: ubuntu-latest
+    env:
+      PREFIX: db
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: ${{ secrets.BACKUP_S3_REGION }}
+      BUCKET: ${{ secrets.BACKUP_S3_BUCKET }}
+      ENDPOINT: ${{ secrets.BACKUP_S3_ENDPOINT }}
+      DATABASE_URL: ${{ secrets.BACKUP_DATABASE_URL }}
+    steps:
+      - name: Check configuration
+        id: cfg
+        run: |
+          if [ -z "$DATABASE_URL" ] || [ -z "$BUCKET" ] || [ -z "$ENDPOINT" ]; then
+            echo "::warning::Backup secrets not configured yet — set BACKUP_DATABASE_URL, BACKUP_S3_BUCKET, BACKUP_S3_ENDPOINT (and AWS keys). Skipping."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install PostgreSQL 17 client
+        if: steps.cfg.outputs.ready == 'true'
+        run: |
+          set -euo pipefail
+          sudo sh -c 'echo "deb https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+          curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/postgresql.gpg
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client-17
+
+      - name: Dump database
+        if: steps.cfg.outputs.ready == 'true'
+        run: |
+          set -euo pipefail
+          TS="$(date -u +%Y-%m-%d-%H%M%S)"
+          FILE="seq-elevate-db-${TS}.dump"
+          echo "FILE=${FILE}" >> "$GITHUB_ENV"
+          # Custom format is compressed; --no-owner/--no-privileges make the dump
+          # portable to restore into any role.
+          pg_dump "$DATABASE_URL" --format=custom --no-owner --no-privileges --file="$FILE"
+          ls -lh "$FILE"
+
+      - name: Upload to S3-compatible EU bucket
+        if: steps.cfg.outputs.ready == 'true'
+        run: |
+          set -euo pipefail
+          aws s3 cp "$FILE" "s3://${BUCKET}/${PREFIX}/${FILE}" \
+            --endpoint-url "$ENDPOINT"
+          echo "Uploaded s3://${BUCKET}/${PREFIX}/${FILE}"
+
+      - name: Prune backups older than 30 days
+        if: steps.cfg.outputs.ready == 'true'
+        run: |
+          set -euo pipefail
+          CUTOFF="$(date -u -d '30 days ago' +%Y-%m-%dT%H:%M:%SZ)"
+          echo "Deleting objects last modified on or before ${CUTOFF}"
+          OLD="$(aws s3api list-objects-v2 \
+            --bucket "$BUCKET" --prefix "${PREFIX}/" \
+            --endpoint-url "$ENDPOINT" \
+            --query "Contents[?LastModified<=\`${CUTOFF}\`].Key" --output text)"
+          if [ -n "$OLD" ] && [ "$OLD" != "None" ]; then
+            for key in $OLD; do
+              echo "  pruning $key"
+              aws s3api delete-object --bucket "$BUCKET" --key "$key" --endpoint-url "$ENDPOINT"
+            done
+          else
+            echo "  nothing to prune"
+          fi
