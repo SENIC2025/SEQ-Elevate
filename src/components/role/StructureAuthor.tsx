@@ -172,12 +172,16 @@ export function StructureAuthor() {
 
   async function onSave() {
     if (!draft || !ready) return;
+    const savedKey = `${slug}:${kind}`;
     setStatus("saving");
     const res = await saveStructure(slug, kind, draft);
     if (res.ok) {
+      // The server stores exactly this draft, so keep it rather than reloading:
+      // a reload resets status to "idle" (the "Saved" confirmation flashed for
+      // ~25ms) and overwrites anything typed while it was in flight.
+      setLoaded((l) => (l?.key === savedKey ? { ...l, authored: true } : l));
       setStatus("saved");
       setIssues([]);
-      setReloadKey((k) => k + 1);
       router.refresh();
     } else {
       setStatus("error");
