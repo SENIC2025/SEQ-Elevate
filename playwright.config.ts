@@ -37,7 +37,13 @@ export default defineConfig({
     command: `pnpm start --port ${PORT}`,
     // Demo login now requires an explicit access code off the demo host
     // (safe-by-default on real prod); set it so the demo-access E2E can sign in.
-    env: { ...process.env, DEMO_ACCESS_CODE: "elevate-demo" },
+    // ADMIN_EMAILS lists the one address the workspace-hub spec uses to prove
+    // the self-healing admin bootstrap (D26); it elevates no one else.
+    env: {
+      ...process.env,
+      DEMO_ACCESS_CODE: "elevate-demo",
+      ADMIN_EMAILS: "e2e-bootstrap-admin@example.com",
+    },
     url: `${BASE_URL}/en`,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,

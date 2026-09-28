@@ -615,5 +615,33 @@
     "openDocument": "Dokument öffnen",
     "noPreview": "Diese Datei kann hier nicht angezeigt werden — zum Ansehen öffnen.",
     "download": "Herunterladen"
+  },
+  "hub": {
+    "title": "Willkommen zurück",
+    "greeting": "Angemeldet als {name}",
+    "subtitle": "Wähle, wo du arbeiten möchtest. Du kannst jederzeit über die obere Leiste wechseln.",
+    "open": "Öffnen",
+    "switcherLabel": "Arbeitsbereiche",
+    "switcherMenu": "Deine Arbeitsbereiche",
+    "content": {
+      "title": "Kurse erstellen",
+      "desc": "Kurse, Videos und Dokumente schreiben, übersetzen und veröffentlichen."
+    },
+    "admin": {
+      "title": "Personen verwalten",
+      "desc": "Organisationen, Kohorten, Personen und ihre Rollen."
+    },
+    "facilitator": {
+      "title": "Lernende begleiten",
+      "desc": "Fortschritt, Reflexionen und Ergebnisse deiner Lernenden verfolgen."
+    },
+    "analytics": {
+      "title": "Statistiken",
+      "desc": "Auf einen Blick sehen, wie es deinen Kohorten geht."
+    },
+    "learner": {
+      "title": "Mein Lernbereich",
+      "desc": "Kurse machen, Abzeichen sammeln und deine Comp Card aufbauen."
+    }
   }
 }

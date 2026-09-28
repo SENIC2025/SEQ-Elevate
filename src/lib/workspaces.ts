@@ -1,0 +1,58 @@
+/**
+ * Which workspaces a signed-in user can open, derived from their REAL project
+ * roles — never from client state. Drives the post-sign-in "Your workspaces"
+ * hub and the header's workspace switcher: the production equivalent of the
+ * demo's role picker (D26).
+ *
+ * The role → workspace rules mirror the server-side gates they lead to:
+ *   content     — CONTENT_EDITOR or ADMIN   (the CMS actions' requireEditor)
+ *   admin       — ADMIN
+ *   facilitator — FACILITATOR or ADMIN      (getProjectLearners)
+ *   analytics   — FACILITATOR or ADMIN      (the analytics page's isStaff)
+ *   learner     — everyone signed in
+ *
+ * Pure (type-only imports), so client components can use it too.
+ */
+
+import type { Role } from "@prisma/client";
+
+export type WorkspaceId =
+  | "content"
+  | "admin"
+  | "facilitator"
+  | "analytics"
+  | "learner";
+
+export interface Workspace {
+  id: WorkspaceId;
+  /** Locale-less path; pass to the i18n-aware Link. */
+  href: string;
+}
+
+export const WORKSPACE_HREF: Record<WorkspaceId, string> = {
+  content: "/content",
+  admin: "/admin",
+  facilitator: "/facilitator",
+  analytics: "/analytics",
+  learner: "/learner",
+};
+
+/** The user's workspaces, most relevant first. Always includes "learner". */
+export function workspacesFor(roles: readonly Role[]): Workspace[] {
+  const has = (r: Role) => roles.includes(r);
+  const ids: WorkspaceId[] = [];
+  if (has("CONTENT_EDITOR") || has("ADMIN")) ids.push("content");
+  if (has("ADMIN")) ids.push("admin");
+  if (has("FACILITATOR") || has("ADMIN")) ids.push("facilitator", "analytics");
+  ids.push("learner");
+  return ids.map((id) => ({ id, href: WORKSPACE_HREF[id] }));
+}
+
+/** The workspace a (locale-less) pathname belongs to, if any. */
+export function workspaceForPath(pathname: string): WorkspaceId | null {
+  for (const id of Object.keys(WORKSPACE_HREF) as WorkspaceId[]) {
+    const href = WORKSPACE_HREF[id];
+    if (pathname === href || pathname.startsWith(`${href}/`)) return id;
+  }
+  return null;
+}

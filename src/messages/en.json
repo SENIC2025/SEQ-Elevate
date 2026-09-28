@@ -615,5 +615,33 @@
     "openDocument": "Open document",
     "noPreview": "This file can't be previewed here — open it to view.",
     "download": "Download"
+  },
+  "hub": {
+    "title": "Welcome back",
+    "greeting": "Signed in as {name}",
+    "subtitle": "Choose where you would like to work. You can switch any time from the top bar.",
+    "open": "Open",
+    "switcherLabel": "Workspaces",
+    "switcherMenu": "Your workspaces",
+    "content": {
+      "title": "Create courses",
+      "desc": "Write, translate and publish courses, videos and documents."
+    },
+    "admin": {
+      "title": "Manage people",
+      "desc": "Organisations, cohorts, people and their roles."
+    },
+    "facilitator": {
+      "title": "Support learners",
+      "desc": "Follow each learner's progress, reflections and results."
+    },
+    "analytics": {
+      "title": "Statistics",
+      "desc": "See how your cohorts are doing at a glance."
+    },
+    "learner": {
+      "title": "My learning",
+      "desc": "Take courses, earn badges and build your Comp Card."
+    }
   }
 }

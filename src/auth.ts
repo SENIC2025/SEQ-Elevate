@@ -19,6 +19,12 @@ import Resend from "next-auth/providers/resend";
 import { prisma } from "@/lib/prisma";
 import { DEMO_PROFILES } from "@/lib/demo-profiles";
 import { checkRateLimit, hashKey } from "@/lib/rate-limit";
+import {
+  BOOTSTRAP_PROJECT,
+  BOOTSTRAP_ROLES,
+  isBootstrapAdmin,
+} from "@/lib/admin-bootstrap";
+import { ensureProjectRoles } from "@/lib/role-grants";
 import type { Role } from "@prisma/client";
 
 // Cap magic-link requests per email so the endpoint can't be used to
@@ -31,19 +37,6 @@ const hasRealResendKey =
   !!process.env.RESEND_API_KEY &&
   process.env.RESEND_API_KEY.startsWith("re_") &&
   process.env.RESEND_API_KEY !== "re_placeholder";
-
-// Production admin bootstrap. Emails listed in ADMIN_EMAILS (comma / space /
-// newline separated, case-insensitive) auto-receive ADMIN + CONTENT_EDITOR on
-// sign-in, so the consortium's admins can manage people and author courses
-// without anyone self-selecting a role. This is the only production path to the
-// admin role; everyone else is added by an admin via Admin → People. Set it in
-// Vercel and redeploy — read once at startup.
-const ADMIN_EMAILS = new Set(
-  (process.env.ADMIN_EMAILS ?? "")
-    .split(/[\s,]+/)
-    .map((e) => e.trim().toLowerCase())
-    .filter(Boolean)
-);
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   adapter: PrismaAdapter(prisma),
@@ -113,15 +106,16 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     //   2. Demo profiles → showcase only; skipped once demo login is disabled,
     //      so a hardcoded demo email never silently becomes admin on real prod.
     // Everyone else signs in with no elevated role and is added via People.
+    // (The allow-list is also re-applied on every page load — see
+    // getMemberships — so this is the fast path, not the only one.)
     async signIn({ user }) {
       if (!user?.id || !user.email) return;
       const email = user.email.trim().toLowerCase();
       const rolesToGrant = new Set<Role>();
 
       // 1. Production admin allow-list.
-      if (ADMIN_EMAILS.has(email)) {
-        rolesToGrant.add("ADMIN");
-        rolesToGrant.add("CONTENT_EDITOR");
+      if (isBootstrapAdmin(email)) {
+        for (const r of BOOTSTRAP_ROLES) rolesToGrant.add(r);
       }
 
       // 2. Demo profiles — only while demo login is enabled (showcase deploys).
@@ -130,18 +124,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         if (profile) for (const r of profile.roles) rolesToGrant.add(r as Role);
       }
 
-      for (const role of rolesToGrant) {
-        await prisma.membership.upsert({
-          where: {
-            userId_projectId_role: {
-              userId: user.id,
-              projectId: "seq-elevate",
-              role,
-            },
-          },
-          create: { userId: user.id, projectId: "seq-elevate", role },
-          update: {},
-        });
+      // A failed grant must never block sign-in; the page-load path retries.
+      try {
+        await ensureProjectRoles(user.id, BOOTSTRAP_PROJECT, rolesToGrant);
+      } catch (e) {
+        console.error("[auth] role grant on sign-in failed", e);
       }
     },
   },

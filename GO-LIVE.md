@@ -22,7 +22,7 @@ Legend: **[SENIC]** engineering can do · **[Dashboard]** set in Vercel/Resend U
 | `DIRECT_URL` | *(optional)* Neon **direct** string | Only if the auto-derived direct endpoint (pooled host minus `-pooler`) is wrong. Used for migrations. |
 | `AUTH_SECRET` | **a fresh strong secret** | Generate: `openssl rand -base64 33`. **Must not** be the dev placeholder. Rotating it signs everyone out. |
 | `AUTH_URL` | `https://seq-elevate.eu` | The canonical production URL (decided — apex, O1). Pins host detection + magic-link base. |
-| `ADMIN_EMAILS` | `a@partner.eu, b@partner.eu` | **Admin bootstrap.** Comma/space-separated emails that auto-receive ADMIN + Content-Editor on sign-in (D25). Set the consortium's admin emails; they then add everyone else via Admin → People. |
+| `ADMIN_EMAILS` | `a@partner.eu, b@partner.eu` | **Admin bootstrap.** Comma/semicolon/space-separated emails that get ADMIN + Content-Editor (D25). Applies on their next sign-in **or page load** after a redeploy — no sign-out needed (D26). They then add everyone else via *Manage people*. |
 | `RESEND_API_KEY` | `re_…` restricted **sending** key | From Resend. Sending-only scope. |
 | `EMAIL_FROM` | `SEQ Elevate <no-reply@your-domain>` | Must be on a **verified** Resend domain (see §4). |
 | `DEMO_LOGIN_DISABLED` | `true` | **The launch switch.** Disables one-click demo logins **and** the seeded demo course. |
@@ -153,9 +153,10 @@ Notes:
 
 Sign-in **is** sign-up (passwordless: the first magic-link click creates the account). Roles are **granted, never self-selected** — a public "choose admin" would expose all learner PII + GDPR controls. The chain:
 
-1. **Bootstrap admins** — set `ADMIN_EMAILS` (§1) to the consortium's admin emails. They sign in via magic link → auto Admin + Content-Editor.
-2. **Admins add everyone else** — Admin → People: add trainers/teachers/learners by email with a role (+ org + cohort). Those people sign in via magic link and land in their role. Admins can add other admins here too.
-3. New users not on the list and not added by an admin sign in with **no elevated role** (a plain account).
+1. **Bootstrap admins** — set `ADMIN_EMAILS` (§1) to the consortium's admin emails and **redeploy**. They sign in via magic link (or just reload, if already signed in) → Admin + Content-Editor.
+2. **Everyone lands on "Your workspaces"** (D26) — cards for exactly what their roles allow: *Create courses*, *Manage people*, *Support learners*, *Statistics*, *My learning*. A switcher in the top bar moves between them. Learners, who only have *My learning*, skip the hub and go straight to their courses.
+3. **Admins add everyone else** — *Manage people*: add trainers/teachers/learners by email with a role (+ org + cohort). Those people sign in via magic link and land in their workspace. Admins can add other admins here too.
+4. New users not on the list and not added by an admin sign in with **no elevated role** — they get *My learning* only.
 
 > Note: an ADMIN currently sees **project-wide** data (all orgs). Per-org siloing (each partner admin sees only their org) remains a consortium decision (DATA-PROTECTION §3).
 

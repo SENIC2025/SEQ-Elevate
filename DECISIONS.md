@@ -122,6 +122,14 @@ Single source of truth for decisions made, decisions still open, and the rationa
 - **Everyone else is added by an admin** via Admin → People (`admin.ts addMember(email, role)` — already built): trainers/teachers (FACILITATOR), content editors, learners, or other admins, by email + org + cohort. They sign in via magic link and land in their role.
 - **Open sub-decision (consortium):** an ADMIN sees **project-wide** data today; whether each partner admin is siloed to their own organisation is the per-org siloing decision left with the consortium (DATA-PROTECTION §3).
 
+### D26 · "Your workspaces" — role-based navigation replaces the demo role picker in production
+**Decided**: 28 September 2026 · *Decider: SENIC principal (reported: admins on ADMIN_EMAILS saw only the learner view)*
+- **The problem (a regression SENIC introduced):** in the demo, the only way into course creation / admin was the home-page role-picker cards. The production front door (ff707eb) replaced those with a single "Sign in" button, sign-in always landed on `/learner`, and the signed-in header had no workspace links — so even correctly-granted admins had **no button** to reach "Create courses".
+- **The fix:** after sign-in, users land on **"Your workspaces"** — cards for exactly the workspaces their **real roles** allow: *Create courses* (Content-Editor or Admin), *Manage people* (Admin), *Support learners* and *Statistics* (Facilitator or Admin), *My learning* (everyone). A **workspace switcher** in the top bar moves between them from any page. Users with a single workspace (most learners) skip the hub and go straight to their courses. Same feel as the demo's role picker — but every card is a role the user actually holds, so nothing is self-selected (D25 still holds).
+- **Admin access no longer needs a re-sign-in:** the `ADMIN_EMAILS` grant is also applied on the person's next page load (idempotent, race-safe), not only at sign-in. Adding someone to the list + redeploying is enough.
+- Rules mirror the server gates they lead to (`requireEditor`, `getProjectLearners`, the analytics staff check), so the UI never offers a door the server would refuse. Shared, unit-tested logic in `src/lib/workspaces.ts`; role grants in `src/lib/role-grants.ts`; the allow-list in `src/lib/admin-bootstrap.ts`.
+- Also removed the "platform shell demo" footer real learners still saw on `/learner`.
+
 ---
 
 ## 🟡 Open — must close before kickoff or Week 1

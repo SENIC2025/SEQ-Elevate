@@ -13,9 +13,11 @@ export default async function Page({
   setRequestLocale(locale);
   // Demo link only where demo login is on; hidden on real prod (dead end there).
   const demoEnabled = process.env.DEMO_LOGIN_DISABLED !== "true";
+  // Land on "Your workspaces"; it forwards single-workspace users (most
+  // learners) straight to their space, and shows staff every workspace.
   return (
     <SignInForm
-      callbackUrl={callbackUrl ?? `/${locale}/learner`}
+      callbackUrl={callbackUrl ?? `/${locale}`}
       demoEnabled={demoEnabled}
     />
   );
