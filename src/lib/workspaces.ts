@@ -48,6 +48,23 @@ export function workspacesFor(roles: readonly Role[]): Workspace[] {
   return ids.map((id) => ({ id, href: WORKSPACE_HREF[id] }));
 }
 
+/**
+ * The workspaces worth advertising (e.g. in an invitation): everything except
+ * "My learning" — unless that is all the person has.
+ */
+export function featuredWorkspaces(roles: readonly Role[]): Workspace[] {
+  const all = workspacesFor(roles);
+  return all.length > 1 ? all.filter((w) => w.id !== "learner") : all;
+}
+
+/** The most senior role held — for "Your role: …" in an invitation. */
+export function primaryRole(roles: readonly Role[]): Role {
+  for (const r of ["ADMIN", "CONTENT_EDITOR", "FACILITATOR"] as const) {
+    if (roles.includes(r)) return r;
+  }
+  return "LEARNER";
+}
+
 /** The workspace a (locale-less) pathname belongs to, if any. */
 export function workspaceForPath(pathname: string): WorkspaceId | null {
   for (const id of Object.keys(WORKSPACE_HREF) as WorkspaceId[]) {

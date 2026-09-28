@@ -119,7 +119,7 @@ main services contract (DIESIS-SEQ ELEVATE-SERVICE-M1-2026-01).]`
 - **Content editors / administrators**.
 
 **Types of personal data**
-- Identity & contact: **email address** (used only for passwordless sign-in); optional **display name**.
+- Identity & contact: **email address** (used only for passwordless sign-in and for the invitation email an admin sends when adding someone); optional **display name**.
 - Learning data: course progress, stages completed, choices made in exercises, assessment answers.
 - **Self-reflection ("Comp Card")**: free-text the learner writes, a 1–5 confidence rating, and a **per-entry privacy choice** (private / shareable with facilitator).
 - Accessibility preferences (text size, easy-read font, contrast).

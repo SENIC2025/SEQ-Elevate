@@ -643,5 +643,20 @@
       "title": "My learning",
       "desc": "Take courses, earn badges and build your Comp Card."
     }
+  },
+  "invite": {
+    "subject": "You're invited to SEQ Elevate",
+    "preheader": "Join with one click — no password needed.",
+    "greetingNamed": "Hello {name},",
+    "greeting": "Hello,",
+    "intro": "You've been invited to join SEQ Elevate, a learning platform for skills that matter in life and work.",
+    "invitedBy": "Invited by {inviter}.",
+    "role": "Your role: {role}",
+    "capabilitiesTitle": "What you'll find:",
+    "cta": "Join SEQ Elevate",
+    "howItWorks": "The button signs you in with one click — no password needed. It works for {days} days.",
+    "expiredHelp": "If it has expired, go to {site} and sign in with this email address.",
+    "ignore": "If you weren't expecting this invitation, you can safely ignore this email.",
+    "footer": "Created and Powered by SENIC · senic.world"
   }
 }

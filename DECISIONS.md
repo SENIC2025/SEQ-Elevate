@@ -130,6 +130,14 @@ Single source of truth for decisions made, decisions still open, and the rationa
 - Rules mirror the server gates they lead to (`requireEditor`, `getProjectLearners`, the analytics staff check), so the UI never offers a door the server would refuse. Shared, unit-tested logic in `src/lib/workspaces.ts`; role grants in `src/lib/role-grants.ts`; the allow-list in `src/lib/admin-bootstrap.ts`.
 - Also removed the "platform shell demo" footer real learners still saw on `/learner`.
 
+### D27 · Invitation emails — admins invite people with a one-click join link
+**Decided**: 28 September 2026 · *Decider: SENIC principal*
+- **Why:** after D25/D26, adding someone in *Manage people* didn't tell them anything — someone had to say "go to seq-elevate.eu and sign in". Now adding a person **sends an invitation email by default** (a checkbox; the admin can untick it), in **EN / DE / EL** chosen per person (defaults to the admin's screen language). It greets them, says who invited them, **their role**, and **what they'll find** (the same workspace cards as D26), with one button: **Join SEQ Elevate**.
+- **The link is a real one-click sign-in**, valid **7 days** — people open invitations days later. Ordinary sign-in links keep Auth.js's **24 hours**. Implemented as a **second Auth.js email provider (`invite`)** with its own `maxAge`, so we use only public Auth.js APIs (no re-implementation of its token hashing). After joining they land on "Your workspaces" in their language.
+- **Security — only an admin can cause an invitation email.** Auth.js serves every provider publicly (`/api/auth/signin/invite`), so the provider is gated in the `signIn` callback, which Auth.js runs **before** creating any link: it is allowed only inside an admin's server action inviting exactly that address (an in-process `AsyncLocalStorage` intent — no DB state, nothing forgeable from outside). A public request is refused and **no link is created** (E2E-tested for a pending invitee and a stranger). The sending helper is a plain server module, **not** a `"use server"` export (lesson from the July privilege-escalation fix). Rate-limited per address (5/h) and per admin (100/h). Admin-typed text (names) is HTML-escaped in the email.
+- **Status without a migration:** Auth.js sets `emailVerified` the first time someone uses a link, so the People list shows **Joined** vs **Invited <date>** (from the `member.invited` audit event) with **Resend invitation**. Adding someone who already has an account sends no invitation — they just get the new role (the UI says so).
+- **Data protection:** the invitation sends the invitee's email, optional name, role and the inviter's name (or email) through **Resend** — an existing sub-processor; DATA-PROTECTION.md and the DPA template updated.
+
 ---
 
 ## 🟡 Open — must close before kickoff or Week 1

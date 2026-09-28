@@ -23,7 +23,7 @@ managed-cloud providers (sub-processors):
 | Application / compute (serverless) | **Vercel** (Vercel Inc., US) | EU-configurable compute region | Processes requests in transit |
 | Primary database (PostgreSQL) | **Neon** (Neon Inc., US) | **EU — Frankfurt (AWS eu-central-1)** | All stored personal data |
 | File/media storage (uploaded documents & lesson videos) | **Vercel Blob** | **EU — Frankfurt (`fra1`, AWS eu-central-1)** | **Staff-authored course media only** — learners upload nothing |
-| Transactional email (sign-in links) | **Resend** (Resend Inc., US) | US | Recipient email address |
+| Transactional email (sign-in links, invitations) | **Resend** (Resend Inc., US) | US | Recipient email address; for invitations also their optional name, role, and the inviting admin's name (or email) |
 | Web analytics | **Plausible** (Plausible Insights OÜ, Estonia, EU) | EU | **None** — cookieless, no personal data, no IP retention |
 
 > **File storage residency (D13):** file uploads use the Vercel Blob store
@@ -75,6 +75,7 @@ tracking cookies, no biometric or special-category data by design.**
 | 7 | **Analytics dashboard** | **Aggregated** cohort statistics for facilitators; individual rows only to authorised staff | Retrieval, provision |
 | 8 | **GDPR self-service** | Export (the learner downloads their own data) and delete (erases it) | Transmission, deletion |
 | 9 | **Accessibility preferences** | Text size / easy-read / contrast flags on the user record | Storage, modification |
+| 10 | **Invitation email** | An admin adds someone and (by default) emails them a one-click join link: their email, optional name, role, and the inviting admin's name (or email), sent via Resend. Only an admin can trigger it; the link expires after 7 days | Transmission |
 
 Retention note: on account deletion, `CompCard`, `CourseEnrollment`, `Session`
 and membership rows are **cascade-deleted**; audit-log entries are **anonymised**

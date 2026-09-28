@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { workspacesFor, workspaceForPath } from "./workspaces";
+import {
+  workspacesFor,
+  workspaceForPath,
+  featuredWorkspaces,
+  primaryRole,
+} from "./workspaces";
 
 const ids = (roles: Parameters<typeof workspacesFor>[0]) =>
   workspacesFor(roles).map((w) => w.id);
@@ -49,6 +54,36 @@ describe("workspacesFor", () => {
       "/analytics",
       "/learner",
     ]);
+  });
+});
+
+describe("featuredWorkspaces", () => {
+  it("leaves out My learning when the person has staff workspaces", () => {
+    expect(featuredWorkspaces(["FACILITATOR"]).map((w) => w.id)).toEqual([
+      "facilitator",
+      "analytics",
+    ]);
+  });
+
+  it("keeps My learning when it is all a learner has", () => {
+    expect(featuredWorkspaces(["LEARNER"]).map((w) => w.id)).toEqual([
+      "learner",
+    ]);
+  });
+});
+
+describe("primaryRole", () => {
+  it("picks the most senior role held", () => {
+    expect(primaryRole(["LEARNER", "FACILITATOR"])).toBe("FACILITATOR");
+    expect(primaryRole(["FACILITATOR", "CONTENT_EDITOR"])).toBe(
+      "CONTENT_EDITOR"
+    );
+    expect(primaryRole(["CONTENT_EDITOR", "ADMIN"])).toBe("ADMIN");
+  });
+
+  it("falls back to learner", () => {
+    expect(primaryRole(["LEARNER"])).toBe("LEARNER");
+    expect(primaryRole([])).toBe("LEARNER");
   });
 });
 

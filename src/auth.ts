@@ -25,6 +25,12 @@ import {
   isBootstrapAdmin,
 } from "@/lib/admin-bootstrap";
 import { ensureProjectRoles } from "@/lib/role-grants";
+import {
+  INVITE_PROVIDER,
+  INVITE_VALID_DAYS,
+  currentInviteIntent,
+} from "@/lib/invite-context";
+import { renderInviteEmail } from "@/lib/invite-email";
 import type { Role } from "@prisma/client";
 
 // Cap magic-link requests per email so the endpoint can't be used to
@@ -33,10 +39,27 @@ import type { Role } from "@prisma/client";
 const MAGIC_LINK_LIMIT = 5;
 const MAGIC_LINK_WINDOW_MS = 15 * 60 * 1000;
 
+const EMAIL_FROM = process.env.EMAIL_FROM ?? "SEQ Elevate <no-reply@senic.world>";
+
 const hasRealResendKey =
   !!process.env.RESEND_API_KEY &&
   process.env.RESEND_API_KEY.startsWith("re_") &&
   process.env.RESEND_API_KEY !== "re_placeholder";
+
+/** Send one transactional email through Resend (sign-in links, invitations). */
+async function sendEmail(mail: {
+  to: string;
+  subject: string;
+  html: string;
+  text: string;
+}) {
+  const { Resend: ResendClient } = await import("resend");
+  const client = new ResendClient(process.env.RESEND_API_KEY!);
+  const { error } = await client.emails.send({ from: EMAIL_FROM, ...mail });
+  if (error) {
+    throw new Error(`Resend error: ${JSON.stringify(error)}`);
+  }
+}
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   adapter: PrismaAdapter(prisma),
@@ -51,7 +74,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   providers: [
     Resend({
       apiKey: process.env.RESEND_API_KEY ?? "re_placeholder",
-      from: process.env.EMAIL_FROM ?? "SEQ Elevate <no-reply@senic.world>",
+      from: EMAIL_FROM,
       async sendVerificationRequest({ identifier, url }) {
         // Abuse guard: cap how often a link can be requested for one email, so
         // the endpoint can't be turned into an inbox-flooding tool. Keyed by a
@@ -75,22 +98,56 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         }
 
         // Production: send via Resend.
-        const { Resend: ResendClient } = await import("resend");
-        const client = new ResendClient(process.env.RESEND_API_KEY!);
-        const { error } = await client.emails.send({
-          from: process.env.EMAIL_FROM ?? "SEQ Elevate <no-reply@senic.world>",
+        await sendEmail({
           to: identifier,
           subject: "Your SEQ Elevate sign-in link",
           html: magicLinkEmail(url),
           text: `Sign in to SEQ Elevate: ${url}`,
         });
-        if (error) {
-          throw new Error(`Resend error: ${JSON.stringify(error)}`);
+      },
+    }),
+    // Invitations (D27): a second email provider, so an invitation link can
+    // stay valid for a week while ordinary sign-in links keep Auth.js's
+    // 24 hours. Only ever used by an admin's invite action — the signIn
+    // callback below refuses everything else.
+    Resend({
+      id: INVITE_PROVIDER,
+      name: "Invitation",
+      apiKey: process.env.RESEND_API_KEY ?? "re_placeholder",
+      from: EMAIL_FROM,
+      maxAge: INVITE_VALID_DAYS * 24 * 60 * 60,
+      async sendVerificationRequest({ identifier, url }) {
+        const intent = currentInviteIntent();
+        // Defence in depth: the signIn callback has already refused anything
+        // that isn't an admin inviting exactly this address.
+        if (!intent || intent.email !== identifier) {
+          throw new Error("No invitation in progress for this address.");
         }
+        const mail = renderInviteEmail({ url, copy: intent.copy });
+
+        if (!hasRealResendKey) {
+          console.log("\n✉️  Invitation link for", identifier);
+          console.log("   ", url, "\n");
+          return;
+        }
+        await sendEmail({ to: identifier, ...mail });
       },
     }),
   ],
   callbacks: {
+    // Invitation gate (D27). Auth.js serves every provider publicly at
+    // /api/auth/signin/<id>, and calls this BEFORE creating a link or sending
+    // anything. For the invitation provider we allow the request only when an
+    // admin's server action is inviting exactly this address in this very
+    // async context (withInviteIntent). Clicking the link later is not a
+    // verificationRequest, so joining still works.
+    async signIn({ user, account, email }) {
+      if (account?.provider === INVITE_PROVIDER && email?.verificationRequest) {
+        const intent = currentInviteIntent();
+        return !!intent && intent.email === user.email?.trim().toLowerCase();
+      }
+      return true;
+    },
     async session({ session, user }) {
       // Surface the user id on the session for downstream queries.
       if (session.user) {

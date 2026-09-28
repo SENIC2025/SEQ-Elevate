@@ -155,7 +155,7 @@ Sign-in **is** sign-up (passwordless: the first magic-link click creates the acc
 
 1. **Bootstrap admins** — set `ADMIN_EMAILS` (§1) to the consortium's admin emails and **redeploy**. They sign in via magic link (or just reload, if already signed in) → Admin + Content-Editor.
 2. **Everyone lands on "Your workspaces"** (D26) — cards for exactly what their roles allow: *Create courses*, *Manage people*, *Support learners*, *Statistics*, *My learning*. A switcher in the top bar moves between them. Learners, who only have *My learning*, skip the hub and go straight to their courses.
-3. **Admins add everyone else** — *Manage people*: add trainers/teachers/learners by email with a role (+ org + cohort). Those people sign in via magic link and land in their workspace. Admins can add other admins here too.
+3. **Admins add everyone else** — *Manage people*: add trainers/teachers/learners by email with a role (+ org + cohort). By default they get an **invitation email** (EN/DE/EL, chosen per person) with a one-click **Join SEQ Elevate** button valid 7 days (D27); the list shows **Invited** → **Joined**, with **Resend invitation**. Admins can add other admins here too.
 4. New users not on the list and not added by an admin sign in with **no elevated role** — they get *My learning* only.
 
 > Note: an ADMIN currently sees **project-wide** data (all orgs). Per-org siloing (each partner admin sees only their org) remains a consortium decision (DATA-PROTECTION §3).

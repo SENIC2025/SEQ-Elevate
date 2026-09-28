@@ -643,5 +643,20 @@
       "title": "Mein Lernbereich",
       "desc": "Kurse machen, Abzeichen sammeln und deine Comp Card aufbauen."
     }
+  },
+  "invite": {
+    "subject": "Du bist zu SEQ Elevate eingeladen",
+    "preheader": "Mit einem Klick beitreten – kein Passwort nötig.",
+    "greetingNamed": "Hallo {name},",
+    "greeting": "Hallo,",
+    "intro": "Du wurdest eingeladen, SEQ Elevate beizutreten – einer Lernplattform für Kompetenzen, die im Leben und im Beruf zählen.",
+    "invitedBy": "Eingeladen von {inviter}.",
+    "role": "Deine Rolle: {role}",
+    "capabilitiesTitle": "Das erwartet dich:",
+    "cta": "SEQ Elevate beitreten",
+    "howItWorks": "Der Button meldet dich mit einem Klick an – kein Passwort nötig. Er ist {days} Tage gültig.",
+    "expiredHelp": "Falls er abgelaufen ist, gehe auf {site} und melde dich mit dieser E-Mail-Adresse an.",
+    "ignore": "Falls du diese Einladung nicht erwartet hast, kannst du diese E-Mail einfach ignorieren.",
+    "footer": "Erstellt und betrieben von SENIC · senic.world"
   }
 }

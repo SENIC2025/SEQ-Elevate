@@ -91,7 +91,7 @@ describe("Workspace hub", () => {
 
     await page.goto("/en");
     await expect(
-      page.getByRole("heading", { name: "Welcome back" })
+      page.getByRole("heading", { name: "Welcome back" }).first()
     ).toBeVisible();
     for (const name of [
       "Create courses",
@@ -100,7 +100,7 @@ describe("Workspace hub", () => {
       "Statistics",
       "My learning",
     ]) {
-      await expect(page.getByRole("link", { name })).toBeVisible();
+      await expect(page.getByRole("link", { name }).first()).toBeVisible();
     }
 
     const results = await new AxeBuilder({ page }).withTags(TAGS).analyze();
@@ -110,14 +110,14 @@ describe("Workspace hub", () => {
     expect(serious, JSON.stringify(serious.map((v) => v.id))).toEqual([]);
 
     // Into course creation from the hub…
-    await page.getByRole("link", { name: "Create courses" }).click();
+    await page.getByRole("link", { name: "Create courses" }).first().click();
     await expect(page).toHaveURL(/\/en\/content$/);
 
     // …and across to people management via the header switcher.
-    const switcher = page.locator("header summary");
+    const switcher = page.locator("header summary").first();
     await expect(switcher).toContainText("Create courses");
     await switcher.click();
-    await page.getByRole("link", { name: "Manage people" }).click();
+    await page.getByRole("link", { name: "Manage people" }).first().click();
     await expect(page).toHaveURL(/\/en\/admin$/);
   });
 
@@ -143,7 +143,7 @@ describe("Workspace hub", () => {
     await useSession(context, sessionToken);
 
     await page.goto("/en");
-    await expect(page.getByRole("link", { name: "Create courses" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Create courses" }).first()).toBeVisible();
 
     const roles = (
       await prisma.membership.findMany({

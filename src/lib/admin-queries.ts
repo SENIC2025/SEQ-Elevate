@@ -44,7 +44,12 @@ export interface AdminMember {
   cohortId: string | null;
   cohortName: string | null;
   orgName: string | null;
+  /** When they were added to the project (YYYY-MM-DD). */
   joinedAt: string;
+  /** "joined" once they have signed in at least once (D27). */
+  status: "joined" | "pending";
+  /** Latest invitation sent while still pending (YYYY-MM-DD), if any. */
+  invitedAt: string | null;
 }
 
 /** Organisations with their cohorts and member counts. */
@@ -109,7 +114,30 @@ export async function getAdminMembers(): Promise<AdminMember[] | null> {
         cohortName: m.cohort?.name ?? null,
         orgName: m.organisation?.name ?? null,
         joinedAt: m.createdAt.toISOString().slice(0, 10),
+        // Auth.js sets emailVerified the first time someone uses a link.
+        status: m.user.emailVerified ? "joined" : "pending",
+        invitedAt: null,
       });
+    }
+
+    // When was each not-yet-joined person last invited? (Audit log.)
+    const pending = [...byUser.values()]
+      .filter((u) => u.status === "pending")
+      .map((u) => u.id);
+    if (pending.length) {
+      const invites = await prisma.auditLog.findMany({
+        where: {
+          projectId: PROJECT,
+          action: "member.invited",
+          entityId: { in: pending },
+        },
+        orderBy: { createdAt: "desc" },
+        select: { entityId: true, createdAt: true },
+      });
+      for (const inv of invites) {
+        const u = inv.entityId ? byUser.get(inv.entityId) : undefined;
+        if (u && !u.invitedAt) u.invitedAt = inv.createdAt.toISOString().slice(0, 10);
+      }
     }
     return [...byUser.values()];
   } catch {

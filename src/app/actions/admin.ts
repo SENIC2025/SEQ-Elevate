@@ -9,15 +9,24 @@
  * so this is pure application logic — no migration.
  *
  * Note on "adding people": sign-in is passwordless magic-link, so adding a
- * member provisions their User + Membership; they then sign in themselves at
- * /signin with that email. No password is ever set or handled here.
+ * member provisions their User + Membership. By default the admin also sends
+ * them an invitation email with a one-click join link (D27); they can always
+ * sign in themselves at /signin with that email too. No password is ever set
+ * or handled here.
  */
 
 import { getCurrentUser, hasRole } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
-import type { Role } from "@prisma/client";
+import { sendInvitation, type InviteOutcome } from "@/lib/invitations";
+import type { Locale } from "@/lib/cms/types";
+import type { Role, User } from "@prisma/client";
 
 const PROJECT = "seq-elevate";
+const LOCALES: readonly string[] = ["en", "de", "el"];
+
+function toLocale(locale?: string): Locale {
+  return (LOCALES.includes(locale ?? "") ? locale : "en") as Locale;
+}
 
 async function requireAdmin() {
   const user = await getCurrentUser();
@@ -133,10 +142,46 @@ const ALLOWED_ROLES: Role[] = [
 ];
 
 /**
- * Add someone to the project by email. Creates the User if they don't exist
- * yet; they sign in themselves via magic link. Idempotent.
+ * Send (or resend) someone's invitation and audit it. Deliberately NOT
+ * exported: an export from a "use server" file is a public endpoint, and
+ * this sends email. Reached only via the admin-gated actions below.
  */
-export async function addMember(email: string, role: Role, name?: string) {
+async function inviteUser(
+  admin: User,
+  user: User,
+  locale: Locale
+): Promise<InviteOutcome> {
+  // Someone who has signed in before doesn't need a join link.
+  if (user.emailVerified) return "already-joined";
+  const roles = (
+    await prisma.membership.findMany({
+      where: { userId: user.id, projectId: PROJECT },
+      select: { role: true },
+    })
+  ).map((m) => m.role);
+  const res = await sendInvitation({
+    email: user.email,
+    name: user.name,
+    roles,
+    locale,
+    inviter: admin,
+  });
+  if (!res.ok) return res.error;
+  await audit(admin.id, "member.invited", "User", user.id);
+  return "sent";
+}
+
+/**
+ * Add someone to the project by email. Creates the User if they don't exist
+ * yet. With `invite`, also emails them a one-click join link in `locale`.
+ * Idempotent.
+ */
+export async function addMember(
+  email: string,
+  role: Role,
+  name?: string,
+  opts?: { invite?: boolean; locale?: string }
+) {
   const admin = await requireAdmin();
   if (!admin) return { ok: false as const, error: "forbidden" };
   const clean = email.trim().toLowerCase();
@@ -164,7 +209,25 @@ export async function addMember(email: string, role: Role, name?: string) {
     update: {},
   });
   await audit(admin.id, "member.added", "User", user.id);
-  return { ok: true as const, id: user.id };
+  const invite: InviteOutcome = opts?.invite
+    ? await inviteUser(admin, user, toLocale(opts.locale))
+    : "not-requested";
+  return { ok: true as const, id: user.id, invite };
+}
+
+/** Send (again) the invitation for someone who hasn't joined yet. */
+export async function resendInvitation(userId: string, locale?: string) {
+  const admin = await requireAdmin();
+  if (!admin) return { ok: false as const, error: "forbidden" };
+  // Only people who are actually in this project.
+  const user = await prisma.user.findFirst({
+    where: { id: userId, memberships: { some: { projectId: PROJECT } } },
+  });
+  if (!user) return { ok: false as const, error: "not-found" };
+  const invite = await inviteUser(admin, user, toLocale(locale));
+  return invite === "sent"
+    ? { ok: true as const, invite }
+    : { ok: false as const, error: invite };
 }
 
 /** Replace a member's roles in the project. */

@@ -39,10 +39,14 @@ export default defineConfig({
     // (safe-by-default on real prod); set it so the demo-access E2E can sign in.
     // ADMIN_EMAILS lists the one address the workspace-hub spec uses to prove
     // the self-healing admin bootstrap (D26); it elevates no one else.
+    // RESEND_API_KEY is forced to the placeholder so tests can NEVER send real
+    // email (sign-in links / invitations are logged instead) — even when a
+    // developer's .env.local holds the real key.
     env: {
       ...process.env,
       DEMO_ACCESS_CODE: "elevate-demo",
       ADMIN_EMAILS: "e2e-bootstrap-admin@example.com",
+      RESEND_API_KEY: "re_placeholder",
     },
     url: `${BASE_URL}/en`,
     reuseExistingServer: !process.env.CI,
