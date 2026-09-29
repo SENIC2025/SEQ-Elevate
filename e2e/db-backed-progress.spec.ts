@@ -171,21 +171,25 @@ async function holdServerActions(page: import("@playwright/test").Page) {
  * dropped connection does; every other request, and every later call, goes
  * through. Next sends a server action's arguments as its JSON body: `[]`
  * for ensureLearnerMembership / loadLearnerGlobal, `[slug, locale]` for
- * loadCourseProgress.
+ * loadCourseProgress. `args` may also be a test of the request body, for a
+ * call whose arguments aren't known in full (a save's payload).
  */
 async function failServerActions(
   page: import("@playwright/test").Page,
-  args: unknown[],
+  args: unknown[] | ((body: string) => boolean),
   times: number
 ) {
-  const body = JSON.stringify(args);
+  const isCall =
+    typeof args === "function"
+      ? args
+      : (body: string) => body === JSON.stringify(args);
   let failed = 0;
   await page.route("**/*", async (route) => {
     const req = route.request();
     const matches =
       req.method() === "POST" &&
       !!(await req.headerValue("next-action")) &&
-      req.postData() === body;
+      isCall(req.postData() ?? "");
     if (matches && failed < times) {
       failed++;
       return route.abort("failed");
@@ -805,6 +809,9 @@ describe("progress kept when the session is lost, changes hands or the course ch
     saveNoSession: "e2e-nosession-save@example.com",
     badgeNoSession: "e2e-nosession-badge@example.com",
     dashboardSignOut: "e2e-signout-dashboard@example.com",
+    migrateNoSession: "e2e-nosession-migrate@example.com",
+    readFailsStale: "e2e-read-fails-stale@example.com",
+    saveFailsReturn: "e2e-save-fails-return@example.com",
   };
   const all = Object.values(emails);
   const users: Record<string, { id: string; session: string }> = {};
@@ -1226,9 +1233,25 @@ describe("progress kept when the session is lost, changes hands or the course ch
       (body) => body.startsWith('["voice-without-edges"'),
       1
     );
+    // The completed course's save awards the badge too (in its own
+    // transaction), so the badge in the database alone doesn't show the
+    // award was sent again: the award requests are counted.
+    const awards: Promise<number>[] = [];
+    page.on("request", (req) => {
+      if (
+        req.method() === "POST" &&
+        (req.postData() ?? "").startsWith('["voice-without-edges"')
+      ) {
+        awards.push(req.response().then((res) => res?.status() ?? 0));
+      }
+    });
 
     await walkWorkplaceConflict(page);
     await expect.poll(lost.answered, { timeout: 15_000 }).toBe(1);
+    await expect
+      .poll(() => awards.length, { timeout: 15_000 })
+      .toBeGreaterThanOrEqual(2);
+    expect(await awards[awards.length - 1]).toBe(200);
 
     await expect
       .poll(
@@ -1299,6 +1322,167 @@ describe("progress kept when the session is lost, changes hands or the course ch
         ).map((b) => b.badge.slug)
       )
       .toEqual(["voice-without-edges"]);
+  });
+
+  test("a guest's progress whose move to the account finds no session on sign-in isn't lost", async ({
+    page,
+    context,
+  }) => {
+    test.setTimeout(90_000);
+    const { id: userId, session } = users[emails.migrateNoSession];
+    // As a guest: two lessons of workplace conflict and a Comp Card, kept
+    // in this browser.
+    await page.goto("/en/learner/course/workplace-conflict");
+    await continueTimes(page, 2);
+    await expect
+      .poll(async () => (await guestStore(page))?.course.stagesCompleted)
+      .toEqual(["context", "concept"]);
+    await page.goto("/en/learner/comp-card");
+    await compCardField(page, "Even small wins count.").fill(
+      "Guest: I listened"
+    );
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            JSON.parse(localStorage.getItem("seq-elevate-demo-state-v1") ?? "null")
+              ?.compCard?.wentWell
+        )
+      )
+      .toBe("Guest: I listened");
+
+    // Signed in: a fresh page, so the guest store holds the only copy. The
+    // first save of the Comp Card and the first of the course — the move's
+    // — find no session.
+    await signIn(context, emails.migrateNoSession);
+    const first = new Set<string>();
+    const lost = await sessionLostDuring(
+      page,
+      session,
+      (body) => {
+        const call = body.startsWith('[{"wentWell"')
+          ? "card"
+          : body.startsWith('["workplace-conflict",{"stagesCompleted"')
+            ? "course"
+            : null;
+        if (!call || first.has(call)) return false;
+        first.add(call);
+        return true;
+      },
+      2
+    );
+    await page.goto("/en/learner");
+    await expect.poll(lost.answered, { timeout: 30_000 }).toBe(2);
+
+    await expect
+      .poll(
+        () =>
+          prisma.compCard.findFirst({
+            where: { userId },
+            select: { wentWell: true },
+          }),
+        { timeout: 30_000 }
+      )
+      .toEqual({ wentWell: "Guest: I listened" });
+    await expect
+      .poll(() => enrollmentFor(userId, "workplace-conflict"), {
+        timeout: 30_000,
+      })
+      .toMatchObject({ stages: ["CONTEXT", "CONCEPT"] });
+  });
+
+  test("the learner found again after a session read that failed doesn't save this tab's older copy over what they saved since", async ({
+    page,
+    context,
+  }) => {
+    test.setTimeout(60_000);
+    const { id: userId } = users[emails.readFailsStale];
+    await prisma.compCard.create({
+      data: {
+        userId,
+        projectId: "seq-elevate",
+        wentWell: "Draft from Monday",
+        privacy: "FACILITATOR",
+      },
+    });
+    await signIn(context, emails.readFailsStale);
+    // Once loaded, the Comp Card is saved back as it came; once that's in…
+    const savedBack = page.waitForResponse(
+      (r) =>
+        r.request().method() === "POST" &&
+        (r.request().postData() ?? "").startsWith(
+          '[{"wentWell":"Draft from Monday"'
+        )
+    );
+    await page.goto("/en/learner/comp-card");
+    await expect(compCardField(page, "Even small wins count.")).toHaveValue(
+      "Draft from Monday"
+    );
+    await savedBack;
+    const signOut = page.getByRole("button", { name: "Sign out" });
+    await expect(signOut).toBeVisible();
+
+    // …the learner finishes it on their phone, and doesn't touch this tab.
+    await prisma.compCard.update({
+      where: { userId_projectId: { userId, projectId: "seq-elevate" } },
+      data: { wentWell: "Final, from the phone" },
+    });
+
+    // Another tab opens, and this tab's session read fails for a moment;
+    // the next read finds the learner again.
+    await sessionReadFails(page, 1);
+    await recheckSession(page);
+    await expect(signOut).toBeHidden();
+    await expect(signOut).toBeVisible({ timeout: 15_000 });
+    await page.waitForTimeout(2000); // past the save debounce
+
+    expect(
+      await prisma.compCard.findFirst({
+        where: { userId },
+        select: { wentWell: true },
+      })
+    ).toEqual({ wentWell: "Final, from the phone" });
+  });
+
+  test("a save still failing when the learner leaves the course and comes back isn't replaced by the save of the course loaded again", async ({
+    page,
+    context,
+  }) => {
+    test.setTimeout(90_000);
+    const { id: userId } = users[emails.saveFailsReturn];
+    await savedEarlier(userId);
+    await signIn(context, emails.saveFailsReturn);
+    // This visit's saves of the course: the first three tries drop — the
+    // lesson's save is tried again after 1 s and 3 s, and gets through
+    // after 7 s, unless a newer save of the course has taken its place.
+    const saves = await failServerActions(
+      page,
+      (body) => body.startsWith('["workplace-conflict",{"stagesCompleted"'),
+      3
+    );
+    const loaded = courseLoaded(page, "workplace-conflict");
+    await page.goto("/en/learner/course/workplace-conflict");
+    await loaded;
+    await page.waitForTimeout(300); // the loaded progress is merged in
+
+    // A lesson done; its save fails…
+    await continueTimes(page, 1);
+    await expect.poll(saves.failed, { timeout: 15_000 }).toBeGreaterThan(0);
+    // …while the learner opens the other course and comes back: the
+    // course starts over empty and loads again.
+    await openFromDashboard(page, "receiving-feedback", /receiving feedback/i);
+    await openFromDashboard(page, "workplace-conflict", /workplace conflict/i);
+
+    await expect
+      .poll(() => enrollmentFor(userId, "workplace-conflict"), {
+        timeout: 30_000,
+      })
+      .toMatchObject({ stages: ["CONTEXT", "CONCEPT", "BEHAVIOUR"] });
+    await expect.poll(saves.failed, { timeout: 15_000 }).toBe(3);
+    await page.waitForTimeout(2000); // past a later save
+    expect(await enrollmentFor(userId, "workplace-conflict")).toMatchObject({
+      stages: ["CONTEXT", "CONCEPT", "BEHAVIOUR"],
+    });
   });
 
   test("opening a course again without doing anything in it doesn't enroll the learner", async ({

@@ -212,4 +212,141 @@ describe("pendingSave", () => {
       expect(save).toHaveBeenCalledTimes(2);
     });
   });
+
+  describe("settle", () => {
+    beforeEach(() => {
+      vi.spyOn(console, "error").mockImplementation(() => undefined);
+    });
+
+    /** Has `promise` resolved yet? */
+    const watch = (promise: Promise<void>) => {
+      const seen = { settled: false };
+      void promise.then(() => (seen.settled = true));
+      return seen;
+    };
+
+    it("resolves at once when no save of that course is on its way", async () => {
+      const saves = pendingSave(700);
+      const settle = watch(saves.settle("course-a"));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(settle.settled).toBe(true);
+    });
+
+    it("keeps a failed save of a course the learner left and comes back to: it's sent before the course loads again", async () => {
+      // The learner finishes a lesson of course A and its save fails. They
+      // open course B and come back to A, which starts over empty and loads
+      // A's saved progress again — without that lesson, still waiting to
+      // be tried again. The save of the merge would take the failed one's
+      // place for good. So A loads again only once the failed save is in:
+      // it's sent now, and the load reads it back.
+      const saves = pendingSave(700);
+      const server: string[] = [];
+      let tries = 0;
+      saves.schedule(async () => {
+        if (++tries === 1) throw new Error("no session");
+        server.push("A: the lesson finished");
+      }, "course-a");
+      saves.flush(); // the learner opened course B
+      await vi.advanceTimersByTimeAsync(0); // failed: retry in 1 s
+
+      // Back in A: before it loads.
+      const settle = watch(saves.settle("course-a"));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(server).toEqual(["A: the lesson finished"]); // now, not in 1 s
+      expect(settle.settled).toBe(true);
+
+      // Loaded (with the lesson), merged, saved.
+      saves.schedule(async () => void server.push("A: loaded again"), "course-a");
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(server).toEqual(["A: the lesson finished", "A: loaded again"]);
+    });
+
+    it("waits for a save still on its way", async () => {
+      const saves = pendingSave(700);
+      let answer!: () => void;
+      saves.schedule(
+        () => new Promise<void>((resolve) => (answer = resolve)),
+        "course-a"
+      );
+      saves.flush();
+
+      const settle = watch(saves.settle("course-a"));
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(settle.settled).toBe(false);
+      answer();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(settle.settled).toBe(true);
+    });
+
+    it("sends that course's save still waiting out the debounce", async () => {
+      const saves = pendingSave(700);
+      const save = ok();
+      saves.schedule(save, "course-a");
+
+      const settle = watch(saves.settle("course-a"));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(save).toHaveBeenCalledTimes(1);
+      expect(settle.settled).toBe(true);
+    });
+
+    it("keeps waiting while the save sent now fails again, until a retry gets through", async () => {
+      const saves = pendingSave(700);
+      const save = failing(2);
+      saves.schedule(save, "course-a");
+      saves.flush();
+      await vi.advanceTimersByTimeAsync(0); // failed: retry in 1 s
+
+      const settle = watch(saves.settle("course-a"));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(save).toHaveBeenCalledTimes(2); // sent now, failed again
+      expect(settle.settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(2000); // the next retry, as usual
+      expect(save).toHaveBeenCalledTimes(3);
+      expect(settle.settled).toBe(true);
+    });
+
+    it("resolves once the save gives up", async () => {
+      const saves = pendingSave(700);
+      const save = failing(100);
+      saves.schedule(save, "course-a");
+      saves.flush();
+      await vi.advanceTimersByTimeAsync(0);
+
+      const settle = watch(saves.settle("course-a"));
+      await vi.advanceTimersByTimeAsync(2000 + 4000 + 8000);
+      expect(save).toHaveBeenCalledTimes(5);
+      expect(settle.settled).toBe(true);
+    });
+
+    it("resolves once the saves are dropped", async () => {
+      const saves = pendingSave(700);
+      const save = failing(100);
+      saves.schedule(save, "course-a");
+      saves.flush();
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(1000); // the retry failed again
+      const settle = watch(saves.settle("course-a"));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(settle.settled).toBe(false);
+
+      saves.drop();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(settle.settled).toBe(true);
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(save).toHaveBeenCalledTimes(3);
+    });
+
+    it("doesn't wait for, or send, another course's save", async () => {
+      const saves = pendingSave(700);
+      const courseB = failing(100);
+      saves.schedule(courseB, "course-b");
+      saves.flush();
+      await vi.advanceTimersByTimeAsync(0); // failed: retry in 1 s
+
+      const settle = watch(saves.settle("course-a"));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(settle.settled).toBe(true);
+      expect(courseB).toHaveBeenCalledTimes(1);
+    });
+  });
 });
