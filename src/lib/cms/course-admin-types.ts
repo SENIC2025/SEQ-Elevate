@@ -105,7 +105,10 @@ export interface LessonOutline {
   structure: StoredStructure | null;
   /** The video stored for this lesson, or null (none in the DB). */
   video: VideoContent | null;
-  /** The platform supplies a video here when none is stored (built-in only). */
+  /**
+   * The platform ships a video for this lesson, which learners see whenever
+   * none is stored (built-in courses only).
+   */
   builtInVideo: boolean;
   /** Every document, drafts included, in the learner's order. */
   documents: LessonDocumentRef[];

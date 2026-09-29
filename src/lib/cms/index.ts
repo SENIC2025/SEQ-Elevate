@@ -13,7 +13,13 @@ import { applyLessonMedia } from "./lesson-overlay";
 import { applyCourseStatus, applyCourseCopyOverride } from "./course-overlay";
 import { listDbCourses, getDbCourse } from "./db-course";
 import { applyCompCardTemplate } from "./comp-card-overlay";
-import type { Locale, CourseContent, CourseSummary, CompCardTemplate } from "./types";
+import type {
+  Locale,
+  CourseContent,
+  CourseSummary,
+  CompCardTemplate,
+  StageKey,
+} from "./types";
 
 function provider(): CMSProvider {
   return getCMSSource() === "strapi" ? strapiProvider : localProvider;
@@ -63,17 +69,28 @@ export async function getCourse(
 /**
  * A bundled course's title and subtitle exactly as the platform ships them,
  * with NO editor rewording — so the course page can show "Built-in: …" and
- * offer to go back to it. Null for a course the provider doesn't have (i.e.
- * one created in the CMS).
+ * offer to go back to it — and the lessons it ships a video for (shown
+ * whenever an editor hasn't stored one). Null for a course the provider
+ * doesn't have (i.e. one created in the CMS).
  */
 export async function getBaseCourseCopy(
   projectId: string,
   slug: string,
   locale: Locale
-): Promise<{ title: string; tagline: string; clusterLabel: string } | null> {
+): Promise<{
+  title: string;
+  tagline: string;
+  clusterLabel: string;
+  videoStages: StageKey[];
+} | null> {
   const c = await provider().getCourse(projectId, slug, locale);
   return c
-    ? { title: c.title, tagline: c.tagline, clusterLabel: c.clusterLabel }
+    ? {
+        title: c.title,
+        tagline: c.tagline,
+        clusterLabel: c.clusterLabel,
+        videoStages: c.stages.filter((s) => s.video).map((s) => s.key),
+      }
     : null;
 }
 

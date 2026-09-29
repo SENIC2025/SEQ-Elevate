@@ -162,7 +162,8 @@ export async function getCourseOutline(
         documents: { orderBy: [{ order: "asc" }, { createdAt: "asc" }] },
       },
     }),
-    // Built-in wording, for "Built-in: …" (null for CMS courses).
+    // Built-in wording, for "Built-in: …", and which lessons ship a video
+    // (null for CMS courses).
     Promise.all(CONTENT_LOCALES.map((l) => getBaseCourseCopy(PROJECT, slug, l))),
   ]);
 
@@ -216,10 +217,11 @@ export async function getCourseOutline(
           ? ((lesson?.structure ?? null) as StoredStructure | null)
           : null,
       video: (lesson?.video ?? null) as VideoContent | null,
+      // From the platform's own course, not what learners see now: a stored
+      // video hides the built-in one, which comes back if it's removed
+      // (lesson-overlay.ts: `lesson.video ?? stage.video`).
       builtInVideo:
-        kind === "bundled" &&
-        !lesson?.video &&
-        Boolean(en.stages.find((s) => s.key === key)?.video),
+        kind === "bundled" && Boolean(baseCopy[0]?.videoStages.includes(key)),
       documents: (lesson?.documents ?? []).map((d) => ({
         id: d.id,
         name: d.name,

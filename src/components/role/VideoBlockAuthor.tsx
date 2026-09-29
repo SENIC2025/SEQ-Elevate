@@ -252,6 +252,7 @@ function VideoEditor({
   const [tab, setTab] = React.useState<"upload" | "url">(
     seed.src ? "url" : "upload"
   );
+  const headingRef = React.useRef<HTMLHeadingElement>(null);
   // What's stored on the lesson now.
   const [stored, setStored] = React.useState<VideoContent | null>(
     initialVideo ?? null
@@ -511,6 +512,8 @@ function VideoEditor({
       ? "Remove this video? Learners will see the built-in video for this lesson again."
       : "Remove this video? Learners will no longer see it on this lesson.";
     if (!window.confirm(question)) return;
+    // "Remove video" goes away once it's done: keep focus in this editor.
+    headingRef.current?.focus();
     setSaveState("removing");
     try {
       const res = await clearLessonVideo(courseSlug, stageKey);
@@ -591,7 +594,9 @@ function VideoEditor({
             <Film className="h-5 w-5" />
           </div>
           <div>
-            <h3 className="font-semibold">Interactive video</h3>
+            <h3 ref={headingRef} tabIndex={-1} className="font-semibold">
+              Interactive video
+            </h3>
             <p className="text-xs text-[var(--muted-foreground)]">
               Add a lesson video, then drop in questions that pause it.
             </p>
@@ -997,9 +1002,10 @@ function VideoEditor({
                 ) : (
                   <Trash2 className="h-4 w-4" />
                 )}
-                {builtInVideo
-                  ? "Remove video (the built-in one will show again)"
-                  : "Remove video"}
+                {/* What learners see afterwards is in the confirm and the
+                    status message, so the label stays short enough for a
+                    phone. */}
+                Remove video
               </Button>
             ) : null}
             {saveStatus}
