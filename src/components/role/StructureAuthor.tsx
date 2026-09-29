@@ -101,6 +101,7 @@ function emptyStructure(kind: StructureStageKey): StoredStructure {
 }
 
 export function StructureAuthor() {
+  const headingId = React.useId();
   const router = useRouter();
   const [courses, setCourses] = React.useState<AuthorableCourse[] | null>(null);
   const [slug, setSlug] = React.useState("");
@@ -231,12 +232,15 @@ export function StructureAuthor() {
 
   return (
     <Card>
-      <CardContent className="p-4" role="region" aria-label="Interactive stage">
+      <CardContent className="p-4" role="region" aria-labelledby={headingId}>
         <div className="flex flex-wrap items-center gap-2 mb-3">
-          <p className="text-sm font-semibold flex items-center gap-1.5">
-            <Puzzle className="h-4 w-4 text-[var(--accent)]" />
+          <h3
+            id={headingId}
+            className="text-sm font-semibold flex items-center gap-1.5"
+          >
+            <Puzzle className="h-4 w-4 text-[var(--accent)]" aria-hidden />
             Interactive stage
-          </p>
+          </h3>
           <Badge variant={authored ? "accent" : "muted"} className="text-[10px]">
             {authored ? "Authored" : "Not added yet"}
           </Badge>

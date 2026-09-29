@@ -67,8 +67,8 @@
   "landing": {
     "title": "Welcome to SEQ Elevate",
     "subtitle": "A mobile-first learning journey for NEET youth, built around real-life practice, reflection and evidence — not lectures.",
-    "demoNote": "This is a test copy of the platform. Pick a role to look around.",
-    "pickRole": "Choose a role to test with",
+    "demoNote": "This is a test copy of the platform. Start as a guest learner, or use Test sign-in to try the facilitator, admin and content editor roles.",
+    "pickRole": "Choose how to test",
     "languageLabel": "Language",
     "scaffoldNote": "Built in days, not months — Created and Powered by SENIC.",
     "exploreLearner": "Walk through the learner journey",

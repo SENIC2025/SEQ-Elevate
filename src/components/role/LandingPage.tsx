@@ -26,9 +26,11 @@ const ROLES: {
   recommended?: boolean;
 }[] = [
   { id: "learner", Icon: GraduationCap, to: "/learner", recommended: true },
-  { id: "facilitator", Icon: Users, to: "/facilitator" },
-  { id: "admin", Icon: ShieldCheck, to: "/admin" },
-  { id: "content", Icon: PenSquare, to: "/content" },
+  // Staff workspaces need a real signed-in role, so these go to test sign-in
+  // (this page only exists on test copies, where /demo is available).
+  { id: "facilitator", Icon: Users, to: "/demo" },
+  { id: "admin", Icon: ShieldCheck, to: "/demo" },
+  { id: "content", Icon: PenSquare, to: "/demo" },
 ];
 
 export function LandingPage() {

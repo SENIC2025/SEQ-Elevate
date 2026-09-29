@@ -86,9 +86,12 @@ export function UploadStatus({
       ? Math.min(100, Math.floor((progress.loaded / progress.total) * 100))
       : 0;
   const progressText = progress ? formatUploadProgress(progress) : "";
+  // "Try again" removes itself when clicked; keep keyboard focus here, where
+  // progress and the outcome are announced, instead of losing it.
+  const regionRef = React.useRef<HTMLDivElement>(null);
 
   return (
-    <>
+    <div ref={regionRef} tabIndex={-1} className="outline-none">
       {progress ? (
         <div className="mt-2">
           <div
@@ -115,7 +118,7 @@ export function UploadStatus({
         {progress ? <span className="sr-only">Upload started.</span> : null}
         {message ? (
           <p
-            className={`mt-2 text-xs flex items-start gap-1.5 ${
+            className={`mt-2 text-xs flex items-start gap-1.5 wrap-anywhere ${
               message.tone === "success"
                 ? "text-[var(--success)]"
                 : "text-[var(--danger)]"
@@ -131,11 +134,19 @@ export function UploadStatus({
         ) : null}
       </div>
       {onRetry ? (
-        <Button variant="outline" size="sm" className="mt-2" onClick={onRetry}>
+        <Button
+          variant="outline"
+          size="sm"
+          className="mt-2"
+          onClick={() => {
+            regionRef.current?.focus();
+            onRetry();
+          }}
+        >
           <RotateCcw className="h-4 w-4" aria-hidden />
           Try again
         </Button>
       ) : null}
-    </>
+    </div>
   );
 }

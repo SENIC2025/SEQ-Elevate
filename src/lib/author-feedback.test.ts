@@ -159,16 +159,14 @@ describe("upload failure messages", () => {
     ).toBe("The upload didn't finish: the file storage is suspended.");
   });
 
-  it("explains a refused upload from the status checked afterwards", () => {
-    expect(unexplainedUploadMessage({ ...READY, storage: "missing" })).toBe(
-      ACCESS_MESSAGES["storage-missing"]
-    );
-    expect(unexplainedUploadMessage({ signedIn: false })).toBe(
-      ACCESS_MESSAGES["signed-out"]
-    );
-    expect(
-      unexplainedUploadMessage({ ...READY, canUpload: false })
-    ).toBe(ACCESS_MESSAGES["not-editor"]);
+  it("doesn't repeat an access problem the picker's notice already explains", () => {
+    for (const status of [
+      { ...READY, storage: "missing" as const },
+      { signedIn: false as const },
+      { ...READY, canUpload: false },
+    ]) {
+      expect(unexplainedUploadMessage(status)).toBe("The upload didn't start.");
+    }
   });
 
   it("admits when it can't tell why", () => {

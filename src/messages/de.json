@@ -67,8 +67,8 @@
   "landing": {
     "title": "Willkommen bei SEQ Elevate",
     "subtitle": "Eine mobile-first Lernreise für NEET-Jugendliche, gebaut um echte Praxis, Reflexion und Nachweise — keine Vorlesungen.",
-    "demoNote": "Das ist eine Testumgebung der Plattform. Wähle eine Rolle, um dich umzusehen.",
-    "pickRole": "Wähle eine Rolle zum Testen",
+    "demoNote": "Das ist eine Testumgebung der Plattform. Starte als Gast-Lernende:r oder nutze die Test-Anmeldung, um die Rollen Trainer:in, Admin und Inhalts-Redaktion auszuprobieren.",
+    "pickRole": "Wähle, wie du testen möchtest",
     "languageLabel": "Sprache",
     "scaffoldNote": "In Tagen gebaut, nicht in Monaten — Erstellt und betrieben von SENIC.",
     "exploreLearner": "Die Lerner-Reise durchlaufen",

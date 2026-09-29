@@ -86,7 +86,7 @@ export const ACCESS_MESSAGES: Record<AccessProblem, string> = {
   "not-editor":
     "Your account can't upload files. Ask an administrator to give you the Editor role in Manage people.",
   "storage-missing":
-    "File storage isn't connected on this site yet, so uploads can't be saved. An administrator can connect it in Vercel (Storage → the Blob store → connect to this project) and redeploy.",
+    "File storage isn't connected on this site yet, so uploads can't be saved. Please tell the team that runs the site's hosting: they need to connect the Blob store to this project in Vercel (Storage → the Blob store → connect to this project) and redeploy.",
 };
 
 /* ----------------------------- Upload errors ---------------------------- */
@@ -188,8 +188,9 @@ export function unexplainedUploadMessage(status: StorageStatus | null): string {
   if (!status) {
     return "The upload couldn't start, and the reason couldn't be checked. Check your connection and try again.";
   }
-  const problem = accessProblem(status);
-  if (problem) return ACCESS_MESSAGES[problem];
+  // The picker's notice already shows the full reason (the hook refreshes it
+  // from the same status), so don't repeat it here.
+  if (accessProblem(status)) return "The upload didn't start.";
   return "The server didn't accept the upload. Wait a minute and try again — if it keeps happening, please tell an administrator.";
 }
 

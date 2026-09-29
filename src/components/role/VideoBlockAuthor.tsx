@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { flushSync } from "react-dom";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -106,6 +107,8 @@ export function VideoBlockAuthor({
   const captionNoticeId = React.useId();
   const [cues, setCues] = React.useState<EditableCue[]>([]);
   const objectUrl = React.useRef<string | null>(null);
+  const urlInputRef = React.useRef<HTMLInputElement>(null);
+  const urlInputId = React.useId();
   const captionObjUrl = React.useRef<string | null>(null);
 
   React.useEffect(() => {
@@ -390,7 +393,12 @@ export function VideoBlockAuthor({
                     a direct link to an .mp4 or .webm file.{" "}
                     <button
                       type="button"
-                      onClick={() => setTab("url")}
+                      onClick={() => {
+                        // This button disappears with the upload tab, so
+                        // move focus to the field it opens.
+                        flushSync(() => setTab("url"));
+                        urlInputRef.current?.focus();
+                      }}
                       className="font-medium text-[var(--accent)] underline underline-offset-2"
                     >
                       Paste a link
@@ -417,10 +425,15 @@ export function VideoBlockAuthor({
             </div>
           ) : (
             <div>
-              <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-1">
+              <label
+                htmlFor={urlInputId}
+                className="block text-xs font-medium text-[var(--muted-foreground)] mb-1"
+              >
                 Video URL (direct .mp4/.webm or a YouTube link)
               </label>
               <input
+                id={urlInputId}
+                ref={urlInputRef}
                 type="url"
                 value={fromUpload ? "" : src}
                 onChange={(e) => onUrl(e.target.value)}
