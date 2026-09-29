@@ -40,7 +40,11 @@ export function formatTimeLeft(seconds: number): string {
   return m ? `about ${h} h ${m} min left` : `about ${h} h left`;
 }
 
-/** "Uploading… 48.2 of 126.3 MB · about 2 min left". */
+/**
+ * "Uploading… 48.2 of 126.3 MB · about 2 min left". Both figures use the unit
+ * that suits the whole file, so a small handout reads "12 of 38 KB" rather
+ * than "0.0 of 0.0 MB".
+ */
 export function formatUploadProgress({
   loaded,
   total,
@@ -50,8 +54,13 @@ export function formatUploadProgress({
   total: number;
   elapsedMs: number;
 }): string {
-  const mb = (bytes: number) => (bytes / MB).toFixed(1);
-  const text = `Uploading… ${mb(loaded)} of ${mb(total)} MB`;
+  const [unit, size]: [string, (bytes: number) => string] =
+    total >= MB
+      ? ["MB", (b) => (b / MB).toFixed(1)]
+      : total >= 1024
+        ? ["KB", (b) => String(Math.round(b / 1024))]
+        : ["B", (b) => String(Math.round(b))];
+  const text = `Uploading… ${size(loaded)} of ${size(total)} ${unit}`;
   const left = secondsLeft(loaded, total, elapsedMs);
   return left === null ? text : `${text} · ${formatTimeLeft(left)}`;
 }
@@ -73,7 +82,7 @@ export function accessProblem(
 
 export const ACCESS_MESSAGES: Record<AccessProblem, string> = {
   "signed-out":
-    "You're not signed in, so files can't be uploaded. Sign in, then come back to this page.",
+    "You're not signed in, so files can't be uploaded. Open the site in a new tab and sign in, then come back here — what you've entered on this page stays.",
   "not-editor":
     "Your account can't upload files. Ask an administrator to give you the Editor role in Manage people.",
   "storage-missing":

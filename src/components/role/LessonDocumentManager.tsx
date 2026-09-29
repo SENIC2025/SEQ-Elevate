@@ -41,7 +41,7 @@ interface PendingDocument {
 type AttachState =
   | { phase: "idle" }
   | { phase: "attaching" }
-  | { phase: "done"; name: string }
+  | { phase: "done"; name: string; courseSlug: string; stageKey: string }
   | { phase: "failed"; message: string; retry: PendingDocument | null };
 
 /**
@@ -109,7 +109,12 @@ export function LessonDocumentManager({
     try {
       const res = await addLessonDocument(p.courseSlug, p.stageKey, p.doc);
       if (res.ok) {
-        setAttach({ phase: "done", name: p.doc.name });
+        setAttach({
+          phase: "done",
+          name: p.doc.name,
+          courseSlug: p.courseSlug,
+          stageKey: p.stageKey,
+        });
         refresh();
         return;
       }
@@ -130,6 +135,17 @@ export function LessonDocumentManager({
     }
   }
 
+  // Name the lesson when the selects have moved on since the file was picked.
+  function addedTo(done: Extract<AttachState, { phase: "done" }>): string {
+    if (done.courseSlug === courseSlug && done.stageKey === stageKey) {
+      return "this lesson";
+    }
+    const course =
+      courses.find((c) => c.slug === done.courseSlug)?.title ?? done.courseSlug;
+    const stage = done.stageKey[0].toUpperCase() + done.stageKey.slice(1);
+    return `${course} · ${stage}`;
+  }
+
   const failedUpload = upload.state.phase === "failed" ? upload.state : null;
   const uploadMessage =
     attach.phase === "attaching"
@@ -137,7 +153,7 @@ export function LessonDocumentManager({
       : attach.phase === "done"
         ? {
             tone: "success" as const,
-            text: `Added “${attach.name}” to this lesson.`,
+            text: `Added “${attach.name}” to ${addedTo(attach)}.`,
           }
         : attach.phase === "failed"
           ? { tone: "error" as const, text: attach.message }

@@ -595,8 +595,8 @@ export function VideoBlockAuthor({
           </div>
         ) : (
           <p className="mt-4 text-xs text-[var(--muted-foreground)]">
-            This is a working preview. On publish, the video and its questions
-            are saved to the CMS for this project.
+            Create a course first — then you can save this video, with its
+            questions, to one of its lessons.
           </p>
         )}
       </CardContent>

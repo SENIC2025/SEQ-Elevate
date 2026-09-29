@@ -29,6 +29,15 @@ describe("upload progress", () => {
     ).toBe("Uploading… 48.2 of 126.3 MB");
   });
 
+  it("counts a small file in KB (or bytes), not as 0.0 MB", () => {
+    expect(
+      formatUploadProgress({ loaded: 12 * 1024, total: 38 * 1024, elapsedMs: 500 })
+    ).toBe("Uploading… 12 of 38 KB");
+    expect(
+      formatUploadProgress({ loaded: 200, total: 700, elapsedMs: 100 })
+    ).toBe("Uploading… 200 of 700 B");
+  });
+
   it("adds a time estimate once there are ~3 seconds of data", () => {
     // 48.2 MB in 72 s → 78.1 MB to go at the same speed ≈ 117 s ≈ 2 min.
     expect(
