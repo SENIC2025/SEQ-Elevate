@@ -134,6 +134,23 @@ test("the document upload endpoint rejects unauthenticated callers", async ({
   await expectGuestRefused(res);
 });
 
+test("the caption upload endpoint rejects unauthenticated callers", async ({
+  request,
+}) => {
+  const res = await request.post("/api/caption/upload", {
+    data: {
+      type: "blob.generate-client-token",
+      payload: {
+        pathname: "lesson.en.vtt",
+        callbackUrl: "https://example.com/cb",
+        clientPayload: null,
+        multipart: false,
+      },
+    },
+  });
+  await expectGuestRefused(res);
+});
+
 test("the storage status endpoint tells a guest they're signed out", async ({
   request,
 }) => {
