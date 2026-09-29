@@ -13,8 +13,8 @@ import {
 import { WORKSPACE_ICONS } from "./workspace-icons";
 import { LanguageSwitcher } from "./LanguageSwitcher";
 import { AccessibilityToolbar } from "./a11y/AccessibilityToolbar";
+import { BrandLogo } from "./BrandLogo";
 import {
-  Sparkles,
   LogOut,
   UserRound,
   LayoutGrid,
@@ -49,9 +49,7 @@ export function AppHeaderClient({
           href="/"
           className="flex items-center gap-2 font-semibold tracking-tight"
         >
-          <span className="flex h-7 w-7 items-center justify-center rounded-md bg-[var(--primary)] text-[var(--primary-foreground)]">
-            <Sparkles className="h-4 w-4" />
-          </span>
+          <BrandLogo variant="mark" width={21} className="shrink-0" />
           <span>{t("appName")}</span>
         </Link>
         <div className="flex items-center gap-2">

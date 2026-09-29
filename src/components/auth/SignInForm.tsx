@@ -6,7 +6,8 @@ import { Link } from "@/i18n/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { signInWithEmail } from "@/app/actions/auth";
-import { Sparkles, Mail, ArrowRight, Loader2 } from "lucide-react";
+import { BrandLogo } from "@/components/BrandLogo";
+import { Mail, ArrowRight, Loader2 } from "lucide-react";
 
 export function SignInForm({
   callbackUrl,
@@ -18,19 +19,12 @@ export function SignInForm({
   demoEnabled?: boolean;
 }) {
   const t = useTranslations("auth");
-  const tCommon = useTranslations("common");
   const [pending, setPending] = useState(false);
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-[var(--background)] px-4">
-      <Link
-        href="/"
-        className="flex items-center gap-2 font-semibold tracking-tight mb-8"
-      >
-        <span className="flex h-8 w-8 items-center justify-center rounded-md bg-[var(--primary)] text-[var(--primary-foreground)]">
-          <Sparkles className="h-4 w-4" />
-        </span>
-        <span>{tCommon("appName")}</span>
+      <Link href="/" className="mb-8">
+        <BrandLogo variant="lockup" width={200} />
       </Link>
 
       <Card className="w-full max-w-sm">

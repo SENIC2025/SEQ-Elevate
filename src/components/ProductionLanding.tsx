@@ -15,7 +15,8 @@ import { useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { AccessibilityToolbar } from "@/components/a11y/AccessibilityToolbar";
-import { Sparkles, LogIn, ArrowRight } from "lucide-react";
+import { BrandLogo } from "@/components/BrandLogo";
+import { LogIn, ArrowRight } from "lucide-react";
 
 export function ProductionLanding() {
   const t = useTranslations("landing");
@@ -27,9 +28,7 @@ export function ProductionLanding() {
       <header className="border-b border-[var(--border)] bg-[var(--surface)]/90 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
           <div className="flex items-center gap-2 font-semibold tracking-tight">
-            <span className="flex h-7 w-7 items-center justify-center rounded-md bg-[var(--primary)] text-[var(--primary-foreground)]">
-              <Sparkles className="h-4 w-4" />
-            </span>
+            <BrandLogo variant="mark" width={21} className="shrink-0" />
             <span>{tCommon("appName")}</span>
           </div>
           <div className="flex items-center gap-2">
@@ -49,6 +48,7 @@ export function ProductionLanding() {
       <main id="main-content" tabIndex={-1} className="flex-1 outline-none">
         <div className="mx-auto max-w-6xl px-4 py-16 sm:py-24">
           <div className="max-w-2xl">
+            <BrandLogo variant="lockup" width={280} className="mb-10" />
             <h1 className="text-4xl sm:text-5xl font-bold tracking-tight">
               {t("title")}
             </h1>

@@ -2,9 +2,10 @@ import type { MetadataRoute } from "next";
 
 /**
  * PWA manifest. Makes the platform installable / mobile-first per the
- * proposal (PWA shell, low-bandwidth). Icons reference the SVG app icon;
- * when the consortium supplies brand logo PNGs (192/512 maskable), add
- * them here for full install-icon support across platforms.
+ * proposal (PWA shell, low-bandwidth). Icons are the official logo mark,
+ * generated into public/brand by scripts/brand-assets.py: transparent
+ * "any" icons, plus white "maskable" ones with the mark inside the safe
+ * zone so Android launchers can crop them to their own shape.
  */
 export default function manifest(): MetadataRoute.Manifest {
   return {
@@ -19,10 +20,28 @@ export default function manifest(): MetadataRoute.Manifest {
     lang: "en",
     icons: [
       {
-        src: "/icon.svg",
-        sizes: "any",
-        type: "image/svg+xml",
+        src: "/brand/icon-192.png",
+        sizes: "192x192",
+        type: "image/png",
         purpose: "any",
+      },
+      {
+        src: "/brand/icon-512.png",
+        sizes: "512x512",
+        type: "image/png",
+        purpose: "any",
+      },
+      {
+        src: "/brand/icon-maskable-192.png",
+        sizes: "192x192",
+        type: "image/png",
+        purpose: "maskable",
+      },
+      {
+        src: "/brand/icon-maskable-512.png",
+        sizes: "512x512",
+        type: "image/png",
+        purpose: "maskable",
       },
     ],
   };

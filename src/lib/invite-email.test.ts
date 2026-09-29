@@ -1,5 +1,12 @@
+import { readFileSync } from "node:fs";
 import { describe, it, expect } from "vitest";
-import { renderInviteEmail, escapeHtml, type InviteCopy } from "./invite-email";
+import {
+  renderInviteEmail,
+  escapeHtml,
+  emailLogoUrl,
+  EMAIL_LOGO,
+  type InviteCopy,
+} from "./invite-email";
 
 const URL_WITH_QUERY =
   "https://seq-elevate.eu/api/auth/callback/invite?callbackUrl=%2Fen&token=abc&email=a%40b.eu";
@@ -35,7 +42,34 @@ describe("escapeHtml", () => {
   });
 });
 
+describe("emailLogoUrl", () => {
+  it("points at the logo on the site the link belongs to", () => {
+    expect(emailLogoUrl(URL_WITH_QUERY)).toBe(
+      "https://seq-elevate.eu/brand/seq-elevate-email-2x.png"
+    );
+    expect(
+      emailLogoUrl("http://localhost:3000/api/auth/callback/resend?token=x")
+    ).toBe("http://localhost:3000/brand/seq-elevate-email-2x.png");
+  });
+
+  it("declares the logo at half the file's pixel size", () => {
+    // PNG header: width and height are big-endian at bytes 16 and 20.
+    const png = readFileSync(
+      new URL(`../../public${EMAIL_LOGO.path}`, import.meta.url)
+    );
+    expect(png.readUInt32BE(16)).toBe(EMAIL_LOGO.width * 2);
+    expect(png.readUInt32BE(20)).toBe(EMAIL_LOGO.height * 2);
+  });
+});
+
 describe("renderInviteEmail", () => {
+  it("opens with the logo, alt text standing in when images are blocked", () => {
+    const { html } = renderInviteEmail({ url: URL_WITH_QUERY, copy: copy() });
+    expect(html).toContain(
+      '<img src="https://seq-elevate.eu/brand/seq-elevate-email-2x.png" width="200" height="107" alt="SEQ Elevate"'
+    );
+  });
+
   it("links the call to action to the join URL (attribute-escaped)", () => {
     const { html } = renderInviteEmail({ url: URL_WITH_QUERY, copy: copy() });
     expect(html).toContain(`href="${URL_WITH_QUERY.replace(/&/g, "&amp;")}"`);
@@ -50,7 +84,9 @@ describe("renderInviteEmail", () => {
         invitedBy: `Invited by "><script>alert(2)</script>.`,
       }),
     });
-    expect(html).not.toContain("<img");
+    // The only image is the logo.
+    expect(html.match(/<img/g)).toHaveLength(1);
+    expect(html).not.toContain("<img src=x");
     expect(html).not.toContain("<script");
     expect(html).toContain("Hello &lt;img src=x onerror=alert(1)&gt;,");
   });

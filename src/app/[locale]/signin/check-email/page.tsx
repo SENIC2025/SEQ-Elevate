@@ -1,7 +1,8 @@
 import { setRequestLocale, getTranslations } from "next-intl/server";
 import { Link } from "@/i18n/navigation";
 import { Card, CardContent } from "@/components/ui/card";
-import { MailCheck, Sparkles } from "lucide-react";
+import { BrandLogo } from "@/components/BrandLogo";
+import { MailCheck } from "lucide-react";
 
 export default async function Page({
   params,
@@ -11,16 +12,10 @@ export default async function Page({
   const { locale } = await params;
   setRequestLocale(locale);
   const t = await getTranslations("auth");
-  const tCommon = await getTranslations("common");
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-[var(--background)] px-4">
-      <div className="flex items-center gap-2 font-semibold tracking-tight mb-8">
-        <span className="flex h-8 w-8 items-center justify-center rounded-md bg-[var(--primary)] text-[var(--primary-foreground)]">
-          <Sparkles className="h-4 w-4" />
-        </span>
-        <span>{tCommon("appName")}</span>
-      </div>
+      <BrandLogo variant="lockup" width={200} className="mb-8" />
 
       <Card className="w-full max-w-sm text-center">
         <CardContent className="p-8">
