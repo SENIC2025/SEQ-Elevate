@@ -34,11 +34,7 @@ export function NarrativeStage({
         ) : null}
         <h2 className="text-2xl font-bold tracking-tight">{stage.title}</h2>
 
-        <div className="mt-4 space-y-3">
-          {blocks.map((block, i) => (
-            <Block key={i} block={block} />
-          ))}
-        </div>
+        <NarrativeBlocks blocks={blocks} />
 
         <div className="mt-6 flex justify-end">
           <Button size="md" onClick={onContinue}>
@@ -48,6 +44,20 @@ export function NarrativeStage({
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * A lesson's content blocks, exactly as learners see them. Shared with the
+ * course page's read view, so editors preview with the learner's renderer.
+ */
+export function NarrativeBlocks({ blocks }: { blocks: NarrativeBlock[] }) {
+  return (
+    <div className="mt-4 space-y-3">
+      {blocks.map((block, i) => (
+        <Block key={i} block={block} />
+      ))}
+    </div>
   );
 }
 

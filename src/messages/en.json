@@ -486,7 +486,11 @@
     "openCompCard": "Open your Comp Card",
     "backToDashboard": "Back to dashboard",
     "courseComplete": "Course complete",
-    "dashboard": "Dashboard"
+    "dashboard": "Dashboard",
+    "editLesson": "Edit this lesson",
+    "draftPreview": "<b>Draft preview.</b> This course is not published — learners can't see it yet. Nothing you do in this preview is saved.",
+    "preview": "<b>Preview.</b> Nothing you do here is saved.",
+    "backToEditing": "Back to editing"
   },
   "video": {
     "regionLabel": "Lesson video",
@@ -594,7 +598,135 @@
   },
   "content": {
     "title": "Create courses",
-    "subtitle": "Create courses, write their content in English, German and Greek, add videos and documents, and publish each course when it is ready for learners."
+    "subtitle": "Start a new course here — you'll write its lessons on its own course page. Templates every course shares are below.",
+    "newCourseTitle": "Start a new course",
+    "newCourseIntro": "Give it a title to begin. It stays a draft, visible only to editors, until you publish it.",
+    "manageLink": "Manage existing courses",
+    "templatesTitle": "Shared templates",
+    "templatesIntro": "Wording that every course shares, such as the questions on the Comp Card."
+  },
+  "courseManager": {
+    "languageName": {
+      "en": "English",
+      "de": "German",
+      "el": "Greek"
+    },
+    "status": {
+      "published": "Published",
+      "draft": "Draft",
+      "archived": "Archived"
+    },
+    "kind": {
+      "bundled": "Built-in",
+      "cms": "Created here"
+    },
+    "editorsOnly": {
+      "title": "Editors only",
+      "body": "Sign in with an Editor or Admin account to manage courses. If you should have access, ask your project administrator for the Editor role."
+    },
+    "grid": {
+      "title": "Manage courses",
+      "subtitle": "Every course on the platform, drafts included. Open one to edit its title, lessons, videos and documents.",
+      "newCourse": "New course",
+      "newCourseIntro": "It starts as a draft — only editors see it until you publish it.",
+      "empty": "No courses yet — start one with New course.",
+      "facts": {
+        "lessons": "Lessons",
+        "languages": "Languages",
+        "lastEdited": "Last edited",
+        "enrolled": "Enrolled"
+      },
+      "lessons": "{count, plural, one {# lesson} other {# lessons}}",
+      "enrolled": "{count, plural, =0 {Nobody enrolled yet} one {# learner enrolled} other {# learners enrolled}}",
+      "lastEdited": "Edited {when}",
+      "neverEdited": "Not edited yet",
+      "open": "Open course",
+      "preview": "Preview",
+      "newTab": "(opens in a new tab)",
+      "lessonLink": "Edit lesson {n}: {stage}",
+      "lessonsNav": "Lessons in {title}",
+      "lang": {
+        "label": "{language}: {state}",
+        "complete": "complete",
+        "partial": "{covered} of {total} lessons",
+        "missing": "not started"
+      }
+    },
+    "page": {
+      "metaTitle": "{title} · Manage courses",
+      "allCourses": "All courses",
+      "lastEdited": "Last edited {when}",
+      "contentLanguage": "Content language",
+      "contentLanguageHint": "The language you are writing in. Menus and buttons stay in your language.",
+      "previewAsLearner": "Preview as learner",
+      "previewLesson": "Preview this lesson",
+      "publishing": "Publishing",
+      "publish": "Publish",
+      "unpublish": "Unpublish",
+      "confirmUnpublish": "Yes, unpublish",
+      "cancel": "Cancel",
+      "archive": "Archive",
+      "restoreDraft": "Move back to draft",
+      "unpublishWarning": "{count, plural, =0 {Nobody is enrolled yet.} one {# learner is enrolled. Their progress is kept.} other {# learners are enrolled. Their progress is kept.}} Learners can't open the course until you publish it again.",
+      "liveNote": "This course is live — changes you save are visible to learners straight away.",
+      "draftNote": "This course is a draft — only editors can see it until you publish it.",
+      "archivedNote": "This course is archived — learners can't see it. You can publish it again or move it back to draft.",
+      "copyRegion": "Course title and subtitle",
+      "courseTitle": "Course title",
+      "subtitle": "Subtitle",
+      "skillArea": "Skill area",
+      "saveCopy": "Save title and subtitle",
+      "useBuiltIn": "Use built-in wording",
+      "builtInHint": "Built-in: {title}",
+      "customised": "Customised",
+      "notTranslated": "Not translated yet — learners see the {language} title.",
+      "saving": "Saving…",
+      "saved": "Saved",
+      "errors": {
+        "forbidden": "Your account can't edit courses right now. Sign in again, or ask your project administrator for the Editor role.",
+        "unknownCourse": "This course no longer exists. Go back to All courses.",
+        "titleRequired": "Give the course a title.",
+        "generic": "That didn't save. Check your connection and try again."
+      },
+      "lessonsNav": "Lessons",
+      "editLesson": "Edit lesson",
+      "done": "Done",
+      "notAddedYet": "Not added yet",
+      "addStage": {
+        "simulation": "Add guided practice",
+        "scenario": "Add an applied scenario",
+        "assessment": "Add a quick check"
+      },
+      "builtInNotice": "This part of a built-in course comes with the platform and can't be edited here. You can still add a video and documents.",
+      "unsavedSwitch": "You have unsaved changes in: {list}. Switch language and discard them?",
+      "unsavedClose": "You have unsaved changes in: {list}. Close this lesson and discard them?",
+      "unsavedLeave": "You have unsaved changes in: {list}. Leave this page and discard them?",
+      "unsavedMenuLanguage": "You have unsaved changes in: {list}. Change the menu language and discard them?",
+      "readiness": {
+        "title": "Before you publish",
+        "intro": "Worth a look — none of these stop you publishing.",
+        "copyMissing": "No {language} title and subtitle yet.",
+        "lessonEmpty": "The “{stage}” lesson has no content yet.",
+        "lessonUntranslated": "{count, plural, one {# lesson has} other {# lessons have}} no {language} text yet — learners see another language there.",
+        "noInteractive": "No practice activity yet — guided practice, an applied scenario or a quick check helps learners try the skill."
+      },
+      "read": {
+        "video": "Video",
+        "fileVideo": "Video file",
+        "youtubeVideo": "YouTube video",
+        "builtInVideo": "Video that comes with the course",
+        "noVideo": "No video",
+        "videoQuestions": "{count, plural, one {# question in the video} other {# questions in the video}}",
+        "documents": "Documents",
+        "noDocuments": "No documents",
+        "draftDocument": "Draft — hidden from learners",
+        "emptyLesson": "This lesson has no content yet.",
+        "bestResponse": "Best response",
+        "correctAnswer": "Correct answer",
+        "prompts": "Reflection questions",
+        "notAdded": "Not added yet — learners don't see this lesson."
+      }
+    }
   },
   "lesson": {
     "resourcesTitle": "Resources",
@@ -618,7 +750,11 @@
     "switcherMenu": "Your workspaces",
     "content": {
       "title": "Create courses",
-      "desc": "Write, translate and publish courses, videos and documents."
+      "desc": "Start a new course and set up shared templates."
+    },
+    "courses": {
+      "title": "Manage courses",
+      "desc": "Open any course to edit its title, lessons, videos and documents."
     },
     "admin": {
       "title": "Manage people",

@@ -177,7 +177,7 @@ Notes:
 Sign-in **is** sign-up (passwordless: the first magic-link click creates the account). Roles are **granted, never self-selected** — a public "choose admin" would expose all learner PII + GDPR controls. The chain:
 
 1. **Bootstrap admins** — set `ADMIN_EMAILS` (§1) to the consortium's admin emails and **redeploy**. They sign in via magic link (or just reload, if already signed in) → Admin + Content-Editor.
-2. **Everyone lands on "Your workspaces"** (D26) — cards for exactly what their roles allow: *Create courses*, *Manage people*, *Support learners*, *Statistics*, *My learning*. A switcher in the top bar moves between them. Learners, who only have *My learning*, skip the hub and go straight to their courses.
+2. **Everyone lands on "Your workspaces"** (D26) — cards for exactly what their roles allow: *Create courses*, *Manage courses*, *Manage people*, *Support learners*, *Statistics*, *My learning*. A switcher in the top bar moves between them. Learners, who only have *My learning*, skip the hub and go straight to their courses.
 3. **Admins add everyone else** — *Manage people*: add trainers/teachers/learners by email with a role (+ org + cohort). By default they get an **invitation email** (EN/DE/EL, chosen per person) with a one-click **Join SEQ Elevate** button valid 7 days (D27); the list shows **Invited** → **Joined**, with **Resend invitation**. Admins can add other admins here too.
 4. New users not on the list and not added by an admin sign in with **no elevated role** — they get *My learning* only.
 

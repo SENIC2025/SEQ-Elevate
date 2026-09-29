@@ -1,7 +1,6 @@
 "use client";
 
 import * as React from "react";
-import { useRouter } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -9,8 +8,6 @@ import {
   getStructure,
   saveStructure,
   clearStructure,
-  listAuthorableCourses,
-  type AuthorableCourse,
 } from "@/app/actions/structure";
 import type {
   StoredStructure,
@@ -32,18 +29,14 @@ import {
   Trash2,
   Star,
   RotateCcw,
+  RefreshCw,
 } from "lucide-react";
 
-const LOCALES: { code: Locale; label: string }[] = [
-  { code: "en", label: "English" },
-  { code: "de", label: "Deutsch" },
-  { code: "el", label: "Ελληνικά" },
-];
-const KINDS: { key: StructureStageKey; label: string }[] = [
-  { key: "simulation", label: "Simulation" },
-  { key: "scenario", label: "Scenario" },
-  { key: "assessment", label: "Assessment" },
-];
+const KIND_LABEL: Record<StructureStageKey, string> = {
+  simulation: "Simulation",
+  scenario: "Scenario",
+  assessment: "Assessment",
+};
 const QUALITIES: OutcomeQuality[] = ["best", "okay", "poor"];
 
 const inputCls =
@@ -100,70 +93,123 @@ function emptyStructure(kind: StructureStageKey): StoredStructure {
   };
 }
 
-export function StructureAuthor() {
+/**
+ * Tell the page when unsaved edits appear and when they're gone — saved,
+ * reloaded, or discarded because the editor closed.
+ */
+function useReportDirty(dirty: boolean, onDirtyChange?: (d: boolean) => void) {
+  const report = React.useRef(onDirtyChange);
+  React.useEffect(() => {
+    report.current = onDirtyChange;
+  });
+  React.useEffect(() => {
+    if (!dirty) return;
+    report.current?.(true);
+    return () => report.current?.(false);
+  }, [dirty]);
+}
+
+interface LoadedStructure {
+  key: string;
+  draft: StoredStructure;
+  /** What's stored (or the empty template): unsaved edits = draft !== saved. */
+  saved: StoredStructure;
+  /**
+   * What the server holds as far as this editor knows (null = nothing yet).
+   * Sent with a save, so the server can refuse it if someone else has saved
+   * the stage since (the draft holds every language — D33).
+   */
+  stored: StoredStructure | null;
+  authored: boolean;
+}
+
+type Status = "idle" | "saving" | "saved" | "removed" | "error";
+
+/**
+ * Author one interactive stage (simulation / scenario / assessment) of a
+ * CMS-created course, on the course page. The page gives the lesson and the
+ * language being written; the draft holds every language at once, so a
+ * language switch keeps unsaved work.
+ *
+ * It reads the stage fresh whenever it opens, rather than taking what the
+ * page loaded: a colleague may have saved another language since.
+ */
+export function StructureAuthor({
+  courseSlug: slug,
+  kind,
+  locale,
+  regionLabel,
+  embedded = false,
+  onSaved,
+  onCleared,
+  onDirtyChange,
+}: {
+  courseSlug: string;
+  kind: StructureStageKey;
+  /** The language being written. The draft holds every language at once. */
+  locale: Locale;
+  /** Heading and region name, e.g. "Interactive stage — Simulation". */
+  regionLabel?: string;
+  /** Inside a lesson on the course page: lighter frame. */
+  embedded?: boolean;
+  onSaved?: (structure: StoredStructure) => void;
+  onCleared?: () => void;
+  onDirtyChange?: (dirty: boolean) => void;
+}) {
   const headingId = React.useId();
-  const router = useRouter();
-  const [courses, setCourses] = React.useState<AuthorableCourse[] | null>(null);
-  const [slug, setSlug] = React.useState("");
-  const [kind, setKind] = React.useState<StructureStageKey>("simulation");
-  const [locale, setLocale] = React.useState<Locale>("en");
+  const headingRef = React.useRef<HTMLHeadingElement>(null);
   // The draft plus the (course, stage) it belongs to, as one unit. Deriving
-  // `ready` from the key means switching course then saving quickly can never
-  // write one course's draft onto another — Save waits for the matching load.
-  const [loaded, setLoaded] = React.useState<{
-    key: string;
-    draft: StoredStructure;
-    authored: boolean;
-  } | null>(null);
-  const setDraft = (next: StoredStructure) =>
+  // `ready` from the key means Save waits until the stage has loaded.
+  const [loaded, setLoaded] = React.useState<LoadedStructure | null>(null);
+  const [loadFailed, setLoadFailed] = React.useState(false);
+  const [status, setStatus] = React.useState<Status>("idle");
+  const setDraft = (next: StoredStructure) => {
     setLoaded((l) => (l ? { ...l, draft: next } : l));
-  const [status, setStatus] = React.useState<
-    "idle" | "saving" | "saved" | "error"
-  >("idle");
+    // "Removed" / "Saved" describe the stage before this edit.
+    setStatus((s) => (s === "removed" || s === "saved" ? "idle" : s));
+  };
   const [issues, setIssues] = React.useState<string[]>([]);
+  const [clearError, setClearError] = React.useState("");
+  // Someone else saved this stage after it was loaded here.
+  const [conflict, setConflict] = React.useState(false);
   const [reloadKey, setReloadKey] = React.useState(0);
 
-  // Load the authorable (CMS-created) courses once.
-  const [denied, setDenied] = React.useState(false);
   React.useEffect(() => {
     let cancelled = false;
-    listAuthorableCourses().then((list) => {
-      if (cancelled) return;
-      if (list === null) setDenied(true);
-      else {
-        setCourses(list);
-        setSlug((s) => s || list[0]?.slug || "");
+    getStructure(slug, kind).then(
+      (existing) => {
+        if (cancelled) return;
+        const draft = existing ?? emptyStructure(kind);
+        setLoaded({
+          key: `${slug}:${kind}`,
+          draft,
+          saved: draft,
+          stored: existing,
+          authored: Boolean(existing),
+        });
+        setLoadFailed(false);
+        setConflict(false);
+        setIssues([]);
+        // Keep "Removed" after the reload that follows a removal.
+        setStatus((s) => (s === "removed" ? s : "idle"));
+      },
+      () => {
+        if (!cancelled) setLoadFailed(true);
       }
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  React.useEffect(() => {
-    if (!slug) return;
-    let cancelled = false;
-    (async () => {
-      const existing = await getStructure(slug, kind);
-      if (cancelled) return;
-      setLoaded({
-        key: `${slug}:${kind}`,
-        draft: existing ?? emptyStructure(kind),
-        authored: Boolean(existing),
-      });
-      setStatus("idle");
-      setIssues([]);
-    })();
+    );
     return () => {
       cancelled = true;
     };
   }, [slug, kind, reloadKey]);
 
-  // Until the load for the current selectors resolves, `loaded.key` still holds
-  // the previous pair, so `ready` is false — no synchronous reset needed.
+  // Until the load resolves, `loaded.key` doesn't match (or `loaded` is
+  // null), so `ready` is false — no synchronous reset needed.
   const ready = loaded?.key === `${slug}:${kind}`;
   const draft = ready ? loaded!.draft : null;
   const authored = ready ? loaded!.authored : false;
+  const dirty = ready && loaded!.draft !== loaded!.saved;
+  useReportDirty(dirty, onDirtyChange);
+  const kindLabel = KIND_LABEL[kind];
 
   React.useEffect(() => {
     if (status !== "saved") return;
@@ -175,15 +221,28 @@ export function StructureAuthor() {
     if (!draft || !ready) return;
     const savedKey = `${slug}:${kind}`;
     setStatus("saving");
-    const res = await saveStructure(slug, kind, draft);
+    setClearError("");
+    setConflict(false);
+    const res = await saveStructure(slug, kind, draft, loaded!.stored);
     if (res.ok) {
       // The server stores exactly this draft, so keep it rather than reloading:
       // a reload resets status to "idle" (the "Saved" confirmation flashed for
-      // ~25ms) and overwrites anything typed while it was in flight.
-      setLoaded((l) => (l?.key === savedKey ? { ...l, authored: true } : l));
+      // ~25ms) and overwrites anything typed while it was in flight — which
+      // stays unsaved, since it's a newer draft than the one sent.
+      setLoaded((l) =>
+        l?.key === savedKey
+          ? { ...l, authored: true, saved: draft, stored: draft }
+          : l
+      );
       setStatus("saved");
       setIssues([]);
-      router.refresh();
+      // The page re-reads itself (what learners see, warnings).
+      onSaved?.(draft);
+    } else if (res.error === "changed-elsewhere") {
+      // Nothing was written; the edits stay on screen.
+      setStatus("error");
+      setIssues([]);
+      setConflict(true);
     } else {
       setStatus("error");
       setIssues(
@@ -202,98 +261,90 @@ export function StructureAuthor() {
     }
   }
 
-  async function onClear() {
-    setStatus("saving");
-    await clearStructure(slug, kind);
+  function onReload() {
+    if (
+      dirty &&
+      !window.confirm(
+        "Load the saved version of this stage? Your unsaved edits here will be replaced."
+      )
+    ) {
+      return;
+    }
     setReloadKey((k) => k + 1);
-    router.refresh();
   }
 
-  if (denied) return null;
-  if (courses === null) {
-    return (
-      <Card>
-        <CardContent className="p-4 text-sm text-[var(--muted-foreground)]">
-          Loading…
-        </CardContent>
-      </Card>
-    );
-  }
-  if (courses.length === 0) {
-    return (
-      <Card>
-        <CardContent className="p-4 text-sm text-[var(--muted-foreground)]">
-          Create a course first — interactive stages are authored on
-          CMS-created courses. Built-in courses keep their own structure.
-        </CardContent>
-      </Card>
-    );
+  async function onClear() {
+    if (
+      !window.confirm(
+        `Remove this ${kindLabel.toLowerCase()}? Learners will no longer see it.`
+      )
+    ) {
+      return;
+    }
+    // "Remove stage" goes away once it's done (and so do the lesson's video
+    // and documents above): keep focus here, not on the page.
+    headingRef.current?.focus();
+    setStatus("saving");
+    setClearError("");
+    setConflict(false);
+    const res = await clearStructure(slug, kind);
+    if (!res.ok) {
+      setStatus("error");
+      setClearError(
+        "Couldn't remove the stage: only editors and admins can change courses."
+      );
+      return;
+    }
+    setStatus("removed");
+    setReloadKey((k) => k + 1);
+    onCleared?.();
   }
 
   return (
-    <Card>
+    <Card className={embedded ? "shadow-none" : undefined}>
       <CardContent className="p-4" role="region" aria-labelledby={headingId}>
         <div className="flex flex-wrap items-center gap-2 mb-3">
           <h3
             id={headingId}
+            ref={headingRef}
+            tabIndex={-1}
             className="text-sm font-semibold flex items-center gap-1.5"
           >
             <Puzzle className="h-4 w-4 text-[var(--accent)]" aria-hidden />
-            Interactive stage
+            {regionLabel ?? "Interactive stage"}
           </h3>
           <Badge variant={authored ? "accent" : "muted"} className="text-[10px]">
             {authored ? "Authored" : "Not added yet"}
           </Badge>
         </div>
 
-        {/* Selectors */}
-        <div className="flex flex-wrap gap-2 mb-4">
-          <label className="text-xs text-[var(--muted-foreground)]">
-            <span className="block mb-1">Course</span>
-            <select
-              value={slug}
-              onChange={(e) => setSlug(e.target.value)}
-              aria-label="Course"
-              className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-sm"
+        {conflict ? (
+          <div
+            className="mb-3 rounded-lg border border-[var(--warning)] bg-[var(--warning)]/10 p-3"
+            role="alert"
+          >
+            <p className="text-sm flex items-start gap-1.5">
+              <AlertTriangle
+                className="mt-0.5 h-4 w-4 flex-shrink-0 text-[var(--warning)]"
+                aria-hidden
+              />
+              <span>
+                Someone else saved this stage since you opened it, so nothing
+                was saved. Reload it to see their changes — your edits are
+                still here until you do.
+              </span>
+            </p>
+            <Button
+              size="sm"
+              variant="outline"
+              className="mt-2"
+              onClick={onReload}
             >
-              {courses.map((c) => (
-                <option key={c.slug} value={c.slug}>
-                  {c.title}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="text-xs text-[var(--muted-foreground)]">
-            <span className="block mb-1">Stage</span>
-            <select
-              value={kind}
-              onChange={(e) => setKind(e.target.value as StructureStageKey)}
-              aria-label="Stage"
-              className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-sm"
-            >
-              {KINDS.map((k) => (
-                <option key={k.key} value={k.key}>
-                  {k.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="text-xs text-[var(--muted-foreground)]">
-            <span className="block mb-1">Language</span>
-            <select
-              value={locale}
-              onChange={(e) => setLocale(e.target.value as Locale)}
-              aria-label="Language"
-              className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-sm"
-            >
-              {LOCALES.map((l) => (
-                <option key={l.code} value={l.code}>
-                  {l.label}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
+              <RefreshCw className="h-4 w-4" aria-hidden />
+              Reload the saved version
+            </Button>
+          </div>
+        ) : null}
 
         {issues.length ? (
           <div
@@ -330,6 +381,10 @@ export function StructureAuthor() {
               />
             )}
           </>
+        ) : loadFailed ? (
+          <p className="text-sm text-[var(--danger)]" role="alert">
+            Couldn&rsquo;t load this stage. Reload the page to try again.
+          </p>
         ) : (
           <p className="text-sm text-[var(--muted-foreground)]">Loading…</p>
         )}
@@ -348,18 +403,41 @@ export function StructureAuthor() {
             Save stage
           </Button>
           {authored ? (
-            <Button size="sm" variant="outline" onClick={onClear}>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={status === "saving"}
+              onClick={onClear}
+            >
               <RotateCcw className="h-4 w-4" />
               Remove stage
             </Button>
           ) : null}
-          {status === "saved" ? (
+          {/* Always mounted, so what it says next is announced. */}
+          <span
+            role="status"
+            aria-live="polite"
+            className="text-xs text-[var(--success)] inline-flex items-center gap-1"
+          >
+            {status === "saved" ? (
+              <>
+                <CheckCircle2 className="h-4 w-4" aria-hidden />
+                Saved
+              </>
+            ) : status === "removed" ? (
+              <>
+                <CheckCircle2 className="h-4 w-4" aria-hidden />
+                Removed — learners no longer see this stage.
+              </>
+            ) : null}
+          </span>
+          {clearError ? (
             <span
-              role="status"
-              className="text-xs text-[var(--success)] inline-flex items-center gap-1"
+              role="alert"
+              className="text-xs text-[var(--danger)] inline-flex items-start gap-1"
             >
-              <CheckCircle2 className="h-4 w-4" />
-              Saved
+              <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+              {clearError}
             </span>
           ) : null}
         </div>
@@ -769,6 +847,9 @@ function AssessmentEditor({
   onChange: (s: StoredAssessment) => void;
 }) {
   const set = (patch: Partial<StoredAssessment>) => onChange({ ...value, ...patch });
+  // Radio group names from useId, not the question ids: a new question's id
+  // is random, and would differ between the server and the browser.
+  const group = React.useId();
 
   return (
     <div className="space-y-3">
@@ -830,7 +911,7 @@ function AssessmentEditor({
               <div key={a.id} className="flex items-start gap-2">
                 <input
                   type="radio"
-                  name={`correct-${q.id}`}
+                  name={`${group}-correct-${i}`}
                   checked={q.correctOptionId === a.id}
                   onChange={() =>
                     set({

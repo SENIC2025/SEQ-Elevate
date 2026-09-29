@@ -5,26 +5,36 @@ import { STAGES, type Stage } from "@/data/course";
 import { Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 
+/**
+ * The course's steps, in order. A learner can go back to any step they've
+ * reached but not skip ahead; an editor's preview (`allReachable`) can jump
+ * anywhere. `stages` is the steps this course actually has — a course without
+ * the interactive steps shows only its own, numbered 1..n.
+ */
 export function StageBreadcrumb({
   current,
   completed,
   onJump,
+  stages = STAGES,
+  allReachable = false,
 }: {
   current: Stage;
   completed: string[];
   onJump?: (stage: Stage) => void;
+  stages?: readonly Stage[];
+  allReachable?: boolean;
 }) {
   const t = useTranslations("course.stageLabel");
-  const currentIndex = STAGES.indexOf(current);
+  const currentIndex = stages.indexOf(current);
 
   return (
     <nav aria-label="Course stages" className="w-full overflow-x-auto">
       <ol className="flex items-center gap-1 min-w-max">
-        {STAGES.map((stage, i) => {
+        {stages.map((stage, i) => {
           const isCurrent = stage === current;
           const isDone = completed.includes(stage);
           const isPast = i < currentIndex;
-          const reachable = isDone || isPast || isCurrent;
+          const reachable = allReachable || isDone || isPast || isCurrent;
 
           return (
             <li key={stage} className="flex items-center">
@@ -44,6 +54,12 @@ export function StageBreadcrumb({
                     !isDone &&
                     isPast &&
                     "bg-[var(--surface-muted)] text-[var(--foreground)] hover:bg-[var(--surface)]",
+                  // A step ahead that preview lets the editor jump to.
+                  reachable &&
+                    !isCurrent &&
+                    !isDone &&
+                    !isPast &&
+                    "text-[var(--foreground)] hover:bg-[var(--surface-muted)]",
                   !reachable &&
                     "text-[var(--muted-foreground)] cursor-not-allowed opacity-60"
                 )}
@@ -62,7 +78,7 @@ export function StageBreadcrumb({
                 </span>
                 <span className="hidden sm:inline">{t(stage)}</span>
               </button>
-              {i < STAGES.length - 1 ? (
+              {i < stages.length - 1 ? (
                 <span
                   className={cn(
                     "mx-0.5 h-px w-3 sm:w-4",

@@ -27,9 +27,10 @@ test.describe.configure({ mode: "serial" });
 
 const PROJECT = "seq-elevate";
 const STAFF = "e2e-hub-staff@example.com";
+const EDITOR = "e2e-hub-editor@example.com";
 const LEARNER = "e2e-hub-learner@example.com";
 const BOOTSTRAP = "e2e-bootstrap-admin@example.com"; // listed in ADMIN_EMAILS
-const EMAILS = [STAFF, LEARNER, BOOTSTRAP];
+const EMAILS = [STAFF, EDITOR, LEARNER, BOOTSTRAP];
 
 const TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
 
@@ -95,6 +96,7 @@ describe("Workspace hub", () => {
     ).toBeVisible();
     for (const name of [
       "Create courses",
+      "Manage courses",
       "Manage people",
       "Support learners",
       "Statistics",
@@ -119,6 +121,35 @@ describe("Workspace hub", () => {
     await switcher.click();
     await page.getByRole("link", { name: "Manage people" }).first().click();
     await expect(page).toHaveURL(/\/en\/admin$/);
+  });
+
+  test("an editor opens Manage courses from the hub, and the header names it", async ({
+    page,
+    context,
+  }) => {
+    const { sessionToken } = await signedInUser(EDITOR, ["CONTENT_EDITOR"]);
+    await useSession(context, sessionToken);
+
+    // Create courses, Manage courses and My learning: a hub, not a redirect.
+    await page.goto("/en");
+    for (const name of ["Create courses", "Manage courses", "My learning"]) {
+      await expect(page.getByRole("link", { name }).first()).toBeVisible();
+    }
+
+    await page.getByRole("link", { name: "Manage courses" }).first().click();
+    await expect(page).toHaveURL(/\/en\/content\/courses$/);
+    // The course grid itself, not the editors-only notice.
+    await expect(
+      page.getByRole("heading", { level: 1, name: "Manage courses" })
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: /new course/i })
+    ).toBeVisible();
+    // /content/courses is under /content: the longest route must win, or the
+    // switcher would call this page "Create courses".
+    await expect(page.locator("header summary").first()).toContainText(
+      "Manage courses"
+    );
   });
 
   test("a learner skips the hub and goes straight to their courses", async ({

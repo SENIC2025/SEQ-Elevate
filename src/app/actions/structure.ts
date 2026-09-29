@@ -19,6 +19,7 @@ import {
   type StoredStructure,
   type StructureStageKey,
 } from "@/lib/cms/structure";
+import { ChangedElsewhere, sameStoredJson } from "@/lib/cms/stored-json";
 
 const PROJECT = "seq-elevate";
 
@@ -34,36 +35,6 @@ const KIND_FOR_STAGE: Record<StructureStageKey, StoredStructure["kind"]> = {
   scenario: "scenario",
   assessment: "assessment",
 };
-
-export interface AuthorableCourse {
-  slug: string;
-  title: string;
-}
-
-/**
- * CMS-created courses only — the ones whose interactive stages can be authored.
- * Bundled courses own their structure in code, so they're excluded.
- */
-export async function listAuthorableCourses(): Promise<
-  AuthorableCourse[] | null
-> {
-  if (!(await requireEditor())) return null;
-  try {
-    const rows = await prisma.course.findMany({
-      where: { projectId: PROJECT, NOT: { meta: { equals: Prisma.DbNull } } },
-      orderBy: { createdAt: "asc" },
-      select: { slug: true, meta: true },
-    });
-    return rows.map((r) => {
-      const meta = r.meta as Record<string, { title?: string }> | null;
-      const title =
-        meta?.en?.title ?? Object.values(meta ?? {})[0]?.title ?? r.slug;
-      return { slug: r.slug, title };
-    });
-  } catch {
-    return [];
-  }
-}
 
 /** Read the stored structure for one stage of a CMS course (editor UI). */
 export async function getStructure(
@@ -91,19 +62,43 @@ async function isCmsCourse(courseSlug: string) {
   return Boolean(course?.meta);
 }
 
+const isStructureStage = (key: unknown): key is StructureStageKey =>
+  typeof key === "string" && Object.hasOwn(KIND_FOR_STAGE, key);
+
+const isObject = (v: unknown): v is object =>
+  typeof v === "object" && v !== null && !Array.isArray(v);
+
 /**
  * Save a stage's structure. Validates before writing; the same kind must match
  * the stage. Publishing readiness is the caller's concern — we store drafts
  * too, but return the validation issues so the UI can warn.
+ *
+ * `base` is what the editor started from (null = nothing stored yet). The
+ * structure holds every language in one column, and the page shows one
+ * language at a time — so a save from a page opened before a colleague's
+ * save would silently wipe their translation. If what's stored is no longer
+ * `base`, nothing is written and the editor is asked to reload (D33).
  */
 export async function saveStructure(
   courseSlug: string,
   stageKey: StructureStageKey,
-  structure: StoredStructure
+  structure: StoredStructure,
+  base: StoredStructure | null
 ) {
   const editor = await requireEditor();
   if (!editor) return { ok: false as const, error: "forbidden" };
 
+  // Server-action arguments come straight from the client.
+  if (
+    typeof courseSlug !== "string" ||
+    !courseSlug ||
+    courseSlug.length > 80 ||
+    !isStructureStage(stageKey) ||
+    !isObject(structure) ||
+    (base !== null && !isObject(base))
+  ) {
+    return { ok: false as const, error: "bad-input" };
+  }
   if (structure.kind !== KIND_FOR_STAGE[stageKey]) {
     return { ok: false as const, error: "kind-mismatch" };
   }
@@ -116,22 +111,39 @@ export async function saveStructure(
     return { ok: false as const, error: "invalid", issues };
   }
 
-  await prisma.lesson.upsert({
-    where: {
-      projectId_courseSlug_stageKey: {
-        projectId: PROJECT,
-        courseSlug,
-        stageKey,
-      },
-    },
-    create: {
-      projectId: PROJECT,
-      courseSlug,
-      stageKey,
-      structure: structure as unknown as Prisma.InputJsonValue,
-    },
-    update: { structure: structure as unknown as Prisma.InputJsonValue },
-  });
+  const where = {
+    projectId_courseSlug_stageKey: { projectId: PROJECT, courseSlug, stageKey },
+  };
+  try {
+    await prisma.$transaction(async (tx) => {
+      // Make sure the row exists, then lock it until this save commits, so a
+      // second save can't slip in between the check and the write.
+      await tx.lesson.upsert({
+        where,
+        create: { projectId: PROJECT, courseSlug, stageKey },
+        update: {},
+      });
+      await tx.$queryRaw`SELECT id FROM "Lesson" WHERE "projectId" = ${PROJECT} AND "courseSlug" = ${courseSlug} AND "stageKey" = ${stageKey} FOR UPDATE`;
+      const current = await tx.lesson.findUnique({
+        where,
+        select: { structure: true },
+      });
+      // Compare the structure itself, not Lesson.updatedAt: a video or text
+      // saved on the same lesson isn't a clash.
+      if (!sameStoredJson(current?.structure ?? null, base)) {
+        throw new ChangedElsewhere();
+      }
+      await tx.lesson.update({
+        where,
+        data: { structure: structure as unknown as Prisma.InputJsonValue },
+      });
+    });
+  } catch (error) {
+    if (error instanceof ChangedElsewhere) {
+      return { ok: false as const, error: "changed-elsewhere" };
+    }
+    throw error;
+  }
 
   await prisma.auditLog.create({
     data: {

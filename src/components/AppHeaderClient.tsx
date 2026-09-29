@@ -41,6 +41,11 @@ export function AppHeaderClient({
   const { state, dispatch } = useDemoState();
   const { data: session, status } = useSession();
   const authed = status === "authenticated";
+  // Staff get the workspace switcher too. Words join the icons as the screen
+  // widens (md: product name, workspace; lg: sign out; xl: email), so the
+  // header never scrolls sideways, from a 360px phone up, in any language.
+  // Hidden words stay as each control's accessible name.
+  const crowded = authed && workspaces.length > 1;
 
   return (
     <header className="sticky top-0 z-20 border-b border-[var(--border)] bg-[var(--surface)]/90 backdrop-blur">
@@ -50,12 +55,14 @@ export function AppHeaderClient({
           className="flex items-center gap-2 font-semibold tracking-tight"
         >
           <BrandLogo variant="mark" width={21} className="shrink-0" />
-          <span>{t("appName")}</span>
+          <span className={crowded ? "sr-only md:not-sr-only" : undefined}>
+            {t("appName")}
+          </span>
         </Link>
         <div className="flex items-center gap-2">
           {authed ? (
             <>
-              {workspaces.length > 1 ? (
+              {crowded ? (
                 <WorkspaceSwitcher workspaces={workspaces} />
               ) : null}
               <Link
@@ -64,7 +71,7 @@ export function AppHeaderClient({
                 className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--surface-muted)] px-3 py-1.5 text-xs text-[var(--muted-foreground)] max-w-[200px] hover:bg-[var(--surface)]"
               >
                 <UserRound className="h-3.5 w-3.5 flex-shrink-0" />
-                <span className="hidden sm:inline truncate">
+                <span className="hidden xl:inline truncate">
                   {session?.user?.email}
                 </span>
               </Link>
@@ -73,8 +80,8 @@ export function AppHeaderClient({
                 onClick={() => signOut({ callbackUrl: "/" })}
                 className="flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm hover:bg-[var(--surface-muted)]"
               >
-                <LogOut className="h-4 w-4" />
-                <span className="hidden sm:inline">{tAuth("signOut")}</span>
+                <LogOut className="h-4 w-4" aria-hidden />
+                <span className="sr-only lg:not-sr-only">{tAuth("signOut")}</span>
               </button>
             </>
           ) : showRoleSwitch && state.role ? (
@@ -142,7 +149,7 @@ function WorkspaceSwitcher({ workspaces }: { workspaces: WorkspaceId[] }) {
     >
       <summary className="flex cursor-pointer list-none items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm hover:bg-[var(--surface-muted)] [&::-webkit-details-marker]:hidden">
         <CurrentIcon className="h-4 w-4" aria-hidden />
-        <span className="sr-only sm:not-sr-only">{label}</span>
+        <span className="sr-only md:not-sr-only">{label}</span>
         <ChevronDown className="h-3.5 w-3.5" aria-hidden />
       </summary>
       <nav

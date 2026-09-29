@@ -6,10 +6,20 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { InteractiveVideoPlayer } from "@/components/course/InteractiveVideoPlayer";
+import { cn } from "@/lib/utils";
 import { detectProvider, formatTimecode } from "@/lib/video";
-import { saveLessonVideo } from "@/app/actions/lesson";
-import { STAGES } from "@/data/course";
-import type { VideoContent, VideoCue } from "@/lib/cms/types";
+import {
+  clearLessonVideo,
+  getLessonMedia,
+  saveLessonVideo,
+} from "@/app/actions/lesson";
+import { CONTENT_LOCALES, isContentLocale } from "@/lib/cms/course-admin-types";
+import type {
+  Locale,
+  StageKey,
+  VideoContent,
+  VideoCue,
+} from "@/lib/cms/types";
 import {
   CAPTION_UPLOAD,
   VIDEO_UPLOAD,
@@ -49,11 +59,23 @@ import {
  * labelled "Not saved yet", and it can't be saved to a lesson until the file
  * is stored: a blob: URL would be a broken video for every learner. A picked
  * .vtt caption file goes the same way (the server refuses blob: URLs too).
+ *
+ * The course page gives the lesson (`courseSlug`, `stageKey`): the form
+ * starts from the video stored there, which can be saved or removed.
  */
 
-let cueSeq = 0;
+// Learners' answers are stored against the cue id alone, so a new cue's id
+// must be unique across every lesson, not just this one.
+function newCueId(): string {
+  const unique =
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  return `cue-${unique}`;
+}
+
 const newCue = (): EditableCue => ({
-  key: `cue-${cueSeq++}`,
+  key: newCueId(),
   atSeconds: 5,
   question: "",
   options: [
@@ -76,36 +98,208 @@ interface EditableCue {
 const inputCls =
   "w-full rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm";
 
-export function VideoBlockAuthor({
-  courses = [],
-}: {
-  courses?: { slug: string; title: string }[];
-}) {
-  const [tab, setTab] = React.useState<"upload" | "url">("upload");
-  const [targetCourse, setTargetCourse] = React.useState(courses[0]?.slug ?? "");
-  const [targetStage, setTargetStage] = React.useState("concept");
+const LANGUAGE_NAMES: Record<Locale, string> = {
+  en: "English",
+  de: "Deutsch",
+  el: "Ελληνικά",
+};
+
+/** The form's content fields — what a save stores. */
+interface VideoFields {
+  provider: "file" | "youtube";
+  src: string;
+  title: string;
+  caption: string;
+  captionSrc: string;
+  captionLabel: string;
+  captionLang: Locale;
+  cues: EditableCue[];
+}
+
+/** A stored video as form fields; an empty form when there's none. */
+function fieldsFrom(video: VideoContent | null, lang: Locale): VideoFields {
+  const track = video?.captions?.[0];
+  return {
+    provider: video?.provider ?? "file",
+    src: video?.src ?? "",
+    title: video?.title ?? "",
+    caption: video?.caption ?? "",
+    captionSrc: track?.src ?? "",
+    captionLabel: track?.label ?? LANGUAGE_NAMES[lang],
+    captionLang: track && isContentLocale(track.lang) ? track.lang : lang,
+    // The stored ids stay: learners' answers are recorded against them.
+    cues: (video?.cues ?? []).map((c) => ({
+      key: c.id,
+      atSeconds: c.atSeconds,
+      question: c.question,
+      options: c.options.map((o) => ({ id: o.id, text: o.text })),
+      correctOptionId: c.correctOptionId,
+      explanation: c.explanation ?? "",
+    })),
+  };
+}
+
+/** The form's content as one string, to tell edited from saved. */
+function snapshotOf(f: VideoFields): string {
+  return JSON.stringify([
+    f.provider,
+    f.src,
+    f.title,
+    f.caption,
+    f.captionSrc,
+    f.captionLabel,
+    f.captionLang,
+    f.cues,
+  ]);
+}
+
+/**
+ * Tell the page when unsaved edits appear and when they're gone — saved,
+ * or discarded because the editor closed.
+ */
+function useReportDirty(dirty: boolean, onDirtyChange?: (d: boolean) => void) {
+  const report = React.useRef(onDirtyChange);
+  React.useEffect(() => {
+    report.current = onDirtyChange;
+  });
+  React.useEffect(() => {
+    if (!dirty) return;
+    report.current?.(true);
+    return () => report.current?.(false);
+  }, [dirty]);
+}
+
+export interface VideoBlockAuthorProps {
+  /** The lesson the video belongs to. */
+  courseSlug: string;
+  stageKey: StageKey;
+  /** The video stored on the lesson (null = none). Left out, it's fetched first. */
+  initialVideo?: VideoContent | null;
+  /** The platform supplies a video here that a saved one replaces. */
+  builtInVideo?: boolean;
+  /** The language being edited: the default for a new caption track. */
+  locale?: Locale;
+  /** Inside a lesson on the course page: lighter frame. */
+  embedded?: boolean;
+  /** After a save (the stored video) or a removal (null). */
+  onSaved?: (video: VideoContent | null) => void;
+  onDirtyChange?: (dirty: boolean) => void;
+}
+
+export function VideoBlockAuthor(props: VideoBlockAuthorProps) {
+  // The video isn't to hand: load it, then edit it.
+  if (props.initialVideo === undefined) return <StoredVideoLoader {...props} />;
+  return <VideoEditor {...props} />;
+}
+
+/** Fetches the lesson's stored video, then shows the editor seeded with it. */
+function StoredVideoLoader(props: VideoBlockAuthorProps) {
+  const { courseSlug, stageKey } = props;
+  const key = `${courseSlug}:${stageKey}`;
+  const [loaded, setLoaded] = React.useState<{
+    key: string;
+    video: VideoContent | null;
+    failed?: boolean;
+  } | null>(null);
+
+  React.useEffect(() => {
+    const at = `${courseSlug}:${stageKey}`;
+    let cancelled = false;
+    getLessonMedia(courseSlug, stageKey).then(
+      (media) => {
+        if (!cancelled) setLoaded({ key: at, video: media.video });
+      },
+      () => {
+        if (!cancelled) setLoaded({ key: at, video: null, failed: true });
+      }
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [courseSlug, stageKey]);
+
+  if (loaded?.key !== key || loaded.failed) {
+    return (
+      <Card className={props.embedded ? "shadow-none" : undefined}>
+        <CardContent
+          className="p-5 text-sm text-[var(--muted-foreground)]"
+          role={loaded?.failed ? "alert" : undefined}
+        >
+          {loaded?.failed
+            ? "Couldn't load this lesson's video. Reload the page to try again."
+            : "Loading the lesson's video…"}
+        </CardContent>
+      </Card>
+    );
+  }
+  return <VideoEditor key={key} {...props} initialVideo={loaded.video} />;
+}
+
+function VideoEditor({
+  courseSlug,
+  stageKey,
+  initialVideo,
+  builtInVideo = false,
+  locale = "en",
+  embedded = false,
+  onSaved,
+  onDirtyChange,
+}: VideoBlockAuthorProps) {
+  // The form starts from the stored video, if the page handed one over.
+  const [seed] = React.useState(() =>
+    fieldsFrom(initialVideo ?? null, locale)
+  );
+  const [tab, setTab] = React.useState<"upload" | "url">(
+    seed.src ? "url" : "upload"
+  );
+  const headingRef = React.useRef<HTMLHeadingElement>(null);
+  // What's stored on the lesson now.
+  const [stored, setStored] = React.useState<VideoContent | null>(
+    initialVideo ?? null
+  );
   const [saveState, setSaveState] = React.useState<
-    "idle" | "saving" | "saved" | "error"
+    "idle" | "saving" | "saved" | "removing" | "removed" | "error"
   >("idle");
   const [saveError, setSaveError] = React.useState("");
-  const [provider, setProvider] = React.useState<"file" | "youtube">("file");
-  const [src, setSrc] = React.useState("");
+  const [provider, setProvider] = React.useState(seed.provider);
+  const [src, setSrc] = React.useState(seed.src);
   const [fileName, setFileName] = React.useState<string | null>(null);
   const [fromUpload, setFromUpload] = React.useState(false);
   const upload = useBlobUpload(VIDEO_UPLOAD);
   const noticeId = React.useId();
   const saveHintId = React.useId();
-  const [title, setTitle] = React.useState("");
-  const [caption, setCaption] = React.useState("");
-  const [captionSrc, setCaptionSrc] = React.useState("");
-  const [captionLabel, setCaptionLabel] = React.useState("English");
+  const [title, setTitle] = React.useState(seed.title);
+  const [caption, setCaption] = React.useState(seed.caption);
+  const titleId = React.useId();
+  const captionId = React.useId();
+  const [captionSrc, setCaptionSrc] = React.useState(seed.captionSrc);
+  const [captionLabel, setCaptionLabel] = React.useState(seed.captionLabel);
+  const [captionLang, setCaptionLang] = React.useState<Locale>(
+    seed.captionLang
+  );
+  const captionLangId = React.useId();
   // captionFromUpload: captionSrc is a picked file (local, then stored), not a
   // pasted link. captionPicked: the upload's outcome is still worth showing.
   const [captionFromUpload, setCaptionFromUpload] = React.useState(false);
   const [captionPicked, setCaptionPicked] = React.useState(false);
   const captionUpload = useBlobUpload(CAPTION_UPLOAD);
   const captionNoticeId = React.useId();
-  const [cues, setCues] = React.useState<EditableCue[]>([]);
+  const [cues, setCues] = React.useState<EditableCue[]>(seed.cues);
+
+  // Unsaved edits: the form differs from what was last loaded or saved.
+  const snapshot = snapshotOf({
+    provider,
+    src,
+    title,
+    caption,
+    captionSrc,
+    captionLabel,
+    captionLang,
+    cues,
+  });
+  const [cleanSnapshot, setCleanSnapshot] = React.useState(snapshot);
+  const dirty = snapshot !== cleanSnapshot;
+  useReportDirty(dirty, onDirtyChange);
   const objectUrl = React.useRef<string | null>(null);
   const urlInputRef = React.useRef<HTMLInputElement>(null);
   const urlInputId = React.useId();
@@ -255,7 +449,7 @@ export function VideoBlockAuthor({
               {
                 src: captionSrc,
                 label: captionLabel || "Captions",
-                lang: "en",
+                lang: captionLang,
                 default: true,
               },
             ]
@@ -280,12 +474,17 @@ export function VideoBlockAuthor({
           : null;
 
   async function handleSaveToLesson() {
-    if (!draft || !targetCourse || saveBlocked) return;
+    if (!draft || saveBlocked) return;
+    // Edits made while this save is in flight stay unsaved.
+    const sent = snapshot;
     setSaveState("saving");
     try {
-      const res = await saveLessonVideo(targetCourse, targetStage, draft);
+      const res = await saveLessonVideo(courseSlug, stageKey, draft);
       if (res.ok) {
         setSaveState("saved");
+        setCleanSnapshot(sent);
+        setStored(draft);
+        onSaved?.(draft);
         return;
       }
       if (res.error === "unstorable-media") {
@@ -306,23 +505,114 @@ export function VideoBlockAuthor({
     setSaveState("error");
   }
 
+  // Take the video off the lesson and empty the form.
+  async function handleRemove() {
+    if (!stored) return;
+    const question = builtInVideo
+      ? "Remove this video? Learners will see the built-in video for this lesson again."
+      : "Remove this video? Learners will no longer see it on this lesson.";
+    if (!window.confirm(question)) return;
+    // "Remove video" goes away once it's done: keep focus in this editor.
+    headingRef.current?.focus();
+    setSaveState("removing");
+    try {
+      const res = await clearLessonVideo(courseSlug, stageKey);
+      if (res.ok) {
+        const empty = fieldsFrom(null, locale);
+        setTab("upload");
+        setProvider(empty.provider);
+        setSrc(empty.src);
+        setFileName(null);
+        setFromUpload(false);
+        setTitle(empty.title);
+        setCaption(empty.caption);
+        setCaptionSrc(empty.captionSrc);
+        setCaptionLabel(empty.captionLabel);
+        setCaptionLang(empty.captionLang);
+        setCaptionFromUpload(false);
+        setCaptionPicked(false);
+        setCues(empty.cues);
+        setCleanSnapshot(snapshotOf(empty));
+        setStored(null);
+        setSaveState("removed");
+        onSaved?.(null);
+        return;
+      }
+      setSaveError(
+        saveFailureMessage({
+          kind: "refused",
+          access: await fetchStorageStatus(),
+        })
+      );
+    } catch (error) {
+      setSaveError(saveFailureMessage({ kind: "thrown", error }));
+    }
+    setSaveState("error");
+  }
+
+  // The caption label follows the language unless the author wrote their own.
+  function onCaptionLang(next: Locale) {
+    setCaptionLabel((label) =>
+      !label.trim() || label === LANGUAGE_NAMES[captionLang]
+        ? LANGUAGE_NAMES[next]
+        : label
+    );
+    setCaptionLang(next);
+  }
+
+  // "Saved" / "Removed" hold only until the next edit.
+  const saveStatus = (
+    <span role="status" aria-live="polite">
+      {saveState === "saved" && !dirty ? (
+        <span className="text-xs text-[var(--success)] inline-flex items-center gap-1">
+          <CheckCircle2 className="h-3.5 w-3.5" />
+          Saved — learners see it on this lesson.
+        </span>
+      ) : saveState === "removed" && !dirty ? (
+        <span className="text-xs text-[var(--success)] inline-flex items-center gap-1">
+          <CheckCircle2 className="h-3.5 w-3.5" />
+          {builtInVideo
+            ? "Removed — learners see the built-in video again."
+            : "Removed — learners no longer see a video on this lesson."}
+        </span>
+      ) : saveState === "error" ? (
+        <span className="text-xs text-[var(--danger)] inline-flex items-start gap-1">
+          <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
+          {saveError}
+        </span>
+      ) : null}
+    </span>
+  );
+
   return (
-    <Card className="border-[var(--accent)]/30">
+    <Card
+      className={cn("border-[var(--accent)]/30", embedded && "shadow-none")}
+    >
       <CardContent className="p-5">
         <div className="flex items-center gap-2">
           <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[var(--accent)]/10 text-[var(--accent)]">
             <Film className="h-5 w-5" />
           </div>
           <div>
-            <h3 className="font-semibold">Interactive video</h3>
+            <h3 ref={headingRef} tabIndex={-1} className="font-semibold">
+              Interactive video
+            </h3>
             <p className="text-xs text-[var(--muted-foreground)]">
               Add a lesson video, then drop in questions that pause it.
             </p>
           </div>
-          <Badge variant="primary" className="ml-auto text-[10px]">
-            New
-          </Badge>
+          {embedded ? null : (
+            <Badge variant="primary" className="ml-auto text-[10px]">
+              New
+            </Badge>
+          )}
         </div>
+        {builtInVideo && !stored ? (
+          <p className="mt-3 text-xs text-[var(--muted-foreground)]">
+            Learners see the built-in video on this lesson. Saving a video here
+            replaces it for them.
+          </p>
+        ) : null}
 
         {/* Source tabs */}
         <div className="mt-4 inline-flex rounded-lg border border-[var(--border)] p-0.5 text-sm">
@@ -455,10 +745,14 @@ export function VideoBlockAuthor({
         {/* Title + caption */}
         <div className="mt-4 grid sm:grid-cols-2 gap-3">
           <div>
-            <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-1">
+            <label
+              htmlFor={titleId}
+              className="block text-xs font-medium text-[var(--muted-foreground)] mb-1"
+            >
               Title
             </label>
             <input
+              id={titleId}
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="e.g. Speaking up without blame"
@@ -466,10 +760,14 @@ export function VideoBlockAuthor({
             />
           </div>
           <div>
-            <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-1">
+            <label
+              htmlFor={captionId}
+              className="block text-xs font-medium text-[var(--muted-foreground)] mb-1"
+            >
               Caption (optional)
             </label>
             <input
+              id={captionId}
               value={caption}
               onChange={(e) => setCaption(e.target.value)}
               placeholder="A short line under the player"
@@ -520,6 +818,21 @@ export function VideoBlockAuthor({
               aria-label="Caption language label"
               className="w-28 rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm"
             />
+            <label htmlFor={captionLangId} className="sr-only">
+              Caption language
+            </label>
+            <select
+              id={captionLangId}
+              value={captionLang}
+              onChange={(e) => onCaptionLang(e.target.value as Locale)}
+              className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-2 text-sm"
+            >
+              {CONTENT_LOCALES.map((code) => (
+                <option key={code} value={code}>
+                  {LANGUAGE_NAMES[code]}
+                </option>
+              ))}
+            </select>
           </div>
           {captionUpload.problem ? (
             <StorageNotice
@@ -654,100 +967,58 @@ export function VideoBlockAuthor({
           )}
         </div>
 
-        {/* Save to a lesson (persists to the DB) */}
-        {courses.length ? (
-          <div className="mt-5 rounded-lg border border-[var(--accent)]/30 bg-[var(--accent)]/5 p-4">
-            <p className="text-sm font-semibold mb-2 flex items-center gap-1.5">
-              <Save className="h-4 w-4 text-[var(--accent)]" />
-              Save this video to a lesson
-            </p>
-            <div className="flex flex-wrap items-end gap-2">
-              <label className="text-xs text-[var(--muted-foreground)]">
-                <span className="block mb-1">Course</span>
-                <select
-                  value={targetCourse}
-                  onChange={(e) => {
-                    setTargetCourse(e.target.value);
-                    setSaveState("idle");
-                  }}
-                  className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm"
-                >
-                  {courses.map((c) => (
-                    <option key={c.slug} value={c.slug}>
-                      {c.title}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="text-xs text-[var(--muted-foreground)]">
-                <span className="block mb-1">Lesson stage</span>
-                <select
-                  value={targetStage}
-                  onChange={(e) => {
-                    setTargetStage(e.target.value);
-                    setSaveState("idle");
-                  }}
-                  className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm capitalize"
-                >
-                  {STAGES.map((s) => (
-                    <option key={s} value={s}>
-                      {s}
-                    </option>
-                  ))}
-                </select>
-              </label>
+        {/* Save to the lesson (persists to the DB) */}
+        <div className="mt-5 rounded-lg border border-[var(--accent)]/30 bg-[var(--accent)]/5 p-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              size="sm"
+              disabled={
+                !draft ||
+                saveBlocked ||
+                saveState === "saving" ||
+                saveState === "removing"
+              }
+              onClick={handleSaveToLesson}
+              aria-describedby={saveHint ? saveHintId : undefined}
+            >
+              {saveState === "saving" ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Save className="h-4 w-4" />
+              )}
+              Save video
+            </Button>
+            {stored ? (
               <Button
                 size="sm"
+                variant="outline"
                 disabled={
-                  !draft ||
-                  !targetCourse ||
-                  saveBlocked ||
-                  saveState === "saving"
+                  saveState === "saving" || saveState === "removing"
                 }
-                onClick={handleSaveToLesson}
-                aria-describedby={saveHint ? saveHintId : undefined}
+                onClick={handleRemove}
               >
-                {saveState === "saving" ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Saving…
-                  </>
+                {saveState === "removing" ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
-                  <>
-                    <Save className="h-4 w-4" />
-                    Save to lesson
-                  </>
+                  <Trash2 className="h-4 w-4" />
                 )}
+                {/* What learners see afterwards is in the confirm and the
+                    status message, so the label stays short enough for a
+                    phone. */}
+                Remove video
               </Button>
-              <span role="status" aria-live="polite">
-                {saveState === "saved" ? (
-                  <span className="text-xs text-[var(--success)] inline-flex items-center gap-1">
-                    <CheckCircle2 className="h-3.5 w-3.5" />
-                    Saved — learners see it on this lesson.
-                  </span>
-                ) : saveState === "error" ? (
-                  <span className="text-xs text-[var(--danger)] inline-flex items-start gap-1">
-                    <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
-                    {saveError}
-                  </span>
-                ) : null}
-              </span>
-            </div>
-            {saveHint ? (
-              <p
-                id={saveHintId}
-                className="mt-2 text-xs text-[var(--muted-foreground)]"
-              >
-                {saveHint}
-              </p>
             ) : null}
+            {saveStatus}
           </div>
-        ) : (
-          <p className="mt-4 text-xs text-[var(--muted-foreground)]">
-            Create a course first — then you can save this video, with its
-            questions, to one of its lessons.
-          </p>
-        )}
+          {saveHint ? (
+            <p
+              id={saveHintId}
+              className="mt-2 text-xs text-[var(--muted-foreground)]"
+            >
+              {saveHint}
+            </p>
+          ) : null}
+        </div>
       </CardContent>
     </Card>
   );

@@ -1,6 +1,12 @@
 "use client";
 
-import { useState, useCallback, useEffect, useRef } from "react";
+import {
+  useState,
+  useCallback,
+  useEffect,
+  useRef,
+  type MouseEvent,
+} from "react";
 import { useTranslations } from "next-intl";
 import { useSession } from "next-auth/react";
 import { Link } from "@/i18n/navigation";
@@ -20,53 +26,46 @@ import { CompletionStage } from "./CompletionStage";
 import { InteractiveVideoPlayer } from "./InteractiveVideoPlayer";
 import { LessonDocuments } from "./LessonDocuments";
 import { useStageTimer } from "./useStageTimer";
-import type { CourseContent, CourseStage } from "@/lib/cms/types";
-import { ChevronLeft } from "lucide-react";
+import type { CourseContent, CourseStage, Locale } from "@/lib/cms/types";
+import { ChevronLeft, Pencil } from "lucide-react";
 
 /**
  * Generic course player. Renders ANY course passed as a CourseContent
  * object — content comes from props (CMS), only UI chrome is i18n. The
  * WP3 7-stage sequence is enforced via the STAGES order; the player walks
  * the stages present in course.stages in that canonical order.
+ *
+ * In an editor's preview (`preview`) nothing is recorded: the page wraps the
+ * player in PreviewStateProvider, so progress stays in memory, and the
+ * telemetry below is switched off. Preview may start at any lesson
+ * (`initialStage`) and lets the editor jump to any step.
  */
 export function CoursePlayer({
   course,
   draftPreview = false,
+  preview = false,
+  canEdit = false,
+  initialStage,
+  editLocale,
 }: {
   course: CourseContent;
   /** Editor previewing an unpublished course — learners never see this. */
   draftPreview?: boolean;
+  /** Editor's sandboxed preview: nothing is saved, every step is reachable. */
+  preview?: boolean;
+  /** The viewer may edit content (checked on the server): "Edit this lesson". */
+  canEdit?: boolean;
+  /** Preview only: the lesson to open first. Ignored if the course lacks it. */
+  initialStage?: Stage;
+  /**
+   * Preview opened from the course page: the editor's own menu language.
+   * The links back to editing use it, and "Back to editing" closes this tab
+   * to return to the course page it came from, when the browser allows.
+   */
+  editLocale?: Locale;
 }) {
   const tStage = useTranslations("course.stageLabel");
-
-  const { state, dispatch } = useDemoState();
-  const { status } = useSession();
-  const [current, setCurrent] = useState<Stage | "complete">("context");
-
-  // Record in-video quiz answers for signed-in learners (engagement signal
-  // facilitators can see). Guests keep their answers client-side only.
-  const onCueAnswered = useCallback(
-    (cueId: string, correct: boolean) => {
-      if (status !== "authenticated") return;
-      void recordVideoCueAnswer({ courseSlug: course.slug, cueId, correct });
-    },
-    [status, course.slug]
-  );
-
-  // Track active time on each stage for the facilitator analytics (authed only).
-  useStageTimer(
-    course.slug,
-    current,
-    status === "authenticated" && current !== "complete"
-  );
-
-  // Record the course open once per mount (for "when they open" analytics).
-  const openedRef = useRef(false);
-  useEffect(() => {
-    if (status !== "authenticated" || openedRef.current) return;
-    openedRef.current = true;
-    void recordCourseOpened(course.slug);
-  }, [status, course.slug]);
+  const tPlayer = useTranslations("coursePlayer");
 
   // Stage data lookup by key
   const stageByKey = new Map<string, CourseStage>(
@@ -75,6 +74,40 @@ export function CoursePlayer({
   // The ordered list of stage keys this course actually contains,
   // in the enforced WP3 order.
   const orderedKeys = STAGES.filter((k) => stageByKey.has(k));
+
+  const { state, dispatch } = useDemoState();
+  const { status } = useSession();
+  // Start at the first lesson this course has (not every course has
+  // "context"), or at the lesson a preview asked for.
+  const [current, setCurrent] = useState<Stage | "complete">(() =>
+    initialStage && stageByKey.has(initialStage)
+      ? initialStage
+      : (orderedKeys[0] ?? "complete")
+  );
+
+  // Telemetry is for signed-in learners, never for an editor's preview.
+  const track = status === "authenticated" && !preview;
+
+  // Record in-video quiz answers for signed-in learners (engagement signal
+  // facilitators can see). Guests keep their answers client-side only.
+  const onCueAnswered = useCallback(
+    (cueId: string, correct: boolean) => {
+      if (!track) return;
+      void recordVideoCueAnswer({ courseSlug: course.slug, cueId, correct });
+    },
+    [track, course.slug]
+  );
+
+  // Track active time on each stage for the facilitator analytics (authed only).
+  useStageTimer(course.slug, current, track && current !== "complete");
+
+  // Record the course open once per mount (for "when they open" analytics).
+  const openedRef = useRef(false);
+  useEffect(() => {
+    if (!track || openedRef.current) return;
+    openedRef.current = true;
+    void recordCourseOpened(course.slug);
+  }, [track, course.slug]);
 
   const resumeFromProgress = state.course.stagesCompleted.length;
 
@@ -102,7 +135,9 @@ export function CoursePlayer({
 
   useEffect(() => {
     // Resume at the learner's last position on mount, from persisted
-    // progress. Intentional one-time setState after hydration.
+    // progress. Intentional one-time setState after hydration. A preview
+    // has no saved progress, and starts where the editor asked.
+    if (preview || initialStage) return;
     /* eslint-disable react-hooks/set-state-in-effect */
     if (state.course.completedAt) {
       setCurrent("complete");
@@ -164,28 +199,70 @@ export function CoursePlayer({
   const currentStage =
     current === "complete" ? null : stageByKey.get(current) ?? null;
 
+  // This lesson on the course page, in the language being played.
+  const editHref = `/content/courses/${course.slug}?${
+    current === "complete" ? "" : `lesson=${current}&`
+  }lang=${course.locale}`;
+
+  // Opened from the course page in a new tab: that page is still open, so go
+  // back to it instead of starting a second copy (whose saves could then
+  // overwrite each other). Only a tab with nothing else in its history may
+  // close itself; otherwise the link is followed as usual.
+  const backToOpener = (e: MouseEvent) => {
+    if (window.history.length !== 1) return;
+    window.close();
+    if (window.closed) e.preventDefault();
+  };
+
   return (
     <div className="mx-auto max-w-3xl px-4 py-6 sm:py-8">
-      {draftPreview ? (
-        <p
+      {preview || draftPreview ? (
+        <div
           role="status"
-          className="mb-4 rounded-lg border border-[var(--warning)] bg-[var(--warning)]/10 px-3 py-2 text-sm text-[var(--foreground)]"
+          className="mb-4 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-lg border border-[var(--warning)] bg-[var(--warning)]/10 px-3 py-2 text-sm text-[var(--foreground)]"
         >
-          <strong>Draft preview.</strong> This course is not published —
-          learners cannot see it yet. Publish it from the content editor.
-        </p>
+          <p>
+            {tPlayer.rich(draftPreview ? "draftPreview" : "preview", {
+              b: (chunks) => <strong>{chunks}</strong>,
+            })}
+          </p>
+          {canEdit ? (
+            <Link
+              href={editHref}
+              locale={editLocale}
+              onClick={editLocale ? backToOpener : undefined}
+              className="font-medium text-[var(--accent)] underline underline-offset-2"
+            >
+              {tPlayer("backToEditing")}
+            </Link>
+          ) : null}
+        </div>
       ) : null}
 
       {/* Top bar */}
       <div className="mb-4 flex items-start justify-between gap-3">
-        <Link
-          href="/learner"
-          className="inline-flex items-center gap-1 text-sm text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors"
-        >
-          <ChevronLeft className="h-4 w-4" />
-          Dashboard
-        </Link>
-        <div className="text-right">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
+          <Link
+            href="/learner"
+            className="inline-flex items-center gap-1 text-sm text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors"
+          >
+            <ChevronLeft className="h-4 w-4" aria-hidden />
+            {tPlayer("dashboard")}
+          </Link>
+          {/* canEdit comes from the server page: roles aren't on the client
+              session. Opens the lesson being played on its course page. */}
+          {canEdit && current !== "complete" ? (
+            <Link
+              href={editHref}
+              locale={editLocale}
+              className="inline-flex items-center gap-1 rounded-md border border-[var(--border)] px-2 py-1 text-sm hover:bg-[var(--surface-muted)] transition-colors"
+            >
+              <Pencil className="h-4 w-4" aria-hidden />
+              {tPlayer("editLesson")}
+            </Link>
+          ) : null}
+        </div>
+        <div className="min-w-0 text-right">
           <p className="text-xs text-[var(--muted-foreground)] uppercase tracking-wider">
             {course.clusterLabel}
           </p>
@@ -199,6 +276,8 @@ export function CoursePlayer({
           current={breadcrumbCurrent}
           completed={completedStages}
           onJump={jumpTo}
+          stages={orderedKeys}
+          allReachable={preview}
         />
       </div>
       <Progress value={progressPct} className="mb-6" />
