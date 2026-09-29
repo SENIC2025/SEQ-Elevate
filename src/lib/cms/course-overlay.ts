@@ -8,28 +8,34 @@ import "server-only";
  * The bundled provider hardcodes status "published"; the `Course` row is the
  * authority, so an editor can unpublish a course without touching code.
  *
- * The decisions live in ./course-status (pure, unit-tested); this file only
- * does the DB read. Defensive by design: if the DB is unreachable the bundled
- * summaries pass through untouched, so a database blip can never blank the
- * catalogue.
+ * The same row also carries an editor's rewording of a bundled course's title
+ * and subtitle (`copyOverride`, D34), applied here too so every surface that
+ * lists or opens a course shows it.
+ *
+ * The decisions live in ./course-status and ./course-copy (pure, unit-tested);
+ * this file only does the DB reads. Defensive by design: if the DB is
+ * unreachable the bundled summaries pass through untouched, so a database blip
+ * can never blank the catalogue.
  */
 
 import { prisma } from "@/lib/prisma";
 import { normaliseStatus, selectByStatus, type CourseStatus } from "./course-status";
-import type { CourseSummary } from "./types";
+import { applyCopy, readCopyOverride } from "./course-copy";
+import type { CourseContent, CourseSummary, Locale } from "./types";
 
 export type { CourseStatus };
 
 export async function applyCourseStatus(
   projectId: string,
   summaries: CourseSummary[],
+  locale: Locale,
   includeUnpublished = false
 ): Promise<CourseSummary[]> {
-  let rows: { slug: string; status: string }[];
+  let rows: { slug: string; status: string; copyOverride: unknown }[];
   try {
     rows = await prisma.course.findMany({
       where: { projectId },
-      select: { slug: true, status: true },
+      select: { slug: true, status: true, copyOverride: true },
     });
   } catch {
     return summaries;
@@ -37,7 +43,35 @@ export async function applyCourseStatus(
   const dbStatus = new Map(
     rows.map((r) => [r.slug, normaliseStatus(r.status)] as const)
   );
-  return selectByStatus(summaries, dbStatus, includeUnpublished);
+  const overrides = new Map(
+    rows
+      .filter((r) => r.copyOverride != null)
+      .map((r) => [r.slug, readCopyOverride(r.copyOverride)] as const)
+  );
+  return selectByStatus(summaries, dbStatus, includeUnpublished).map((s) =>
+    applyCopy(s, overrides.get(s.slug) ?? null, locale)
+  );
+}
+
+/**
+ * A bundled course's content with the editor's title/subtitle rewording for
+ * its locale applied. CMS-created courses never carry an override (their copy
+ * is `meta`), so only the bundled branch of getCourse calls this.
+ */
+export async function applyCourseCopyOverride(
+  projectId: string,
+  content: CourseContent
+): Promise<CourseContent> {
+  try {
+    const row = await prisma.course.findFirst({
+      where: { projectId, slug: content.slug },
+      select: { copyOverride: true },
+    });
+    if (row?.copyOverride == null) return content;
+    return applyCopy(content, readCopyOverride(row.copyOverride), content.locale);
+  } catch {
+    return content;
+  }
 }
 
 /**

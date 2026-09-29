@@ -10,7 +10,7 @@ import { getCMSSource, type CMSProvider } from "./provider";
 import { localProvider } from "./local-provider";
 import { strapiProvider } from "./strapi-provider";
 import { applyLessonMedia } from "./lesson-overlay";
-import { applyCourseStatus } from "./course-overlay";
+import { applyCourseStatus, applyCourseCopyOverride } from "./course-overlay";
 import { listDbCourses, getDbCourse } from "./db-course";
 import { applyCompCardTemplate } from "./comp-card-overlay";
 import type { Locale, CourseContent, CourseSummary, CompCardTemplate } from "./types";
@@ -38,6 +38,7 @@ export async function listCourses(
   return applyCourseStatus(
     projectId,
     [...bundled, ...created],
+    locale,
     opts?.includeUnpublished
   );
 }
@@ -49,12 +50,31 @@ export async function getCourse(
 ): Promise<CourseContent | null> {
   // A bundled course comes from the provider; a course created in the CMS is
   // assembled from its DB rows. Bundled wins if a slug somehow exists in both.
-  const content =
-    (await provider().getCourse(projectId, slug, locale)) ??
-    (await getDbCourse(projectId, slug, locale));
+  const bundled = await provider().getCourse(projectId, slug, locale);
+  const content = bundled
+    ? // An editor may have reworded a bundled course's title or subtitle.
+      await applyCourseCopyOverride(projectId, bundled)
+    : await getDbCourse(projectId, slug, locale);
   if (!content) return null;
   // Overlay author-attached lesson media (video + documents) from the DB.
   return applyLessonMedia(projectId, slug, content);
+}
+
+/**
+ * A bundled course's title and subtitle exactly as the platform ships them,
+ * with NO editor rewording — so the course page can show "Built-in: …" and
+ * offer to go back to it. Null for a course the provider doesn't have (i.e.
+ * one created in the CMS).
+ */
+export async function getBaseCourseCopy(
+  projectId: string,
+  slug: string,
+  locale: Locale
+): Promise<{ title: string; tagline: string; clusterLabel: string } | null> {
+  const c = await provider().getCourse(projectId, slug, locale);
+  return c
+    ? { title: c.title, tagline: c.tagline, clusterLabel: c.clusterLabel }
+    : null;
 }
 
 /**

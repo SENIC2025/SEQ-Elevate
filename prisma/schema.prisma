@@ -311,6 +311,11 @@ model Course {
   // { en: { title, tagline, clusterLabel }, de: {...}, el: {...} }.
   // Null for bundled courses, whose copy comes from the message catalogue.
   meta            Json?
+  // Editor rewording of a BUNDLED course's copy, per locale:
+  // { de: { title?, tagline? }, … }. Null for CMS-created courses (their copy
+  // lives in `meta`, whose presence is what marks a course as CMS-created).
+  // Applied on read by src/lib/cms/course-overlay.ts.
+  copyOverride    Json?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
