@@ -200,7 +200,12 @@ describe("Preview as learner", () => {
     await expect(steps.locator('[aria-current="step"]')).toContainText(
       /quick check/i
     );
-    await expect(page.getByText("Which is an I-statement?")).toBeVisible();
+    // Scoped to the visible main landmark: when React client-renders the
+    // page while it is still streaming (a provider above it updated during
+    // load), the server's copy of the first lesson shown can stay behind in
+    // a hidden <div> at the end of <body>.
+    const main = page.getByRole("main");
+    await expect(main.getByText("Which is an I-statement?")).toBeVisible();
     // Only the lessons this course has: four narrative ones and the check.
     await expect(steps.getByRole("button")).toHaveCount(5);
 
@@ -215,7 +220,7 @@ describe("Preview as learner", () => {
     await cont().click(); // concept → behaviour
     await cont().click(); // behaviour → reflection
     await cont().click(); // reflection → assessment
-    await page.getByText(/i feel sidelined/i).click();
+    await main.getByText(/i feel sidelined/i).click();
     await page.getByRole("button", { name: /check answers/i }).click();
     await cont().click();
     await expect(

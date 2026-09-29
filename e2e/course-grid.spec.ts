@@ -59,10 +59,22 @@ async function signedInUser(email: string, roles: Role[]) {
   return { userId: user.id, sessionToken };
 }
 
+/**
+ * Leave every open page before switching users. A page's in-flight
+ * /api/auth/session call re-sets the session cookie when it returns, and one
+ * returning after the switch would sign the previous user back in.
+ */
+async function leaveOpenPages(
+  context: import("@playwright/test").BrowserContext
+) {
+  for (const open of context.pages()) await open.goto("about:blank");
+}
+
 async function useSession(
   context: import("@playwright/test").BrowserContext,
   sessionToken: string
 ) {
+  await leaveOpenPages(context);
   await context.clearCookies();
   await context.addCookies([
     {
@@ -141,7 +153,7 @@ describe("Manage courses grid", () => {
     // A built-in course: all seven lessons, one link each.
     const builtIn = card(page, "workplace-conflict");
     await expect(builtIn).toBeVisible();
-    await expect(builtIn.getByText("7 lessons")).toBeVisible();
+    await expect(builtIn.getByText("7 lessons", { exact: true })).toBeVisible();
     await expect(builtIn.getByText("Built-in", { exact: true })).toBeVisible();
     await expect(
       builtIn.getByRole("link", { name: "Edit lesson 3: Behaviour model" })
@@ -164,7 +176,7 @@ describe("Manage courses grid", () => {
     ).toBeVisible();
     await expect(seeded.getByText(/^draft$/i)).toBeVisible();
     await expect(seeded.getByText("Created here", { exact: true })).toBeVisible();
-    await expect(seeded.getByText("4 lessons")).toBeVisible();
+    await expect(seeded.getByText("4 lessons", { exact: true })).toBeVisible();
     await expect(seeded.getByText("Nobody enrolled yet")).toBeVisible();
     // Language state is spoken, not only shown by an icon.
     await expect(seeded.getByText("German: not started")).toHaveCount(1);
@@ -178,7 +190,7 @@ describe("Manage courses grid", () => {
 
     // The whole card is the link: a click on its body opens the course page.
     // (force: the card link's overlay, not the text, receives the click.)
-    await seeded.getByText("4 lessons").click({ force: true });
+    await seeded.getByText("4 lessons", { exact: true }).click({ force: true });
     await expect(page).toHaveURL(new RegExp(`/en/content/courses/${SEEDED.slug}$`));
   });
 
@@ -195,6 +207,7 @@ describe("Manage courses grid", () => {
     await expect(page.getByText(SEEDED.title)).toHaveCount(0);
     await expect(page.getByRole("button", { name: /new course/i })).toHaveCount(0);
 
+    await leaveOpenPages(context);
     await context.clearCookies();
     await page.goto("/en/content/courses");
     await expect(
