@@ -179,7 +179,7 @@ export function LessonSection({
       } ${lesson.addable && !open ? "border-dashed" : ""}`}
     >
       <div className="flex flex-wrap items-start gap-3 p-4 sm:p-5">
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1 basis-64">
           <h2
             id={headingId}
             tabIndex={-1}
