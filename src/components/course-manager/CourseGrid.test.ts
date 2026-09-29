@@ -36,8 +36,12 @@ vi.mock("@/i18n/navigation", async () => {
           : `/en${href.pathname}?${new URLSearchParams(href.query)}`;
       return h("a", { href: url, ...rest });
     },
+    useRouter: () => ({ push: () => {} }),
   };
 });
+// NewCourseForm (behind "New course") calls this server action; importing
+// the real one would load the auth stack, which needs a Next.js runtime.
+vi.mock("@/app/actions/course", () => ({ createCourse: vi.fn() }));
 
 const { CourseGrid } = await import("./CourseGrid");
 
