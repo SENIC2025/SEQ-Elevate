@@ -14,6 +14,7 @@ import {
 } from "@/app/actions/admin";
 import type { AdminMember } from "@/lib/admin-queries";
 import type { InviteOutcome } from "@/lib/invitations";
+import { includedVia, roleIncludes } from "@/lib/permissions";
 import type { Role } from "@prisma/client";
 import {
   UserPlus,
@@ -32,6 +33,14 @@ const ROLES: { value: Role; label: string }[] = [
   { value: "CONTENT_EDITOR", label: "Editor" },
   { value: "ADMIN", label: "Admin" },
 ];
+
+const roleLabel = (r: Role) => ROLES.find((x) => x.value === r)?.label ?? r;
+
+/** The other roles a role brings with it, e.g. ["Editor"] for Admin. */
+const includedLabels = (r: Role) =>
+  ROLES.filter((x) => x.value !== r && roleIncludes(r, x.value)).map(
+    (x) => x.label
+  );
 
 const INVITE_LANGUAGES = [
   { value: "en", label: "English" },
@@ -103,6 +112,8 @@ export function PeopleManager({
   const [pending, setPending] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [notice, setNotice] = React.useState<Notice | null>(null);
+  const roleHintId = React.useId();
+  const selectedIncludes = includedLabels(role);
 
   function report(res: { ok: boolean; error?: string }) {
     if (res.ok) {
@@ -239,13 +250,19 @@ export function PeopleManager({
                 value={role}
                 onChange={(e) => setRole(e.target.value as Role)}
                 aria-label="Role"
+                aria-describedby={selectedIncludes.length ? roleHintId : undefined}
                 className={inputCls}
               >
-                {ROLES.map((r) => (
-                  <option key={r.value} value={r.value}>
-                    {r.label}
-                  </option>
-                ))}
+                {ROLES.map((r) => {
+                  const extra = includedLabels(r.value);
+                  return (
+                    <option key={r.value} value={r.value}>
+                      {extra.length
+                        ? `${r.label} (includes ${extra.join(", ")})`
+                        : r.label}
+                    </option>
+                  );
+                })}
               </select>
             </label>
             <Button
@@ -261,6 +278,17 @@ export function PeopleManager({
               Add
             </Button>
           </div>
+          {selectedIncludes.length ? (
+            <p
+              id={roleHintId}
+              className="mt-2 text-xs text-[var(--muted-foreground)] flex items-start gap-1.5"
+            >
+              <Info className="h-3.5 w-3.5 text-[var(--accent)] flex-shrink-0 mt-0.5" />
+              {roleLabel(role)} includes {selectedIncludes.join(", ")}, so
+              there&apos;s no need to add {selectedIncludes.join(", ")}{" "}
+              separately.
+            </p>
+          ) : null}
           <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
             <label className="inline-flex items-center gap-2">
               <input
@@ -340,6 +368,25 @@ export function PeopleManager({
                     <td className="px-3 py-2.5">
                       <div className="flex flex-wrap gap-1">
                         {ROLES.map((r) => {
+                          // Held through another role (Admin includes
+                          // Editor): shown as on, but not separately
+                          // switchable while that role is held.
+                          const via = includedVia(m.roles, r.value);
+                          if (via) {
+                            return (
+                              <button
+                                key={r.value}
+                                type="button"
+                                disabled
+                                aria-pressed
+                                className="rounded-full border border-dashed border-[var(--accent)] bg-[var(--accent)]/10 px-2 py-0.5 text-[11px] text-[var(--accent)] cursor-default"
+                              >
+                                <span className="font-medium">{r.label}</span>
+                                <span aria-hidden="true"> ·</span> included
+                                with {roleLabel(via)}
+                              </button>
+                            );
+                          }
                           const on = m.roles.includes(r.value);
                           return (
                             <button

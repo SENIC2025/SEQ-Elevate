@@ -11,7 +11,8 @@
  */
 
 import { Prisma } from "@prisma/client";
-import { getCurrentUser, hasRole } from "@/lib/auth-helpers";
+import { getCurrentUser, getProjectMemberships } from "@/lib/auth-helpers";
+import { canEditContent } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
 import {
   validateStructure,
@@ -24,10 +25,8 @@ const PROJECT = "seq-elevate";
 async function requireEditor() {
   const user = await getCurrentUser();
   if (!user) return null;
-  const ok =
-    (await hasRole(PROJECT, "ADMIN")) ||
-    (await hasRole(PROJECT, "CONTENT_EDITOR"));
-  return ok ? user : null;
+  const roles = (await getProjectMemberships(PROJECT)).map((m) => m.role);
+  return canEditContent(roles) ? user : null;
 }
 
 const KIND_FOR_STAGE: Record<StructureStageKey, StoredStructure["kind"]> = {

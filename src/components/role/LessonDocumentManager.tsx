@@ -12,12 +12,18 @@ import {
   setLessonDocumentPublished,
 } from "@/app/actions/lesson";
 import type { LessonDocumentRef } from "@/lib/cms/types";
+import { DOCUMENT_UPLOAD, acceptAttribute, formatSize } from "@/lib/uploads";
+import { attachFailureMessage } from "@/lib/author-feedback";
+import {
+  fetchStorageStatus,
+  useBlobUpload,
+} from "@/components/role/useBlobUpload";
+import { StorageNotice, UploadStatus } from "@/components/role/UploadFeedback";
 import {
   FileText,
   Upload,
   Loader2,
   Trash2,
-  AlertTriangle,
   FolderOpen,
   ChevronUp,
   ChevronDown,
@@ -25,16 +31,24 @@ import {
   EyeOff,
 } from "lucide-react";
 
-const ACCEPT =
-  ".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.txt,.csv,image/*";
-
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1_048_576) return `${Math.round(bytes / 1024)} KB`;
-  return `${(bytes / 1_048_576).toFixed(1)} MB`;
+/** An uploaded file waiting to be added to the lesson it was picked for. */
+interface PendingDocument {
+  courseSlug: string;
+  stageKey: string;
+  doc: { name: string; url: string; mimeType: string; sizeBytes: number };
 }
 
-/** Upload documents (PDF/Office/images) and attach them to a lesson. */
+type AttachState =
+  | { phase: "idle" }
+  | { phase: "attaching" }
+  | { phase: "done"; name: string; courseSlug: string; stageKey: string }
+  | { phase: "failed"; message: string; retry: PendingDocument | null };
+
+/**
+ * Upload documents (PDF/Office/images) and attach them to a lesson. Two
+ * steps: the file goes to Vercel Blob (useBlobUpload), then the lesson gets a
+ * row pointing at it — each with its own "Try again".
+ */
 export function LessonDocumentManager({
   courses,
 }: {
@@ -43,9 +57,9 @@ export function LessonDocumentManager({
   const [courseSlug, setCourseSlug] = React.useState(courses[0]?.slug ?? "");
   const [stageKey, setStageKey] = React.useState("concept");
   const [docs, setDocs] = React.useState<LessonDocumentRef[]>([]);
-  const [status, setStatus] = React.useState<"idle" | "uploading" | "error">(
-    "idle"
-  );
+  const upload = useBlobUpload(DOCUMENT_UPLOAD);
+  const [attach, setAttach] = React.useState<AttachState>({ phase: "idle" });
+  const noticeId = React.useId();
   const [reloadKey, setReloadKey] = React.useState(0);
   const refresh = () => setReloadKey((k) => k + 1);
 
@@ -62,29 +76,99 @@ export function LessonDocumentManager({
     };
   }, [courseSlug, stageKey, reloadKey]);
 
-  async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
+  const busy =
+    upload.state.phase === "uploading" || attach.phase === "attaching";
+  const pickerDisabled = !courseSlug || upload.problem !== null || busy;
+
+  function onPick(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0];
-    if (!f) return;
-    setStatus("uploading");
-    try {
-      const { upload } = await import("@vercel/blob/client");
-      const blob = await upload(f.name, f, {
-        access: "public",
-        handleUploadUrl: "/api/document/upload",
-      });
-      const res = await addLessonDocument(courseSlug, stageKey, {
-        name: f.name,
-        url: blob.url,
-        mimeType: f.type || "application/octet-stream",
-        sizeBytes: f.size,
-      });
-      setStatus(res.ok ? "idle" : "error");
-      if (res.ok) await refresh();
-    } catch {
-      setStatus("error");
-    }
-    e.target.value = "";
+    e.target.value = ""; // so picking the same file again still fires
+    if (f) void send(f);
   }
+
+  // The lesson is fixed when the file is picked, even if the selects change
+  // while it uploads.
+  async function send(f: File) {
+    const target = { courseSlug, stageKey };
+    setAttach({ phase: "idle" });
+    const stored = await upload.start(f);
+    if (!stored) return;
+    await attachToLesson({
+      ...target,
+      doc: {
+        name: f.name,
+        url: stored.url,
+        mimeType: stored.contentType,
+        sizeBytes: f.size,
+      },
+    });
+  }
+
+  async function attachToLesson(p: PendingDocument) {
+    setAttach({ phase: "attaching" });
+    try {
+      const res = await addLessonDocument(p.courseSlug, p.stageKey, p.doc);
+      if (res.ok) {
+        setAttach({
+          phase: "done",
+          name: p.doc.name,
+          courseSlug: p.courseSlug,
+          stageKey: p.stageKey,
+        });
+        refresh();
+        return;
+      }
+      // "forbidden" covers both signed out and not an editor — ask which.
+      const access = await fetchStorageStatus();
+      const permitted = !(access?.signedIn && !access.canUpload);
+      setAttach({
+        phase: "failed",
+        message: attachFailureMessage({ kind: "refused", access }),
+        retry: permitted ? p : null,
+      });
+    } catch (error) {
+      setAttach({
+        phase: "failed",
+        message: attachFailureMessage({ kind: "thrown", error }),
+        retry: p,
+      });
+    }
+  }
+
+  // Name the lesson when the selects have moved on since the file was picked.
+  function addedTo(done: Extract<AttachState, { phase: "done" }>): string {
+    if (done.courseSlug === courseSlug && done.stageKey === stageKey) {
+      return "this lesson";
+    }
+    const course =
+      courses.find((c) => c.slug === done.courseSlug)?.title ?? done.courseSlug;
+    const stage = done.stageKey[0].toUpperCase() + done.stageKey.slice(1);
+    return `${course} · ${stage}`;
+  }
+
+  const failedUpload = upload.state.phase === "failed" ? upload.state : null;
+  const uploadMessage =
+    attach.phase === "attaching"
+      ? { tone: "success" as const, text: "Uploaded — adding it to the lesson…" }
+      : attach.phase === "done"
+        ? {
+            tone: "success" as const,
+            text: `Added “${attach.name}” to ${addedTo(attach)}.`,
+          }
+        : attach.phase === "failed"
+          ? { tone: "error" as const, text: attach.message }
+          : upload.state.phase === "failed" ||
+              upload.state.phase === "rejected"
+            ? { tone: "error" as const, text: upload.state.message }
+            : null;
+  // "Try again" repeats whichever step failed: adding the stored file to the
+  // lesson, or the upload itself.
+  const retryAttach = attach.phase === "failed" ? attach.retry : null;
+  const onRetry = retryAttach
+    ? () => void attachToLesson(retryAttach)
+    : failedUpload && attach.phase === "idle" && !upload.problem
+      ? () => void send(failedUpload.file)
+      : undefined;
 
   async function onRemove(id: string) {
     await removeLessonDocument(id);
@@ -151,8 +235,14 @@ export function LessonDocumentManager({
               ))}
             </select>
           </label>
-          <label className="inline-flex items-center gap-1.5 rounded-md border border-[var(--border)] px-3 py-2 text-sm cursor-pointer hover:bg-[var(--surface-muted)]">
-            {status === "uploading" ? (
+          <label
+            className={`inline-flex items-center gap-1.5 rounded-md border border-[var(--border)] px-3 py-2 text-sm focus-within:ring-2 focus-within:ring-[var(--ring)] ${
+              pickerDisabled
+                ? "cursor-not-allowed opacity-60"
+                : "cursor-pointer hover:bg-[var(--surface-muted)]"
+            }`}
+          >
+            {busy ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
               <Upload className="h-4 w-4" />
@@ -160,21 +250,24 @@ export function LessonDocumentManager({
             Upload document
             <input
               type="file"
-              accept={ACCEPT}
-              onChange={onFile}
-              disabled={status === "uploading"}
+              accept={acceptAttribute(DOCUMENT_UPLOAD)}
+              onChange={onPick}
+              disabled={pickerDisabled}
+              aria-describedby={upload.storage ? noticeId : undefined}
               className="sr-only"
             />
           </label>
         </div>
-
-        {status === "error" ? (
-          <p className="mt-2 text-xs text-[var(--danger)] flex items-center gap-1.5">
-            <AlertTriangle className="h-3.5 w-3.5" />
-            Couldn&apos;t save — sign in as a content editor (and connect Vercel
-            Blob).
-          </p>
-        ) : null}
+        <p className="mt-2 text-xs text-[var(--muted-foreground)]">
+          {DOCUMENT_UPLOAD.formats} · up to{" "}
+          {formatSize(DOCUMENT_UPLOAD.maxBytes)} each.
+        </p>
+        <StorageNotice storage={upload.storage} id={noticeId} />
+        <UploadStatus
+          state={upload.state}
+          message={uploadMessage}
+          onRetry={onRetry}
+        />
 
         <div className="mt-4">
           {docs.length === 0 ? (

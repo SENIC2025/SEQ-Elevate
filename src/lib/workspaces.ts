@@ -5,16 +5,18 @@
  * demo's role picker (D26).
  *
  * The role → workspace rules mirror the server-side gates they lead to:
- *   content     — CONTENT_EDITOR or ADMIN   (the CMS actions' requireEditor)
+ *   content     — canEditContent: Editor, or Admin which includes it
+ *                 (the CMS actions' requireEditor)
  *   admin       — ADMIN
  *   facilitator — FACILITATOR or ADMIN      (getProjectLearners)
  *   analytics   — FACILITATOR or ADMIN      (the analytics page's isStaff)
  *   learner     — everyone signed in
  *
- * Pure (type-only imports), so client components can use it too.
+ * Pure (no server imports), so client components can use it too.
  */
 
 import type { Role } from "@prisma/client";
+import { canEditContent } from "@/lib/permissions";
 
 export type WorkspaceId =
   | "content"
@@ -41,7 +43,7 @@ export const WORKSPACE_HREF: Record<WorkspaceId, string> = {
 export function workspacesFor(roles: readonly Role[]): Workspace[] {
   const has = (r: Role) => roles.includes(r);
   const ids: WorkspaceId[] = [];
-  if (has("CONTENT_EDITOR") || has("ADMIN")) ids.push("content");
+  if (canEditContent(roles)) ids.push("content");
   if (has("ADMIN")) ids.push("admin");
   if (has("FACILITATOR") || has("ADMIN")) ids.push("facilitator", "analytics");
   ids.push("learner");

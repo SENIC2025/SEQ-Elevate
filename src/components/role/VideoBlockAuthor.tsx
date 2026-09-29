@@ -10,6 +10,18 @@ import { saveLessonVideo } from "@/app/actions/lesson";
 import { STAGES } from "@/data/course";
 import type { VideoContent, VideoCue } from "@/lib/cms/types";
 import {
+  VIDEO_UPLOAD,
+  acceptAttribute,
+  checkFile,
+  formatSize,
+} from "@/lib/uploads";
+import { saveFailureMessage } from "@/lib/author-feedback";
+import {
+  fetchStorageStatus,
+  useBlobUpload,
+} from "@/components/role/useBlobUpload";
+import { StorageNotice, UploadStatus } from "@/components/role/UploadFeedback";
+import {
   Upload,
   Link2,
   Film,
@@ -19,7 +31,6 @@ import {
   Eye,
   CheckCircle2,
   Loader2,
-  CloudUpload,
   AlertTriangle,
   Save,
 } from "lucide-react";
@@ -30,9 +41,10 @@ import {
  * pasted URL (direct media or YouTube); cues add in-video questions. A live
  * preview renders with the very same player the learner sees.
  *
- * Note: the upload here previews via an in-browser object URL so authors can
- * see it immediately. Persisting the file to storage is wired separately
- * (see DECISIONS.md — video hosting).
+ * An uploaded file goes straight to Vercel Blob (see useBlobUpload). While it
+ * uploads — or if it can't — the preview plays from an in-browser object URL,
+ * labelled "Not saved yet", and it can't be saved to a lesson until the file
+ * is stored: a blob: URL would be a broken video for every learner.
  */
 
 let cueSeq = 0;
@@ -71,14 +83,14 @@ export function VideoBlockAuthor({
   const [saveState, setSaveState] = React.useState<
     "idle" | "saving" | "saved" | "error"
   >("idle");
+  const [saveError, setSaveError] = React.useState("");
   const [provider, setProvider] = React.useState<"file" | "youtube">("file");
   const [src, setSrc] = React.useState("");
   const [fileName, setFileName] = React.useState<string | null>(null);
   const [fromUpload, setFromUpload] = React.useState(false);
-  const [uploadStatus, setUploadStatus] = React.useState<
-    "idle" | "uploading" | "stored" | "preview"
-  >("idle");
-  const [progress, setProgress] = React.useState(0);
+  const upload = useBlobUpload(VIDEO_UPLOAD);
+  const noticeId = React.useId();
+  const saveHintId = React.useId();
   const [title, setTitle] = React.useState("");
   const [caption, setCaption] = React.useState("");
   const [captionSrc, setCaptionSrc] = React.useState("");
@@ -103,36 +115,57 @@ export function VideoBlockAuthor({
     setCaptionSrc(url);
   }
 
-  async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const f = e.target.files?.[0];
-    if (!f) return;
-    if (objectUrl.current) URL.revokeObjectURL(objectUrl.current);
-    // Instant in-browser preview while (and whether or not) it uploads.
-    const localUrl = URL.createObjectURL(f);
-    objectUrl.current = localUrl;
-    setSrc(localUrl);
-    setProvider("file");
-    setFromUpload(true);
-    setFileName(`${f.name} · ${(f.size / 1_048_576).toFixed(1)} MB`);
+  // Uploading needs a signed-in editor and connected storage; until the
+  // status says otherwise the picker stays usable (the route still checks).
+  const pickerDisabled =
+    upload.problem !== null || upload.state.phase === "uploading";
 
-    // Upload straight to Vercel Blob (client upload — large files bypass the
-    // serverless body limit). Falls back to preview-only if Blob isn't
-    // configured or the author isn't signed in as staff.
-    setProgress(0);
-    setUploadStatus("uploading");
-    try {
-      const { upload } = await import("@vercel/blob/client");
-      const blob = await upload(f.name, f, {
-        access: "public",
-        handleUploadUrl: "/api/video/upload",
-        onUploadProgress: (p) => setProgress(Math.round(p.percentage)),
-      });
-      setSrc(blob.url); // swap the preview to the persisted URL
-      setUploadStatus("stored");
-    } catch {
-      setUploadStatus("preview");
+  function onPick(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    e.target.value = ""; // so picking the same file again still fires
+    if (f) handleFile(f);
+  }
+
+  function onDrop(e: React.DragEvent<HTMLLabelElement>) {
+    e.preventDefault(); // never let the browser navigate to the dropped file
+    const f = e.dataTransfer.files[0];
+    if (f && !pickerDisabled) handleFile(f);
+  }
+
+  function handleFile(f: File) {
+    // Instant in-browser preview while it uploads — only for files that can
+    // be uploaded at all; useBlobUpload explains why the others can't.
+    if (checkFile(f, VIDEO_UPLOAD).ok) {
+      if (objectUrl.current) URL.revokeObjectURL(objectUrl.current);
+      const localUrl = URL.createObjectURL(f);
+      objectUrl.current = localUrl;
+      setSrc(localUrl);
+      setProvider("file");
+      setFromUpload(true);
+      setFileName(`${f.name} · ${formatSize(f.size)}`);
+      setSaveState("idle");
+    }
+    void send(f);
+  }
+
+  // Upload straight to Vercel Blob (client upload — large files bypass the
+  // serverless body limit), then swap the preview to the stored file unless
+  // the author has moved on to another source meanwhile.
+  async function send(f: File) {
+    const local = objectUrl.current;
+    const stored = await upload.start(f);
+    if (stored) {
+      setSrc((current) => (current === local ? stored.url : current));
     }
   }
+
+  const uploadMessage =
+    upload.state.phase === "stored"
+      ? { tone: "success" as const, text: "Uploaded — the video file is stored." }
+      : upload.state.phase === "failed" || upload.state.phase === "rejected"
+        ? { tone: "error" as const, text: upload.state.message }
+        : null;
+  const failedUpload = upload.state.phase === "failed" ? upload.state : null;
 
   function onUrl(value: string) {
     setSrc(value.trim());
@@ -176,11 +209,29 @@ export function VideoBlockAuthor({
       }
     : null;
 
+  // A preview playing from this browser (blob:) isn't a video learners can load.
+  const localOnly = src.startsWith("blob:");
+
   async function handleSaveToLesson() {
-    if (!draft || !targetCourse) return;
+    if (!draft || !targetCourse || localOnly) return;
     setSaveState("saving");
-    const res = await saveLessonVideo(targetCourse, targetStage, draft);
-    setSaveState(res.ok ? "saved" : "error");
+    try {
+      const res = await saveLessonVideo(targetCourse, targetStage, draft);
+      if (res.ok) {
+        setSaveState("saved");
+        return;
+      }
+      // "forbidden" covers both signed out and not an editor — ask which.
+      setSaveError(
+        saveFailureMessage({
+          kind: "refused",
+          access: await fetchStorageStatus(),
+        })
+      );
+    } catch (error) {
+      setSaveError(saveFailureMessage({ kind: "thrown", error }));
+    }
+    setSaveState("error");
   }
 
   return (
@@ -234,60 +285,65 @@ export function VideoBlockAuthor({
         <div className="mt-3">
           {tab === "upload" ? (
             <div>
-              <label className="flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-[var(--border)] bg-[var(--surface-muted)] px-4 py-6 text-center cursor-pointer hover:border-[var(--accent)]/50">
+              <label
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={onDrop}
+                className={`flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-[var(--border)] bg-[var(--surface-muted)] px-4 py-6 text-center focus-within:ring-2 focus-within:ring-[var(--ring)] ${
+                  pickerDisabled
+                    ? "cursor-not-allowed opacity-60"
+                    : "cursor-pointer hover:border-[var(--accent)]/50"
+                }`}
+              >
                 <Upload className="h-6 w-6 text-[var(--accent)]" />
                 <span className="text-sm font-medium">
                   Choose a video file
                 </span>
                 <span className="text-xs text-[var(--muted-foreground)]">
-                  MP4 or WebM · drag &amp; drop or click to browse
+                  {VIDEO_UPLOAD.formats} · up to{" "}
+                  {formatSize(VIDEO_UPLOAD.maxBytes)} · drag &amp; drop or
+                  click to browse
                 </span>
                 <input
                   type="file"
-                  accept="video/*"
-                  onChange={onFile}
+                  accept={acceptAttribute(VIDEO_UPLOAD)}
+                  onChange={onPick}
+                  disabled={pickerDisabled}
+                  aria-describedby={upload.storage ? noticeId : undefined}
                   className="sr-only"
                 />
               </label>
+              <StorageNotice
+                storage={upload.storage}
+                id={noticeId}
+                whenMissing={
+                  <p>
+                    Meanwhile, you can paste a link instead — a YouTube link or
+                    a direct link to an .mp4 or .webm file.{" "}
+                    <button
+                      type="button"
+                      onClick={() => setTab("url")}
+                      className="font-medium text-[var(--accent)] underline underline-offset-2"
+                    >
+                      Paste a link
+                    </button>
+                  </p>
+                }
+              />
               {fileName ? (
                 <p className="mt-2 text-xs text-[var(--foreground)] flex items-center gap-1.5">
-                  <CheckCircle2 className="h-3.5 w-3.5 text-[var(--success)]" />
+                  <Film className="h-3.5 w-3.5 text-[var(--muted-foreground)]" aria-hidden />
                   {fileName}
                 </p>
               ) : null}
-
-              {uploadStatus === "uploading" ? (
-                <div className="mt-2">
-                  <div
-                    className="h-1.5 rounded-full bg-[var(--surface-muted)] overflow-hidden"
-                    role="progressbar"
-                    aria-label="Upload progress"
-                    aria-valuenow={progress}
-                    aria-valuemin={0}
-                    aria-valuemax={100}
-                  >
-                    <div
-                      className="h-full bg-[var(--accent)] transition-[width]"
-                      style={{ width: `${progress}%` }}
-                    />
-                  </div>
-                  <p className="mt-1 text-xs text-[var(--muted-foreground)] flex items-center gap-1.5">
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    Uploading to storage… {progress}%
-                  </p>
-                </div>
-              ) : uploadStatus === "stored" ? (
-                <p className="mt-2 text-xs text-[var(--success)] flex items-center gap-1.5">
-                  <CloudUpload className="h-3.5 w-3.5" />
-                  Stored — this video is saved and will persist.
-                </p>
-              ) : uploadStatus === "preview" ? (
-                <p className="mt-2 text-xs text-[var(--muted-foreground)] flex items-start gap-1.5">
-                  <AlertTriangle className="h-3.5 w-3.5 text-[var(--warning)] flex-shrink-0 mt-0.5" />
-                  Preview only — sign in as a content editor (and connect Vercel
-                  Blob) to store the file. The video plays here meanwhile.
-                </p>
-              ) : null}
+              <UploadStatus
+                state={upload.state}
+                message={uploadMessage}
+                onRetry={
+                  failedUpload && !upload.problem
+                    ? () => void send(failedUpload.file)
+                    : undefined
+                }
+              />
             </div>
           ) : (
             <div>
@@ -433,6 +489,15 @@ export function VideoBlockAuthor({
             <Eye className="h-4 w-4 text-[var(--accent)]" />
             Live preview — exactly what the learner sees
           </h4>
+          {draft && localOnly ? (
+            <p className="mb-2 text-xs text-[var(--muted-foreground)] flex flex-wrap items-center gap-1.5">
+              <Badge variant="muted" className="text-[10px]">
+                Not saved yet
+              </Badge>
+              This preview plays from your computer. It can be saved to a
+              lesson once the upload has finished.
+            </p>
+          ) : null}
           {draft ? (
             <InteractiveVideoPlayer video={draft} />
           ) : (
@@ -486,8 +551,11 @@ export function VideoBlockAuthor({
               </label>
               <Button
                 size="sm"
-                disabled={!draft || !targetCourse || saveState === "saving"}
+                disabled={
+                  !draft || !targetCourse || localOnly || saveState === "saving"
+                }
                 onClick={handleSaveToLesson}
+                aria-describedby={draft && localOnly ? saveHintId : undefined}
               >
                 {saveState === "saving" ? (
                   <>
@@ -501,23 +569,34 @@ export function VideoBlockAuthor({
                   </>
                 )}
               </Button>
-              {saveState === "saved" ? (
-                <span className="text-xs text-[var(--success)] inline-flex items-center gap-1">
-                  <CheckCircle2 className="h-3.5 w-3.5" />
-                  Saved — learners see it on this lesson.
-                </span>
-              ) : saveState === "error" ? (
-                <span className="text-xs text-[var(--danger)] inline-flex items-center gap-1">
-                  <AlertTriangle className="h-3.5 w-3.5" />
-                  Sign in as a content editor to save.
-                </span>
-              ) : null}
+              <span role="status" aria-live="polite">
+                {saveState === "saved" ? (
+                  <span className="text-xs text-[var(--success)] inline-flex items-center gap-1">
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                    Saved — learners see it on this lesson.
+                  </span>
+                ) : saveState === "error" ? (
+                  <span className="text-xs text-[var(--danger)] inline-flex items-start gap-1">
+                    <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
+                    {saveError}
+                  </span>
+                ) : null}
+              </span>
             </div>
+            {draft && localOnly ? (
+              <p
+                id={saveHintId}
+                className="mt-2 text-xs text-[var(--muted-foreground)]"
+              >
+                Finish uploading the video (or paste a link) before saving it
+                to a lesson.
+              </p>
+            ) : null}
           </div>
         ) : (
           <p className="mt-4 text-xs text-[var(--muted-foreground)]">
-            This is a working preview. On publish, the video and its questions
-            are saved to the CMS for this project.
+            Create a course first — then you can save this video, with its
+            questions, to one of its lessons.
           </p>
         )}
       </CardContent>

@@ -9,7 +9,8 @@
  */
 
 import { Prisma } from "@prisma/client";
-import { getCurrentUser, hasRole } from "@/lib/auth-helpers";
+import { getCurrentUser, getProjectMemberships } from "@/lib/auth-helpers";
+import { canEditContent } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
 import { getCourse } from "@/lib/cms";
 import type {
@@ -24,10 +25,8 @@ const PROJECT = "seq-elevate";
 async function requireEditor() {
   const user = await getCurrentUser();
   if (!user) return null;
-  const ok =
-    (await hasRole(PROJECT, "ADMIN")) ||
-    (await hasRole(PROJECT, "CONTENT_EDITOR"));
-  return ok ? user : null;
+  const roles = (await getProjectMemberships(PROJECT)).map((m) => m.role);
+  return canEditContent(roles) ? user : null;
 }
 
 // Publishing is a lighter "release" control teachers run for their cohort, so
@@ -35,11 +34,8 @@ async function requireEditor() {
 async function requirePublisher() {
   const user = await getCurrentUser();
   if (!user) return null;
-  const ok =
-    (await hasRole(PROJECT, "ADMIN")) ||
-    (await hasRole(PROJECT, "CONTENT_EDITOR")) ||
-    (await hasRole(PROJECT, "FACILITATOR"));
-  return ok ? user : null;
+  const roles = (await getProjectMemberships(PROJECT)).map((m) => m.role);
+  return canEditContent(roles) || roles.includes("FACILITATOR") ? user : null;
 }
 
 /** Publish or unpublish a document (controls learner visibility). */
