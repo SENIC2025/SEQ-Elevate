@@ -191,6 +191,15 @@ Single source of truth for decisions made, decisions still open, and the rationa
 - Only people who can edit content get preview mode, and only they can start at a chosen lesson; learners keep the step-by-step order. Draft documents stay hidden in the preview, exactly as learners would see it (the course page lists them with a *Draft* badge).
 - An editor viewing any course sees **Edit this lesson**, which opens that lesson on the course page; the preview banner links **Back to editing**.
 
+### D36 · Rich text format for lesson paragraphs and key messages
+**Decided**: 29 September 2026 · *Decider: SENIC principal ("Bold, italic, bullet points, numbering, and indent" — "the same as you see it as a learner"); format: SENIC (build decision)*
+- Paragraphs and key messages can use **bold, italic, bulleted and numbered lists (up to three levels) and indent** — nothing else: no links, images, colours, fonts or headings, so every lesson keeps the platform's look and can't carry anything unsafe. Editor and learner view use the same styles, so what authors see is what learners get.
+- **Stored as structured JSON, never HTML:** a block keeps `rich = { v: 1, doc }` next to its plain `text`. The server rebuilds every saved doc from that whitelist (anything else is dropped) and derives `text` from it itself — older code, the reflection intro and a rollback keep working from `text`. The learner view checks the doc again on every render and only ever outputs a fixed set of elements. No migration: `Lesson.narrative` is already JSON.
+- **Existing text isn't converted in bulk.** A block becomes rich only when an author edits it, converted by the rules learners already see (Round 1's list detection), so nothing changes for learners until someone changes the text.
+- **Limits are refused, not cut:** a block over 10,000 characters (or with extreme formatting), a list over 50 points or a lesson over 100 blocks is not saved, and the author is told which block to split — silently losing the end of a text would be worse. Lists pasted deeper than three levels are kept at the third level instead of refused; no text is lost.
+- List blocks can be **bulleted or numbered** (`listStyle`; existing lists stay numbered). Saving and removing lesson text is now audited (`narrative.saved` / `narrative.cleared`), like the exercises.
+- **Q4 — no "Paste from Word" button.** Normal paste (Ctrl+V, ⌘V on Mac) tidies Word and Google Docs formatting automatically, keeping bold, italic and lists; a short tip by the toolbar says so. A button that in some browsers could only show instructions would confuse more than help.
+
 ---
 
 ## 🟡 Open — must close before kickoff or Week 1
