@@ -66,7 +66,7 @@ export function mediaUrlMessage(
  * also be a bare video id (the embed builds the link from it).
  */
 export function unstorableVideoMessage(
-  video: Pick<VideoContent, "provider" | "src" | "captions">
+  video: Pick<VideoContent, "provider" | "src" | "captions" | "poster">
 ): string | null {
   if (typeof video !== "object" || video === null) {
     return mediaUrlMessage("video", "not-web");
@@ -84,6 +84,12 @@ export function unstorableVideoMessage(
   for (const track of tracks) {
     const problem = mediaUrlProblem((track as { src?: unknown } | null)?.src);
     if (problem) return mediaUrlMessage("caption", problem);
+  }
+  // The authoring screens never set a poster, but a crafted request could.
+  const poster: unknown = video.poster;
+  if (poster !== undefined && poster !== null && poster !== "") {
+    const problem = mediaUrlProblem(poster);
+    if (problem) return mediaUrlMessage("video", problem);
   }
   return null;
 }

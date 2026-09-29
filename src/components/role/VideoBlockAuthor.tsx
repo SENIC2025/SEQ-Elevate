@@ -405,6 +405,7 @@ export function VideoBlockAuthor({
                 </p>
               ) : null}
               <UploadStatus
+                label="Video upload progress"
                 state={upload.state}
                 message={uploadMessage}
                 onRetry={
@@ -517,6 +518,7 @@ export function VideoBlockAuthor({
             />
           ) : null}
           <UploadStatus
+            label="Caption upload progress"
             state={captionUpload.state}
             message={captionMessage}
             onRetry={

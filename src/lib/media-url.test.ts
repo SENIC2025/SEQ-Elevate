@@ -62,6 +62,17 @@ describe("unstorableVideoMessage", () => {
   });
   const track = (src: string) => [{ src, label: "English", lang: "en" }];
 
+  it("checks a poster like the video itself, and allows none", () => {
+    expect(unstorableVideoMessage(video({ poster: "" }))).toBeNull();
+    expect(unstorableVideoMessage(video({ poster: STORED }))).toBeNull();
+    expect(unstorableVideoMessage(video({ poster: "javascript:alert(1)" }))).toMatch(
+      /^This video link/
+    );
+    expect(unstorableVideoMessage(video({ poster: LOCAL }))).toMatch(
+      /only on your computer/
+    );
+  });
+
   it("lets a stored video with stored captions through", () => {
     expect(unstorableVideoMessage(video())).toBeNull();
     expect(unstorableVideoMessage(video({ captions: undefined }))).toBeNull();

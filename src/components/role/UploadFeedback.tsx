@@ -72,10 +72,13 @@ export function UploadStatus({
   state,
   message,
   onRetry,
+  label = "Upload progress",
 }: {
   state: UploadState;
   message: { tone: "success" | "error"; text: string } | null;
   onRetry?: () => void;
+  /** Names the progress bar; distinct when two uploads can run at once. */
+  label?: string;
 }) {
   const progress = state.phase === "uploading" ? state : null;
   const percent =
@@ -91,7 +94,7 @@ export function UploadStatus({
           <div
             className="h-1.5 rounded-full bg-[var(--surface-muted)] overflow-hidden"
             role="progressbar"
-            aria-label="Upload progress"
+            aria-label={label}
             aria-valuenow={percent}
             aria-valuemin={0}
             aria-valuemax={100}
