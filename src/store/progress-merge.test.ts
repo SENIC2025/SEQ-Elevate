@@ -2,12 +2,13 @@ import { describe, it, expect } from "vitest";
 import {
   courseAfterLoad,
   courseAfterMigration,
+  guestStateAfterHydrate,
   hasCourseProgress,
   mergeBadges,
   mergeCompCardOnHydrate,
   mergeCourseProgress,
 } from "./progress-merge";
-import type { CompCardData, CourseProgress } from "./demo-state";
+import type { CompCardData, CourseProgress, DemoState } from "./demo-state";
 
 const SLUG = "workplace-conflict";
 
@@ -363,5 +364,90 @@ describe("mergeBadges", () => {
   it("lists each badge once, the server's first", () => {
     expect(mergeBadges(["a", "b"], ["b", "c", "a"])).toEqual(["a", "b", "c"]);
     expect(mergeBadges(["a"], [])).toEqual(["a"]);
+  });
+});
+
+describe("guestStateAfterHydrate", () => {
+  const blankCard: CompCardData = {
+    wentWell: "",
+    difficult: "",
+    improve: "",
+    behaviour: "",
+    confidence: 3,
+    privacy: "facilitator",
+    updatedAt: null,
+  };
+  const blank: DemoState = {
+    projectId: "seq-elevate",
+    role: null,
+    badges: [],
+    course: { ...progress(), courseSlug: null },
+    compCard: blankCard,
+  };
+  /** Earlier, as a guest: two lessons and an answer, and a badge. */
+  const stored: DemoState = {
+    ...blank,
+    badges: ["voice-without-edges"],
+    course: progress({
+      courseTitle: "Workplace conflict",
+      stagesCompleted: ["context", "concept"],
+      reflection: { p1: "Stored", p2: "", p3: "" },
+    }),
+    compCard: { ...blankCard, wentWell: "Stored card", updatedAt: "2026-09-28T09:00:00.000Z" },
+  };
+
+  it("is the stored progress when nothing was done before it was read", () => {
+    expect(guestStateAfterHydrate(blank, stored, blank)).toEqual(stored);
+  });
+
+  it("keeps another course being played: its steps are never recorded against the stored one", () => {
+    const other: DemoState = {
+      ...blank,
+      course: progress({
+        courseSlug: "receiving-feedback",
+        courseTitle: "Receiving feedback",
+      }),
+    };
+    const after = guestStateAfterHydrate(other, stored, blank);
+    expect(after.course).toEqual(other.course);
+    expect(after.badges).toEqual(["voice-without-edges"]);
+    expect(after.compCard).toEqual(stored.compCard);
+  });
+
+  it("merges the same course with the steps taken before it was read", () => {
+    const early: DemoState = {
+      ...blank,
+      course: progress({
+        courseTitle: "Workplace conflict",
+        stagesCompleted: ["context", "concept", "behaviour"],
+      }),
+    };
+    expect(guestStateAfterHydrate(early, stored, blank).course).toMatchObject({
+      courseSlug: SLUG,
+      stagesCompleted: ["context", "concept", "behaviour"],
+      reflection: { p1: "Stored" },
+    });
+  });
+
+  it("keeps a completion and a badge earned before it was read", () => {
+    const finished: DemoState = {
+      ...blank,
+      badges: ["feedback-as-fuel"],
+      course: walked,
+    };
+    const after = guestStateAfterHydrate(finished, stored, blank);
+    expect(after.badges).toEqual(["voice-without-edges", "feedback-as-fuel"]);
+    expect(after.course.completedAt).toBe(walked.completedAt);
+  });
+
+  it("keeps Comp Card text entered before it was read", () => {
+    const typing: DemoState = {
+      ...blank,
+      compCard: { ...blankCard, improve: "Typed early", updatedAt: "2026-09-29T10:00:00.000Z" },
+    };
+    expect(guestStateAfterHydrate(typing, stored, blank).compCard).toMatchObject({
+      wentWell: "Stored card",
+      improve: "Typed early",
+    });
   });
 });

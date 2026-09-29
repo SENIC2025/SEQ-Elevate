@@ -39,7 +39,7 @@ export async function withRetry<T>(
 }
 
 /** Resolves after `ms`, or rejects as soon as `signal` aborts. */
-function wait(ms: number, signal?: AbortSignal): Promise<void> {
+export function wait(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) return reject(signal.reason);
     const onAbort = () => {

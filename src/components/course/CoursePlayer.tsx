@@ -4,6 +4,7 @@ import {
   useState,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   type MouseEvent,
 } from "react";
@@ -124,8 +125,16 @@ export function CoursePlayer({
   }, [current]);
 
   // Record which course is being played, so Comp Card / facilitator views
-  // can show the course title + evidence without re-resolving content.
-  useEffect(() => {
+  // can show the course title + evidence without re-resolving content —
+  // and so every step the learner takes here is recorded against it. At
+  // once, as the player mounts: a layout effect's update is applied before
+  // the first click, at the clicks' own priority. From a passive effect,
+  // on a fresh page load, it has been seen waiting until the page's first
+  // server action (the telemetry below) had finished — the whole walk long
+  // on a slow server — while the clicks went into a store holding no
+  // course: the completion screen then had no course to complete, and a
+  // guest's course migrated on sign-in took the lessons over.
+  useLayoutEffect(() => {
     dispatch({
       type: "setCourseContext",
       slug: course.slug,

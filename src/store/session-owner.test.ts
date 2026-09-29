@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { forgetLearner, mustForget, sessionOwner } from "./session-owner";
+import { forgetLearner, sessionChange, sessionOwner } from "./session-owner";
 import type { DemoState } from "./demo-state";
 
 const blank: DemoState = {
@@ -46,24 +46,25 @@ describe("sessionOwner", () => {
   });
 });
 
-describe("mustForget", () => {
-  it("forgets a learner's data once they are signed out", () => {
-    expect(mustForget("u1", null)).toBe(true);
+describe("sessionChange", () => {
+  it("holds a learner's data when their session finds no one: signed out, or a lookup that failed", () => {
+    expect(sessionChange("u1", null)).toBe("hold");
   });
 
   it("forgets it when another account signs in", () => {
-    expect(mustForget("u1", "u2")).toBe(true);
+    expect(sessionChange("u1", "u2")).toBe("forget");
   });
 
   it("keeps it while the session is the same learner's, or still loading", () => {
-    expect(mustForget("u1", "u1")).toBe(false);
-    expect(mustForget("u1", undefined)).toBe(false);
+    expect(sessionChange("u1", "u1")).toBe("keep");
+    expect(sessionChange("u1", undefined)).toBe("keep");
   });
 
   it("keeps a guest's progress when they sign in (it moves to the account)", () => {
-    expect(mustForget(null, "u1")).toBe(false);
-    expect(mustForget(undefined, "u1")).toBe(false);
-    expect(mustForget(undefined, null)).toBe(false);
+    expect(sessionChange(null, "u1")).toBe("keep");
+    expect(sessionChange(undefined, "u1")).toBe("keep");
+    expect(sessionChange(undefined, null)).toBe("keep");
+    expect(sessionChange(null, null)).toBe("keep");
   });
 });
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useTranslations } from "next-intl";
 import { motion, MotionConfig } from "framer-motion";
 import { Card, CardContent } from "@/components/ui/card";
@@ -18,12 +18,36 @@ export function CompletionStage({ course }: { course: CourseContent }) {
   const t = useTranslations("coursePlayer");
   const { state, dispatch } = useDemoState();
 
+  // The course is completed, and its badge awarded, once: when the learner
+  // gets here. Not again whenever the store changes: one that has let go of
+  // the learner's data — signed out in another tab — isn't completed again
+  // for whoever uses it next. Not while the store still holds another
+  // course (just opened after it: setCourseContext isn't applied yet); a
+  // store that holds no course yet is fine — it takes this one up with
+  // what's recorded here (setCourseContext keeps it), and that can come
+  // late: on a fresh page load it has been seen waiting for the player's
+  // telemetry server action to finish, the whole walk long on a slow
+  // server. What's recorded before the learner's saved data arrives is
+  // merged with it, not replaced (progress-merge.ts).
+  const recorded = useRef(false);
   useEffect(() => {
+    const inStore = state.course.courseSlug;
+    if (recorded.current || (inStore !== null && inStore !== course.slug)) {
+      return;
+    }
+    recorded.current = true;
     if (!state.course.completedAt) dispatch({ type: "completeCourse" });
     if (!state.badges.includes(course.badge.slug)) {
       dispatch({ type: "awardBadge", badge: course.badge.slug });
     }
-  }, [dispatch, state.course.completedAt, state.badges, course.badge.slug]);
+  }, [
+    dispatch,
+    state.course.courseSlug,
+    state.course.completedAt,
+    state.badges,
+    course.slug,
+    course.badge.slug,
+  ]);
 
   return (
     <MotionConfig reducedMotion="user">

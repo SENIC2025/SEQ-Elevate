@@ -13,7 +13,7 @@
  * Pure (no React, no server): DemoStateProvider in demo-state.tsx applies it.
  */
 
-import type { CompCardData, CourseProgress } from "./demo-state";
+import type { CompCardData, CourseProgress, DemoState } from "./demo-state";
 
 /** An answer counts once it has more than whitespace in it. */
 const answered = (text: string) => text.trim() !== "";
@@ -149,4 +149,32 @@ export function mergeCompCardOnHydrate(
 export function mergeBadges(db: string[], local: string[]): string[] {
   const known = new Set(db);
   return [...db, ...local.filter((b) => !known.has(b))];
+}
+
+/**
+ * A guest's store once their progress has been read from this browser's
+ * guest store (`stored`). The page may have been used before that — the
+ * read waits for the session — and what was done meanwhile is kept, as it
+ * is for a signed-in learner: the course being played stays that course,
+ * merged with its stored progress when it's the same one
+ * (courseAfterMigration), so opening another course never records its
+ * steps against the stored one; badges are a union; the Comp Card is
+ * merged field by field. `blank` is the empty store.
+ */
+export function guestStateAfterHydrate(
+  current: DemoState,
+  stored: DemoState,
+  blank: DemoState
+): DemoState {
+  return {
+    ...stored,
+    badges: mergeBadges(stored.badges ?? [], current.badges),
+    course:
+      courseAfterMigration(current.course, stored.course) ?? current.course,
+    compCard: mergeCompCardOnHydrate(
+      current.compCard,
+      stored.compCard,
+      blank.compCard
+    ),
+  };
 }
