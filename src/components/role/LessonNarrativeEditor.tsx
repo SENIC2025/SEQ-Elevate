@@ -10,6 +10,8 @@ import {
   clearLessonNarrative,
 } from "@/app/actions/lesson";
 import type { NarrativeBlock, Locale } from "@/lib/cms/types";
+import { saveFailureMessage } from "@/lib/author-feedback";
+import { fetchStorageStatus } from "@/components/role/useBlobUpload";
 import {
   PenSquare,
   Save,
@@ -57,6 +59,7 @@ export function LessonNarrativeEditor({
   const [status, setStatus] = React.useState<
     "idle" | "saving" | "saved" | "error"
   >("idle");
+  const [saveError, setSaveError] = React.useState("");
   const [reloadKey, setReloadKey] = React.useState(0);
 
   // Load the current effective narrative whenever the lesson/locale changes.
@@ -115,17 +118,28 @@ export function LessonNarrativeEditor({
 
   async function handleSave() {
     setStatus("saving");
-    const res = await saveLessonNarrative(courseSlug, stageKey, locale, {
-      title,
-      subtitle: subtitle || undefined,
-      blocks: blocks.map(stripKey),
-    });
-    if (res.ok) {
-      setStatus("saved");
-      setHasOverride(true);
-    } else {
-      setStatus("error");
+    try {
+      const res = await saveLessonNarrative(courseSlug, stageKey, locale, {
+        title,
+        subtitle: subtitle || undefined,
+        blocks: blocks.map(stripKey),
+      });
+      if (res.ok) {
+        setStatus("saved");
+        setHasOverride(true);
+        return;
+      }
+      // "forbidden" covers both signed out and not an editor — ask which.
+      setSaveError(
+        saveFailureMessage({
+          kind: "refused",
+          access: await fetchStorageStatus(),
+        })
+      );
+    } catch (error) {
+      setSaveError(saveFailureMessage({ kind: "thrown", error }));
     }
+    setStatus("error");
   }
 
   async function handleRevert() {
@@ -288,17 +302,19 @@ export function LessonNarrativeEditor({
               Revert to default
             </Button>
           ) : null}
-          {status === "saved" ? (
-            <span className="text-xs text-[var(--success)] inline-flex items-center gap-1">
-              <CheckCircle2 className="h-3.5 w-3.5" />
-              Saved — learners see it on this lesson.
-            </span>
-          ) : status === "error" ? (
-            <span className="text-xs text-[var(--danger)] inline-flex items-center gap-1">
-              <AlertTriangle className="h-3.5 w-3.5" />
-              Sign in as a content editor to save.
-            </span>
-          ) : null}
+          <span role="status" aria-live="polite">
+            {status === "saved" ? (
+              <span className="text-xs text-[var(--success)] inline-flex items-center gap-1">
+                <CheckCircle2 className="h-3.5 w-3.5" />
+                Saved — learners see it on this lesson.
+              </span>
+            ) : status === "error" ? (
+              <span className="text-xs text-[var(--danger)] inline-flex items-start gap-1">
+                <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
+                {saveError}
+              </span>
+            ) : null}
+          </span>
         </div>
       </CardContent>
     </Card>
