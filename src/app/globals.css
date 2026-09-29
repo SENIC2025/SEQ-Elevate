@@ -173,8 +173,11 @@ body {
    height come from utility classes on the element. In the components layer
    so those utilities still win over it. */
 @layer components {
+  /* "anywhere", not "break-word": a long pasted link must also wrap inside
+     the shrink-to-fit callout pill and the one-column compare grid on
+     phones, which size themselves to their content's minimum width. */
   .seq-prose {
-    overflow-wrap: break-word;
+    overflow-wrap: anywhere;
   }
   .seq-prose > * + * {
     margin-top: 0.75em;
