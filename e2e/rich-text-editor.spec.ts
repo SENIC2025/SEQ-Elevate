@@ -26,8 +26,10 @@ const describe = DB ? test.describe : test.describe.skip;
 test.describe.configure({ mode: "serial", timeout: 90_000 });
 
 const PROJECT = "seq-elevate";
-const EDITOR = "e2e-rich-text-editor@example.com";
-const LEARNER = "e2e-rich-text-learner@example.com";
+// Not the addresses rich-text-learner.spec uses: the two files run in
+// parallel, and each deletes its own users before and after.
+const EDITOR = "e2e-rt-editor-author@example.com";
+const LEARNER = "e2e-rt-editor-learner@example.com";
 const EMAILS = [EDITOR, LEARNER];
 const SLUG = "e2e-rich-text-editor";
 
@@ -212,11 +214,19 @@ async function save(region: Locator) {
   await expect(region.getByText(/^saved$/i)).toBeVisible({ timeout: 15000 });
 }
 
-/** The concept lesson in the player, as the editor's preview opens it. */
+/**
+ * The concept lesson in the player, as the editor's preview opens it; returns
+ * the visible main landmark. Scoped to it: when React client-renders the page
+ * while it is still streaming, the server's copy of the first lesson shown —
+ * this one — can stay behind in a hidden <div> at the end of <body>.
+ */
 async function playerConcept(page: Page) {
   await page.goto(`/en/learner/course/${SLUG}?preview=1&lesson=concept`);
-  const lesson = page.getByRole("heading", { name: "Rich text lesson" });
-  await expect(lesson).toBeVisible({ timeout: 15000 });
+  const main = page.getByRole("main");
+  await expect(
+    main.getByRole("heading", { name: "Rich text lesson" })
+  ).toBeVisible({ timeout: 15000 });
+  return main;
 }
 
 describe("Rich text — the lesson text editor", () => {
@@ -466,11 +476,11 @@ describe("Rich text — the lesson text editor", () => {
     expect(saved[2].text).toBe("Steps:\n\n1. Listen\n2. Ask\n\n• Thank them");
 
     // The player shows the nested list.
-    await playerConcept(page);
-    await expect(page.locator(".seq-prose ul ul li")).toHaveText(
+    const player = await playerConcept(page);
+    await expect(player.locator(".seq-prose ul ul li")).toHaveText(
       "Breathe slowly"
     );
-    await expect(page.locator(".seq-prose ol li")).toHaveText([
+    await expect(player.locator(".seq-prose ol li")).toHaveText([
       "Listen",
       "Ask",
     ]);
@@ -512,14 +522,14 @@ describe("Rich text — the lesson text editor", () => {
       { kind: "list", items: ["Alpha", "Beta"], listStyle: "bullet" },
     ]);
 
-    await playerConcept(page);
-    await expect(page.locator("ul.list-disc > li")).toHaveText([
+    const player = await playerConcept(page);
+    await expect(player.locator("ul.list-disc > li")).toHaveText([
       "One",
       "Two",
       "Alpha",
       "Beta",
     ]);
-    await expect(page.locator("ol.list-decimal")).toHaveCount(0);
+    await expect(player.locator("ol.list-decimal")).toHaveCount(0);
   });
 
   test("keyboard: the toolbar is one Tab stop, and Tab leaves a list at its deepest level", async ({
