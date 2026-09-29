@@ -700,6 +700,8 @@
       "builtInNotice": "This part of a built-in course comes with the platform and can't be edited here. You can still add a video and documents.",
       "unsavedSwitch": "You have unsaved changes in: {list}. Switch language and discard them?",
       "unsavedClose": "You have unsaved changes in: {list}. Close this lesson and discard them?",
+      "unsavedLeave": "You have unsaved changes in: {list}. Leave this page and discard them?",
+      "unsavedMenuLanguage": "You have unsaved changes in: {list}. Change the menu language and discard them?",
       "readiness": {
         "title": "Before you publish",
         "intro": "Worth a look — none of these stop you publishing.",

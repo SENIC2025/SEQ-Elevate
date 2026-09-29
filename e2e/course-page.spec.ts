@@ -381,6 +381,55 @@ describe("Manage courses — the course page", () => {
     ).toBe(0);
   });
 
+  test("leaving with unsaved text asks first — All courses and the menu language", async ({
+    page,
+    context,
+  }) => {
+    await useSession(context, editorSession);
+    const here = `/en/content/courses/${SLUG}?lesson=behaviour`;
+    await page.goto(here);
+    const editor = page
+      .locator("#lesson-behaviour")
+      .getByRole("region", { name: /lesson text/i });
+    await expect(editor).toBeVisible({ timeout: 15000 });
+    const title = editor.getByLabel(/^lesson title$/i);
+    await title.fill("Unsaved E2E title");
+
+    // "All courses" is an in-app link: no beforeunload, so the page asks.
+    let asked = "";
+    page.once("dialog", (dialog) => {
+      asked = dialog.message();
+      void dialog.dismiss();
+    });
+    await page.getByRole("link", { name: /^all courses$/i }).click();
+    await expect.poll(() => asked).toMatch(/unsaved changes.*leave this page/i);
+    await expect(page).toHaveURL(new RegExp(`/en/content/courses/${SLUG}\\?`));
+    await expect(title).toHaveValue("Unsaved E2E title");
+
+    // So does the header's menu language, which would remount the page.
+    asked = "";
+    page.once("dialog", (dialog) => {
+      asked = dialog.message();
+      void dialog.dismiss();
+    });
+    const menuLanguage = page.getByRole("combobox", { name: /^language/i });
+    await menuLanguage.selectOption("de");
+    await expect.poll(() => asked).toMatch(/menu language/i);
+    await expect(page).toHaveURL(new RegExp(`/en/content/courses/${SLUG}\\?`));
+    await expect(menuLanguage).toHaveValue("en");
+    await expect(title).toHaveValue("Unsaved E2E title");
+
+    // Saying yes leaves.
+    page.once("dialog", (dialog) => void dialog.accept());
+    await page.getByRole("link", { name: /^all courses$/i }).click();
+    await expect(page).toHaveURL(/\/en\/content\/courses$/, { timeout: 15000 });
+    expect(
+      await prisma.lesson.count({
+        where: { courseSlug: SLUG, stageKey: "behaviour" },
+      })
+    ).toBe(0);
+  });
+
   test("a save from an out-of-date page is refused and offers the colleague's version", async ({
     page,
     context,

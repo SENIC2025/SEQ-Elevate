@@ -1,11 +1,22 @@
 "use client";
 
 import * as React from "react";
+import { useTranslations } from "next-intl";
+import {
+  BEFORE_NAVIGATE,
+  type BeforeNavigateReason,
+} from "@/lib/before-navigate";
+import { leavesPage } from "./leave-guard";
 
 /**
  * Which editors on the course page hold unsaved changes — so switching the
  * content language, closing a lesson or leaving the page can ask first
  * instead of silently throwing work away.
+ *
+ * Leaving covers reloading or closing the tab (the browser asks), following
+ * any in-app link (All courses, the header), and the header's menu-language
+ * select. Only the browser's Back button can't be asked about in-app; the
+ * editor's "Unsaved changes" label is the reminder there.
  *
  * Each editor reports through useDirty (or wraps an editor it doesn't own in
  * <DirtyScope>); an editor that unmounts drops out on its own. Kept in a ref,
@@ -28,6 +39,7 @@ interface Registry {
 const DirtyContext = React.createContext<Registry | null>(null);
 
 export function DirtyProvider({ children }: { children: React.ReactNode }) {
+  const t = useTranslations("courseManager.page");
   const entries = React.useRef(new Map<string, Entry>());
 
   const registry = React.useMemo<Registry>(
@@ -65,6 +77,56 @@ export function DirtyProvider({ children }: { children: React.ReactNode }) {
     window.addEventListener("beforeunload", onBeforeUnload);
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
   }, []);
+
+  // In-app navigation never reaches beforeunload: ask ourselves.
+  React.useEffect(() => {
+    const list = () =>
+      [...new Set([...entries.current.values()].map((e) => e.label))].join(
+        ", "
+      );
+
+    const onClick = (e: MouseEvent) => {
+      if (entries.current.size === 0) return;
+      const link =
+        e.target instanceof Element ? e.target.closest("a[href]") : null;
+      if (!(link instanceof HTMLAnchorElement)) return;
+      const leaving = leavesPage(
+        {
+          button: e.button,
+          modified: e.metaKey || e.ctrlKey || e.shiftKey || e.altKey,
+          defaultPrevented: e.defaultPrevented,
+          href: link.href,
+          target: link.target,
+          download: link.hasAttribute("download"),
+        },
+        window.location.href
+      );
+      if (leaving && !window.confirm(t("unsavedLeave", { list: list() }))) {
+        // Captured on the document, before React's own listener: the link's
+        // client-side navigation never starts.
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
+
+    const onBeforeNavigate = (e: Event) => {
+      if (entries.current.size === 0) return;
+      const reason = (e as CustomEvent<{ reason: BeforeNavigateReason }>)
+        .detail?.reason;
+      const message =
+        reason === "ui-language"
+          ? t("unsavedMenuLanguage", { list: list() })
+          : t("unsavedLeave", { list: list() });
+      if (!window.confirm(message)) e.preventDefault();
+    };
+
+    document.addEventListener("click", onClick, true);
+    window.addEventListener(BEFORE_NAVIGATE, onBeforeNavigate);
+    return () => {
+      document.removeEventListener("click", onClick, true);
+      window.removeEventListener(BEFORE_NAVIGATE, onBeforeNavigate);
+    };
+  }, [t]);
 
   return (
     <DirtyContext.Provider value={registry}>{children}</DirtyContext.Provider>

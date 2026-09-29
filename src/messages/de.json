@@ -700,6 +700,8 @@
       "builtInNotice": "Dieser Teil eines mitgelieferten Kurses kommt mit der Plattform und kann hier nicht bearbeitet werden. Ein Video und Dokumente kannst du trotzdem hinzufügen.",
       "unsavedSwitch": "Du hast ungespeicherte Änderungen in: {list}. Sprache wechseln und sie verwerfen?",
       "unsavedClose": "Du hast ungespeicherte Änderungen in: {list}. Lektion schließen und sie verwerfen?",
+      "unsavedLeave": "Du hast ungespeicherte Änderungen in: {list}. Seite verlassen und sie verwerfen?",
+      "unsavedMenuLanguage": "Du hast ungespeicherte Änderungen in: {list}. Menüsprache wechseln und sie verwerfen?",
       "readiness": {
         "title": "Bevor du veröffentlichst",
         "intro": "Einen Blick wert — nichts davon hindert dich am Veröffentlichen.",
