@@ -595,13 +595,8 @@
     "anonymisedNote": "All reporting metrics are anonymised by default."
   },
   "content": {
-    "title": "Content authoring",
-    "cmsNote": "In production this opens Strapi CMS. The demo shows the structure your authors will work in.",
-    "modelCourse": "Course",
-    "modelScenario": "Scenario",
-    "modelCompCard": "Comp Card template",
-    "modelMission": "Mission",
-    "modelBadge": "Badge"
+    "title": "Create courses",
+    "subtitle": "Create courses, write their content in English, German and Greek, add videos and documents, and publish each course when it is ready for learners."
   },
   "lesson": {
     "resourcesTitle": "Resources",

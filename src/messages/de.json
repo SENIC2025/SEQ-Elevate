@@ -595,13 +595,8 @@
     "anonymisedNote": "Alle Reporting-Metriken sind standardmäßig anonymisiert."
   },
   "content": {
-    "title": "Inhalte verfassen",
-    "cmsNote": "In Produktion öffnet das Strapi CMS. Die Demo zeigt die Struktur, in der eure Redaktionen arbeiten werden.",
-    "modelCourse": "Kurs",
-    "modelScenario": "Szenario",
-    "modelCompCard": "Comp Card-Vorlage",
-    "modelMission": "Mission",
-    "modelBadge": "Abzeichen"
+    "title": "Kurse erstellen",
+    "subtitle": "Erstelle Kurse, schreibe ihre Inhalte auf Englisch, Deutsch und Griechisch, füge Videos und Dokumente hinzu und veröffentliche jeden Kurs, sobald er für die Lernenden bereit ist."
   },
   "lesson": {
     "resourcesTitle": "Materialien",
