@@ -1,0 +1,209 @@
+import type { NarrativeBlock } from "@/lib/cms/types";
+import { RT_LIMITS } from "./types";
+import {
+  RT_PROBLEM,
+  cleanPlainText,
+  richTextProblem,
+  sanitizeRichText,
+} from "./sanitize";
+import { docToPlainText } from "./to-plain";
+
+/**
+ * Checking a lesson's content blocks before they're saved (D36). A server
+ * action's arguments come straight from the browser, so every block is
+ * rebuilt from what its kind allows — never passed through:
+ *
+ * - a paragraph or key message with `rich` is sanitized, and its plain
+ *   `text` is derived here from the doc (whatever the browser sent);
+ * - one without `rich` stays plain text — it becomes rich only when an
+ *   author edits it in the editor;
+ * - lists keep their items and a valid `listStyle`; compare blocks keep two
+ *   sides; unknown kinds are dropped.
+ *
+ * Text over a limit is refused with a message naming the block, rather than
+ * cut short: silently losing the end of an author's text is worse than
+ * asking them to split it. Messages are authoring-tool copy (English).
+ */
+
+export const NARRATIVE_LIMITS = {
+  maxBlocks: RT_LIMITS.maxBlocks,
+  /** A plain paragraph or key message (as for rich text). */
+  maxTextChars: RT_LIMITS.maxTextChars,
+  maxListItems: 50,
+  maxListItemChars: 1_000,
+  maxCompareSides: 2,
+  maxCompareLabelChars: 120,
+  maxCompareTextChars: 2_000,
+} as const;
+
+/**
+ * How messages name each kind of block: the block editor's words, with one
+ * name for both kinds of list.
+ */
+const KIND_LABEL: Record<NarrativeBlock["kind"], string> = {
+  paragraph: "Paragraph",
+  callout: "Key message",
+  list: "List",
+  compare: "Compare two sides",
+};
+
+export type NarrativeBlocksResult =
+  | { ok: true; blocks: NarrativeBlock[] }
+  | { ok: false; issues: string[] };
+
+type Rec = Record<string, unknown>;
+
+const isRecord = (value: unknown): value is Rec =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const plain = (value: unknown): string =>
+  typeof value === "string" ? cleanPlainText(value) : "";
+
+const count = (n: number) => n.toLocaleString("en");
+
+export function sanitizeNarrativeBlocks(input: unknown): NarrativeBlocksResult {
+  if (!Array.isArray(input)) {
+    return {
+      ok: false,
+      issues: [
+        "The lesson's blocks couldn't be read. Reload the page and try again.",
+      ],
+    };
+  }
+  if (input.length > NARRATIVE_LIMITS.maxBlocks) {
+    return {
+      ok: false,
+      issues: [
+        `A lesson can have at most ${NARRATIVE_LIMITS.maxBlocks} blocks — this one has ${input.length}. Remove or combine some.`,
+      ],
+    };
+  }
+
+  const blocks: NarrativeBlock[] = [];
+  const issues: string[] = [];
+  input.forEach((raw, i) => {
+    const block = sanitizeBlock(raw, i + 1, issues);
+    if (block) blocks.push(block);
+  });
+  return issues.length ? { ok: false, issues } : { ok: true, blocks };
+}
+
+function sanitizeBlock(
+  raw: unknown,
+  n: number,
+  issues: string[]
+): NarrativeBlock | null {
+  if (!isRecord(raw)) return null;
+  const kind = raw.kind;
+  if (
+    kind !== "paragraph" &&
+    kind !== "callout" &&
+    kind !== "list" &&
+    kind !== "compare"
+  ) {
+    return null;
+  }
+  const name = `Block ${n} (${KIND_LABEL[kind]})`;
+
+  if (kind === "paragraph" || kind === "callout") {
+    // Anything but a version-1 envelope — none, or a newer version sent
+    // back by an older page — is kept as the plain text beside it.
+    if (isRecord(raw.rich) && raw.rich.v === 1) {
+      const { value, issues: found } = sanitizeRichText(raw.rich);
+      if (!value) {
+        issues.push(
+          richTextProblem(found, name) ?? RT_PROBLEM["bad-envelope"](name)
+        );
+        return null;
+      }
+      return { kind, rich: value, text: docToPlainText(value.doc) };
+    }
+    const text = plain(raw.text);
+    if (text.length > NARRATIVE_LIMITS.maxTextChars) {
+      issues.push(RT_PROBLEM["too-much-text"](name));
+      return null;
+    }
+    return { kind, text };
+  }
+
+  if (kind === "list") {
+    const rawItems = Array.isArray(raw.items) ? raw.items : [];
+    if (rawItems.length > NARRATIVE_LIMITS.maxListItems) {
+      issues.push(
+        `${name} has more than ${NARRATIVE_LIMITS.maxListItems} points. Split it into two lists.`
+      );
+      return null;
+    }
+    const items = rawItems
+      .filter((item): item is string => typeof item === "string")
+      .map(cleanPlainText);
+    const long = items.findIndex(
+      (item) => item.length > NARRATIVE_LIMITS.maxListItemChars
+    );
+    if (long !== -1) {
+      issues.push(
+        `${name}: point ${long + 1} is too long — at most ${count(NARRATIVE_LIMITS.maxListItemChars)} characters.`
+      );
+      return null;
+    }
+    const block: NarrativeBlock = { kind, items };
+    if (raw.listStyle === "bullet" || raw.listStyle === "number") {
+      block.listStyle = raw.listStyle;
+    }
+    return block;
+  }
+
+  // compare
+  const sides = (Array.isArray(raw.compare) ? raw.compare : [])
+    .slice(0, NARRATIVE_LIMITS.maxCompareSides)
+    .filter(isRecord)
+    .map((side) => ({
+      label: plain(side.label),
+      text: plain(side.text),
+      tone:
+        side.tone === "positive" ? ("positive" as const) : ("negative" as const),
+    }));
+  let ok = true;
+  sides.forEach((side, i) => {
+    if (side.label.length > NARRATIVE_LIMITS.maxCompareLabelChars) {
+      issues.push(
+        `${name}: the heading of side ${i + 1} is too long — at most ${NARRATIVE_LIMITS.maxCompareLabelChars} characters.`
+      );
+      ok = false;
+    }
+    if (side.text.length > NARRATIVE_LIMITS.maxCompareTextChars) {
+      issues.push(
+        `${name}: the text of side ${i + 1} is too long — at most ${count(NARRATIVE_LIMITS.maxCompareTextChars)} characters.`
+      );
+      ok = false;
+    }
+  });
+  return ok ? { kind, compare: sides } : null;
+}
+
+/**
+ * The plain text of a paragraph or key message: its `text`, or — for a rich
+ * block stored without one (written directly, not through the save action)
+ * — the text derived from `rich`. Undefined when it has neither.
+ */
+export function blockPlainText(block: {
+  text?: unknown;
+  rich?: unknown;
+}): string | undefined {
+  if (typeof block.text === "string") return block.text;
+  if (block.rich == null) return undefined;
+  const { value } = sanitizeRichText(block.rich);
+  return value ? docToPlainText(value.doc) : undefined;
+}
+
+/**
+ * A lesson title or subtitle as stored: one line, trimmed, invisible
+ * characters removed, at most `max` characters (never splitting an emoji).
+ */
+export function cleanNarrativeLine(value: unknown, max: number): string {
+  const line = plain(value).replace(/[\t\n\r]+/g, " ").trim();
+  if (line.length <= max) return line;
+  const last = line.charCodeAt(max - 1);
+  const cut = last >= 0xd800 && last <= 0xdbff ? max - 1 : max;
+  return line.slice(0, cut).trimEnd();
+}

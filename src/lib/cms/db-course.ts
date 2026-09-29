@@ -19,6 +19,7 @@ import "server-only";
 
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { blockPlainText } from "@/lib/rich-text/narrative";
 import {
   resolveStructure,
   pickText,
@@ -241,8 +242,11 @@ export async function getDbCourse(
         // any authored copy as the intro and provide generic private prompts,
         // localised so a translated course doesn't fall back to English here.
         const d = DEFAULTS[locale] ?? DEFAULTS.en;
+        // The intro is plain text: a rich paragraph's `text` (always saved
+        // beside it), or derived from `rich` if that's all there is (D36).
+        const paragraph = authored?.blocks?.find((b) => b.kind === "paragraph");
         const introText =
-          authored?.blocks?.find((b) => b.kind === "paragraph")?.text ??
+          (paragraph && blockPlainText(paragraph)) ??
           authored?.subtitle ??
           d.reflectionIntro;
         stages.push({

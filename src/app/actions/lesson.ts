@@ -15,6 +15,10 @@ import { prisma } from "@/lib/prisma";
 import { isContentLocale, isStageKey } from "@/lib/cms/course-admin-types";
 import { unstorableVideoMessage } from "@/lib/media-url";
 import { ChangedElsewhere, fingerprint } from "@/lib/cms/stored-json";
+import {
+  cleanNarrativeLine,
+  sanitizeNarrativeBlocks,
+} from "@/lib/rich-text/narrative";
 import type {
   VideoContent,
   LessonDocumentRef,
@@ -166,7 +170,7 @@ interface NarrativePayload {
 /**
  * Which lesson and language a narrative write targets — checked before any
  * write, since a server action's arguments come straight from the client.
- * (The blocks themselves are validated with the rich-text format, Round 3.)
+ * (The blocks themselves are rebuilt by sanitizeNarrativeBlocks, D36.)
  */
 function narrativeTargetError(
   courseSlug: unknown,
@@ -207,8 +211,13 @@ const isBase = (base: unknown): base is string | null =>
  * Save a per-locale narrative override for a lesson. Refused with
  * "changed-elsewhere" when someone else saved this language's text since the
  * editor opened it (`base` no longer matches) — the later save would
- * otherwise silently undo theirs. Returns the new text's fingerprint, the
- * `base` for the next save.
+ * otherwise silently undo theirs. Refused with "invalid" and `issues` (one
+ * sentence per problem, naming the block) when a block is over a limit or
+ * its formatting can't be read; nothing is written then. Returns the new
+ * text's fingerprint, the `base` for the next save.
+ *
+ * Blocks are stored as sanitizeNarrativeBlocks rebuilds them: rich text
+ * cleaned to the whitelist, with its plain `text` derived here.
  */
 export async function saveLessonNarrative(
   courseSlug: string,
@@ -218,7 +227,7 @@ export async function saveLessonNarrative(
   base: string | null
 ) {
   const editor = await requireEditor();
-  if (!editor) return { ok: false as const, error: "forbidden" };
+  if (!editor) return { ok: false as const, error: "forbidden" as const };
   const bad = narrativeTargetError(courseSlug, stageKey, locale);
   if (bad) return { ok: false as const, error: bad };
   if (
@@ -227,13 +236,21 @@ export async function saveLessonNarrative(
     !Array.isArray(payload.blocks) ||
     !isBase(base)
   ) {
-    return { ok: false as const, error: "bad-input" };
+    return { ok: false as const, error: "bad-input" as const };
+  }
+  const clean = sanitizeNarrativeBlocks(payload.blocks);
+  if (!clean.ok) {
+    return {
+      ok: false as const,
+      error: "invalid" as const,
+      issues: clean.issues,
+    };
   }
 
   const entry = {
-    title: payload.title.slice(0, 200),
-    subtitle: payload.subtitle?.slice(0, 200) || undefined,
-    blocks: payload.blocks,
+    title: cleanNarrativeLine(payload.title, 200),
+    subtitle: cleanNarrativeLine(payload.subtitle, 200) || undefined,
+    blocks: clean.blocks,
   };
   try {
     await prisma.$transaction(async (tx) => {
@@ -259,11 +276,38 @@ export async function saveLessonNarrative(
     });
   } catch (error) {
     if (error instanceof ChangedElsewhere) {
-      return { ok: false as const, error: "changed-elsewhere" };
+      return { ok: false as const, error: "changed-elsewhere" as const };
     }
     throw error;
   }
+  await auditNarrative(
+    editor.id,
+    "narrative.saved",
+    courseSlug,
+    stageKey,
+    locale
+  );
   return { ok: true as const, version: fingerprint(entry) };
+}
+
+/** Lesson text goes live on save (D33), so it's audited like a structure save. */
+async function auditNarrative(
+  actorId: string,
+  action: "narrative.saved" | "narrative.cleared",
+  courseSlug: string,
+  stageKey: string,
+  locale: Locale
+) {
+  await prisma.auditLog.create({
+    data: {
+      projectId: PROJECT,
+      actorId,
+      action,
+      entity: "Lesson",
+      entityId: `${courseSlug}:${stageKey}`,
+      metadata: { locale },
+    },
+  });
 }
 
 /**
@@ -278,13 +322,14 @@ export async function clearLessonNarrative(
   base: string | null
 ) {
   const editor = await requireEditor();
-  if (!editor) return { ok: false as const, error: "forbidden" };
+  if (!editor) return { ok: false as const, error: "forbidden" as const };
   const bad = narrativeTargetError(courseSlug, stageKey, locale);
   if (bad) return { ok: false as const, error: bad };
-  if (!isBase(base)) return { ok: false as const, error: "bad-input" };
+  if (!isBase(base)) return { ok: false as const, error: "bad-input" as const };
 
+  let removed: boolean;
   try {
-    await prisma.$transaction(async (tx) => {
+    removed = await prisma.$transaction(async (tx) => {
       // No row means nothing to clear — don't create one just to empty it.
       await lockLesson(tx, courseSlug, stageKey);
       const existing = await tx.lesson.findUnique({
@@ -296,7 +341,7 @@ export async function clearLessonNarrative(
       };
       const current = fingerprint(narrative[locale]);
       // Already gone (someone else removed it): that's what was asked for.
-      if (current === null) return;
+      if (current === null) return false;
       if (current !== base) throw new ChangedElsewhere();
       delete narrative[locale];
       await tx.lesson.update({
@@ -308,12 +353,22 @@ export async function clearLessonNarrative(
               : (narrative as Prisma.InputJsonValue),
         },
       });
+      return true;
     });
   } catch (error) {
     if (error instanceof ChangedElsewhere) {
-      return { ok: false as const, error: "changed-elsewhere" };
+      return { ok: false as const, error: "changed-elsewhere" as const };
     }
     throw error;
+  }
+  if (removed) {
+    await auditNarrative(
+      editor.id,
+      "narrative.cleared",
+      courseSlug,
+      stageKey,
+      locale
+    );
   }
   return { ok: true as const };
 }
