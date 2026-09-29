@@ -205,4 +205,46 @@ body {
   .seq-prose-compact li + li {
     margin-top: 0.25em;
   }
+
+  /* Rich text (RichTextView, D36). An item's own text sits directly in its
+     <li>; a nested list or a further paragraph follows it like the next
+     item would. Deeper bullet levels change shape, as in Word and Docs.
+     Indents are an inline padding-inline-start on the paragraph, written
+     the same way by the renderer and the editor. */
+  .seq-prose li > ul,
+  .seq-prose li > ol,
+  .seq-prose li > p {
+    margin-top: 0.5em;
+  }
+  .seq-prose-compact li > ul,
+  .seq-prose-compact li > ol,
+  .seq-prose-compact li > p {
+    margin-top: 0.25em;
+  }
+  .seq-prose ul ul {
+    list-style-type: circle;
+  }
+  .seq-prose ul ul ul {
+    list-style-type: square;
+  }
+
+  /* The lesson editor. Its editable root carries the same seq-prose
+     classes as the learner's element, so every rule above applies to both
+     and authors see the spacing, markers and indents learners get. The
+     global :focus-visible ring marks it when focused. */
+  .rt-editor {
+    min-height: 4.5rem;
+  }
+  /* The editor wraps an item's text in a <p>; the learner view doesn't.
+     Only the paragraphs after it are spaced, in both. */
+  .rt-editor li > p:first-child {
+    margin-top: 0;
+  }
+  .rt-editor p.is-editor-empty:first-child::before {
+    content: attr(data-placeholder);
+    float: left;
+    height: 0;
+    pointer-events: none;
+    color: var(--muted-foreground);
+  }
 }
