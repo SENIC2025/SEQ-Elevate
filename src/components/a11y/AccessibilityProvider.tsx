@@ -3,8 +3,20 @@
 import * as React from "react";
 import { useSession } from "next-auth/react";
 import { loadA11yPrefs, saveA11yPrefs } from "@/app/actions/a11y";
-
-type FontSize = "normal" | "lg" | "xl";
+import {
+  DEFAULT_A11Y_PREFS,
+  ownerChanged,
+  parseLocalPrefs,
+  prefsAfterLoad,
+  samePrefs,
+  serializeLocalPrefs,
+  type A11yPrefs,
+  type FontSize,
+  type LocalPrefs,
+} from "@/lib/a11y-prefs";
+import { withRetry } from "@/store/retry";
+import { sessionOwner } from "@/store/session-owner";
+import { prefsSave } from "./prefs-save";
 
 interface A11yState {
   fontSize: FontSize;
@@ -15,32 +27,13 @@ interface A11yState {
   setContrast: (v: boolean) => void;
 }
 
-interface Prefs {
-  fontSize: FontSize;
-  dyslexia: boolean;
-  contrast: boolean;
-}
-
 const A11yContext = React.createContext<A11yState | null>(null);
 
 const STORAGE_KEY = "seq-elevate-a11y-v1";
 
-function isDefault(p: Prefs) {
-  return p.fontSize === "normal" && !p.dyslexia && !p.contrast;
-}
-
-function readLocal(): Prefs | null {
+function readLocal(): LocalPrefs | null {
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    const p = JSON.parse(raw);
-    return {
-      fontSize: (["normal", "lg", "xl"] as const).includes(p.fontSize)
-        ? p.fontSize
-        : "normal",
-      dyslexia: !!p.dyslexia,
-      contrast: !!p.contrast,
-    };
+    return parseLocalPrefs(window.localStorage.getItem(STORAGE_KEY));
   } catch {
     return null;
   }
@@ -51,113 +44,197 @@ function readLocal(): Prefs | null {
  * User row (Postgres) and follow the learner across devices; for GUESTS
  * they fall back to localStorage. localStorage is also kept as a mirror for
  * authed users — for instant paint on the next load and to survive sign-out.
+ *
+ * A signed-in user's saved settings are only saved over once they have
+ * loaded (dbReady): until then what's on screen is this browser's copy or
+ * the defaults, not theirs. A load that fails — or finds no session, which
+ * is what a failed session lookup looks like — is tried again (retry.ts),
+ * and nothing is saved until a try gets through. Each save is made for the
+ * account whose settings loaded, and never lands in another (see
+ * a11y-prefs.ts and prefs-save.ts).
  */
 export function AccessibilityProvider({ children }: { children: React.ReactNode }) {
-  const [fontSize, setFontSize] = React.useState<FontSize>("normal");
-  const [dyslexia, setDyslexia] = React.useState(false);
-  const [contrast, setContrast] = React.useState(false);
+  const [prefs, setPrefs] = React.useState<A11yPrefs>(DEFAULT_A11Y_PREFS);
   const [hydrated, setHydrated] = React.useState(false);
   const [dbReady, setDbReady] = React.useState(false);
 
-  const { status } = useSession();
-  const authed = status === "authenticated";
-  const saveTimer = React.useRef<ReturnType<typeof setTimeout> | undefined>(
-    undefined
-  );
-  // Set the moment the user changes a setting, so a late-arriving DB load
-  // can't clobber a choice they've already made (the async-load race).
-  const touched = React.useRef(false);
+  const { data: session, status } = useSession();
+  // Whose settings these are: the signed-in account, null for a guest,
+  // undefined while the session loads (see session-owner.ts).
+  const owner = sessionOwner(status, session?.user);
 
-  // User-facing setters mark the prefs as touched.
-  const setFontSizeUser = React.useCallback((s: FontSize) => {
-    touched.current = true;
-    setFontSize(s);
-  }, []);
-  const setDyslexiaUser = React.useCallback((v: boolean) => {
-    touched.current = true;
-    setDyslexia(v);
-  }, []);
-  const setContrastUser = React.useCallback((v: boolean) => {
-    touched.current = true;
-    setContrast(v);
-  }, []);
+  // The settings the user changed while the account's settings were
+  // loading, so a late-arriving DB load can't clobber a choice they've
+  // already made (the async-load race). Per setting: the others are still
+  // the saved ones (see prefsAfterLoad).
+  const chosen = React.useRef<Partial<A11yPrefs>>({});
+  // Whether the settings shown are an account's or a guest's own choice;
+  // kept with this browser's copy (see LocalPrefs).
+  const fromAccount = React.useRef(false);
+  // The account whose saved settings have loaded: the only one saved for.
+  const loadedFor = React.useRef<string | null>(null);
+  // What the server holds as far as this page knows — the settings loaded,
+  // or the last ones sent; null when that isn't known. Settings that match
+  // it aren't sent.
+  const onServer = React.useRef<A11yPrefs | null>(null);
+  // The debounced save (see prefs-save.ts).
+  const [save] = React.useState(() => prefsSave(600));
+
+  // User-facing setters record the choice (see `chosen`) — as the
+  // account's while someone is signed in, as a guest's while no one is.
+  const choose = React.useCallback(
+    (patch: Partial<A11yPrefs>) => {
+      chosen.current = { ...chosen.current, ...patch };
+      if (owner !== undefined) fromAccount.current = owner !== null;
+      setPrefs((p) => ({ ...p, ...patch }));
+    },
+    [owner]
+  );
+  const setFontSize = React.useCallback(
+    (fontSize: FontSize) => choose({ fontSize }),
+    [choose]
+  );
+  const setDyslexia = React.useCallback(
+    (dyslexia: boolean) => choose({ dyslexia }),
+    [choose]
+  );
+  const setContrast = React.useCallback(
+    (contrast: boolean) => choose({ contrast }),
+    [choose]
+  );
+
+  // ---- The session changed hands: start over for the new owner ----
+  // Signed in, signed out (or the session couldn't be read), or another
+  // account signed in in another tab. The save still waiting, or still
+  // being tried, was made for the previous owner: it's dropped, since the
+  // cookie may already be someone else's (the server drops it too, see
+  // isPrefsOwner). A choice made before this isn't one made while the new
+  // owner's settings load, and nothing is saved again until they have
+  // loaded (below). Declared before the effects below, which see the reset
+  // refs in the same commit.
+  const heldBy = React.useRef<string | null | undefined>(undefined);
+  React.useEffect(() => {
+    const held = heldBy.current;
+    if (owner !== undefined) heldBy.current = owner;
+    if (!ownerChanged(held, owner)) return;
+    save.drop();
+    chosen.current = {};
+    loadedFor.current = null;
+    onServer.current = null;
+    setDbReady(false);
+  }, [owner, save]);
 
   // ---- Hydration: DB for authed users, localStorage for guests ----
   React.useEffect(() => {
-    if (status === "loading") return;
-    let cancelled = false;
-    const apply = (p: Prefs) => {
-      setFontSize(p.fontSize);
-      setDyslexia(p.dyslexia);
-      setContrast(p.contrast);
-    };
-    (async () => {
-      const local = readLocal();
-      if (authed) {
-        // Optimistic instant paint from the local mirror while the DB loads.
-        if (local && !touched.current) apply(local);
-        const db = await loadA11yPrefs();
-        if (cancelled) return;
-        // Don't overwrite a setting the user changed while the DB was loading.
-        if (!touched.current) {
-          let next: Prefs = db ?? {
-            fontSize: "normal",
-            dyslexia: false,
-            contrast: false,
-          };
-          // First-login migration: if the account has no custom prefs yet but
-          // the guest set some, carry them up. The DB wins in every other case.
-          if (db && isDefault(db) && local && !isDefault(local)) {
-            next = local;
-            await saveA11yPrefs(next);
-          }
-          apply(next);
-        }
-        setDbReady(true);
-      } else if (local && !touched.current) {
-        apply(local);
-      }
-      if (!cancelled) setHydrated(true);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [status, authed]);
+    if (owner === undefined) return;
+    const local = readLocal();
+    if (Object.keys(chosen.current).length > 0) {
+      // Chosen while the session loaded: this owner's choice.
+      fromAccount.current = owner !== null;
+    } else if (local) {
+      fromAccount.current = local.fromAccount;
+    }
+    // Instant paint from this browser's copy (a guest's only copy; for an
+    // account, while its settings load). A setting already chosen stays.
+    if (local) setPrefs({ ...local.prefs, ...chosen.current });
+    setHydrated(true);
+    if (owner === null) return;
 
-  // ---- Apply to <html> + persist (localStorage mirror always; DB when authed) ----
+    // Nothing is saved until the account's settings have loaded, so a
+    // failed try doesn't end it: it's tried again (see retry.ts), and what
+    // the user chooses meanwhile is shown, kept in this browser, and saved
+    // once a try gets through. A session lookup that failed is a failed
+    // try too: the load fails rather than answer "no saved settings" (see
+    // signedInUser in actions/a11y.ts).
+    const abort = new AbortController();
+    // First-login migration: an account with no custom settings yet takes
+    // the ones a guest chose in this browser — never another account's.
+    const guest = local && !local.fromAccount ? local.prefs : null;
+    (async () => {
+      let saved: A11yPrefs;
+      try {
+        saved = await withRetry(() => loadA11yPrefs(), { signal: abort.signal });
+      } catch (err) {
+        if (!abort.signal.aborted) {
+          console.error(
+            "Couldn't load the reading-help settings; they aren't saved on this visit.",
+            err
+          );
+        }
+        return;
+      }
+      if (abort.signal.aborted) return;
+      // The DB wins, apart from the migration and what was chosen while
+      // it loaded (see prefsAfterLoad); the save below sends what differs.
+      setPrefs(prefsAfterLoad(saved, guest, chosen.current));
+      chosen.current = {};
+      fromAccount.current = true;
+      onServer.current = saved;
+      loadedFor.current = owner;
+      setDbReady(true);
+    })();
+    return () => abort.abort();
+  }, [owner]);
+
+  // ---- Apply to <html> + mirror to this browser (always) ----
   React.useEffect(() => {
     const html = document.documentElement;
-    if (fontSize === "normal") html.removeAttribute("data-font-size");
-    else html.setAttribute("data-font-size", fontSize);
-    html.setAttribute("data-dyslexic", String(dyslexia));
-    html.setAttribute("data-contrast", String(contrast));
+    if (prefs.fontSize === "normal") html.removeAttribute("data-font-size");
+    else html.setAttribute("data-font-size", prefs.fontSize);
+    html.setAttribute("data-dyslexic", String(prefs.dyslexia));
+    html.setAttribute("data-contrast", String(prefs.contrast));
 
     if (!hydrated) return;
     try {
       window.localStorage.setItem(
         STORAGE_KEY,
-        JSON.stringify({ fontSize, dyslexia, contrast })
+        serializeLocalPrefs({ prefs, fromAccount: fromAccount.current })
       );
     } catch {
       /* ignore */
     }
-    if (authed && dbReady) {
-      clearTimeout(saveTimer.current);
-      saveTimer.current = setTimeout(() => {
-        void saveA11yPrefs({ fontSize, dyslexia, contrast });
-      }, 600);
+  }, [prefs, hydrated]);
+
+  // ---- DB write-through (debounced) ----
+  // Only for the account whose settings have loaded (dbReady, loadedFor —
+  // reset in the commit where the session changes hands): before that,
+  // what's shown is this browser's copy or the defaults, and it would be
+  // saved over theirs. Nothing is sent while the settings match what the
+  // server holds: just loaded, or a change undone before its save went out.
+  React.useEffect(() => {
+    if (!dbReady || typeof owner !== "string" || loadedFor.current !== owner) {
+      return;
     }
-  }, [fontSize, dyslexia, contrast, hydrated, authed, dbReady]);
+    if (onServer.current && samePrefs(prefs, onServer.current)) {
+      save.cancel();
+      return;
+    }
+    const next = prefs;
+    const forUser = owner;
+    save.schedule({
+      send: () => {
+        onServer.current = next;
+        return saveA11yPrefs(next, forUser);
+      },
+      onGiveUp: (err) => {
+        onServer.current = null;
+        console.error("Couldn't save the reading-help settings.", err);
+      },
+    });
+  }, [prefs, dbReady, owner, save]);
+
+  // ---- Unmounting: send what's still waiting now ----
+  // Not left to a timer outliving the provider: sent now, it reaches the
+  // server before a provider mounted next loads the settings back.
+  React.useEffect(() => () => save.flush(), [save]);
 
   return (
     <A11yContext.Provider
       value={{
-        fontSize,
-        dyslexia,
-        contrast,
-        setFontSize: setFontSizeUser,
-        setDyslexia: setDyslexiaUser,
-        setContrast: setContrastUser,
+        ...prefs,
+        setFontSize,
+        setDyslexia,
+        setContrast,
       }}
     >
       {children}
