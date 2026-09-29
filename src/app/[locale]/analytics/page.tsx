@@ -12,12 +12,9 @@ import type { Locale } from "@/lib/cms/types";
 // Reads the viewer's roles + live data — never prerender.
 export const dynamic = "force-dynamic";
 
-// How many started learners before live data replaces the representative
-// sample. In production (demo off) we go live from the very first learner, so a
-// facilitator sees their real cohort from day one; on the showcase we keep the
-// sample full until 5. `?live=1` / `?live=0` override either way.
-const MIN_LIVE_PROD = 1;
-const MIN_LIVE_SHOWCASE = 5;
+// On test copies, how many started learners before live data replaces the
+// sample. `?live=1` / `?live=0` override. The live site never shows the sample.
+const MIN_LIVE_TEST_COPY = 5;
 
 export default async function Page({
   params,
@@ -36,39 +33,49 @@ export default async function Page({
 
   if (!isStaff) {
     return (
-      <div className="mx-auto max-w-md px-4 py-16 text-center">
-        <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-[var(--accent)]/10 text-[var(--accent)]">
-          <BarChart3 className="h-6 w-6" />
-        </div>
-        <h1 className="text-xl font-bold">Learner statistics</h1>
+      <Notice>
         <p className="mt-2 text-sm text-[var(--muted-foreground)]">
           {production
             ? "This dashboard is for facilitators and admins. Ask your project administrator to grant you access."
-            : "This dashboard is for facilitators and admins. Open the demo access page and sign in as the Demo Teacher or Stefan to see it."}
+            : "This dashboard is for facilitators and admins. On this test copy, use test sign-in and pick a facilitator or admin account."}
         </p>
         {production ? null : (
           <Card className="mt-5">
             <CardContent className="p-4">
               <Link href="/demo">
                 <Button size="md">
-                  Demo access
+                  Test sign-in
                   <ArrowRight className="h-4 w-4" />
                 </Button>
               </Link>
             </CardContent>
           </Card>
         )}
-      </div>
+      </Notice>
     );
   }
 
   const loc = (["en", "de", "el"].includes(locale) ? locale : "en") as Locale;
   const real = await buildRealAnalytics(loc);
-  // Production goes live from the first learner; showcase keeps the sample full.
-  const minLive = production ? MIN_LIVE_PROD : MIN_LIVE_SHOWCASE;
+
+  // The live site shows real activity only — or says there is none to show.
+  if (production) {
+    return real ? (
+      <AnalyticsDashboard data={real} isSample={false} />
+    ) : (
+      <Notice>
+        <p className="mt-2 text-sm text-[var(--muted-foreground)]">
+          No statistics to show yet. They appear here as soon as a learner
+          starts a course. If learners have already started, try reloading the
+          page.
+        </p>
+      </Notice>
+    );
+  }
+
   const useReal =
     real !== null &&
-    (live === "1" || (live !== "0" && real.cohortSize >= minLive));
+    (live === "1" || (live !== "0" && real.cohortSize >= MIN_LIVE_TEST_COPY));
   const data = useReal ? real! : buildSampleAnalytics();
 
   return (
@@ -76,6 +83,20 @@ export default async function Page({
       data={data}
       isSample={!useReal}
       realCount={real?.cohortSize ?? 0}
+      sampleAvailable
     />
+  );
+}
+
+/** Centred message in place of the dashboard. */
+function Notice({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="mx-auto max-w-md px-4 py-16 text-center">
+      <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-[var(--accent)]/10 text-[var(--accent)]">
+        <BarChart3 className="h-6 w-6" />
+      </div>
+      <h1 className="text-xl font-bold">Learner statistics</h1>
+      {children}
+    </div>
   );
 }
