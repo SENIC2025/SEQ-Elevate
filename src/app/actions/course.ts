@@ -1,7 +1,8 @@
 "use server";
 
 /**
- * Course lifecycle — publish / unpublish / archive a course from the CMS.
+ * Course lifecycle — create a course, reword its title and subtitle, and
+ * publish / unpublish / archive / move it back to draft, from the CMS.
  *
  * Closes half of the acceptance criterion "content editor manages the course
  * catalogue without a developer". Until now `status` existed on the Course row
@@ -12,10 +13,19 @@
  * change shows on the next load — no revalidation needed.
  */
 
+import { Prisma } from "@prisma/client";
 import { getCurrentUser, getProjectMemberships } from "@/lib/auth-helpers";
 import { canEditContent } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
-import { listCourses } from "@/lib/cms";
+import { getBaseCourseCopy, listCourses } from "@/lib/cms";
+import {
+  applyCopy,
+  cleanCopyText,
+  mergeCopyOverride,
+  readCopyOverride,
+} from "@/lib/cms/course-copy";
+import { isContentLocale } from "@/lib/cms/course-admin-types";
+import { pickMeta, type CourseMeta } from "@/lib/cms/db-course";
 import { slugify } from "@/lib/slug";
 import type { Locale } from "@/lib/cms/types";
 
@@ -40,7 +50,7 @@ async function audit(
   actorId: string,
   action: string,
   entityId: string,
-  status: CourseStatus
+  metadata: Prisma.InputJsonValue
 ) {
   await prisma.auditLog.create({
     data: {
@@ -49,7 +59,7 @@ async function audit(
       action,
       entity: "Course",
       entityId,
-      metadata: { status },
+      metadata,
     },
   });
 }
@@ -96,8 +106,8 @@ export async function getCatalogue(
  *
  * It starts as a DRAFT carrying the narrative stages (context → concept →
  * behaviour → reflection). The interactive stages (simulation, branching
- * scenario, assessment) need the structure editor that is still on the
- * roadmap, so a new course does not pretend to have them.
+ * scenario, assessment) appear once an editor writes them on the course page,
+ * so a new course does not pretend to have them.
  */
 export async function createCourse(input: {
   title: string;
@@ -141,18 +151,20 @@ export async function createCourse(input: {
     },
   });
 
-  await audit(editor.id, "course.created", slug, "draft");
+  await audit(editor.id, "course.created", slug, { status: "draft" });
   return { ok: true as const, slug };
 }
 
 /**
- * Set a course's editorial status. Creates the Course row if the course is
- * bundled but was never seeded, so publishing works on a fresh database.
+ * Set a course's editorial status. Any status can follow any other, so an
+ * archived course can be published again or moved back to draft. Creates the
+ * Course row if the course is bundled but was never seeded, so publishing
+ * works on a fresh database.
  */
 export async function setCourseStatus(slug: string, status: CourseStatus) {
   const editor = await requireEditor();
   if (!editor) return { ok: false as const, error: "forbidden" };
-  if (!STATUSES.includes(status)) {
+  if (typeof slug !== "string" || !STATUSES.includes(status)) {
     return { ok: false as const, error: "bad-status" };
   }
 
@@ -192,6 +204,166 @@ export async function setCourseStatus(slug: string, status: CourseStatus) {
     });
   }
 
-  await audit(editor.id, `course.${status}`, slug, status);
-  return { ok: true as const };
+  await audit(editor.id, `course.${status}`, slug, { status });
+  return { ok: true as const, status };
+}
+
+export interface CourseCopy {
+  title: string;
+  tagline: string;
+  clusterLabel: string;
+}
+
+export type UpdateCourseMetaResult =
+  | { ok: true; copy: CourseCopy }
+  | {
+      ok: false;
+      error:
+        | "forbidden"
+        | "bad-input"
+        | "bad-locale"
+        | "unknown-course"
+        | "title-required";
+    };
+
+/**
+ * Reword a course's title and subtitle (tagline) for one language, from the
+ * course page. Changes are live at once, like every other course edit (D33).
+ *
+ * - A course CREATED IN THE CMS keeps its copy in `meta`: this writes
+ *   `meta[locale]`, which is also how it gains a second or third language.
+ *   A title is required; the skill area (clusterLabel) can change too.
+ * - A BUILT-IN course keeps its shipped wording in the message catalogue:
+ *   this writes a per-field rewording to `copyOverride` (D34). An empty field
+ *   — or one identical to the built-in wording — goes back to the built-in
+ *   text, so later fixes to the catalogue still show. The skill area of a
+ *   built-in course isn't editable.
+ *
+ * Reads and writes the JSON under a row lock, so two editors saving different
+ * languages at the same moment can't drop each other's change.
+ */
+export async function updateCourseMeta(
+  slug: string,
+  locale: Locale,
+  input: { title: string; tagline: string; clusterLabel?: string }
+): Promise<UpdateCourseMetaResult> {
+  const editor = await requireEditor();
+  if (!editor) return { ok: false, error: "forbidden" };
+  if (
+    typeof slug !== "string" ||
+    typeof input?.title !== "string" ||
+    typeof input.tagline !== "string" ||
+    (input.clusterLabel !== undefined && typeof input.clusterLabel !== "string")
+  ) {
+    return { ok: false, error: "bad-input" };
+  }
+  if (!isContentLocale(locale)) return { ok: false, error: "bad-locale" };
+
+  const title = cleanCopyText(input.title, 120);
+  const tagline = cleanCopyText(input.tagline, 200);
+  const clusterLabel = cleanCopyText(input.clusterLabel ?? "", 60);
+
+  // Only a course the CMS actually knows about may be reworded.
+  const known = await listCourses(PROJECT, "en", { includeUnpublished: true });
+  const summary = known.find((c) => c.slug === slug);
+  if (!summary) return { ok: false, error: "unknown-course" };
+  const base = await getBaseCourseCopy(PROJECT, slug, locale);
+
+  const write = () =>
+    prisma.$transaction(async (tx) => {
+      // Lock the row (when it exists) until this transaction commits.
+      await tx.$queryRaw`SELECT id FROM "Course" WHERE "projectId" = ${PROJECT} AND "slug" = ${slug} FOR UPDATE`;
+      const row = await tx.course.findFirst({
+        where: { projectId: PROJECT, slug },
+        select: { id: true, meta: true, copyOverride: true },
+      });
+
+      if (row?.meta) {
+        if (!title) return { kind: "title-required" as const };
+        const meta = row.meta as CourseMeta;
+        const entry = {
+          title,
+          tagline,
+          clusterLabel:
+            clusterLabel ||
+            meta[locale]?.clusterLabel ||
+            pickMeta(meta, locale)?.clusterLabel ||
+            "Skill",
+        };
+        await tx.course.update({
+          where: { id: row.id },
+          data: { meta: { ...meta, [locale]: entry } as Prisma.InputJsonValue },
+        });
+        return { kind: "cms" as const, copy: entry, cleared: false };
+      }
+
+      // Built-in: a field that matches the shipped wording is not a rewording.
+      const next = mergeCopyOverride(readCopyOverride(row?.copyOverride), locale, {
+        title: title === base?.title ? "" : title,
+        tagline: tagline === base?.tagline ? "" : tagline,
+      });
+      if (row) {
+        await tx.course.update({
+          where: { id: row.id },
+          data: {
+            copyOverride: next
+              ? (next as Prisma.InputJsonValue)
+              : Prisma.DbNull,
+          },
+        });
+      } else if (next) {
+        // First edit of a built-in course that has no row yet.
+        await tx.course.create({
+          data: {
+            projectId: PROJECT,
+            strapiId: `placeholder-${slug}`,
+            slug,
+            cluster: summary.cluster,
+            durationMinutes: summary.durationMinutes,
+            // The column defaults to "draft": without this, rewording a
+            // built-in course would take it away from learners.
+            status: summary.status,
+            publishedAt: null,
+            copyOverride: next as Prisma.InputJsonValue,
+          },
+        });
+      }
+      const shipped = base ?? {
+        title: summary.title,
+        tagline: summary.tagline,
+        clusterLabel: summary.clusterLabel,
+      };
+      return {
+        kind: "bundled" as const,
+        copy: applyCopy(shipped, next, locale),
+        cleared: !next?.[locale],
+      };
+    });
+
+  let result: Awaited<ReturnType<typeof write>>;
+  try {
+    result = await write();
+  } catch (e) {
+    // Two first-ever saves of the same built-in course can both try to create
+    // its row; the loser retries once, and then finds (and locks) the row.
+    if ((e as { code?: string }).code !== "P2002") throw e;
+    result = await write();
+  }
+  if (result.kind === "title-required") {
+    return { ok: false, error: "title-required" };
+  }
+
+  await audit(editor.id, "course.meta_updated", slug, {
+    locale,
+    kind: result.kind,
+    cleared: result.cleared,
+  });
+  return {
+    ok: true,
+    copy: {
+      title: result.copy.title,
+      tagline: result.copy.tagline,
+      clusterLabel: result.copy.clusterLabel,
+    },
+  };
 }

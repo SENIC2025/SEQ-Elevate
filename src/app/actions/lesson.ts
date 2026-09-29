@@ -13,6 +13,7 @@ import { getCurrentUser, getProjectMemberships } from "@/lib/auth-helpers";
 import { canEditContent } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
 import { getCourse } from "@/lib/cms";
+import { isContentLocale, isStageKey } from "@/lib/cms/course-admin-types";
 import { unstorableVideoMessage } from "@/lib/media-url";
 import type {
   VideoContent,
@@ -195,6 +196,38 @@ export async function getLessonContent(
   };
 }
 
+/**
+ * Which lesson and language a narrative write targets — checked before any
+ * write, since a server action's arguments come straight from the client.
+ * (The blocks themselves are validated with the rich-text format, Round 3.)
+ */
+function narrativeTargetError(
+  courseSlug: unknown,
+  stageKey: unknown,
+  locale: unknown
+): "bad-input" | "bad-stage" | "bad-locale" | null {
+  if (typeof courseSlug !== "string" || !courseSlug || courseSlug.length > 80) {
+    return "bad-input";
+  }
+  if (!isStageKey(stageKey)) return "bad-stage";
+  if (!isContentLocale(locale)) return "bad-locale";
+  return null;
+}
+
+/**
+ * Lock one lesson row until the surrounding transaction commits. The
+ * narrative is a single JSON column holding every language, so without the
+ * lock an English and a German save of the same lesson (two tabs, two
+ * editors) would each write back what they read and one would be lost.
+ */
+async function lockLesson(
+  tx: Prisma.TransactionClient,
+  courseSlug: string,
+  stageKey: string
+) {
+  await tx.$queryRaw`SELECT id FROM "Lesson" WHERE "projectId" = ${PROJECT} AND "courseSlug" = ${courseSlug} AND "stageKey" = ${stageKey} FOR UPDATE`;
+}
+
 /** Save a per-locale narrative override for a lesson. */
 export async function saveLessonNarrative(
   courseSlug: string,
@@ -204,27 +237,40 @@ export async function saveLessonNarrative(
 ) {
   const editor = await requireEditor();
   if (!editor) return { ok: false as const, error: "forbidden" };
-  const existing = await prisma.lesson.findUnique({
-    where: lessonKey(courseSlug, stageKey),
-    select: { narrative: true },
-  });
-  const narrative = {
-    ...((existing?.narrative as Record<string, unknown>) ?? {}),
-    [locale]: {
-      title: payload.title,
-      subtitle: payload.subtitle || undefined,
-      blocks: payload.blocks,
-    },
-  };
-  await prisma.lesson.upsert({
-    where: lessonKey(courseSlug, stageKey),
-    create: {
-      projectId: PROJECT,
-      courseSlug,
-      stageKey,
-      narrative: narrative as Prisma.InputJsonValue,
-    },
-    update: { narrative: narrative as Prisma.InputJsonValue },
+  const bad = narrativeTargetError(courseSlug, stageKey, locale);
+  if (bad) return { ok: false as const, error: bad };
+  if (
+    typeof payload?.title !== "string" ||
+    (payload.subtitle !== undefined && typeof payload.subtitle !== "string") ||
+    !Array.isArray(payload.blocks)
+  ) {
+    return { ok: false as const, error: "bad-input" };
+  }
+
+  await prisma.$transaction(async (tx) => {
+    // Make sure the row exists, so there is something to lock.
+    await tx.lesson.upsert({
+      where: lessonKey(courseSlug, stageKey),
+      create: { projectId: PROJECT, courseSlug, stageKey },
+      update: {},
+    });
+    await lockLesson(tx, courseSlug, stageKey);
+    const existing = await tx.lesson.findUnique({
+      where: lessonKey(courseSlug, stageKey),
+      select: { narrative: true },
+    });
+    const narrative = {
+      ...((existing?.narrative as Record<string, unknown>) ?? {}),
+      [locale]: {
+        title: payload.title.slice(0, 200),
+        subtitle: payload.subtitle?.slice(0, 200) || undefined,
+        blocks: payload.blocks,
+      },
+    };
+    await tx.lesson.update({
+      where: lessonKey(courseSlug, stageKey),
+      data: { narrative: narrative as Prisma.InputJsonValue },
+    });
   });
   return { ok: true as const };
 }
@@ -237,22 +283,30 @@ export async function clearLessonNarrative(
 ) {
   const editor = await requireEditor();
   if (!editor) return { ok: false as const, error: "forbidden" };
-  const existing = await prisma.lesson.findUnique({
-    where: lessonKey(courseSlug, stageKey),
-    select: { narrative: true },
-  });
-  const narrative = {
-    ...((existing?.narrative as Record<string, unknown>) ?? {}),
-  };
-  delete narrative[locale];
-  await prisma.lesson.updateMany({
-    where: { projectId: PROJECT, courseSlug, stageKey },
-    data: {
-      narrative:
-        Object.keys(narrative).length === 0
-          ? Prisma.DbNull
-          : (narrative as Prisma.InputJsonValue),
-    },
+  const bad = narrativeTargetError(courseSlug, stageKey, locale);
+  if (bad) return { ok: false as const, error: bad };
+
+  await prisma.$transaction(async (tx) => {
+    // No row means nothing to clear — don't create one just to empty it.
+    await lockLesson(tx, courseSlug, stageKey);
+    const existing = await tx.lesson.findUnique({
+      where: lessonKey(courseSlug, stageKey),
+      select: { narrative: true },
+    });
+    if (!existing) return;
+    const narrative = {
+      ...((existing.narrative as Record<string, unknown>) ?? {}),
+    };
+    delete narrative[locale];
+    await tx.lesson.update({
+      where: lessonKey(courseSlug, stageKey),
+      data: {
+        narrative:
+          Object.keys(narrative).length === 0
+            ? Prisma.DbNull
+            : (narrative as Prisma.InputJsonValue),
+      },
+    });
   });
   return { ok: true as const };
 }
