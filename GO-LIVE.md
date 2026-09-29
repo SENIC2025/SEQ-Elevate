@@ -119,6 +119,18 @@ Only if you stand up a **separate real-production project** later:
 1. Create its Blob store in region **Frankfurt (`fra1`)** — region can't be changed after creation.
 2. **Connect it to that project** so `BLOB_READ_WRITE_TOKEN` is set, then redeploy.
 
+**Is upload storage working? (29 Sep 2026)** "Connected" in the Vercel Storage
+tab is not enough: a running deployment only sees env vars that existed when it
+was **built**. To check what the live site itself sees, sign in as an admin and
+open **`https://seq-elevate.eu/api/storage/status`**:
+- `"storage":"ready"` → uploads work (`"source"` says whether the token has the
+  standard name `BLOB_READ_WRITE_TOKEN` or a prefixed one — both work, D29).
+- `"storage":"missing"` → the Production deployment has no Blob token: Vercel →
+  Storage → the Blob store → connect it to this project with **Production**
+  ticked, then **redeploy** (Deployments → latest Production → Redeploy).
+The video/document upload panels show the same answer ("File storage
+connected" or a plain explanation) before anyone picks a file.
+
 ---
 
 ## 6. Error monitoring / observability — **wired, activate with a DSN**  **[Dashboard]**

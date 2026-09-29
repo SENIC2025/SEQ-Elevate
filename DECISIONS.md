@@ -139,6 +139,36 @@ Single source of truth for decisions made, decisions still open, and the rationa
 - **Data protection:** the invitation sends the invitee's email, optional name, role and the inviter's name (or email) through **Resend** — an existing sub-processor; DATA-PROTECTION.md and the DPA template updated.
 - **Addendum (29 Sep 2026) — "sent" must mean sent.** A learner's invitation never arrived, although the screen said it was sent. Root cause in SENIC's code: with `redirect: false`, next-auth's `signIn()` does **not** throw when the email fails — Auth.js returns its error-page URL instead — and the invite action only watched for exceptions, so a refused email was reported as *sent*, audited as `member.invited`, and listed as *Invited* (reproduced on the then-live code). Now: an invitation counts as sent **only** when Auth.js reaches the "check your email" step (`lib/signin-result.ts`, unit-tested); otherwise the admin sees Resend's own reason on screen and nothing is audited. Every send is logged (`[email] … accepted (id …)` / `refused — reason`, recipient domain only). On the live site a missing `RESEND_API_KEY` now fails loudly instead of printing working sign-in links into the logs. Verified: the real Resend key + `senic.world` sender deliver invitations (to Resend's test inbox) and production sends sign-in email; troubleshooting steps in GO-LIVE §4.
 
+### D28 · Admin includes Editor — one rule, in one place
+**Decided**: 29 September 2026 · *Decider: SENIC principal ("Admin should also be content editor")*
+- An **Admin can do everything an Editor can**. This was already true on the server; the confusion came from upload screens that printed a hard-coded *"sign in as a content editor"* for every failure.
+- The rule now lives once in `src/lib/permissions.ts` (`canEditContent`, `roleIncludes`) and is used by every authoring action, the upload routes, the workspace cards and draft previews. Nothing extra is stored: granting Admin does not add an Editor row; *Manage people* shows **Admin (includes Editor)** and the Editor chip as *included with Admin*.
+- Failure messages name what actually happened (not signed in any more / no Editor role / storage not connected / the server's reason) — never a guess.
+
+### D29 · Upload storage — find the token under any prefix, and show the site's own view of it
+**Decided**: 29 September 2026 · *Decider: SENIC (build decision)*
+- **Why:** the Blob store showed *Connected* while the running deployment had no `BLOB_READ_WRITE_TOKEN` — Vercel env vars only reach deployments built after they exist, and a store can be connected with a custom prefix.
+- The server accepts the standard `BLOB_READ_WRITE_TOKEN` **or** any `…READ_WRITE_TOKEN` whose value is a Vercel Blob read-write token (`vercel_blob_rw_…`), passed explicitly to `handleUpload`. `NEXT_PUBLIC_*` names are never used. If several stores are ever connected, the standard name wins, then the first prefixed name alphabetically — keep **one** store (D13, `fra1`).
+- `GET /api/storage/status` reports, to signed-in users only, whether uploads can work (`ready`/`missing`, and for admins whether the token name is standard or prefixed) — never a value or a variable name. The upload panels show the same answer **before** anyone picks a file.
+- A file that only exists in the author's browser (a `blob:` preview) can't be saved to a lesson: learners would get a broken video.
+
+### D30 · No "demo" on the working platform
+**Decided**: 29 September 2026 · *Decider: SENIC principal ("It is not a demo. It is a working platform.")*
+- Removed every demo/Strapi panel, banner, mock and made-up number from the pages real users see. Where a mock stood in for real data, the page now shows the real data or says honestly that there is none yet.
+- **Test sign-in (`/demo`) and developer pages (`/dev/*`) do not exist on the live site** (404 wherever `DEMO_LOGIN_DISABLED=true`, and `/dev` also on Vercel production). On test copies the one-click accounts are called what they are: *Test sign-in*.
+- A unit test fails the build if *demo*, *Strapi* or *"in production this"* reappears in user-facing copy (messages or JSX), with a tiny, justified allow-list for developer-only pages.
+- Internal names (`useDemoState`, `DEMO_*` env vars, `demo-profiles.ts`, the seed/purge scripts, the Vercel project name `seq-elevate-demo`) are not user-visible and stay, to avoid churn.
+- Staff-only pages (*Create courses*, the admin overview) now check the viewer's role **before** loading any data.
+
+### D31 · Server functions run in Frankfurt (`fra1`)
+**Decided**: 29 September 2026 · *Decider: SENIC (build decision, consistent with D13/D22)*
+- The live site's serverless functions were running in Vercel's default region `iad1` (US East) — every database query crossed the Atlantic to Neon Frankfurt, and personal data was processed in the US. `vercel.json` now pins `regions: ["fra1"]`, next to the database (Neon, Frankfurt) and file storage (Blob, `fra1`). DATA-PROTECTION.md updated.
+
+### D32 · Official logo, generated reproducibly
+**Decided**: 29 September 2026 · *Decider: SENIC principal (logo supplied)*
+- The *SEQ Elevate — Skills for the Future* logo replaces the placeholder sparkle everywhere: header (arcs mark + wordmark; the full lockup's tagline would be unreadable at header height), landing, sign-in pages, favicon/app icons, link previews and both emails.
+- All sizes are generated by `scripts/brand-assets.py` from the trimmed master `public/brand/seq-elevate-lockup.png`; the lockup is never upscaled. Emails use a copy on **white** (dark-mode mail apps would hide the black lettering on transparency) with an absolute URL taken from the email's own link, and keep *SEQ Elevate* as alt text. If an SVG or larger original is supplied later, re-run the script with it.
+
 ---
 
 ## 🟡 Open — must close before kickoff or Week 1

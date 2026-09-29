@@ -20,7 +20,7 @@ managed-cloud providers (sub-processors):
 
 | Component | Provider | Hosting location | Personal data involved |
 |---|---|---|---|
-| Application / compute (serverless) | **Vercel** (Vercel Inc., US) | EU-configurable compute region | Processes requests in transit |
+| Application / compute (serverless) | **Vercel** (Vercel Inc., US) | **EU — Frankfurt (`fra1`)**, pinned in `vercel.json` (29 Sep 2026; previously Vercel's default `iad1`, US East) | Processes requests in transit |
 | Primary database (PostgreSQL) | **Neon** (Neon Inc., US) | **EU — Frankfurt (AWS eu-central-1)** | All stored personal data |
 | File/media storage (uploaded documents & lesson videos) | **Vercel Blob** | **EU — Frankfurt (`fra1`, AWS eu-central-1)** | **Staff-authored course media only** — learners upload nothing |
 | Transactional email (sign-in links, invitations) | **Resend** (Resend Inc., US) | US | Recipient email address; for invitations also their optional name, role, and the inviting admin's name (or email) |
