@@ -129,14 +129,9 @@ export function LearnerDashboard({
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8">
-      <div className="flex flex-wrap items-baseline justify-between gap-2 mb-2">
-        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">
-          {t("greeting")}
-        </h1>
-        <p className="text-sm text-[var(--muted-foreground)]">
-          {tCommon("demoBannerLine1")}
-        </p>
-      </div>
+      <h1 className="mb-2 text-2xl sm:text-3xl font-bold tracking-tight">
+        {t("greeting")}
+      </h1>
 
       {/* Overall completion across the whole programme */}
       {published.length ? (

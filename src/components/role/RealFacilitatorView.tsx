@@ -259,8 +259,7 @@ export function RealFacilitatorView({
         <CardContent className="p-0">
           {learners.length === 0 ? (
             <p className="p-6 text-sm text-[var(--muted-foreground)]">
-              No learners have joined yet. Learners appear here once they sign
-              in and start a course.
+              {t("noLearners")}
             </p>
           ) : (
             <ul className="divide-y divide-[var(--border)]">

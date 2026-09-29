@@ -557,9 +557,9 @@
   },
   "facilitator": {
     "title": "Facilitator workspace",
-    "cohortLabel": "Cohort",
-    "cohortName": "Berlin Pilot · Spring 2026",
+    "staffOnly": "This workspace is for facilitators and admins. Sign in with a facilitator account, or ask your project administrator for access.",
     "learnersLabel": "Learners",
+    "noLearners": "No learners yet. When learners join SEQ Elevate, their progress appears here.",
     "activeNow": "Active in the last 24h",
     "compCardSubmissions": "Comp Cards submitted",
     "needsAttention": "Needs attention",
@@ -570,7 +570,6 @@
     "validateHint": "Records that you observed this competence in practice.",
     "redacted": "Redacted by learner",
     "redactedHint": "The learner chose not to share this field with you.",
-    "scriptsLibrary": "Scripts & adaptation notes",
     "videoCheckins": "Video check-ins: {answered} answered · {correct} correct",
     "activityTitle": "Activity & performance",
     "currentlyOn": "Currently on",
@@ -590,8 +589,8 @@
     "users": "Users",
     "cohorts": "Cohorts",
     "organisations": "Organisations",
+    "courses": "Published courses",
     "gdpr": "GDPR self-service",
-    "auditLog": "Audit log",
     "anonymisedNote": "All reporting metrics are anonymised by default."
   },
   "content": {

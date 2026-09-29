@@ -557,9 +557,9 @@
   },
   "facilitator": {
     "title": "Trainer:innen-Arbeitsplatz",
-    "cohortLabel": "Kohorte",
-    "cohortName": "Berlin Pilot · Frühjahr 2026",
+    "staffOnly": "Dieser Arbeitsplatz ist für Trainer:innen und Admins. Melde dich mit einem Trainer:innen-Konto an oder bitte die Administration deines Projekts um Zugang.",
     "learnersLabel": "Lernende",
+    "noLearners": "Noch keine Lernenden. Sobald Lernende SEQ Elevate beitreten, erscheint ihr Fortschritt hier.",
     "activeNow": "Aktiv in den letzten 24h",
     "compCardSubmissions": "Eingereichte Comp Cards",
     "needsAttention": "Braucht Aufmerksamkeit",
@@ -570,7 +570,6 @@
     "validateHint": "Hält fest, dass du die Kompetenz in der Praxis beobachtet hast.",
     "redacted": "Von Lernender:m ausgeblendet",
     "redactedHint": "Die lernende Person hat dieses Feld nicht mit dir geteilt.",
-    "scriptsLibrary": "Skripte & Anpassungsnotizen",
     "videoCheckins": "Video-Check-ins: {answered} beantwortet · {correct} richtig",
     "activityTitle": "Aktivität & Leistung",
     "currentlyOn": "Gerade bei",
@@ -590,8 +589,8 @@
     "users": "Nutzer:innen",
     "cohorts": "Kohorten",
     "organisations": "Organisationen",
+    "courses": "Veröffentlichte Kurse",
     "gdpr": "DSGVO-Selbstbedienung",
-    "auditLog": "Audit-Log",
     "anonymisedNote": "Alle Reporting-Metriken sind standardmäßig anonymisiert."
   },
   "content": {
