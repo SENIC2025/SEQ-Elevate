@@ -132,6 +132,8 @@ export function LessonNarrativeEditor({
   const dirty = edits !== cleanAt;
   const [status, setStatus] = React.useState<Status>("idle");
   const [saveError, setSaveError] = React.useState("");
+  // Why the server refused the last save, one sentence per block (D36).
+  const [saveIssues, setSaveIssues] = React.useState<string[]>([]);
   // Someone else saved this language's text after it was loaded here: kept
   // until the editor loads their version or a save goes through.
   const [conflict, setConflict] = React.useState(false);
@@ -150,6 +152,7 @@ export function LessonNarrativeEditor({
     setBaseline(from);
     setCleanAt(edits);
     setResetKey((k) => k + 1);
+    setSaveIssues([]);
   }
 
   // The page re-read the lesson (after "Remove", or to load a colleague's
@@ -190,6 +193,7 @@ export function LessonNarrativeEditor({
         }
       : { title, subtitle, blocks: blocks.map(stripKey) };
     setStatus("saving");
+    setSaveIssues([]);
     try {
       const res = await saveLessonNarrative(
         courseSlug,
@@ -222,6 +226,13 @@ export function LessonNarrativeEditor({
         // Nothing was written; the edits stay on screen.
         setConflict(true);
         setStatus("idle");
+        return;
+      }
+      if (res.error === "invalid") {
+        // Nothing was written: say which blocks to fix.
+        setSaveIssues(res.issues);
+        setSaveError("Not saved — see the problems above.");
+        setStatus("error");
         return;
       }
       // "forbidden" covers both signed out and not an editor — ask which.
@@ -458,6 +469,23 @@ export function LessonNarrativeEditor({
           />
         </div>
       )}
+
+      {saveIssues.length ? (
+        <div
+          role="alert"
+          className="mt-4 rounded-lg border border-[var(--danger)] bg-[var(--danger)]/10 p-3 text-sm"
+        >
+          <p className="flex items-center gap-1.5 font-medium text-[var(--danger)]">
+            <AlertTriangle className="h-4 w-4 flex-shrink-0" aria-hidden />
+            Not saved — please fix:
+          </p>
+          <ul className="mt-1 ml-6 list-disc">
+            {saveIssues.map((issue, i) => (
+              <li key={i}>{issue}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
 
       {conflict ? (
         <div
