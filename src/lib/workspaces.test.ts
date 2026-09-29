@@ -18,8 +18,8 @@ describe("workspacesFor", () => {
     expect(ids([])).toEqual(["learner"]);
   });
 
-  it("lets a content editor create courses", () => {
-    expect(ids(["CONTENT_EDITOR"])).toEqual(["content", "learner"]);
+  it("lets a content editor create and manage courses", () => {
+    expect(ids(["CONTENT_EDITOR"])).toEqual(["content", "courses", "learner"]);
   });
 
   it("gives a facilitator their learners and the statistics", () => {
@@ -33,6 +33,7 @@ describe("workspacesFor", () => {
   it("gives an admin every workspace, course creation first", () => {
     expect(ids(["ADMIN"])).toEqual([
       "content",
+      "courses",
       "admin",
       "facilitator",
       "analytics",
@@ -42,13 +43,14 @@ describe("workspacesFor", () => {
 
   it("never duplicates a workspace when roles overlap", () => {
     expect(ids(["ADMIN", "CONTENT_EDITOR", "FACILITATOR", "LEARNER"])).toEqual(
-      ["content", "admin", "facilitator", "analytics", "learner"]
+      ["content", "courses", "admin", "facilitator", "analytics", "learner"]
     );
   });
 
   it("pairs every workspace with its route", () => {
     expect(workspacesFor(["ADMIN"]).map((w) => w.href)).toEqual([
       "/content",
+      "/content/courses",
       "/admin",
       "/facilitator",
       "/analytics",
@@ -62,6 +64,13 @@ describe("featuredWorkspaces", () => {
     expect(featuredWorkspaces(["FACILITATOR"]).map((w) => w.id)).toEqual([
       "facilitator",
       "analytics",
+    ]);
+  });
+
+  it("advertises both course workspaces to a content editor", () => {
+    expect(featuredWorkspaces(["CONTENT_EDITOR"]).map((w) => w.id)).toEqual([
+      "content",
+      "courses",
     ]);
   });
 
@@ -95,6 +104,15 @@ describe("workspaceForPath", () => {
     expect(workspaceForPath("/learner/course/workplace-conflict")).toBe(
       "learner"
     );
+  });
+
+  it("prefers the longest matching route", () => {
+    expect(workspaceForPath("/content/courses")).toBe("courses");
+    expect(workspaceForPath("/content/courses/workplace-conflict")).toBe(
+      "courses"
+    );
+    // Only a whole path segment counts.
+    expect(workspaceForPath("/content/coursesx")).toBe("content");
   });
 
   it("does not match a path that merely starts with the same letters", () => {

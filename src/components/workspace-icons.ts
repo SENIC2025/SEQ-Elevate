@@ -6,6 +6,7 @@
 
 import {
   PenSquare,
+  LibraryBig,
   ShieldCheck,
   Users,
   BarChart3,
@@ -16,6 +17,7 @@ import type { WorkspaceId } from "@/lib/workspaces";
 
 export const WORKSPACE_ICONS: Record<WorkspaceId, LucideIcon> = {
   content: PenSquare,
+  courses: LibraryBig,
   admin: ShieldCheck,
   facilitator: Users,
   analytics: BarChart3,

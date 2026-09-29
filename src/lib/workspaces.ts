@@ -7,6 +7,7 @@
  * The role → workspace rules mirror the server-side gates they lead to:
  *   content     — canEditContent: Editor, or Admin which includes it
  *                 (the CMS actions' requireEditor)
+ *   courses     — canEditContent (same gate as content)
  *   admin       — ADMIN
  *   facilitator — FACILITATOR or ADMIN      (getProjectLearners)
  *   analytics   — FACILITATOR or ADMIN      (the analytics page's isStaff)
@@ -20,6 +21,7 @@ import { canEditContent } from "@/lib/permissions";
 
 export type WorkspaceId =
   | "content"
+  | "courses"
   | "admin"
   | "facilitator"
   | "analytics"
@@ -33,6 +35,7 @@ export interface Workspace {
 
 export const WORKSPACE_HREF: Record<WorkspaceId, string> = {
   content: "/content",
+  courses: "/content/courses",
   admin: "/admin",
   facilitator: "/facilitator",
   analytics: "/analytics",
@@ -43,7 +46,7 @@ export const WORKSPACE_HREF: Record<WorkspaceId, string> = {
 export function workspacesFor(roles: readonly Role[]): Workspace[] {
   const has = (r: Role) => roles.includes(r);
   const ids: WorkspaceId[] = [];
-  if (canEditContent(roles)) ids.push("content");
+  if (canEditContent(roles)) ids.push("content", "courses");
   if (has("ADMIN")) ids.push("admin");
   if (has("FACILITATOR") || has("ADMIN")) ids.push("facilitator", "analytics");
   ids.push("learner");
@@ -67,11 +70,19 @@ export function primaryRole(roles: readonly Role[]): Role {
   return "LEARNER";
 }
 
-/** The workspace a (locale-less) pathname belongs to, if any. */
+/**
+ * The workspace a (locale-less) pathname belongs to, if any. The LONGEST
+ * matching route wins: /content/courses/… sits under /content, and must still
+ * be labelled "Manage courses" rather than "Create courses".
+ */
 export function workspaceForPath(pathname: string): WorkspaceId | null {
+  let best: WorkspaceId | null = null;
   for (const id of Object.keys(WORKSPACE_HREF) as WorkspaceId[]) {
     const href = WORKSPACE_HREF[id];
-    if (pathname === href || pathname.startsWith(`${href}/`)) return id;
+    const matches = pathname === href || pathname.startsWith(`${href}/`);
+    if (matches && (best === null || href.length > WORKSPACE_HREF[best].length)) {
+      best = id;
+    }
   }
-  return null;
+  return best;
 }
