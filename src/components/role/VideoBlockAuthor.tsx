@@ -13,7 +13,6 @@ import {
   getLessonMedia,
   saveLessonVideo,
 } from "@/app/actions/lesson";
-import { STAGES } from "@/data/course";
 import { CONTENT_LOCALES, isContentLocale } from "@/lib/cms/course-admin-types";
 import type {
   Locale,
@@ -61,9 +60,8 @@ import {
  * is stored: a blob: URL would be a broken video for every learner. A picked
  * .vtt caption file goes the same way (the server refuses blob: URLs too).
  *
- * On the course page the lesson is given (`courseSlug`, `stageKey`) and the
- * form starts from the video stored there, which can be saved or removed.
- * On its own it offers a course and lesson to save the new video to.
+ * The course page gives the lesson (`courseSlug`, `stageKey`): the form
+ * starts from the video stored there, which can be saved or removed.
  */
 
 // Learners' answers are stored against the cue id alone, so a new cue's id
@@ -155,12 +153,6 @@ function snapshotOf(f: VideoFields): string {
   ]);
 }
 
-/** A value the page may control; local state when it doesn't. */
-function useMaybeControlled<T>(value: T | undefined, initial: T) {
-  const [inner, setInner] = React.useState(initial);
-  return [value ?? inner, setInner, value !== undefined] as const;
-}
-
 /**
  * Tell the page when unsaved edits appear and when they're gone — saved,
  * or discarded because the editor closed.
@@ -178,15 +170,10 @@ function useReportDirty(dirty: boolean, onDirtyChange?: (d: boolean) => void) {
 }
 
 export interface VideoBlockAuthorProps {
-  /** Courses to pick from when the lesson isn't given (the old /content tool). */
-  courses?: { slug: string; title: string }[];
-  /** The lesson, when the course page gives it: the pickers hide. */
-  courseSlug?: string;
-  stageKey?: StageKey;
-  /**
-   * The video stored on the lesson (null = none). Left out on a given
-   * lesson, it's fetched first.
-   */
+  /** The lesson the video belongs to. */
+  courseSlug: string;
+  stageKey: StageKey;
+  /** The video stored on the lesson (null = none). Left out, it's fetched first. */
   initialVideo?: VideoContent | null;
   /** The platform supplies a video here that a saved one replaces. */
   builtInVideo?: boolean;
@@ -200,28 +187,13 @@ export interface VideoBlockAuthorProps {
 }
 
 export function VideoBlockAuthor(props: VideoBlockAuthorProps) {
-  const { courseSlug, stageKey, initialVideo } = props;
-  // A given lesson without its video to hand: load it, then edit it.
-  if (
-    courseSlug !== undefined &&
-    stageKey !== undefined &&
-    initialVideo === undefined
-  ) {
-    return (
-      <StoredVideoLoader
-        {...props}
-        courseSlug={courseSlug}
-        stageKey={stageKey}
-      />
-    );
-  }
+  // The video isn't to hand: load it, then edit it.
+  if (props.initialVideo === undefined) return <StoredVideoLoader {...props} />;
   return <VideoEditor {...props} />;
 }
 
 /** Fetches the lesson's stored video, then shows the editor seeded with it. */
-function StoredVideoLoader(
-  props: VideoBlockAuthorProps & { courseSlug: string; stageKey: StageKey }
-) {
+function StoredVideoLoader(props: VideoBlockAuthorProps) {
   const { courseSlug, stageKey } = props;
   const key = `${courseSlug}:${stageKey}`;
   const [loaded, setLoaded] = React.useState<{
@@ -264,9 +236,8 @@ function StoredVideoLoader(
 }
 
 function VideoEditor({
-  courses = [],
-  courseSlug: courseSlugProp,
-  stageKey: stageKeyProp,
+  courseSlug,
+  stageKey,
   initialVideo,
   builtInVideo = false,
   locale = "en",
@@ -281,13 +252,7 @@ function VideoEditor({
   const [tab, setTab] = React.useState<"upload" | "url">(
     seed.src ? "url" : "upload"
   );
-  const [targetCourse, setTargetCourse, courseControlled] =
-    useMaybeControlled(courseSlugProp, courses[0]?.slug ?? "");
-  const [targetStage, setTargetStage, stageControlled] =
-    useMaybeControlled<string>(stageKeyProp, "concept");
-  // The course page gives the lesson: save straight to it, or remove.
-  const lessonGiven = courseControlled && stageControlled;
-  // What's stored on the lesson now (a given lesson only).
+  // What's stored on the lesson now.
   const [stored, setStored] = React.useState<VideoContent | null>(
     initialVideo ?? null
   );
@@ -304,6 +269,8 @@ function VideoEditor({
   const saveHintId = React.useId();
   const [title, setTitle] = React.useState(seed.title);
   const [caption, setCaption] = React.useState(seed.caption);
+  const titleId = React.useId();
+  const captionId = React.useId();
   const [captionSrc, setCaptionSrc] = React.useState(seed.captionSrc);
   const [captionLabel, setCaptionLabel] = React.useState(seed.captionLabel);
   const [captionLang, setCaptionLang] = React.useState<Locale>(
@@ -506,12 +473,12 @@ function VideoEditor({
           : null;
 
   async function handleSaveToLesson() {
-    if (!draft || !targetCourse || saveBlocked) return;
+    if (!draft || saveBlocked) return;
     // Edits made while this save is in flight stay unsaved.
     const sent = snapshot;
     setSaveState("saving");
     try {
-      const res = await saveLessonVideo(targetCourse, targetStage, draft);
+      const res = await saveLessonVideo(courseSlug, stageKey, draft);
       if (res.ok) {
         setSaveState("saved");
         setCleanSnapshot(sent);
@@ -537,16 +504,16 @@ function VideoEditor({
     setSaveState("error");
   }
 
-  // Take the video off the lesson (a given lesson only) and empty the form.
+  // Take the video off the lesson and empty the form.
   async function handleRemove() {
-    if (!lessonGiven || !stored) return;
+    if (!stored) return;
     const question = builtInVideo
       ? "Remove this video? Learners will see the built-in video for this lesson again."
       : "Remove this video? Learners will no longer see it on this lesson.";
     if (!window.confirm(question)) return;
     setSaveState("removing");
     try {
-      const res = await clearLessonVideo(targetCourse, targetStage);
+      const res = await clearLessonVideo(courseSlug, stageKey);
       if (res.ok) {
         const empty = fieldsFrom(null, locale);
         setTab("upload");
@@ -635,7 +602,7 @@ function VideoEditor({
             </Badge>
           )}
         </div>
-        {lessonGiven && builtInVideo && !stored ? (
+        {builtInVideo && !stored ? (
           <p className="mt-3 text-xs text-[var(--muted-foreground)]">
             Learners see the built-in video on this lesson. Saving a video here
             replaces it for them.
@@ -773,10 +740,14 @@ function VideoEditor({
         {/* Title + caption */}
         <div className="mt-4 grid sm:grid-cols-2 gap-3">
           <div>
-            <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-1">
+            <label
+              htmlFor={titleId}
+              className="block text-xs font-medium text-[var(--muted-foreground)] mb-1"
+            >
               Title
             </label>
             <input
+              id={titleId}
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="e.g. Speaking up without blame"
@@ -784,10 +755,14 @@ function VideoEditor({
             />
           </div>
           <div>
-            <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-1">
+            <label
+              htmlFor={captionId}
+              className="block text-xs font-medium text-[var(--muted-foreground)] mb-1"
+            >
               Caption (optional)
             </label>
             <input
+              id={captionId}
               value={caption}
               onChange={(e) => setCaption(e.target.value)}
               placeholder="A short line under the player"
@@ -987,143 +962,57 @@ function VideoEditor({
           )}
         </div>
 
-        {/* Save to a lesson (persists to the DB) */}
-        {lessonGiven ? (
-          <div className="mt-5 rounded-lg border border-[var(--accent)]/30 bg-[var(--accent)]/5 p-4">
-            <div className="flex flex-wrap items-center gap-2">
+        {/* Save to the lesson (persists to the DB) */}
+        <div className="mt-5 rounded-lg border border-[var(--accent)]/30 bg-[var(--accent)]/5 p-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              size="sm"
+              disabled={
+                !draft ||
+                saveBlocked ||
+                saveState === "saving" ||
+                saveState === "removing"
+              }
+              onClick={handleSaveToLesson}
+              aria-describedby={saveHint ? saveHintId : undefined}
+            >
+              {saveState === "saving" ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Save className="h-4 w-4" />
+              )}
+              Save video
+            </Button>
+            {stored ? (
               <Button
                 size="sm"
+                variant="outline"
                 disabled={
-                  !draft ||
-                  saveBlocked ||
-                  saveState === "saving" ||
-                  saveState === "removing"
+                  saveState === "saving" || saveState === "removing"
                 }
-                onClick={handleSaveToLesson}
-                aria-describedby={saveHint ? saveHintId : undefined}
+                onClick={handleRemove}
               >
-                {saveState === "saving" ? (
+                {saveState === "removing" ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
-                  <Save className="h-4 w-4" />
+                  <Trash2 className="h-4 w-4" />
                 )}
-                Save video
+                {builtInVideo
+                  ? "Remove video (the built-in one will show again)"
+                  : "Remove video"}
               </Button>
-              {stored ? (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={
-                    saveState === "saving" || saveState === "removing"
-                  }
-                  onClick={handleRemove}
-                >
-                  {saveState === "removing" ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Trash2 className="h-4 w-4" />
-                  )}
-                  {builtInVideo
-                    ? "Remove video (the built-in one will show again)"
-                    : "Remove video"}
-                </Button>
-              ) : null}
-              {saveStatus}
-            </div>
-            {saveHint ? (
-              <p
-                id={saveHintId}
-                className="mt-2 text-xs text-[var(--muted-foreground)]"
-              >
-                {saveHint}
-              </p>
             ) : null}
+            {saveStatus}
           </div>
-        ) : courses.length ? (
-          <div className="mt-5 rounded-lg border border-[var(--accent)]/30 bg-[var(--accent)]/5 p-4">
-            <p className="text-sm font-semibold mb-2 flex items-center gap-1.5">
-              <Save className="h-4 w-4 text-[var(--accent)]" />
-              Save this video to a lesson
+          {saveHint ? (
+            <p
+              id={saveHintId}
+              className="mt-2 text-xs text-[var(--muted-foreground)]"
+            >
+              {saveHint}
             </p>
-            <div className="flex flex-wrap items-end gap-2">
-              {courseControlled ? null : (
-                <label className="text-xs text-[var(--muted-foreground)]">
-                  <span className="block mb-1">Course</span>
-                  <select
-                    value={targetCourse}
-                    onChange={(e) => {
-                      setTargetCourse(e.target.value);
-                      setSaveState("idle");
-                    }}
-                    className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm"
-                  >
-                    {courses.map((c) => (
-                      <option key={c.slug} value={c.slug}>
-                        {c.title}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              )}
-              {stageControlled ? null : (
-                <label className="text-xs text-[var(--muted-foreground)]">
-                  <span className="block mb-1">Lesson stage</span>
-                  <select
-                    value={targetStage}
-                    onChange={(e) => {
-                      setTargetStage(e.target.value);
-                      setSaveState("idle");
-                    }}
-                    className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm capitalize"
-                  >
-                    {STAGES.map((s) => (
-                      <option key={s} value={s}>
-                        {s}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              )}
-              <Button
-                size="sm"
-                disabled={
-                  !draft ||
-                  !targetCourse ||
-                  saveBlocked ||
-                  saveState === "saving"
-                }
-                onClick={handleSaveToLesson}
-                aria-describedby={saveHint ? saveHintId : undefined}
-              >
-                {saveState === "saving" ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Saving…
-                  </>
-                ) : (
-                  <>
-                    <Save className="h-4 w-4" />
-                    Save to lesson
-                  </>
-                )}
-              </Button>
-              {saveStatus}
-            </div>
-            {saveHint ? (
-              <p
-                id={saveHintId}
-                className="mt-2 text-xs text-[var(--muted-foreground)]"
-              >
-                {saveHint}
-              </p>
-            ) : null}
-          </div>
-        ) : (
-          <p className="mt-4 text-xs text-[var(--muted-foreground)]">
-            Create a course first — then you can save this video, with its
-            questions, to one of its lessons.
-          </p>
-        )}
+          ) : null}
+        </div>
       </CardContent>
     </Card>
   );

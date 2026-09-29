@@ -12,7 +12,6 @@ import { Prisma } from "@prisma/client";
 import { getCurrentUser, getProjectMemberships } from "@/lib/auth-helpers";
 import { canEditContent } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
-import { getCourse } from "@/lib/cms";
 import { isContentLocale, isStageKey } from "@/lib/cms/course-admin-types";
 import { unstorableVideoMessage } from "@/lib/media-url";
 import type {
@@ -161,39 +160,6 @@ interface NarrativePayload {
   title: string;
   subtitle?: string;
   blocks: NarrativeBlock[];
-}
-
-/**
- * The current effective narrative for a lesson + locale (bundled copy, with
- * any override already applied), for the editor to load and edit from.
- */
-export async function getLessonContent(
-  courseSlug: string,
-  stageKey: string,
-  locale: Locale
-): Promise<{
-  title: string;
-  subtitle: string;
-  blocks: NarrativeBlock[];
-  isNarrative: boolean;
-  hasOverride: boolean;
-} | null> {
-  const editor = await requireEditor();
-  if (!editor) return null;
-  const content = await getCourse(PROJECT, courseSlug, locale);
-  const stage = content?.stages.find((s) => s.key === stageKey);
-  const lesson = await prisma.lesson.findUnique({
-    where: lessonKey(courseSlug, stageKey),
-    select: { narrative: true },
-  });
-  const narrative = (lesson?.narrative as Record<string, unknown> | null) ?? {};
-  return {
-    title: stage?.title ?? "",
-    subtitle: stage?.subtitle ?? "",
-    blocks: stage?.blocks ?? [],
-    isNarrative: !!stage?.blocks,
-    hasOverride: !!narrative[locale],
-  };
 }
 
 /**

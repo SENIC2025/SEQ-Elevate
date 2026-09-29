@@ -298,8 +298,8 @@ function bundledCopy(
 }
 
 /**
- * What the narrative editor starts from for one lesson and language — the
- * same values getLessonContent (actions/lesson.ts) returns.
+ * What the narrative editor starts from for one lesson and language: what
+ * learners see now, and whether this language has its own stored text.
  */
 function narrativeInitial(
   kind: CourseKind,

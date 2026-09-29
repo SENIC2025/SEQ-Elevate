@@ -35,36 +35,6 @@ const KIND_FOR_STAGE: Record<StructureStageKey, StoredStructure["kind"]> = {
   assessment: "assessment",
 };
 
-export interface AuthorableCourse {
-  slug: string;
-  title: string;
-}
-
-/**
- * CMS-created courses only — the ones whose interactive stages can be authored.
- * Bundled courses own their structure in code, so they're excluded.
- */
-export async function listAuthorableCourses(): Promise<
-  AuthorableCourse[] | null
-> {
-  if (!(await requireEditor())) return null;
-  try {
-    const rows = await prisma.course.findMany({
-      where: { projectId: PROJECT, NOT: { meta: { equals: Prisma.DbNull } } },
-      orderBy: { createdAt: "asc" },
-      select: { slug: true, meta: true },
-    });
-    return rows.map((r) => {
-      const meta = r.meta as Record<string, { title?: string }> | null;
-      const title =
-        meta?.en?.title ?? Object.values(meta ?? {})[0]?.title ?? r.slug;
-      return { slug: r.slug, title };
-    });
-  } catch {
-    return [];
-  }
-}
-
 /** Read the stored structure for one stage of a CMS course (editor UI). */
 export async function getStructure(
   courseSlug: string,

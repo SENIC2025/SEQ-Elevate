@@ -64,43 +64,6 @@ async function audit(
   });
 }
 
-export interface CatalogueEntry {
-  slug: string;
-  title: string;
-  status: CourseStatus;
-  durationMinutes: number;
-  /** Learners currently enrolled — shown before unpublishing so it's informed. */
-  enrolled: number;
-}
-
-/** The full catalogue including drafts, for the content editor. */
-export async function getCatalogue(
-  locale: Locale
-): Promise<CatalogueEntry[] | null> {
-  if (!(await requireEditor())) return null;
-  try {
-    const summaries = await listCourses(PROJECT, locale, {
-      includeUnpublished: true,
-    });
-    const rows = await prisma.course.findMany({
-      where: { projectId: PROJECT },
-      select: { slug: true, _count: { select: { enrollments: true } } },
-    });
-    const counts = new Map(rows.map((r) => [r.slug, r._count.enrollments]));
-    return summaries
-      .filter((s) => !s.comingSoon)
-      .map((s) => ({
-        slug: s.slug,
-        title: s.title,
-        status: s.status,
-        durationMinutes: s.durationMinutes,
-        enrolled: counts.get(s.slug) ?? 0,
-      }));
-  } catch {
-    return [];
-  }
-}
-
 /**
  * Create a brand-new course from the CMS — no code, no deploy.
  *

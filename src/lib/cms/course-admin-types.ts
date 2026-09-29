@@ -66,7 +66,7 @@ export interface CourseCopyState {
   builtIn?: { title: string; tagline: string };
 }
 
-/** What a narrative editor starts from — the same shape getLessonContent returns. */
+/** What a narrative editor starts from: the effective text, and whether it's stored. */
 export interface NarrativeInitial {
   title: string;
   subtitle: string;

@@ -1,7 +1,6 @@
 "use client";
 
 import * as React from "react";
-import { useRouter } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -9,8 +8,6 @@ import {
   getStructure,
   saveStructure,
   clearStructure,
-  listAuthorableCourses,
-  type AuthorableCourse,
 } from "@/app/actions/structure";
 import type {
   StoredStructure,
@@ -34,16 +31,11 @@ import {
   RotateCcw,
 } from "lucide-react";
 
-const LOCALES: { code: Locale; label: string }[] = [
-  { code: "en", label: "English" },
-  { code: "de", label: "Deutsch" },
-  { code: "el", label: "Ελληνικά" },
-];
-const KINDS: { key: StructureStageKey; label: string }[] = [
-  { key: "simulation", label: "Simulation" },
-  { key: "scenario", label: "Scenario" },
-  { key: "assessment", label: "Assessment" },
-];
+const KIND_LABEL: Record<StructureStageKey, string> = {
+  simulation: "Simulation",
+  scenario: "Scenario",
+  assessment: "Assessment",
+};
 const QUALITIES: OutcomeQuality[] = ["best", "okay", "poor"];
 
 const inputCls =
@@ -100,12 +92,6 @@ function emptyStructure(kind: StructureStageKey): StoredStructure {
   };
 }
 
-/** A value the page may control; local state when it doesn't. */
-function useMaybeControlled<T>(value: T | undefined, initial: T) {
-  const [inner, setInner] = React.useState(initial);
-  return [value ?? inner, setInner, value !== undefined] as const;
-}
-
 /**
  * Tell the page when unsaved edits appear and when they're gone — saved,
  * reloaded, or discarded because the editor closed.
@@ -131,14 +117,15 @@ interface LoadedStructure {
 }
 
 /**
- * Author a CMS course's interactive stage. On the course page the lesson is
- * given (`courseSlug`, `kind`, `locale`, `initial`) and the pickers hide; on
- * its own it lists the CMS-created courses to pick from.
+ * Author one interactive stage (simulation / scenario / assessment) of a
+ * CMS-created course, on the course page. The page gives the lesson and the
+ * language being written; the draft holds every language at once, so a
+ * language switch keeps unsaved work.
  */
 export function StructureAuthor({
-  courseSlug: courseSlugProp,
-  kind: kindProp,
-  locale: localeProp,
+  courseSlug: slug,
+  kind,
+  locale,
   initial,
   regionLabel,
   embedded = false,
@@ -146,11 +133,14 @@ export function StructureAuthor({
   onCleared,
   onDirtyChange,
 }: {
-  courseSlug?: string;
-  kind?: StructureStageKey;
+  courseSlug: string;
+  kind: StructureStageKey;
   /** The language being written. The draft holds every language at once. */
-  locale?: Locale;
-  /** What's stored for this lesson (null = not added yet); skips the load. */
+  locale: Locale;
+  /**
+   * What's stored for this lesson (null = not added yet): skips the first
+   * load. Left out, it's fetched.
+   */
   initial?: StoredStructure | null;
   /** Heading and region name, e.g. "Interactive stage — Simulation". */
   regionLabel?: string;
@@ -159,27 +149,14 @@ export function StructureAuthor({
   onSaved?: (structure: StoredStructure) => void;
   onCleared?: () => void;
   onDirtyChange?: (dirty: boolean) => void;
-} = {}) {
+}) {
   const headingId = React.useId();
-  const router = useRouter();
-  const [courses, setCourses] = React.useState<AuthorableCourse[] | null>(null);
-  const [slug, setSlug, courseControlled] = useMaybeControlled(
-    courseSlugProp,
-    ""
-  );
-  const [kind, setKind, kindControlled] =
-    useMaybeControlled<StructureStageKey>(kindProp, "simulation");
-  const [locale, setLocale, localeControlled] = useMaybeControlled<Locale>(
-    localeProp,
-    "en"
-  );
-  // The page hands over what's stored, so the first load is already done.
+  // The page handed over what's stored, so the first load is already done.
   const [seededKey] = React.useState(() =>
-    courseControlled && initial !== undefined ? `${slug}:${kind}` : null
+    initial !== undefined ? `${slug}:${kind}` : null
   );
   // The draft plus the (course, stage) it belongs to, as one unit. Deriving
-  // `ready` from the key means switching course then saving quickly can never
-  // write one course's draft onto another — Save waits for the matching load.
+  // `ready` from the key means Save waits until the stage has loaded.
   const [loaded, setLoaded] = React.useState<LoadedStructure | null>(() => {
     if (seededKey === null) return null;
     const draft = initial ?? emptyStructure(kind);
@@ -194,27 +171,7 @@ export function StructureAuthor({
   const [clearError, setClearError] = React.useState("");
   const [reloadKey, setReloadKey] = React.useState(0);
 
-  // Load the authorable (CMS-created) courses once — unless the page has
-  // already chosen the course (it's gated on the server).
-  const [denied, setDenied] = React.useState(false);
   React.useEffect(() => {
-    if (courseControlled) return;
-    let cancelled = false;
-    listAuthorableCourses().then((list) => {
-      if (cancelled) return;
-      if (list === null) setDenied(true);
-      else {
-        setCourses(list);
-        setSlug((s) => s || list[0]?.slug || "");
-      }
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [courseControlled, setSlug]);
-
-  React.useEffect(() => {
-    if (!slug) return;
     // Seeded from the page: nothing to fetch until a reload is asked for.
     if (reloadKey === 0 && seededKey === `${slug}:${kind}`) return;
     let cancelled = false;
@@ -236,14 +193,14 @@ export function StructureAuthor({
     };
   }, [slug, kind, reloadKey, seededKey]);
 
-  // Until the load for the current selectors resolves, `loaded.key` still holds
-  // the previous pair, so `ready` is false — no synchronous reset needed.
+  // Until the load resolves, `loaded.key` doesn't match (or `loaded` is
+  // null), so `ready` is false — no synchronous reset needed.
   const ready = loaded?.key === `${slug}:${kind}`;
   const draft = ready ? loaded!.draft : null;
   const authored = ready ? loaded!.authored : false;
   const dirty = ready && loaded!.draft !== loaded!.saved;
   useReportDirty(dirty, onDirtyChange);
-  const kindLabel = KINDS.find((k) => k.key === kind)?.label ?? "Stage";
+  const kindLabel = KIND_LABEL[kind];
 
   React.useEffect(() => {
     if (status !== "saved") return;
@@ -267,8 +224,8 @@ export function StructureAuthor({
       );
       setStatus("saved");
       setIssues([]);
+      // The page re-reads itself (what learners see, warnings).
       onSaved?.(draft);
-      router.refresh();
     } else {
       setStatus("error");
       setIssues(
@@ -307,31 +264,6 @@ export function StructureAuthor({
     }
     setReloadKey((k) => k + 1);
     onCleared?.();
-    router.refresh();
-  }
-
-  // Picking from the course list (not on the course page).
-  if (!courseControlled) {
-    if (denied) return null;
-    if (courses === null) {
-      return (
-        <Card>
-          <CardContent className="p-4 text-sm text-[var(--muted-foreground)]">
-            Loading…
-          </CardContent>
-        </Card>
-      );
-    }
-    if (courses.length === 0) {
-      return (
-        <Card>
-          <CardContent className="p-4 text-sm text-[var(--muted-foreground)]">
-            Create a course first — interactive stages are authored on
-            CMS-created courses. Built-in courses keep their own structure.
-          </CardContent>
-        </Card>
-      );
-    }
   }
 
   return (
@@ -349,65 +281,6 @@ export function StructureAuthor({
             {authored ? "Authored" : "Not added yet"}
           </Badge>
         </div>
-
-        {/* Selectors — each one hides when the page has chosen for it. */}
-        {courseControlled && kindControlled && localeControlled ? null : (
-          <div className="flex flex-wrap gap-2 mb-4">
-            {courseControlled ? null : (
-              <label className="text-xs text-[var(--muted-foreground)]">
-                <span className="block mb-1">Course</span>
-                <select
-                  value={slug}
-                  onChange={(e) => setSlug(e.target.value)}
-                  aria-label="Course"
-                  className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-sm"
-                >
-                  {(courses ?? []).map((c) => (
-                    <option key={c.slug} value={c.slug}>
-                      {c.title}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
-            {kindControlled ? null : (
-              <label className="text-xs text-[var(--muted-foreground)]">
-                <span className="block mb-1">Stage</span>
-                <select
-                  value={kind}
-                  onChange={(e) =>
-                    setKind(e.target.value as StructureStageKey)
-                  }
-                  aria-label="Stage"
-                  className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-sm"
-                >
-                  {KINDS.map((k) => (
-                    <option key={k.key} value={k.key}>
-                      {k.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
-            {localeControlled ? null : (
-              <label className="text-xs text-[var(--muted-foreground)]">
-                <span className="block mb-1">Language</span>
-                <select
-                  value={locale}
-                  onChange={(e) => setLocale(e.target.value as Locale)}
-                  aria-label="Language"
-                  className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-sm"
-                >
-                  {LOCALES.map((l) => (
-                    <option key={l.code} value={l.code}>
-                      {l.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
-          </div>
-        )}
 
         {issues.length ? (
           <div

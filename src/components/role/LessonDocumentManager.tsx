@@ -3,7 +3,6 @@
 import * as React from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { STAGES } from "@/data/course";
 import {
   getLessonMedia,
   addLessonDocument,
@@ -33,24 +32,19 @@ import {
   AlertTriangle,
 } from "lucide-react";
 
-/** An uploaded file waiting to be added to the lesson it was picked for. */
+/** An uploaded file waiting to be added to the lesson. */
 interface PendingDocument {
-  courseSlug: string;
-  stageKey: string;
-  doc: { name: string; url: string; mimeType: string; sizeBytes: number };
+  name: string;
+  url: string;
+  mimeType: string;
+  sizeBytes: number;
 }
 
 type AttachState =
   | { phase: "idle" }
   | { phase: "attaching" }
-  | { phase: "done"; name: string; courseSlug: string; stageKey: string }
+  | { phase: "done"; name: string }
   | { phase: "failed"; message: string; retry: PendingDocument | null };
-
-/** A value the page may control; local state when it doesn't. */
-function useMaybeControlled<T>(value: T | undefined, initial: T) {
-  const [inner, setInner] = React.useState(initial);
-  return [value ?? inner, setInner, value !== undefined] as const;
-}
 
 /**
  * Why a change to the list didn't go through. "forbidden" covers both signed
@@ -80,35 +74,25 @@ async function changeFailure(
  * steps: the file goes to Vercel Blob (useBlobUpload), then the lesson gets a
  * row pointing at it — each with its own "Try again".
  *
- * On the course page the lesson is given (`courseSlug`, `stageKey`, and its
- * documents as `initialDocuments`) and the pickers hide; `onChange` reports
- * the list after every change that went through.
+ * The course page gives the lesson (`courseSlug`, `stageKey`, and its
+ * documents as `initialDocuments`); `onChange` reports the list after every
+ * change that went through.
  */
 export function LessonDocumentManager({
-  courses = [],
-  courseSlug: courseSlugProp,
-  stageKey: stageKeyProp,
+  courseSlug,
+  stageKey,
   initialDocuments,
   embedded = false,
   onChange,
 }: {
-  courses?: { slug: string; title: string }[];
-  courseSlug?: string;
-  stageKey?: StageKey;
+  courseSlug: string;
+  stageKey: StageKey;
   /** Every document on the lesson, drafts included; skips the first load. */
   initialDocuments?: LessonDocumentRef[];
   /** Inside a lesson on the course page: lighter frame. */
   embedded?: boolean;
   onChange?: (docs: LessonDocumentRef[]) => void;
 }) {
-  const [courseSlug, setCourseSlug, courseControlled] = useMaybeControlled(
-    courseSlugProp,
-    courses[0]?.slug ?? ""
-  );
-  const [stageKey, setStageKey, stageControlled] = useMaybeControlled<string>(
-    stageKeyProp,
-    "concept"
-  );
   const [docs, setDocs] = React.useState<LessonDocumentRef[]>(
     initialDocuments ?? []
   );
@@ -132,7 +116,6 @@ export function LessonDocumentManager({
     if (reloadKey === 0 && seededKey === `${courseSlug}:${stageKey}`) return;
     let cancelled = false;
     (async () => {
-      if (!courseSlug) return;
       const media = await getLessonMedia(courseSlug, stageKey);
       if (cancelled) return;
       setDocs(media.documents);
@@ -145,7 +128,7 @@ export function LessonDocumentManager({
 
   const busy =
     upload.state.phase === "uploading" || attach.phase === "attaching";
-  const pickerDisabled = !courseSlug || upload.problem !== null || busy;
+  const pickerDisabled = upload.problem !== null || busy;
 
   function onPick(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0];
@@ -153,35 +136,24 @@ export function LessonDocumentManager({
     if (f) void send(f);
   }
 
-  // The lesson is fixed when the file is picked, even if the selects change
-  // while it uploads.
   async function send(f: File) {
-    const target = { courseSlug, stageKey };
     setAttach({ phase: "idle" });
     const stored = await upload.start(f);
     if (!stored) return;
     await attachToLesson({
-      ...target,
-      doc: {
-        name: f.name,
-        url: stored.url,
-        mimeType: stored.contentType,
-        sizeBytes: f.size,
-      },
+      name: f.name,
+      url: stored.url,
+      mimeType: stored.contentType,
+      sizeBytes: f.size,
     });
   }
 
-  async function attachToLesson(p: PendingDocument) {
+  async function attachToLesson(doc: PendingDocument) {
     setAttach({ phase: "attaching" });
     try {
-      const res = await addLessonDocument(p.courseSlug, p.stageKey, p.doc);
+      const res = await addLessonDocument(courseSlug, stageKey, doc);
       if (res.ok) {
-        setAttach({
-          phase: "done",
-          name: p.doc.name,
-          courseSlug: p.courseSlug,
-          stageKey: p.stageKey,
-        });
+        setAttach({ phase: "done", name: doc.name });
         refresh();
         return;
       }
@@ -191,26 +163,15 @@ export function LessonDocumentManager({
       setAttach({
         phase: "failed",
         message: attachFailureMessage({ kind: "refused", access }),
-        retry: permitted ? p : null,
+        retry: permitted ? doc : null,
       });
     } catch (error) {
       setAttach({
         phase: "failed",
         message: attachFailureMessage({ kind: "thrown", error }),
-        retry: p,
+        retry: doc,
       });
     }
-  }
-
-  // Name the lesson when the selects have moved on since the file was picked.
-  function addedTo(done: Extract<AttachState, { phase: "done" }>): string {
-    if (done.courseSlug === courseSlug && done.stageKey === stageKey) {
-      return "this lesson";
-    }
-    const course =
-      courses.find((c) => c.slug === done.courseSlug)?.title ?? done.courseSlug;
-    const stage = done.stageKey[0].toUpperCase() + done.stageKey.slice(1);
-    return `${course} · ${stage}`;
   }
 
   const failedUpload = upload.state.phase === "failed" ? upload.state : null;
@@ -220,7 +181,7 @@ export function LessonDocumentManager({
       : attach.phase === "done"
         ? {
             tone: "success" as const,
-            text: `Added “${attach.name}” to ${addedTo(attach)}.`,
+            text: `Added “${attach.name}” to this lesson.`,
           }
         : attach.phase === "failed"
           ? { tone: "error" as const, text: attach.message }
@@ -311,38 +272,6 @@ export function LessonDocumentManager({
         </div>
 
         <div className="flex flex-wrap items-end gap-2">
-          {courseControlled ? null : (
-            <label className="text-xs text-[var(--muted-foreground)]">
-              <span className="block mb-1">Course</span>
-              <select
-                value={courseSlug}
-                onChange={(e) => setCourseSlug(e.target.value)}
-                className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm"
-              >
-                {courses.map((c) => (
-                  <option key={c.slug} value={c.slug}>
-                    {c.title}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
-          {stageControlled ? null : (
-            <label className="text-xs text-[var(--muted-foreground)]">
-              <span className="block mb-1">Lesson stage</span>
-              <select
-                value={stageKey}
-                onChange={(e) => setStageKey(e.target.value)}
-                className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm capitalize"
-              >
-                {STAGES.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
           <label
             className={`inline-flex items-center gap-1.5 rounded-md border border-[var(--border)] px-3 py-2 text-sm focus-within:ring-2 focus-within:ring-[var(--ring)] ${
               pickerDisabled
