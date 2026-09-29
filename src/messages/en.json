@@ -12,8 +12,8 @@
     "close": "Close",
     "minutes": "{count, plural, one {# minute} other {# minutes}}",
     "switchRole": "Switch role",
-    "demoBannerLine1": "This is the SEQ Elevate platform shell — a working demo of the empty platform SENIC will deliver.",
-    "demoBannerLine2": "Course content shown here is placeholder for the consortium to replace.",
+    "demoBannerLine1": "You are on a test copy of SEQ Elevate, used for checking changes before they go live.",
+    "demoBannerLine2": "Use it for testing only. The live platform is at seq-elevate.eu.",
     "account": "Account"
   },
   "account": {
@@ -67,8 +67,8 @@
   "landing": {
     "title": "Welcome to SEQ Elevate",
     "subtitle": "A mobile-first learning journey for NEET youth, built around real-life practice, reflection and evidence — not lectures.",
-    "demoNote": "This is a working demonstration of the platform shell. Pick a role to enter as.",
-    "pickRole": "Choose how to enter the demo",
+    "demoNote": "This is a test copy of the platform. Pick a role to look around.",
+    "pickRole": "Choose a role to test with",
     "languageLabel": "Language",
     "scaffoldNote": "Built in days, not months — Created and Powered by SENIC.",
     "exploreLearner": "Walk through the learner journey",
@@ -503,7 +503,7 @@
     "unsupported": "Your browser can't play this video.",
     "demo": {
       "title": "Watch: speaking up without blame",
-      "caption": "Placeholder clip — the consortium replaces this with their own lesson video in the CMS.",
+      "caption": "A short clip about responding to a disagreement at work. A quick question appears partway through.",
       "question": "An “I-statement” focuses on…",
       "optBlame": "What the other person did wrong",
       "optFeel": "What you felt and what you'd prefer",
@@ -557,9 +557,9 @@
   },
   "facilitator": {
     "title": "Facilitator workspace",
-    "cohortLabel": "Cohort",
-    "cohortName": "Berlin Pilot · Spring 2026",
+    "staffOnly": "This workspace is for facilitators and admins. Sign in with a facilitator account, or ask your project administrator for access.",
     "learnersLabel": "Learners",
+    "noLearners": "No learners yet. When learners join SEQ Elevate, their progress appears here.",
     "activeNow": "Active in the last 24h",
     "compCardSubmissions": "Comp Cards submitted",
     "needsAttention": "Needs attention",
@@ -570,7 +570,6 @@
     "validateHint": "Records that you observed this competence in practice.",
     "redacted": "Redacted by learner",
     "redactedHint": "The learner chose not to share this field with you.",
-    "scriptsLibrary": "Scripts & adaptation notes",
     "videoCheckins": "Video check-ins: {answered} answered · {correct} correct",
     "activityTitle": "Activity & performance",
     "currentlyOn": "Currently on",
@@ -587,21 +586,15 @@
   },
   "admin": {
     "title": "Admin dashboard",
-    "users": "Users",
+    "learners": "Learners",
     "cohorts": "Cohorts",
     "organisations": "Organisations",
-    "gdpr": "GDPR self-service",
-    "auditLog": "Audit log",
-    "anonymisedNote": "All reporting metrics are anonymised by default."
+    "courses": "Published courses",
+    "gdpr": "GDPR self-service"
   },
   "content": {
-    "title": "Content authoring",
-    "cmsNote": "In production this opens Strapi CMS. The demo shows the structure your authors will work in.",
-    "modelCourse": "Course",
-    "modelScenario": "Scenario",
-    "modelCompCard": "Comp Card template",
-    "modelMission": "Mission",
-    "modelBadge": "Badge"
+    "title": "Create courses",
+    "subtitle": "Create courses, write their content in English, German and Greek, add videos and documents, and publish each course when it is ready for learners."
   },
   "lesson": {
     "resourcesTitle": "Resources",

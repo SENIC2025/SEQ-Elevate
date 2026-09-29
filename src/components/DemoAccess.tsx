@@ -50,7 +50,7 @@ export function DemoAccess({
         res.error === "bad-code"
           ? "That access code isn't right."
           : res.error === "disabled"
-            ? "Demo access is turned off for this site."
+            ? "Test sign-in is turned off on this site."
             : "Couldn't sign in — please try again."
       );
       setPending(null);
@@ -65,16 +65,17 @@ export function DemoAccess({
         </span>
         SEQ Elevate
         <Badge variant="primary" className="ml-1 text-[10px]">
-          Demo access
+          Test sign-in
         </Badge>
       </div>
 
       <h1 className="mt-5 text-2xl sm:text-3xl font-bold tracking-tight">
-        Explore the platform
+        Sign in with a test account
       </h1>
       <p className="mt-2 text-sm text-[var(--muted-foreground)] max-w-xl">
-        Pick a profile to sign straight in as that role — no account or email
-        needed. Everything here is a working demo with placeholder content.
+        {enabled
+          ? "Pick an account to sign straight in with that role — no email needed. For checking the platform on test copies."
+          : "Test sign-in is turned off on this site. Sign in with your email address instead."}
       </p>
 
       {/* Access code */}
@@ -142,9 +143,9 @@ export function DemoAccess({
       <div className="mt-8 rounded-xl border border-[var(--border)] bg-[var(--surface-muted)] p-4 text-xs text-[var(--muted-foreground)] flex gap-2.5">
         <Info className="h-4 w-4 text-[var(--accent)] flex-shrink-0 mt-0.5" />
         <p>
-          This one-click access is a demo convenience for showcasing the
-          platform. It&apos;s code-protected and uses placeholder data; it is
-          disabled on the real production site.
+          One-click test sign-in is protected by an access code and only works
+          on test copies of the platform. It is not available on
+          seq-elevate.eu.
         </p>
       </div>
     </div>

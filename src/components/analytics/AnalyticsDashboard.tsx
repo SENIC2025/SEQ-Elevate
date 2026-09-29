@@ -37,10 +37,13 @@ export function AnalyticsDashboard({
   data,
   isSample = true,
   realCount = 0,
+  sampleAvailable = false,
 }: {
   data: AnalyticsData;
   isSample?: boolean;
   realCount?: number;
+  /** Test copies can switch to sample data; the live site never shows it. */
+  sampleAvailable?: boolean;
 }) {
   const maxTime = Math.max(1, ...data.timePerStage.map((t) => t.avgSeconds));
   const maxDay = Math.max(1, ...data.activityByDay.map((d) => d.opens));
@@ -64,17 +67,16 @@ export function AnalyticsDashboard({
           className="text-[10px]"
         >
           {data.cohortSize} learners ·{" "}
-          {isSample ? "representative sample" : "live data"}
+          {isSample ? "sample data" : "live data"}
         </Badge>
       </div>
       <div className="mt-2 rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] p-3 text-xs text-[var(--muted-foreground)] flex flex-wrap items-center gap-2.5">
         <Info className="h-4 w-4 text-[var(--accent)] flex-shrink-0" />
         {isSample ? (
           <p className="flex-1 min-w-[200px]">
-            Representative sample data, shaped exactly like what the platform
-            captures — stage timings, course opens, quiz responses and progress.
-            In production these charts populate from each cohort&apos;s real
-            activity.
+            Sample data for trying out this test copy, shaped exactly like what
+            the platform captures — stage timings, course opens, quiz responses
+            and progress. The live platform only ever shows real activity.
             {realCount > 0 ? (
               <>
                 {" "}
@@ -90,13 +92,18 @@ export function AnalyticsDashboard({
         ) : (
           <p className="flex-1 min-w-[200px]">
             Live data computed from this cohort&apos;s real activity — stage
-            timings, course opens, quiz responses and progress.{" "}
-            <Link
-              href="/analytics?live=0"
-              className="font-medium text-[var(--accent)] hover:underline whitespace-nowrap"
-            >
-              View representative sample →
-            </Link>
+            timings, course opens, quiz responses and progress.
+            {sampleAvailable ? (
+              <>
+                {" "}
+                <Link
+                  href="/analytics?live=0"
+                  className="font-medium text-[var(--accent)] hover:underline whitespace-nowrap"
+                >
+                  View sample data →
+                </Link>
+              </>
+            ) : null}
           </p>
         )}
       </div>

@@ -12,8 +12,8 @@
     "close": "Schließen",
     "minutes": "{count, plural, one {# Minute} other {# Minuten}}",
     "switchRole": "Rolle wechseln",
-    "demoBannerLine1": "Das ist die SEQ Elevate Plattform-Shell — eine funktionierende Demo der leeren Plattform, die SENIC liefern wird.",
-    "demoBannerLine2": "Die hier gezeigten Kursinhalte sind Platzhalter, die das Konsortium ersetzen wird.",
+    "demoBannerLine1": "Du bist in einer Testumgebung von SEQ Elevate, in der Änderungen geprüft werden, bevor sie live gehen.",
+    "demoBannerLine2": "Nutze sie nur zum Testen. Die Live-Plattform findest du unter seq-elevate.eu.",
     "account": "Konto"
   },
   "account": {
@@ -67,8 +67,8 @@
   "landing": {
     "title": "Willkommen bei SEQ Elevate",
     "subtitle": "Eine mobile-first Lernreise für NEET-Jugendliche, gebaut um echte Praxis, Reflexion und Nachweise — keine Vorlesungen.",
-    "demoNote": "Das ist eine funktionierende Demonstration der Plattform-Shell. Wähle eine Rolle, um einzusteigen.",
-    "pickRole": "Wie möchtest du die Demo betreten?",
+    "demoNote": "Das ist eine Testumgebung der Plattform. Wähle eine Rolle, um dich umzusehen.",
+    "pickRole": "Wähle eine Rolle zum Testen",
     "languageLabel": "Sprache",
     "scaffoldNote": "In Tagen gebaut, nicht in Monaten — Erstellt und betrieben von SENIC.",
     "exploreLearner": "Die Lerner-Reise durchlaufen",
@@ -503,7 +503,7 @@
     "unsupported": "Dein Browser kann dieses Video nicht abspielen.",
     "demo": {
       "title": "Ansehen: ansprechen ohne Vorwürfe",
-      "caption": "Platzhalter-Clip – das Konsortium ersetzt ihn im CMS durch ein eigenes Lernvideo.",
+      "caption": "Ein kurzer Clip darüber, wie du auf eine Meinungsverschiedenheit bei der Arbeit reagierst. Zwischendurch erscheint eine kurze Frage.",
       "question": "Eine „Ich-Botschaft“ konzentriert sich auf …",
       "optBlame": "Was die andere Person falsch gemacht hat",
       "optFeel": "Was du gefühlt hast und was du dir wünschst",
@@ -557,9 +557,9 @@
   },
   "facilitator": {
     "title": "Trainer:innen-Arbeitsplatz",
-    "cohortLabel": "Kohorte",
-    "cohortName": "Berlin Pilot · Frühjahr 2026",
+    "staffOnly": "Dieser Arbeitsplatz ist für Trainer:innen und Admins. Melde dich mit einem Trainer:innen-Konto an oder bitte die Administration deines Projekts um Zugang.",
     "learnersLabel": "Lernende",
+    "noLearners": "Noch keine Lernenden. Sobald Lernende SEQ Elevate beitreten, erscheint ihr Fortschritt hier.",
     "activeNow": "Aktiv in den letzten 24h",
     "compCardSubmissions": "Eingereichte Comp Cards",
     "needsAttention": "Braucht Aufmerksamkeit",
@@ -570,7 +570,6 @@
     "validateHint": "Hält fest, dass du die Kompetenz in der Praxis beobachtet hast.",
     "redacted": "Von Lernender:m ausgeblendet",
     "redactedHint": "Die lernende Person hat dieses Feld nicht mit dir geteilt.",
-    "scriptsLibrary": "Skripte & Anpassungsnotizen",
     "videoCheckins": "Video-Check-ins: {answered} beantwortet · {correct} richtig",
     "activityTitle": "Aktivität & Leistung",
     "currentlyOn": "Gerade bei",
@@ -587,21 +586,15 @@
   },
   "admin": {
     "title": "Admin-Dashboard",
-    "users": "Nutzer:innen",
+    "learners": "Lernende",
     "cohorts": "Kohorten",
     "organisations": "Organisationen",
-    "gdpr": "DSGVO-Selbstbedienung",
-    "auditLog": "Audit-Log",
-    "anonymisedNote": "Alle Reporting-Metriken sind standardmäßig anonymisiert."
+    "courses": "Veröffentlichte Kurse",
+    "gdpr": "DSGVO-Selbstbedienung"
   },
   "content": {
-    "title": "Inhalte verfassen",
-    "cmsNote": "In Produktion öffnet das Strapi CMS. Die Demo zeigt die Struktur, in der eure Redaktionen arbeiten werden.",
-    "modelCourse": "Kurs",
-    "modelScenario": "Szenario",
-    "modelCompCard": "Comp Card-Vorlage",
-    "modelMission": "Mission",
-    "modelBadge": "Abzeichen"
+    "title": "Kurse erstellen",
+    "subtitle": "Erstelle Kurse, schreibe ihre Inhalte auf Englisch, Deutsch und Griechisch, füge Videos und Dokumente hinzu und veröffentliche jeden Kurs, sobald er für die Lernenden bereit ist."
   },
   "lesson": {
     "resourcesTitle": "Materialien",

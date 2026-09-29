@@ -72,7 +72,7 @@ export function LandingPage() {
           <div className="max-w-2xl">
             <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--accent)]/30 bg-[var(--accent)]/10 px-3 py-1 text-xs font-medium text-[var(--accent)]">
               <Sparkles className="h-3 w-3" />
-              Platform shell demo · SENIC × SEQ Elevate
+              Test copy · SENIC × SEQ Elevate
             </span>
             <h1 className="mt-4 text-4xl sm:text-5xl font-bold tracking-tight">
               {t("title")}
@@ -138,7 +138,9 @@ export function LandingPage() {
           onClick={() => {
             if (
               typeof window !== "undefined" &&
-              window.confirm("Reset the demo? This clears your progress.")
+              window.confirm(
+                "Reset your test progress? This clears the progress saved in this browser."
+              )
             ) {
               dispatch({ type: "reset" });
               try {
@@ -149,7 +151,7 @@ export function LandingPage() {
           className="inline-flex items-center gap-1 hover:text-[var(--foreground)] underline-offset-2 hover:underline"
         >
           <RotateCcw className="h-3 w-3" />
-          Reset demo
+          Reset test progress
         </button>
       </div>
     </div>

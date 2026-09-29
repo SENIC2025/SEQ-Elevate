@@ -223,8 +223,7 @@ export function StructureAuthor() {
       <Card>
         <CardContent className="p-4 text-sm text-[var(--muted-foreground)]">
           Create a course first — interactive stages are authored on
-          CMS-created courses. Bundled demo courses keep their built-in
-          structure.
+          CMS-created courses. Built-in courses keep their own structure.
         </CardContent>
       </Card>
     );
