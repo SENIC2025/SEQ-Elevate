@@ -8,6 +8,9 @@ import {
   plainTextSlice,
 } from "./editor-extensions";
 import { canSinkWithin } from "./indent-extension";
+import { VARIANT } from "./RichTextEditor";
+import { NARRATIVE_TEXT_CLASS } from "@/components/course/NarrativeStage";
+import { REFLECTION_INTRO_CLASS } from "@/components/course/ReflectionIntro";
 import { legacyTextToDoc } from "@/lib/rich-text/from-legacy";
 import { sanitizeRichText } from "@/lib/rich-text/sanitize";
 import type { RichTextV1 } from "@/lib/rich-text/types";
@@ -472,5 +475,15 @@ describe("blank lines", () => {
   it("leaves an empty editor to its placeholder, and list points alone", () => {
     expect(marked(editorWith({ type: "paragraph" }))).toEqual([]);
     expect(marked(editorWith(ul(li("A"), li("B"))))).toEqual([]);
+  });
+});
+
+describe("the editor's look", () => {
+  // Authors see what learners get (D36): the text is drawn with the
+  // learner's own classes. (A key message's highlighted box is drawn
+  // around the editor, so its text classes can't be compared this way.)
+  it("draws a paragraph and a reflection's introduction as learners see them", () => {
+    expect(VARIANT.paragraph.prose).toBe(NARRATIVE_TEXT_CLASS.paragraph);
+    expect(VARIANT["reflection-intro"].prose).toBe(REFLECTION_INTRO_CLASS);
   });
 });

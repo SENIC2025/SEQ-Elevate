@@ -6,8 +6,9 @@ import { PrismaPg } from "@prisma/adapter-pg";
 /**
  * The lesson text editor (D36) on the course page: an author formats a
  * paragraph with bold, italic, lists and indent, pastes from Word or plain
- * text, and chooses bullets or numbers for a list block. What is saved is
- * checked in the database; what learners see, in the player.
+ * text, chooses bullets or numbers for a list block, and formats a
+ * reflection lesson's introduction. What is saved is checked in the
+ * database; what learners see, in the player.
  *
  * The player assertions (<strong>, nested <ul>, bulleted list blocks) need
  * the learner renderer (RichTextView in NarrativeStage, workstream R3-B).
@@ -162,6 +163,41 @@ async function savedBlocks(): Promise<SavedBlock[]> {
     (row?.narrative as { en?: { blocks?: SavedBlock[] } } | null)?.en
       ?.blocks ?? []
   );
+}
+
+const reflectionKey = {
+  projectId_courseSlug_stageKey: {
+    projectId: PROJECT,
+    courseSlug: SLUG,
+    stageKey: "reflection",
+  },
+};
+
+/** Start a test from this English reflection lesson (title and intro). */
+async function seedReflection(intro: string) {
+  const narrative = {
+    en: {
+      title: "Reflect",
+      blocks: [{ kind: "paragraph", text: intro }],
+    },
+  } as Prisma.InputJsonValue;
+  await prisma.lesson.upsert({
+    where: reflectionKey,
+    create: {
+      projectId: PROJECT,
+      courseSlug: SLUG,
+      stageKey: "reflection",
+      narrative,
+    },
+    update: { narrative },
+  });
+}
+
+async function savedReflection() {
+  const row = await prisma.lesson.findUnique({ where: reflectionKey });
+  return (
+    row?.narrative as { en?: { title?: string; blocks?: SavedBlock[] } } | null
+  )?.en;
 }
 
 /** Text as typed in the browser may carry no-break spaces. */
@@ -712,5 +748,142 @@ describe("Rich text — the lesson text editor", () => {
     ).toContainText(/block 1 \(paragraph\) is too long/i, { timeout: 15000 });
     // Nothing was written.
     expect(await savedBlocks()).toEqual([{ kind: "paragraph", text: "Short." }]);
+  });
+
+  test("a reflection's introduction is formatted like a paragraph; an untouched one stays plain", async ({
+    page,
+    context,
+  }) => {
+    await seedReflection("Take a moment.");
+    await useSession(context, editorSession);
+    await page.goto(`/en/content/courses/${SLUG}?lesson=reflection`);
+    const region = page
+      .locator("#lesson-reflection")
+      .filter({ visible: true })
+      .getByRole("region", { name: /reflection text/i });
+    await expect(region).toBeVisible({ timeout: 15000 });
+    // The rich editor in place of the old text box, named by its visible
+    // "Introduction" label; it opens on the stored plain text.
+    const intro = region.getByRole("textbox", { name: /^introduction$/i });
+    await expect(intro).toBeVisible({ timeout: 30000 });
+    await expect(intro).toHaveText("Take a moment.");
+    const toolbar = region.getByRole("toolbar", {
+      name: /^introduction formatting$/i,
+    });
+    const tool = (name: RegExp) => toolbar.getByRole("button", { name });
+    await expect(
+      region.getByText(/^tip: paste from word or google docs/i)
+    ).toBeVisible();
+
+    const scan = await new AxeBuilder({ page })
+      .include("#lesson-reflection")
+      .withTags(TAGS)
+      .analyze();
+    const serious = scan.violations.filter(
+      (v) => v.impact === "serious" || v.impact === "critical"
+    );
+    expect(serious, JSON.stringify(serious.map((v) => v.id))).toEqual([]);
+
+    // Only the title changes: the intro nobody touched stays plain text.
+    await region.getByLabel(/^lesson title$/i).fill("Look back");
+    await save(region);
+    expect(await savedReflection()).toEqual({
+      title: "Look back",
+      blocks: [{ kind: "paragraph", text: "Take a moment." }],
+    });
+
+    // Rewrite it with a bold word and a bulleted list.
+    await intro.click();
+    await page.keyboard.press("ControlOrMeta+a");
+    await page.keyboard.type("Take a ");
+    await page.keyboard.press("ControlOrMeta+b");
+    await page.keyboard.type("quiet");
+    await page.keyboard.press("ControlOrMeta+b");
+    await page.keyboard.type(" moment.");
+    await page.keyboard.press("Enter");
+    await tool(/^bulleted list$/i).click();
+    await page.keyboard.type("What went well?");
+    await page.keyboard.press("Enter");
+    await page.keyboard.type("What would you change?");
+    await expect(intro.locator("strong")).toHaveText("quiet");
+    await expect(intro.locator("ul > li")).toHaveText([
+      "What went well?",
+      "What would you change?",
+    ]);
+
+    await save(region);
+    const saved = await savedReflection();
+    expect(saved?.title).toBe("Look back");
+    expect(saved?.blocks).toHaveLength(1);
+    const [block] = saved!.blocks!;
+    expect(block.kind).toBe("paragraph");
+    expect(block.rich?.v).toBe(1);
+    const doc = block.rich!.doc.content ?? [];
+    expect(doc.map((b) => b.type)).toEqual(["paragraph", "bulletList"]);
+    expect(
+      (doc[0].content ?? []).map((n) => [
+        plainSpaces(n.text),
+        (n.marks ?? []).map((m) => m.type).join("+"),
+      ])
+    ).toEqual([
+      ["Take a ", ""],
+      ["quiet", "bold"],
+      [" moment.", ""],
+    ]);
+    // The plain text beside it is the server's, derived from the doc.
+    expect(plainSpaces(block.text)).toBe(
+      "Take a quiet moment.\n\n• What went well?\n• What would you change?"
+    );
+
+    // "Discard changes" puts the saved, formatted intro back.
+    await intro.click();
+    await page.keyboard.press("ControlOrMeta+a");
+    await page.keyboard.type("Not this");
+    await expect(intro.locator("strong")).toHaveCount(0);
+    page.once("dialog", (dialog) => void dialog.accept());
+    await region.getByRole("button", { name: /^discard changes$/i }).click();
+    await expect(intro.locator("strong")).toHaveText("quiet", {
+      timeout: 15000,
+    });
+    await expect(intro.locator("ul > li")).toHaveCount(2);
+
+    // Closed, the lesson shows the intro as learners see it.
+    await page
+      .locator("#lesson-reflection")
+      .filter({ visible: true })
+      .getByRole("button", { name: /^done$/i })
+      .click();
+    const read = page
+      .locator("#lesson-reflection")
+      .filter({ visible: true })
+      .locator(".seq-prose");
+    await expect(read.locator("strong")).toHaveText("quiet", {
+      timeout: 15000,
+    });
+    await expect(read.locator("ul > li")).toHaveText([
+      "What went well?",
+      "What would you change?",
+    ]);
+
+    // The course is published: a learner's reflection shows it at once.
+    await useSession(context, learnerSession);
+    await page.goto(`/en/learner/course/${SLUG}`);
+    const main = page.getByRole("main");
+    const bold = main.locator(".seq-prose strong", { hasText: "quiet" });
+    // On through the lessons before it; only click on while it isn't there.
+    await expect(async () => {
+      if (!(await bold.isVisible())) {
+        await main
+          .getByRole("button", { name: /^continue$/i })
+          .first()
+          .click({ timeout: 2000 });
+      }
+      await expect(bold).toBeVisible({ timeout: 3000 });
+    }).toPass({ timeout: 30000 });
+    await expect(main.getByRole("heading", { name: "Look back" })).toBeVisible();
+    await expect(main.locator(".seq-prose ul > li")).toHaveText([
+      "What went well?",
+      "What would you change?",
+    ]);
   });
 });

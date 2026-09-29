@@ -199,6 +199,7 @@ Single source of truth for decisions made, decisions still open, and the rationa
 - **Limits are refused, not cut:** a block over 10,000 characters (or with extreme formatting), a list over 50 points or a lesson over 100 blocks is not saved, and the author is told which block to split — silently losing the end of a text would be worse. Lists pasted deeper than three levels are kept at the third level instead of refused; no text is lost.
 - List blocks can be **bulleted or numbered** (`listStyle`; existing lists stay numbered). Saving and removing lesson text is now audited (`narrative.saved` / `narrative.cleared`), like the exercises.
 - **Q4 — no "Paste from Word" button.** Normal paste (Ctrl+V, ⌘V on Mac) tidies Word and Google Docs formatting automatically, keeping bold, italic and lists; a short tip by the toolbar says so. A button that in some browsers could only show instructions would confuse more than help.
+- **The reflection intro uses the same format** (SENIC principal: "make the reflection intro rich text too"): on a created course, the reflection lesson's *Introduction* is edited with the same toolbar and stored as its one paragraph, `rich` next to the server-derived `text` — so older code and a rollback still show it, unformatted. Learners, the course page and the editor draw it with the same styles. An intro nobody edits stays plain text; built-in courses' reflection stays read-only.
 
 ---
 

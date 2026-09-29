@@ -4,6 +4,7 @@ import { useTranslations } from "next-intl";
 import { Badge } from "@/components/ui/badge";
 import { NarrativeBlocks } from "@/components/course/NarrativeStage";
 import { FormattedText } from "@/components/course/FormattedText";
+import { ReflectionIntro } from "@/components/course/ReflectionIntro";
 import type { LessonOutline } from "@/lib/cms/course-admin-types";
 import type { CourseStage, OutcomeQuality } from "@/lib/cms/types";
 import { Check, FileText, Star, Video } from "lucide-react";
@@ -17,10 +18,11 @@ const QUALITY_KEY: Record<OutcomeQuality, string> = {
 /**
  * What a closed lesson shows on the course page: everything learners get in
  * it, in the content language, without opening an editor — the video and
- * documents (drafts marked), then the lesson itself. Narrative text goes
- * through the learner's own renderer (NarrativeBlocks), so what you read
- * here is what learners read. Practice lessons are summarised with the
- * right answers marked, in words as well as icons.
+ * documents (drafts marked), then the lesson itself. Narrative text and a
+ * reflection's introduction go through the learner's own renderers
+ * (NarrativeBlocks, ReflectionIntro), so what you read here is what
+ * learners read. Practice lessons are summarised with the right answers
+ * marked, in words as well as icons.
  */
 export function LessonReadView({
   lesson,
@@ -244,7 +246,7 @@ function StageBody({ stage }: { stage: CourseStage | null }) {
     const r = stage.reflection;
     return (
       <div className="space-y-2 text-sm">
-        <FormattedText text={r.intro} className="leading-relaxed" />
+        <ReflectionIntro reflection={r} />
         <p className="font-medium">{t("prompts")}</p>
         <ol className="list-decimal space-y-1 pl-5">
           {r.prompts.map((p, i) => (
