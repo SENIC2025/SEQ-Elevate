@@ -13,6 +13,7 @@ import {
   awardBadgeAction,
 } from "@/app/actions/learner";
 import type { Locale } from "@/lib/cms/types";
+import { courseAfterLoad, mergeBadges } from "./progress-merge";
 
 /**
  * Learner state. For AUTHENTICATED users it's backed by Postgres (Neon)
@@ -129,7 +130,8 @@ type Action =
   | { type: "reset" }
   | { type: "hydrate"; state: DemoState }
   | { type: "hydrateGlobal"; compCard: CompCardData | null; badges: string[] }
-  | { type: "hydrateCourse"; course: CourseProgress };
+  | { type: "hydrateCourse"; course: CourseProgress }
+  | { type: "courseProgressLoaded"; slug: string; saved: CourseProgress | null };
 
 function reducer(state: DemoState, action: Action): DemoState {
   switch (action.type) {
@@ -239,13 +241,22 @@ function reducer(state: DemoState, action: Action): DemoState {
     case "hydrate":
       return action.state;
     case "hydrateGlobal":
+      // Badges are a union: one earned before the saved ones arrived (a
+      // course finished while they loaded) must not be dropped.
       return {
         ...state,
-        badges: action.badges,
+        badges: mergeBadges(action.badges, state.badges),
         compCard: action.compCard ?? state.compCard,
       };
     case "hydrateCourse":
       return { ...state, course: action.course };
+    case "courseProgressLoaded": {
+      // Merged with what the learner did while it loaded, never swapped in
+      // (see progress-merge.ts). A new course object means there's
+      // something to save; null means nothing changes.
+      const course = courseAfterLoad(state.course, action.slug, action.saved);
+      return course ? { ...state, course } : state;
+    }
     default:
       return state;
   }
@@ -364,6 +375,9 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
           compCard: mergedCompCard,
           badges: mergedBadges,
         });
+        // Only what the server now holds. A badge earned while this loaded
+        // stays in state (hydrateGlobal unions) but not here, so the badge
+        // write-through below awards it.
         persistedBadges.current = new Set(mergedBadges);
         if (migratedCourse) {
           // Reflect the migrated course immediately and mark it loaded so the
@@ -405,6 +419,11 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
   }, [state, hydrated, authed]);
 
   // ---- Load a course's saved progress from the DB when it becomes active ----
+  // The learner may be in the course before their data has loaded — on a
+  // cold server they can walk all of it first — and the save effect below
+  // skips every change until this load is done. So the result is always
+  // dispatched, even when nothing is saved: courseProgressLoaded merges the
+  // two, and a changed course object makes the save effect persist it.
   React.useEffect(() => {
     if (!authed || !dbReady) return;
     const slug = state.course.courseSlug;
@@ -414,9 +433,15 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
     (async () => {
       const prog = await loadCourseProgress(slug, locale);
       if (cancelled) return;
-      if (prog) dispatch({ type: "hydrateCourse", course: prog as CourseProgress });
+      // Done loading BEFORE the dispatch, so the save effect that runs on
+      // the resulting render doesn't skip it as "still loading".
       loadedCourseRef.current = slug;
       courseLoadingRef.current = false;
+      dispatch({
+        type: "courseProgressLoaded",
+        slug,
+        saved: prog as CourseProgress | null,
+      });
     })();
     return () => {
       cancelled = true;
