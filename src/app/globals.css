@@ -166,3 +166,40 @@ body {
     background: #fff;
   }
 }
+
+/* Authored learner text (FormattedText): one shared stylesheet for paragraph
+   rhythm and list markers, so everywhere lesson text appears — and later the
+   lesson editor's preview — spaces it the same way. Size, colour and line
+   height come from utility classes on the element. In the components layer
+   so those utilities still win over it. */
+@layer components {
+  .seq-prose {
+    overflow-wrap: break-word;
+  }
+  .seq-prose > * + * {
+    margin-top: 0.75em;
+  }
+  .seq-prose ul,
+  .seq-prose ol {
+    padding-inline-start: 1.25rem;
+  }
+  .seq-prose ul {
+    list-style-type: disc;
+  }
+  .seq-prose ol {
+    list-style-type: decimal;
+  }
+  .seq-prose li + li {
+    margin-top: 0.5em;
+  }
+  .seq-prose li::marker {
+    color: var(--accent);
+    font-weight: 600;
+  }
+  .seq-prose-compact > * + * {
+    margin-top: 0.5em;
+  }
+  .seq-prose-compact li + li {
+    margin-top: 0.25em;
+  }
+}

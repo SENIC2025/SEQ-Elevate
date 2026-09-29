@@ -5,11 +5,14 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import type { CourseStage, NarrativeBlock } from "@/lib/cms/types";
 import { ArrowRight, Quote } from "lucide-react";
+import { FormattedText } from "./FormattedText";
 
 /**
  * Renders a narrative stage (context / concept / behaviour) from authored
  * content blocks. Block kinds: paragraph, list, callout, compare. Any
- * course's narrative renders here — no per-course code.
+ * course's narrative renders here — no per-course code. Authored text keeps
+ * the line breaks and bullet or numbered lines the author typed
+ * (FormattedText).
  */
 export function NarrativeStage({
   stage,
@@ -51,7 +54,9 @@ export function NarrativeStage({
 function Block({ block }: { block: NarrativeBlock }) {
   switch (block.kind) {
     case "paragraph":
-      return <p className="text-base leading-relaxed">{block.text}</p>;
+      return (
+        <FormattedText text={block.text} className="text-base leading-relaxed" />
+      );
 
     case "list":
       return (
@@ -66,9 +71,11 @@ function Block({ block }: { block: NarrativeBlock }) {
 
     case "callout":
       return (
-        <p className="inline-block rounded-lg bg-[var(--primary)]/10 border border-[var(--accent)]/20 px-4 py-3 font-medium text-[var(--accent)]">
-          {block.text}
-        </p>
+        <FormattedText
+          text={block.text}
+          compact
+          className="inline-block rounded-lg bg-[var(--primary)]/10 border border-[var(--accent)]/20 px-4 py-3 font-medium text-[var(--accent)]"
+        />
       );
 
     case "compare":
@@ -93,7 +100,10 @@ function Block({ block }: { block: NarrativeBlock }) {
                   <Quote className="h-3 w-3" />
                   {side.label}
                 </p>
-                <p className="text-sm leading-relaxed">{side.text}</p>
+                <FormattedText
+                  text={side.text}
+                  className="text-sm leading-relaxed"
+                />
               </div>
             );
           })}
