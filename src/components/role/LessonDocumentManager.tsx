@@ -11,9 +11,10 @@ import {
   setLessonDocumentOrder,
   setLessonDocumentPublished,
 } from "@/app/actions/lesson";
-import type { LessonDocumentRef } from "@/lib/cms/types";
+import type { LessonDocumentRef, StageKey } from "@/lib/cms/types";
 import { DOCUMENT_UPLOAD, acceptAttribute, formatSize } from "@/lib/uploads";
-import { attachFailureMessage } from "@/lib/author-feedback";
+import { attachFailureMessage, isNetworkError } from "@/lib/author-feedback";
+import { cn } from "@/lib/utils";
 import {
   fetchStorageStatus,
   useBlobUpload,
@@ -29,6 +30,7 @@ import {
   ChevronDown,
   Eye,
   EyeOff,
+  AlertTriangle,
 } from "lucide-react";
 
 /** An uploaded file waiting to be added to the lesson it was picked for. */
@@ -44,37 +46,102 @@ type AttachState =
   | { phase: "done"; name: string; courseSlug: string; stageKey: string }
   | { phase: "failed"; message: string; retry: PendingDocument | null };
 
+/** A value the page may control; local state when it doesn't. */
+function useMaybeControlled<T>(value: T | undefined, initial: T) {
+  const [inner, setInner] = React.useState(initial);
+  return [value ?? inner, setInner, value !== undefined] as const;
+}
+
+/**
+ * Why a change to the list didn't go through. "forbidden" covers both signed
+ * out and not an editor, so a refusal asks the status endpoint which.
+ */
+async function changeFailure(
+  what: string,
+  failure: { thrown: unknown } | "refused"
+): Promise<string> {
+  if (failure !== "refused") {
+    return isNetworkError(failure.thrown)
+      ? `${what}: the connection was interrupted. Try again.`
+      : `${what}: the server ran into a problem. Try again.`;
+  }
+  const access = await fetchStorageStatus();
+  if (access && !access.signedIn) {
+    return `${what}: you're not signed in any more. Sign in again in a new tab, then try again.`;
+  }
+  if (access?.signedIn && !access.canUpload) {
+    return `${what}: your account can't edit courses. Ask an administrator for the Editor role.`;
+  }
+  return `${what}: the server refused the change. Try again.`;
+}
+
 /**
  * Upload documents (PDF/Office/images) and attach them to a lesson. Two
  * steps: the file goes to Vercel Blob (useBlobUpload), then the lesson gets a
  * row pointing at it — each with its own "Try again".
+ *
+ * On the course page the lesson is given (`courseSlug`, `stageKey`, and its
+ * documents as `initialDocuments`) and the pickers hide; `onChange` reports
+ * the list after every change that went through.
  */
 export function LessonDocumentManager({
-  courses,
+  courses = [],
+  courseSlug: courseSlugProp,
+  stageKey: stageKeyProp,
+  initialDocuments,
+  embedded = false,
+  onChange,
 }: {
-  courses: { slug: string; title: string }[];
+  courses?: { slug: string; title: string }[];
+  courseSlug?: string;
+  stageKey?: StageKey;
+  /** Every document on the lesson, drafts included; skips the first load. */
+  initialDocuments?: LessonDocumentRef[];
+  /** Inside a lesson on the course page: lighter frame. */
+  embedded?: boolean;
+  onChange?: (docs: LessonDocumentRef[]) => void;
 }) {
-  const [courseSlug, setCourseSlug] = React.useState(courses[0]?.slug ?? "");
-  const [stageKey, setStageKey] = React.useState("concept");
-  const [docs, setDocs] = React.useState<LessonDocumentRef[]>([]);
+  const [courseSlug, setCourseSlug, courseControlled] = useMaybeControlled(
+    courseSlugProp,
+    courses[0]?.slug ?? ""
+  );
+  const [stageKey, setStageKey, stageControlled] = useMaybeControlled<string>(
+    stageKeyProp,
+    "concept"
+  );
+  const [docs, setDocs] = React.useState<LessonDocumentRef[]>(
+    initialDocuments ?? []
+  );
   const upload = useBlobUpload(DOCUMENT_UPLOAD);
   const [attach, setAttach] = React.useState<AttachState>({ phase: "idle" });
+  const [listError, setListError] = React.useState("");
   const noticeId = React.useId();
   const [reloadKey, setReloadKey] = React.useState(0);
   const refresh = () => setReloadKey((k) => k + 1);
+  // The page handed over the lesson's documents: the first load is done.
+  const [seededKey] = React.useState(() =>
+    initialDocuments !== undefined ? `${courseSlug}:${stageKey}` : null
+  );
+  const report = React.useRef(onChange);
+  React.useEffect(() => {
+    report.current = onChange;
+  });
 
   // Load the lesson's documents whenever the lesson (or a reload) changes.
   React.useEffect(() => {
+    if (reloadKey === 0 && seededKey === `${courseSlug}:${stageKey}`) return;
     let cancelled = false;
     (async () => {
       if (!courseSlug) return;
       const media = await getLessonMedia(courseSlug, stageKey);
-      if (!cancelled) setDocs(media.documents);
+      if (cancelled) return;
+      setDocs(media.documents);
+      report.current?.(media.documents);
     })();
     return () => {
       cancelled = true;
     };
-  }, [courseSlug, stageKey, reloadKey]);
+  }, [courseSlug, stageKey, reloadKey, seededKey]);
 
   const busy =
     upload.state.phase === "uploading" || attach.phase === "attaching";
@@ -170,9 +237,41 @@ export function LessonDocumentManager({
       ? () => void send(failedUpload.file)
       : undefined;
 
-  async function onRemove(id: string) {
-    await removeLessonDocument(id);
-    await refresh();
+  async function onRemove(doc: LessonDocumentRef) {
+    if (!window.confirm(`Remove “${doc.name}” from this lesson?`)) return;
+    setListError("");
+    const what = `Couldn't remove “${doc.name}”`;
+    try {
+      const res = await removeLessonDocument(doc.id);
+      if (res.ok) refresh();
+      else setListError(await changeFailure(what, "refused"));
+    } catch (thrown) {
+      setListError(await changeFailure(what, { thrown }));
+    }
+  }
+
+  // Order and visibility change on screen at once, and go back as they were
+  // if the server doesn't take the change.
+  async function applyOptimistic(
+    next: LessonDocumentRef[],
+    what: string,
+    save: () => Promise<{ ok: boolean }>
+  ) {
+    const previous = docs;
+    setDocs(next);
+    setListError("");
+    try {
+      const res = await save();
+      if (res.ok) {
+        report.current?.(next);
+        return;
+      }
+      setDocs(previous);
+      setListError(await changeFailure(what, "refused"));
+    } catch (thrown) {
+      setDocs(previous);
+      setListError(await changeFailure(what, { thrown }));
+    }
   }
 
   async function move(index: number, dir: "up" | "down") {
@@ -180,19 +279,24 @@ export function LessonDocumentManager({
     if (j < 0 || j >= docs.length) return;
     const next = [...docs];
     [next[index], next[j]] = [next[j], next[index]];
-    setDocs(next); // optimistic
-    await setLessonDocumentOrder(next.map((d) => d.id));
+    await applyOptimistic(next, "Couldn't save the new order", () =>
+      setLessonDocumentOrder(next.map((d) => d.id))
+    );
   }
 
-  async function togglePublish(id: string, published: boolean) {
-    setDocs((ds) =>
-      ds.map((d) => (d.id === id ? { ...d, published } : d))
-    ); // optimistic
-    await setLessonDocumentPublished(id, published);
+  async function togglePublish(doc: LessonDocumentRef, published: boolean) {
+    const next = docs.map((d) => (d.id === doc.id ? { ...d, published } : d));
+    await applyOptimistic(
+      next,
+      published
+        ? `Couldn't show “${doc.name}” to learners`
+        : `Couldn't hide “${doc.name}” from learners`,
+      () => setLessonDocumentPublished(doc.id, published)
+    );
   }
 
   return (
-    <Card>
+    <Card className={cn(embedded && "shadow-none")}>
       <CardContent className="p-5">
         <div className="flex items-center gap-2 mb-3">
           <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[var(--accent)]/10 text-[var(--accent)]">
@@ -207,34 +311,38 @@ export function LessonDocumentManager({
         </div>
 
         <div className="flex flex-wrap items-end gap-2">
-          <label className="text-xs text-[var(--muted-foreground)]">
-            <span className="block mb-1">Course</span>
-            <select
-              value={courseSlug}
-              onChange={(e) => setCourseSlug(e.target.value)}
-              className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm"
-            >
-              {courses.map((c) => (
-                <option key={c.slug} value={c.slug}>
-                  {c.title}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="text-xs text-[var(--muted-foreground)]">
-            <span className="block mb-1">Lesson stage</span>
-            <select
-              value={stageKey}
-              onChange={(e) => setStageKey(e.target.value)}
-              className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm capitalize"
-            >
-              {STAGES.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
-          </label>
+          {courseControlled ? null : (
+            <label className="text-xs text-[var(--muted-foreground)]">
+              <span className="block mb-1">Course</span>
+              <select
+                value={courseSlug}
+                onChange={(e) => setCourseSlug(e.target.value)}
+                className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm"
+              >
+                {courses.map((c) => (
+                  <option key={c.slug} value={c.slug}>
+                    {c.title}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          {stageControlled ? null : (
+            <label className="text-xs text-[var(--muted-foreground)]">
+              <span className="block mb-1">Lesson stage</span>
+              <select
+                value={stageKey}
+                onChange={(e) => setStageKey(e.target.value)}
+                className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm capitalize"
+              >
+                {STAGES.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <label
             className={`inline-flex items-center gap-1.5 rounded-md border border-[var(--border)] px-3 py-2 text-sm focus-within:ring-2 focus-within:ring-[var(--ring)] ${
               pickerDisabled
@@ -329,7 +437,7 @@ export function LessonDocumentManager({
                   )}
                   <button
                     type="button"
-                    onClick={() => togglePublish(d.id, !d.published)}
+                    onClick={() => togglePublish(d, !d.published)}
                     aria-label={
                       d.published
                         ? `Unpublish ${d.name}`
@@ -346,7 +454,7 @@ export function LessonDocumentManager({
                   </button>
                   <button
                     type="button"
-                    onClick={() => onRemove(d.id)}
+                    onClick={() => onRemove(d)}
                     aria-label={`Remove ${d.name}`}
                     className="rounded-md p-1 text-[var(--muted-foreground)] hover:text-[var(--danger)]"
                   >
@@ -359,6 +467,15 @@ export function LessonDocumentManager({
           {docs.length > 1 ? (
             <p className="mt-2 text-xs text-[var(--muted-foreground)]">
               Use the arrows to set the order learners see (1, 2, 3…).
+            </p>
+          ) : null}
+          {listError ? (
+            <p
+              role="alert"
+              className="mt-2 text-xs text-[var(--danger)] flex items-start gap-1.5"
+            >
+              <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
+              {listError}
             </p>
           ) : null}
         </div>

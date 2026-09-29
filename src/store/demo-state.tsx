@@ -480,6 +480,27 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
+/**
+ * In-memory course state for an editor's preview: no hydration and no
+ * write-through to the DB or localStorage. The player and its stages read
+ * the nearest provider, so wrapping the player in this one catches every
+ * dispatch — progress, answers, completion, badges — and the page-wide
+ * provider above never sees them. Nothing done in a preview is saved.
+ */
+export function PreviewStateProvider({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  const [state, dispatch] = React.useReducer(reducer, DEFAULT_STATE);
+  const value = React.useMemo(() => ({ state, dispatch }), [state]);
+  return (
+    <DemoStateContext.Provider value={value}>
+      {children}
+    </DemoStateContext.Provider>
+  );
+}
+
 export function useDemoState() {
   const ctx = React.useContext(DemoStateContext);
   if (!ctx) throw new Error("useDemoState must be used inside DemoStateProvider");
