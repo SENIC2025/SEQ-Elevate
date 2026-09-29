@@ -195,6 +195,76 @@ async function failServerActions(
   return { failed: () => failed };
 }
 
+/**
+ * Runs the first `times` server-action POSTs called with `args` without the
+ * learner's session, the way a server whose session lookup failed runs
+ * them: Auth.js's database session lookup logs a database error and
+ * answers "no session" instead of failing, so the action sees no one
+ * signed in. The Session row is taken away while each of those requests
+ * runs and put back before the page gets the answer; they run one at a
+ * time (Next sends server actions one at a time anyway).
+ */
+async function sessionLostDuring(
+  page: import("@playwright/test").Page,
+  sessionToken: string,
+  args: unknown[],
+  times: number
+) {
+  const body = JSON.stringify(args);
+  let taken = 0;
+  let answered = 0;
+  let queue: Promise<unknown> = Promise.resolve();
+  await page.route("**/*", async (route) => {
+    const req = route.request();
+    const matches =
+      req.method() === "POST" &&
+      !!(await req.headerValue("next-action")) &&
+      req.postData() === body;
+    if (!matches || taken >= times) return route.continue();
+    taken++;
+    const turn = queue.then(async () => {
+      const session = await prisma.session.findUniqueOrThrow({
+        where: { sessionToken },
+      });
+      await prisma.session.delete({ where: { sessionToken } });
+      try {
+        return await route.fetch();
+      } finally {
+        await prisma.session.create({ data: session });
+      }
+    });
+    queue = turn.catch(() => undefined);
+    await route.fulfill({ response: await turn });
+    answered++;
+  });
+  return { answered: () => answered };
+}
+
+/**
+ * Makes the page read its session again now, as it does when another tab
+ * signs in or out (next-auth tells the other tabs on this channel).
+ */
+function recheckSession(page: import("@playwright/test").Page) {
+  return page.evaluate(() =>
+    new BroadcastChannel("next-auth").postMessage({
+      event: "session",
+      data: { trigger: "getSession" },
+    })
+  );
+}
+
+/**
+ * A Comp Card field, by its placeholder. Just after the page loads, React
+ * may still hold a hidden streamed copy of it (a Suspense boundary not yet
+ * revealed), so only the one shown counts.
+ */
+function compCardField(
+  page: import("@playwright/test").Page,
+  placeholder: string
+) {
+  return page.getByPlaceholder(placeholder).filter({ visible: true });
+}
+
 /** Clicks the player's Continue `times` times, one lesson each. */
 async function continueTimes(
   page: import("@playwright/test").Page,
@@ -561,7 +631,7 @@ describe("progress kept when the learner's data loads late, fails or overlaps", 
     const actions = await holdServerActions(page);
 
     await page.goto("/en/learner/comp-card");
-    const improve = page.getByPlaceholder("One thing.");
+    const improve = compCardField(page, "One thing.");
     await improve.fill("Typed before it loaded");
     await expect.poll(actions.held).toBeGreaterThan(0);
     actions.release();
@@ -581,7 +651,7 @@ describe("progress kept when the learner's data loads late, fails or overlaps", 
         improve: "Typed before it loaded",
       });
     await expect(improve).toHaveValue("Typed before it loaded");
-    await expect(page.getByPlaceholder("Even small wins count.")).toHaveValue(
+    await expect(compCardField(page, "Even small wins count.")).toHaveValue(
       "Saved: I stayed calm"
     );
   });
@@ -644,6 +714,318 @@ describe("progress kept when the learner's data loads late, fails or overlaps", 
       .toMatchObject({
         stages: ["CONTEXT", "CONCEPT", "BEHAVIOUR", "SIMULATION"],
       });
+  });
+});
+
+describe("progress kept when the session is lost, changes hands or the course changes", () => {
+  const emails = {
+    courseNoSession: "e2e-nosession-course@example.com",
+    globalNoSession: "e2e-nosession-global@example.com",
+    sessionBack: "e2e-session-back@example.com",
+    signOutFirst: "e2e-signout-first@example.com",
+    signOutNext: "e2e-signout-next@example.com",
+    afterCompleted: "e2e-after-completed@example.com",
+    reopen: "e2e-reopen-course@example.com",
+  };
+  const all = Object.values(emails);
+  const users: Record<string, { id: string; session: string }> = {};
+
+  test.beforeAll(async () => {
+    await prisma.user.deleteMany({ where: { email: { in: all } } });
+    for (const email of all) {
+      const user = await prisma.user.create({
+        data: { email, emailVerified: new Date() },
+      });
+      const session = `e2e-lost-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      await prisma.session.create({
+        data: {
+          sessionToken: session,
+          userId: user.id,
+          expires: new Date(Date.now() + 86_400_000),
+        },
+      });
+      users[email] = { id: user.id, session };
+    }
+  });
+
+  test.afterAll(async () => {
+    await prisma.user.deleteMany({ where: { email: { in: all } } });
+  });
+
+  const signIn = (
+    context: import("@playwright/test").BrowserContext,
+    email: string
+  ) =>
+    context.addCookies([
+      {
+        name: "authjs.session-token",
+        value: users[email].session,
+        domain: "localhost",
+        path: "/",
+        httpOnly: true,
+        sameSite: "Lax",
+      },
+    ]);
+
+  /** One course's saved progress for a learner, or null if not enrolled. */
+  const enrollmentFor = async (userId: string, slug: string) => {
+    const e = await prisma.courseEnrollment.findFirst({
+      where: { userId, course: { slug } },
+    });
+    return e ? { stages: e.stagesCompleted, reflection: e.reflection } : null;
+  };
+
+  /** An earlier visit to workplace conflict: two lessons, one answer. */
+  const savedEarlier = async (userId: string) => {
+    const course = await prisma.course.findFirst({
+      where: { slug: "workplace-conflict" },
+    });
+    await prisma.courseEnrollment.create({
+      data: {
+        userId,
+        courseId: course!.id,
+        stagesCompleted: ["CONTEXT", "CONCEPT"],
+        reflection: { p1: "Saved on an earlier visit", p2: "", p3: "" },
+      },
+    });
+  };
+  /** …and what it should hold after three lessons on this visit. */
+  const savedEarlierAndNow = {
+    stages: ["CONTEXT", "CONCEPT", "BEHAVIOUR"],
+    reflection: { p1: "Saved on an earlier visit" },
+  };
+
+  /** The page's answer to loading `slug`'s saved progress. */
+  const courseLoaded = (page: import("@playwright/test").Page, slug: string) =>
+    page.waitForResponse(
+      (r) =>
+        r.request().method() === "POST" &&
+        r.request().postData() === JSON.stringify([slug, "en"])
+    );
+
+  const openFromDashboard = async (
+    page: import("@playwright/test").Page,
+    slug: string,
+    title: RegExp
+  ) => {
+    const main = page.getByRole("main");
+    await main.getByRole("link", { name: "Dashboard", exact: true }).click();
+    await main.locator(`a[href="/en/learner/course/${slug}"]`).first().click();
+    await expect(page).toHaveURL(new RegExp(`/learner/course/${slug}$`));
+    await expect(main.getByRole("heading", { level: 1 })).toHaveText(title);
+  };
+
+  test("a course load that finds no session is tried again, not taken for nothing saved", async ({
+    page,
+    context,
+  }) => {
+    test.setTimeout(60_000);
+    const { id: userId, session } = users[emails.courseNoSession];
+    await savedEarlier(userId);
+    await signIn(context, emails.courseNoSession);
+    const lost = await sessionLostDuring(
+      page,
+      session,
+      ["workplace-conflict", "en"],
+      1
+    );
+
+    await page.goto("/en/learner/course/workplace-conflict");
+    await expect.poll(lost.answered).toBe(1);
+    await continueTimes(page, 3);
+
+    await expect
+      .poll(() => enrollmentFor(userId, "workplace-conflict"), {
+        timeout: 30_000,
+      })
+      .toMatchObject(savedEarlierAndNow);
+  });
+
+  test("the learner's data is loaded again when no session is found, and the saved Comp Card isn't blanked", async ({
+    page,
+    context,
+  }) => {
+    test.setTimeout(60_000);
+    const { id: userId, session } = users[emails.globalNoSession];
+    await prisma.compCard.create({
+      data: {
+        userId,
+        projectId: "seq-elevate",
+        wentWell: "Saved: I stayed calm",
+        difficult: "Saved: speaking up",
+        privacy: "FACILITATOR",
+      },
+    });
+    await signIn(context, emails.globalNoSession);
+    // Membership, the saved badges and Comp Card, and the reading-help
+    // settings are all called without arguments: the first three calls
+    // find no session.
+    const lost = await sessionLostDuring(page, session, [], 3);
+
+    await page.goto("/en/learner/comp-card");
+    await expect.poll(lost.answered, { timeout: 15_000 }).toBe(3);
+    const improve = compCardField(page, "One thing.");
+    await improve.fill("Typed after a failed load");
+
+    await expect
+      .poll(
+        () =>
+          prisma.compCard.findFirst({
+            where: { userId },
+            select: { wentWell: true, difficult: true, improve: true },
+          }),
+        { timeout: 30_000 }
+      )
+      .toEqual({
+        wentWell: "Saved: I stayed calm",
+        difficult: "Saved: speaking up",
+        improve: "Typed after a failed load",
+      });
+    await expect(compCardField(page, "Even small wins count.")).toHaveValue(
+      "Saved: I stayed calm"
+    );
+  });
+
+  test("a course opened again while the session was lost isn't saved empty when it's back", async ({
+    page,
+    context,
+  }) => {
+    test.setTimeout(60_000);
+    const { id: userId, session } = users[emails.sessionBack];
+    await savedEarlier(userId);
+    await signIn(context, emails.sessionBack);
+    const loaded = courseLoaded(page, "workplace-conflict");
+    await page.goto("/en/learner/course/workplace-conflict");
+    await loaded;
+    const signOut = page.getByRole("button", { name: "Sign out" });
+    await expect(signOut).toBeVisible();
+
+    // The session is lost for a while…
+    const row = await prisma.session.findUniqueOrThrow({
+      where: { sessionToken: session },
+    });
+    await prisma.session.delete({ where: { sessionToken: session } });
+    await recheckSession(page);
+    await expect(signOut).toBeHidden();
+
+    // …while the learner opens the other course and comes back…
+    await openFromDashboard(page, "receiving-feedback", /receiving feedback/i);
+    await openFromDashboard(page, "workplace-conflict", /workplace conflict/i);
+
+    // …then it's back (Auth.js dropped the cookie of the session it
+    // couldn't find, so it's set again), and they walk on.
+    await prisma.session.create({ data: row });
+    await signIn(context, emails.sessionBack);
+    await recheckSession(page);
+    await expect(signOut).toBeVisible();
+    await continueTimes(page, 3);
+
+    await expect
+      .poll(() => enrollmentFor(userId, "workplace-conflict"), {
+        timeout: 15_000,
+      })
+      .toMatchObject(savedEarlierAndNow);
+  });
+
+  test("signing out in another tab clears this one: nothing of the learner's goes to the guest store or the next account", async ({
+    page,
+    context,
+  }) => {
+    test.setTimeout(60_000);
+    const first = users[emails.signOutFirst];
+    const next = users[emails.signOutNext];
+    await prisma.compCard.create({
+      data: {
+        userId: first.id,
+        projectId: "seq-elevate",
+        wentWell: "Private: only mine",
+        privacy: "SELF",
+      },
+    });
+    const badge = await prisma.badge.findFirstOrThrow({
+      where: { slug: "voice-without-edges" },
+    });
+    await prisma.userBadge.create({
+      data: { userId: first.id, badgeId: badge.id },
+    });
+    await signIn(context, emails.signOutFirst);
+
+    // This tab shows the learner's Comp Card…
+    await page.goto("/en/learner/comp-card");
+    const signOut = page.getByRole("button", { name: "Sign out" });
+    const wentWell = compCardField(page, "Even small wins count.");
+    await expect(wentWell).toHaveValue("Private: only mine");
+
+    // …and they sign out in another one.
+    const other = await context.newPage();
+    await other.goto("/en/learner");
+    await other.getByRole("button", { name: "Sign out" }).click();
+    await expect(signOut).toBeHidden();
+    await expect(wentWell).toHaveValue("");
+    await page.waitForTimeout(500);
+    const guestStore = await page.evaluate(
+      () => localStorage.getItem("seq-elevate-demo-state-v1") ?? ""
+    );
+    expect(guestStore).not.toContain("Private: only mine");
+    expect(guestStore).not.toContain("voice-without-edges");
+
+    // Someone else signs in on this browser, and this tab picks it up.
+    await signIn(context, emails.signOutNext);
+    await recheckSession(page);
+    await expect(signOut).toBeVisible();
+    await expect
+      .poll(() =>
+        prisma.membership.count({ where: { userId: next.id, role: "LEARNER" } })
+      )
+      .toBe(1);
+    await page.waitForTimeout(2000); // past a migration and the save debounce
+    expect(await prisma.compCard.findFirst({ where: { userId: next.id } })).toBeNull();
+    expect(await prisma.userBadge.count({ where: { userId: next.id } })).toBe(0);
+    await expect(wentWell).toHaveValue("");
+  });
+
+  test("a course opened after finishing another starts at its first lesson, and isn't completed", async ({
+    page,
+    context,
+  }) => {
+    const { id: userId } = users[emails.afterCompleted];
+    await signIn(context, emails.afterCompleted);
+    await walkWorkplaceConflict(page);
+
+    await openFromDashboard(page, "receiving-feedback", /receiving feedback/i);
+    await expect(
+      page.getByRole("button", { name: /^continue$/i })
+    ).toBeVisible();
+    await page.waitForTimeout(1500); // past the save debounce
+    await expect(
+      page.getByRole("heading", { name: /course complete/i })
+    ).toBeHidden();
+    expect(await enrollmentFor(userId, "receiving-feedback")).toBeNull();
+    await expect
+      .poll(async () =>
+        (
+          await prisma.userBadge.findMany({
+            where: { userId },
+            include: { badge: true },
+          })
+        ).map((b) => b.badge.slug)
+      )
+      .toEqual(["voice-without-edges"]);
+  });
+
+  test("opening a course again without doing anything in it doesn't enroll the learner", async ({
+    page,
+    context,
+  }) => {
+    const { id: userId } = users[emails.reopen];
+    await signIn(context, emails.reopen);
+    const loaded = courseLoaded(page, "receiving-feedback");
+    await page.goto("/en/learner/course/receiving-feedback");
+    await loaded;
+
+    await openFromDashboard(page, "receiving-feedback", /receiving feedback/i);
+    await page.waitForTimeout(1500); // past the save debounce
+    expect(await enrollmentFor(userId, "receiving-feedback")).toBeNull();
   });
 });
 
