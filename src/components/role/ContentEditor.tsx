@@ -1,53 +1,25 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { VideoBlockAuthor } from "@/components/role/VideoBlockAuthor";
-import { LessonDocumentManager } from "@/components/role/LessonDocumentManager";
-import { LessonNarrativeEditor } from "@/components/role/LessonNarrativeEditor";
-import { CourseCatalogueManager } from "@/components/role/CourseCatalogueManager";
+import { Link } from "@/i18n/navigation";
+import { Card, CardContent } from "@/components/ui/card";
+import { NewCourseForm } from "@/components/course-manager/NewCourseForm";
 import { CompCardTemplateEditor } from "@/components/role/CompCardTemplateEditor";
-import { StructureAuthor } from "@/components/role/StructureAuthor";
 import type { Locale } from "@/lib/cms/types";
-
-// Page sections, in the order an author works: the course first, then its
-// lessons, then the project-wide Comp Card questions.
-const SECTIONS = [
-  {
-    id: "courses",
-    title: "Courses",
-    intro: "Create a course, then publish it when it is ready for learners.",
-  },
-  {
-    id: "lessons",
-    title: "Lesson content",
-    intro:
-      "Edit the teaching text, build interactive stages, add videos and attach documents. Each tool has its own course and lesson picker.",
-  },
-  {
-    id: "comp-card",
-    title: "Comp Card",
-    intro:
-      "Reword, reorder or hide the reflection questions learners answer on their Comp Card, in each language. Changes apply to every course.",
-  },
-] as const;
-
-type SectionId = (typeof SECTIONS)[number]["id"];
+import { ArrowRight } from "lucide-react";
 
 /**
- * The "Create courses" workspace: every authoring tool on one page. Each tool
- * saves through its own server action, which checks the editor's role.
+ * The "Create courses" workspace: start a new course (which then opens on
+ * its own course page, D33), and edit the templates every course shares.
+ * Existing courses — their lessons, videos, documents and publishing — are
+ * managed one page per course under "Manage courses", so no tool here asks
+ * which course you mean.
  */
-export function ContentEditor({
-  courses = [],
-  locale = "en",
-}: {
-  courses?: { slug: string; title: string }[];
-  locale?: Locale;
-}) {
+export function ContentEditor({ locale = "en" }: { locale?: Locale }) {
   const t = useTranslations("content");
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-8">
+    <div className="mx-auto max-w-5xl px-4 py-8">
       <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">
         {t("title")}
       </h1>
@@ -55,33 +27,30 @@ export function ContentEditor({
         {t("subtitle")}
       </p>
 
-      <nav aria-label="Sections on this page" className="mt-4">
-        <ul className="flex flex-wrap gap-2 text-sm">
-          {SECTIONS.map((s) => (
-            <li key={s.id}>
-              <a
-                href={`#${s.id}`}
-                className="inline-flex rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 font-medium hover:bg-[var(--surface-muted)]"
-              >
-                {s.title}
-              </a>
-            </li>
-          ))}
-        </ul>
-      </nav>
-
-      <Section id="courses">
-        <CourseCatalogueManager locale={locale} />
+      <Section
+        id="new-course"
+        title={t("newCourseTitle")}
+        intro={t("newCourseIntro")}
+      >
+        <Card>
+          <CardContent className="p-5">
+            <NewCourseForm locale={locale} />
+          </CardContent>
+        </Card>
+        <Link
+          href="/content/courses"
+          className="inline-flex items-center gap-1 rounded text-sm font-medium text-[var(--accent)] hover:underline"
+        >
+          {t("manageLink")}
+          <ArrowRight className="h-4 w-4" aria-hidden />
+        </Link>
       </Section>
 
-      <Section id="lessons">
-        <LessonNarrativeEditor courses={courses} />
-        <StructureAuthor />
-        <VideoBlockAuthor courses={courses} />
-        <LessonDocumentManager courses={courses} />
-      </Section>
-
-      <Section id="comp-card">
+      <Section
+        id="templates"
+        title={t("templatesTitle")}
+        intro={t("templatesIntro")}
+      >
         <CompCardTemplateEditor />
       </Section>
     </div>
@@ -90,19 +59,28 @@ export function ContentEditor({
 
 function Section({
   id,
+  title,
+  intro,
   children,
 }: {
-  id: SectionId;
+  id: string;
+  title: string;
+  intro: string;
   children: React.ReactNode;
 }) {
-  const { title, intro } = SECTIONS.find((s) => s.id === id)!;
   return (
-    <section id={id} aria-labelledby={`${id}-heading`} className="mt-10 scroll-mt-20">
+    <section
+      id={id}
+      aria-labelledby={`${id}-heading`}
+      className="mt-10 scroll-mt-20"
+    >
       <h2 id={`${id}-heading`} className="text-lg font-semibold">
         {title}
       </h2>
-      <p className="mt-1 mb-3 text-sm text-[var(--muted-foreground)]">{intro}</p>
-      <div className="space-y-6">{children}</div>
+      <p className="mt-1 mb-3 text-sm text-[var(--muted-foreground)]">
+        {intro}
+      </p>
+      <div className="space-y-4">{children}</div>
     </section>
   );
 }

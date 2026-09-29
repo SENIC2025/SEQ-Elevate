@@ -1286,14 +1286,17 @@ describe("course lifecycle — publish / unpublish from the CMS", () => {
       },
     ]);
 
-    await page.goto("/en/content");
-    const catalogue = page
-      .locator("li", { hasText: /receiving feedback without flinching/i })
-      .first();
-    await expect(catalogue).toBeVisible({ timeout: 15000 });
+    // Publishing lives on the course's own page (D33), and unpublishing
+    // always asks first.
+    await page.goto(`/en/content/courses/${SLUG}`);
+    const publishing = page.getByRole("region", { name: /^publishing$/i });
+    await expect(publishing).toBeVisible({ timeout: 15000 });
 
-    await catalogue.getByRole("button", { name: /unpublish/i }).first().click();
-    await expect(catalogue.getByText(/^draft$/i).first()).toBeVisible({
+    await publishing.getByRole("button", { name: /^unpublish$/i }).click();
+    await publishing
+      .getByRole("button", { name: /^yes, unpublish$/i })
+      .click();
+    await expect(publishing.getByText(/^draft$/i)).toBeVisible({
       timeout: 15000,
     });
 
@@ -1377,12 +1380,10 @@ describe("course lifecycle — publish / unpublish from the CMS", () => {
         sameSite: "Lax",
       },
     ]);
-    await page.goto("/en/content");
-    const catalogue = page
-      .locator("li", { hasText: /receiving feedback without flinching/i })
-      .first();
-    await catalogue.getByRole("button", { name: /^publish$/i }).first().click();
-    await expect(catalogue.getByText(/^published$/i).first()).toBeVisible({
+    await page.goto(`/en/content/courses/${SLUG}`);
+    const publishing = page.getByRole("region", { name: /^publishing$/i });
+    await publishing.getByRole("button", { name: /^publish$/i }).click();
+    await expect(publishing.getByText(/^published$/i)).toBeVisible({
       timeout: 15000,
     });
 
@@ -1422,9 +1423,18 @@ describe("course lifecycle — publish / unpublish from the CMS", () => {
         sameSite: "Lax",
       },
     ]);
-    // No catalogue panel is rendered for a non-editor on /content.
+    // No publishing controls are rendered for a non-editor on /content…
     const page = await context.newPage();
     await page.goto("/en/content");
+    await expect(
+      page.getByRole("button", { name: /unpublish/i })
+    ).toHaveCount(0);
+
+    // …nor on the course's own page, which says who it is for instead.
+    await page.goto(`/en/content/courses/${SLUG}`);
+    await expect(
+      page.getByRole("heading", { name: /editors only/i })
+    ).toBeVisible({ timeout: 15000 });
     await expect(
       page.getByRole("button", { name: /unpublish/i })
     ).toHaveCount(0);
@@ -1522,10 +1532,15 @@ describe("creating a course in the CMS (no code)", () => {
     await page.getByLabel(/skill area/i).first().fill("Communication");
     await page.getByRole("button", { name: /create draft/i }).first().click();
 
-    // It appears in the catalogue as a draft.
-    const row = page.locator("li", { hasText: TITLE }).first();
-    await expect(row).toBeVisible({ timeout: 15000 });
-    await expect(row.getByText(/^draft$/i).first()).toBeVisible();
+    // It opens on its own course page, as a draft.
+    await expect(page).toHaveURL(new RegExp(`/en/content/courses/${SLUG}`), {
+      timeout: 15000,
+    });
+    await expect(
+      page
+        .getByRole("region", { name: /^publishing$/i })
+        .getByText(/^draft$/i)
+    ).toBeVisible({ timeout: 15000 });
 
     const course = await prisma.course.findFirst({ where: { slug: SLUG } });
     expect(course, "course row created").toBeTruthy();
@@ -1577,8 +1592,9 @@ describe("creating a course in the CMS (no code)", () => {
     page,
     context,
   }) => {
-    // Author the first stage directly (the narrative editor is covered by its
-    // own test) — this test is about a CMS-created course actually playing.
+    // Author the first stage directly (the narrative editor is covered by
+    // e2e/course-page.spec.ts) — this test is about a CMS-created course
+    // actually playing.
     await prisma.lesson.create({
       data: {
         projectId: "seq-elevate",
@@ -2069,16 +2085,16 @@ describe("authoring an interactive stage in the CMS", () => {
       },
     ]);
 
-    await page.goto("/en/content");
-    const panel = page.getByRole("region", { name: /interactive stage/i });
+    // The course page opens the not-yet-added simulation straight away.
+    await page.goto(`/en/content/courses/${SLUG}?lesson=simulation`);
+    const panel = page.getByRole("region", {
+      name: /^interactive stage — simulation$/i,
+    });
     await expect(panel).toBeVisible({ timeout: 15000 });
 
-    // Select our course (default kind is simulation).
-    await panel.getByLabel(/^course$/i).selectOption(SLUG);
-
     // Try to save the empty default → validation must block it.
-    await page.getByRole("button", { name: /save stage/i }).first().click();
-    await expect(page.getByText(/not ready to save/i)).toBeVisible({
+    await panel.getByRole("button", { name: /save stage/i }).click();
+    await expect(panel.getByText(/not ready to save/i)).toBeVisible({
       timeout: 15000,
     });
     // Nothing written yet.
@@ -2094,8 +2110,8 @@ describe("authoring an interactive stage in the CMS", () => {
     await optionText.nth(0).fill("Name it calmly");
     await optionText.nth(1).fill("Say nothing");
 
-    await page.getByRole("button", { name: /save stage/i }).first().click();
-    await expect(page.getByText(/^saved$/i).first()).toBeVisible({
+    await panel.getByRole("button", { name: /save stage/i }).click();
+    await expect(panel.getByText(/^saved$/i)).toBeVisible({
       timeout: 15000,
     });
 
@@ -2139,11 +2155,11 @@ describe("authoring an interactive stage in the CMS", () => {
       },
     ]);
 
-    await page.goto("/en/content");
-    const panel = page.getByRole("region", { name: /interactive stage/i });
+    await page.goto(`/en/content/courses/${SLUG}?lesson=assessment`);
+    const panel = page.getByRole("region", {
+      name: /^interactive stage — assessment$/i,
+    });
     await expect(panel).toBeVisible({ timeout: 15000 });
-    await panel.getByLabel(/^course$/i).selectOption(SLUG);
-    await panel.getByLabel(/^stage$/i).selectOption("assessment");
 
     await panel.getByLabel(/^intro$/i).fill("One question to finish.");
     await panel.getByLabel(/^question$/i).first().fill("Which is an I-statement?");
@@ -2153,8 +2169,8 @@ describe("authoring an interactive stage in the CMS", () => {
     // Tick the SECOND answer as correct.
     await panel.getByLabel(/answer 2 is correct/i).check();
 
-    await page.getByRole("button", { name: /save stage/i }).first().click();
-    await expect(page.getByText(/^saved$/i).first()).toBeVisible({
+    await panel.getByRole("button", { name: /save stage/i }).click();
+    await expect(panel.getByText(/^saved$/i)).toBeVisible({
       timeout: 15000,
     });
 
