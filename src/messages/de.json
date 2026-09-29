@@ -486,7 +486,11 @@
     "openCompCard": "Comp Card öffnen",
     "backToDashboard": "Zum Dashboard",
     "courseComplete": "Kurs abgeschlossen",
-    "dashboard": "Dashboard"
+    "dashboard": "Dashboard",
+    "editLesson": "Diese Lektion bearbeiten",
+    "draftPreview": "<b>Entwurfsvorschau.</b> Dieser Kurs ist nicht veröffentlicht — Lernende sehen ihn noch nicht. Nichts, was du in dieser Vorschau tust, wird gespeichert.",
+    "preview": "<b>Vorschau.</b> Nichts, was du hier tust, wird gespeichert.",
+    "backToEditing": "Zurück zum Bearbeiten"
   },
   "video": {
     "regionLabel": "Lernvideo",
@@ -594,7 +598,133 @@
   },
   "content": {
     "title": "Kurse erstellen",
-    "subtitle": "Erstelle Kurse, schreibe ihre Inhalte auf Englisch, Deutsch und Griechisch, füge Videos und Dokumente hinzu und veröffentliche jeden Kurs, sobald er für die Lernenden bereit ist."
+    "subtitle": "Hier startest du einen neuen Kurs — seine Lektionen schreibst du danach auf seiner eigenen Kursseite. Darunter findest du die Vorlagen, die alle Kurse teilen.",
+    "newCourseTitle": "Einen neuen Kurs starten",
+    "newCourseIntro": "Gib ihm zuerst einen Titel. Er bleibt ein Entwurf, den nur die Inhalts-Redaktion sieht, bis du ihn veröffentlichst.",
+    "manageLink": "Bestehende Kurse verwalten",
+    "templatesTitle": "Gemeinsame Vorlagen",
+    "templatesIntro": "Texte, die alle Kurse teilen, zum Beispiel die Fragen auf der Comp Card."
+  },
+  "courseManager": {
+    "languageName": {
+      "en": "Englisch",
+      "de": "Deutsch",
+      "el": "Griechisch"
+    },
+    "status": {
+      "published": "Veröffentlicht",
+      "draft": "Entwurf",
+      "archived": "Archiviert"
+    },
+    "kind": {
+      "bundled": "Mitgeliefert",
+      "cms": "Hier erstellt"
+    },
+    "editorsOnly": {
+      "title": "Nur für die Inhalts-Redaktion",
+      "body": "Melde dich mit einem Konto mit der Rolle Inhalts-Redaktion oder Admin an, um Kurse zu verwalten. Wenn du Zugang haben solltest, bitte die Administration deines Projekts um die Rolle Inhalts-Redaktion."
+    },
+    "grid": {
+      "title": "Kurse verwalten",
+      "subtitle": "Alle Kurse der Plattform, auch Entwürfe. Öffne einen, um Titel, Lektionen, Videos und Dokumente zu bearbeiten.",
+      "newCourse": "Neuer Kurs",
+      "newCourseIntro": "Er startet als Entwurf — nur die Inhalts-Redaktion sieht ihn, bis du ihn veröffentlichst.",
+      "empty": "Noch keine Kurse — starte einen mit „Neuer Kurs“.",
+      "facts": {
+        "lessons": "Lektionen",
+        "languages": "Sprachen",
+        "lastEdited": "Zuletzt bearbeitet",
+        "enrolled": "Eingeschrieben"
+      },
+      "lessons": "{count, plural, one {# Lektion} other {# Lektionen}}",
+      "enrolled": "{count, plural, =0 {Noch niemand eingeschrieben} one {# Person eingeschrieben} other {# Personen eingeschrieben}}",
+      "lastEdited": "Bearbeitet {when}",
+      "neverEdited": "Noch nicht bearbeitet",
+      "open": "Kurs öffnen",
+      "preview": "Vorschau",
+      "newTab": "(öffnet in einem neuen Tab)",
+      "lessonLink": "Lektion {n} bearbeiten: {stage}",
+      "lessonsNav": "Lektionen in {title}",
+      "lang": {
+        "label": "{language}: {state}",
+        "complete": "vollständig",
+        "partial": "{covered} von {total} Lektionen",
+        "missing": "nicht begonnen"
+      }
+    },
+    "page": {
+      "metaTitle": "{title} · Kurse verwalten",
+      "allCourses": "Alle Kurse",
+      "lastEdited": "Zuletzt bearbeitet {when}",
+      "contentLanguage": "Inhaltssprache",
+      "contentLanguageHint": "Die Sprache, in der du schreibst. Menüs und Schaltflächen bleiben in deiner Sprache.",
+      "previewAsLearner": "Vorschau als Lernende:r",
+      "previewLesson": "Vorschau dieser Lektion",
+      "publishing": "Veröffentlichung",
+      "publish": "Veröffentlichen",
+      "unpublish": "Veröffentlichung zurückziehen",
+      "confirmUnpublish": "Ja, zurückziehen",
+      "cancel": "Abbrechen",
+      "archive": "Archivieren",
+      "restoreDraft": "Zurück zum Entwurf",
+      "unpublishWarning": "{count, plural, =0 {Noch niemand ist eingeschrieben.} one {# Person ist eingeschrieben. Ihr Fortschritt bleibt erhalten.} other {# Personen sind eingeschrieben. Ihr Fortschritt bleibt erhalten.}} Lernende können den Kurs erst wieder öffnen, wenn du ihn erneut veröffentlichst.",
+      "liveNote": "Dieser Kurs ist live — Änderungen, die du speicherst, sehen die Lernenden sofort.",
+      "draftNote": "Dieser Kurs ist ein Entwurf — nur die Inhalts-Redaktion sieht ihn, bis du ihn veröffentlichst.",
+      "archivedNote": "Dieser Kurs ist archiviert — Lernende sehen ihn nicht. Du kannst ihn erneut veröffentlichen oder zurück zum Entwurf machen.",
+      "copyRegion": "Kurstitel und Untertitel",
+      "courseTitle": "Kurstitel",
+      "subtitle": "Untertitel",
+      "skillArea": "Skill-Bereich",
+      "saveCopy": "Titel und Untertitel speichern",
+      "useBuiltIn": "Mitgelieferten Text verwenden",
+      "builtInHint": "Mitgeliefert: {title}",
+      "customised": "Angepasst",
+      "notTranslated": "Noch nicht übersetzt — Lernende sehen den Titel auf {language}.",
+      "saving": "Wird gespeichert…",
+      "saved": "Gespeichert",
+      "errors": {
+        "forbidden": "Dein Konto kann gerade keine Kurse bearbeiten. Melde dich erneut an oder bitte die Administration deines Projekts um die Rolle Inhalts-Redaktion.",
+        "unknownCourse": "Diesen Kurs gibt es nicht mehr. Geh zurück zu „Alle Kurse“.",
+        "titleRequired": "Gib dem Kurs einen Titel.",
+        "generic": "Das wurde nicht gespeichert. Prüfe deine Verbindung und versuche es erneut."
+      },
+      "lessonsNav": "Lektionen",
+      "editLesson": "Lektion bearbeiten",
+      "done": "Fertig",
+      "notAddedYet": "Noch nicht hinzugefügt",
+      "addStage": {
+        "simulation": "Simulation hinzufügen",
+        "scenario": "Verzweigtes Szenario hinzufügen",
+        "assessment": "Schnellcheck hinzufügen"
+      },
+      "builtInNotice": "Dieser Teil eines mitgelieferten Kurses kommt mit der Plattform und kann hier nicht bearbeitet werden. Ein Video und Dokumente kannst du trotzdem hinzufügen.",
+      "unsavedSwitch": "Du hast ungespeicherte Änderungen in: {list}. Sprache wechseln und sie verwerfen?",
+      "unsavedClose": "Du hast ungespeicherte Änderungen in: {list}. Lektion schließen und sie verwerfen?",
+      "readiness": {
+        "title": "Bevor du veröffentlichst",
+        "intro": "Einen Blick wert — nichts davon hindert dich am Veröffentlichen.",
+        "copyMissing": "Noch kein Titel und Untertitel auf {language}.",
+        "lessonEmpty": "Die Lektion „{stage}“ hat noch keinen Inhalt.",
+        "lessonUntranslated": "{count, plural, one {# Lektion hat} other {# Lektionen haben}} noch keinen Text auf {language} — Lernende sehen dort eine andere Sprache.",
+        "noInteractive": "Noch keine Übung — eine Simulation, ein verzweigtes Szenario oder ein Schnellcheck hilft Lernenden, die Fähigkeit auszuprobieren."
+      },
+      "read": {
+        "video": "Video",
+        "fileVideo": "Videodatei",
+        "youtubeVideo": "YouTube-Video",
+        "builtInVideo": "Mitgeliefertes Video",
+        "noVideo": "Kein Video",
+        "videoQuestions": "{count, plural, one {# Frage im Video} other {# Fragen im Video}}",
+        "documents": "Dokumente",
+        "noDocuments": "Keine Dokumente",
+        "draftDocument": "Entwurf — für Lernende verborgen",
+        "emptyLesson": "Diese Lektion hat noch keinen Inhalt.",
+        "bestResponse": "Beste Antwort",
+        "correctAnswer": "Richtige Antwort",
+        "prompts": "Reflexionsfragen",
+        "notAdded": "Noch nicht hinzugefügt — Lernende sehen diese Lektion nicht."
+      }
+    }
   },
   "lesson": {
     "resourcesTitle": "Materialien",
@@ -618,7 +748,11 @@
     "switcherMenu": "Deine Arbeitsbereiche",
     "content": {
       "title": "Kurse erstellen",
-      "desc": "Kurse, Videos und Dokumente schreiben, übersetzen und veröffentlichen."
+      "desc": "Starte einen neuen Kurs und richte gemeinsame Vorlagen ein."
+    },
+    "courses": {
+      "title": "Kurse verwalten",
+      "desc": "Öffne einen beliebigen Kurs, um Titel, Lektionen, Videos und Dokumente zu bearbeiten."
     },
     "admin": {
       "title": "Personen verwalten",
