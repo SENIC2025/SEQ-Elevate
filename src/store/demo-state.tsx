@@ -13,7 +13,13 @@ import {
   awardBadgeAction,
 } from "@/app/actions/learner";
 import type { Locale } from "@/lib/cms/types";
-import { courseAfterLoad, mergeBadges } from "./progress-merge";
+import {
+  courseAfterLoad,
+  courseAfterMigration,
+  mergeBadges,
+  mergeCompCardOnHydrate,
+} from "./progress-merge";
+import { withRetry } from "./retry";
 
 /**
  * Learner state. For AUTHENTICATED users it's backed by Postgres (Neon)
@@ -130,7 +136,7 @@ type Action =
   | { type: "reset" }
   | { type: "hydrate"; state: DemoState }
   | { type: "hydrateGlobal"; compCard: CompCardData | null; badges: string[] }
-  | { type: "hydrateCourse"; course: CourseProgress }
+  | { type: "guestCourseMigrated"; course: CourseProgress }
   | { type: "courseProgressLoaded"; slug: string; saved: CourseProgress | null };
 
 function reducer(state: DemoState, action: Action): DemoState {
@@ -242,14 +248,24 @@ function reducer(state: DemoState, action: Action): DemoState {
       return action.state;
     case "hydrateGlobal":
       // Badges are a union: one earned before the saved ones arrived (a
-      // course finished while they loaded) must not be dropped.
+      // course finished while they loaded) must not be dropped. The Comp
+      // Card is merged too: what the learner entered while the saved card
+      // loaded is newer, and kept (see progress-merge.ts).
       return {
         ...state,
         badges: mergeBadges(action.badges, state.badges),
-        compCard: action.compCard ?? state.compCard,
+        compCard: mergeCompCardOnHydrate(
+          state.compCard,
+          action.compCard,
+          DEFAULT_STATE.compCard
+        ),
       };
-    case "hydrateCourse":
-      return { ...state, course: action.course };
+    case "guestCourseMigrated": {
+      // Only into the course being played (or none): another course's
+      // player keeps its own progress (see progress-merge.ts).
+      const course = courseAfterMigration(state.course, action.course);
+      return course ? { ...state, course } : state;
+    }
     case "courseProgressLoaded": {
       // Merged with what the learner did while it loaded, never swapped in
       // (see progress-merge.ts). A new course object means there's
@@ -279,7 +295,8 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
   const locale = useLocale() as Locale;
   const authed = status === "authenticated";
 
-  const courseLoadingRef = React.useRef(false);
+  // The course whose saved progress has loaded and been merged into state;
+  // null while one loads. Only this course is ever saved (see below).
   const loadedCourseRef = React.useRef<string | null>(null);
   const persistedBadges = React.useRef<Set<string>>(new Set());
   const courseTimer = React.useRef<ReturnType<typeof setTimeout> | undefined>(
@@ -292,12 +309,33 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
   // ---- Hydration: DB for authed users, localStorage for guests ----
   React.useEffect(() => {
     if (status === "loading") return;
-    let cancelled = false;
+    // Aborted on cleanup: stops the retries below and drops their result.
+    const abort = new AbortController();
+    const cancelled = () => abort.signal.aborted;
     (async () => {
       if (authed) {
-        await ensureLearnerMembership();
-        const global = await loadLearnerGlobal();
-        if (cancelled) return;
+        // Nothing is saved until this has loaded, so a failed try doesn't
+        // end it: it's tried again (see retry.ts), and what the learner
+        // does meanwhile stays in memory until it's through.
+        let global: Awaited<ReturnType<typeof loadLearnerGlobal>>;
+        try {
+          global = await withRetry(
+            async () => {
+              await ensureLearnerMembership();
+              return loadLearnerGlobal();
+            },
+            { signal: abort.signal }
+          );
+        } catch (err) {
+          if (!cancelled()) {
+            console.error(
+              "Couldn't load the learner's saved data; nothing is saved on this visit.",
+              err
+            );
+          }
+          return;
+        }
+        if (cancelled()) return;
 
         // One-time guest→DB migration: a learner who built progress as a
         // guest (localStorage) and then signed in keeps that progress. The
@@ -368,7 +406,7 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
         } catch {
           /* best-effort — never block sign-in on a bad localStorage blob */
         }
-        if (cancelled) return;
+        if (cancelled()) return;
 
         dispatch({
           type: "hydrateGlobal",
@@ -380,10 +418,12 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
         // write-through below awards it.
         persistedBadges.current = new Set(mergedBadges);
         if (migratedCourse) {
-          // Reflect the migrated course immediately and mark it loaded so the
-          // course-load effect doesn't re-fetch (and clobber) it.
-          dispatch({ type: "hydrateCourse", course: migratedCourse });
-          loadedCourseRef.current = migratedCourse.courseSlug;
+          // Shown at once if it's the course being played (merged with the
+          // steps taken meanwhile) or no course is; another course's player
+          // keeps its own. It isn't marked loaded: the course load below
+          // reads it back from the server and merges it like any saved
+          // progress, and only then is the course saved.
+          dispatch({ type: "guestCourseMigrated", course: migratedCourse });
         }
         setDbReady(true);
         // Server components (dashboard journey, facilitator) were rendered
@@ -401,11 +441,9 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
           /* ignore */
         }
       }
-      if (!cancelled) setHydrated(true);
+      if (!cancelled()) setHydrated(true);
     })();
-    return () => {
-      cancelled = true;
-    };
+    return () => abort.abort();
   }, [status, authed, router]);
 
   // ---- Guest localStorage write-through ----
@@ -424,36 +462,55 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
   // skips every change until this load is done. So the result is always
   // dispatched, even when nothing is saved: courseProgressLoaded merges the
   // two, and a changed course object makes the save effect persist it.
+  // Whatever course was loaded before stops counting as loaded here: coming
+  // back to it resets it to empty (setCourseContext), so it has to load and
+  // merge again before it may be saved. A failed load is tried again (see
+  // retry.ts); until a try gets through, the course isn't saved and what
+  // the learner does stays in memory.
   React.useEffect(() => {
     if (!authed || !dbReady) return;
     const slug = state.course.courseSlug;
     if (!slug || loadedCourseRef.current === slug) return;
-    let cancelled = false;
-    courseLoadingRef.current = true;
+    loadedCourseRef.current = null;
+    const abort = new AbortController();
     (async () => {
-      const prog = await loadCourseProgress(slug, locale);
-      if (cancelled) return;
-      // Done loading BEFORE the dispatch, so the save effect that runs on
-      // the resulting render doesn't skip it as "still loading".
+      let prog: Awaited<ReturnType<typeof loadCourseProgress>>;
+      try {
+        prog = await withRetry(() => loadCourseProgress(slug, locale), {
+          signal: abort.signal,
+        });
+      } catch (err) {
+        if (!abort.signal.aborted) {
+          console.error(
+            `Couldn't load the saved progress of "${slug}"; it isn't saved on this visit.`,
+            err
+          );
+        }
+        return;
+      }
+      if (abort.signal.aborted) return;
+      // Loaded BEFORE the dispatch, so the save effect that runs on the
+      // resulting render saves the merge.
       loadedCourseRef.current = slug;
-      courseLoadingRef.current = false;
       dispatch({
         type: "courseProgressLoaded",
         slug,
         saved: prog as CourseProgress | null,
       });
     })();
-    return () => {
-      cancelled = true;
-      courseLoadingRef.current = false;
-    };
+    return () => abort.abort();
   }, [authed, dbReady, state.course.courseSlug, locale]);
 
   // ---- DB write-through: course progress (debounced) ----
+  // Never a course whose saved progress hasn't loaded and been merged in
+  // here (loadedCourseRef, null while any course loads): the save replaces
+  // the whole enrollment, so it would overwrite that progress with what's
+  // in memory — nothing at all, for a course the learner has just come
+  // back to.
   React.useEffect(() => {
-    if (!authed || !dbReady || courseLoadingRef.current) return;
+    if (!authed || !dbReady) return;
     const slug = state.course.courseSlug;
-    if (!slug) return;
+    if (!slug || loadedCourseRef.current !== slug) return;
     const snap = state.course;
     clearTimeout(courseTimer.current);
     courseTimer.current = setTimeout(() => {

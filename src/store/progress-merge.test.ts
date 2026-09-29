@@ -1,11 +1,13 @@
 import { describe, it, expect } from "vitest";
 import {
   courseAfterLoad,
+  courseAfterMigration,
   hasCourseProgress,
   mergeBadges,
+  mergeCompCardOnHydrate,
   mergeCourseProgress,
 } from "./progress-merge";
-import type { CourseProgress } from "./demo-state";
+import type { CompCardData, CourseProgress } from "./demo-state";
 
 const SLUG = "workplace-conflict";
 
@@ -225,6 +227,125 @@ describe("courseAfterLoad", () => {
     const other = progress({ courseSlug: "other", stagesCompleted: ["context"] });
     expect(courseAfterLoad(progress(), SLUG, other)).toBeNull();
     expect(courseAfterLoad(walked, SLUG, other)).toEqual(walked);
+  });
+});
+
+describe("courseAfterMigration", () => {
+  const guest = progress({
+    courseTitle: "Workplace conflict",
+    stagesCompleted: ["context", "concept"],
+    reflection: { p1: "Written as a guest", p2: "", p3: "" },
+  });
+
+  it("leaves another course being played alone", () => {
+    // The bug: the migrated course replaced it, and that player's steps were
+    // then saved under the migrated course.
+    const other = progress({
+      courseSlug: "receiving-feedback",
+      stagesCompleted: ["context"],
+    });
+    expect(courseAfterMigration(other, guest)).toBeNull();
+    expect(
+      courseAfterMigration(progress({ courseSlug: "receiving-feedback" }), guest)
+    ).toBeNull();
+  });
+
+  it("merges into the same course, keeping steps taken while the account loaded", () => {
+    // The bug: the migrated copy replaced them.
+    const current = progress({
+      courseTitle: "Workplace conflict",
+      stagesCompleted: ["context", "concept", "behaviour", "simulation"],
+      simulation: { choice: "iStatement", correct: true },
+    });
+    expect(courseAfterMigration(current, guest)).toEqual({
+      ...current,
+      reflection: { p1: "Written as a guest", p2: "", p3: "" },
+    });
+  });
+
+  it("shows the migrated course when no course is being played", () => {
+    const next = courseAfterMigration(progress({ courseSlug: null }), guest);
+    expect(next).toEqual(guest);
+    expect(next).not.toBe(guest);
+  });
+
+  it("ignores a migrated course without a slug", () => {
+    expect(
+      courseAfterMigration(progress(), progress({ courseSlug: null }))
+    ).toBeNull();
+  });
+});
+
+describe("mergeCompCardOnHydrate", () => {
+  const blank: CompCardData = {
+    wentWell: "",
+    difficult: "",
+    improve: "",
+    behaviour: "",
+    confidence: 3,
+    privacy: "facilitator",
+    updatedAt: null,
+  };
+  const saved: CompCardData = {
+    wentWell: "Saved: stayed calm",
+    difficult: "Saved: speaking up",
+    improve: "Saved: ask sooner",
+    behaviour: "",
+    confidence: 4,
+    privacy: "facilitatorAndMentor",
+    updatedAt: "2026-09-01T09:00:00.000Z",
+  };
+  const typedAt = "2026-09-29T10:00:00.000Z";
+
+  it("takes the saved card when nothing was entered", () => {
+    expect(mergeCompCardOnHydrate(blank, saved, blank)).toBe(saved);
+  });
+
+  it("keeps the local card when none is saved", () => {
+    const local = { ...blank, improve: "Typed", updatedAt: typedAt };
+    expect(mergeCompCardOnHydrate(local, null, blank)).toBe(local);
+    expect(mergeCompCardOnHydrate(blank, null, blank)).toBe(blank);
+  });
+
+  it("keeps text typed before the saved card arrived, and the saved rest", () => {
+    // The bug: the saved card replaced the typed text, and was written back.
+    const local = {
+      ...blank,
+      improve: "Typed before it loaded",
+      behaviour: "Asked what they meant",
+      updatedAt: typedAt,
+    };
+    expect(mergeCompCardOnHydrate(local, saved, blank)).toEqual({
+      ...saved,
+      improve: "Typed before it loaded",
+      behaviour: "Asked what they meant",
+      updatedAt: typedAt,
+    });
+  });
+
+  it("keeps the saved text where only whitespace was typed", () => {
+    const local = { ...blank, wentWell: "  \n", updatedAt: typedAt };
+    expect(mergeCompCardOnHydrate(local, saved, blank).wentWell).toBe(
+      "Saved: stayed calm"
+    );
+  });
+
+  it("keeps a confidence or privacy changed from the blank card's, else the saved one", () => {
+    const changed = {
+      ...blank,
+      confidence: 2,
+      privacy: "self" as const,
+      updatedAt: typedAt,
+    };
+    expect(mergeCompCardOnHydrate(changed, saved, blank)).toMatchObject({
+      confidence: 2,
+      privacy: "self",
+    });
+    const untouched = { ...blank, improve: "Typed", updatedAt: typedAt };
+    expect(mergeCompCardOnHydrate(untouched, saved, blank)).toMatchObject({
+      confidence: 4,
+      privacy: "facilitatorAndMentor",
+    });
   });
 });
 

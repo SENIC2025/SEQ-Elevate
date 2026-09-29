@@ -13,7 +13,7 @@
  * Pure (no React, no server): DemoStateProvider in demo-state.tsx applies it.
  */
 
-import type { CourseProgress } from "./demo-state";
+import type { CompCardData, CourseProgress } from "./demo-state";
 
 /** An answer counts once it has more than whitespace in it. */
 const answered = (text: string) => text.trim() !== "";
@@ -95,6 +95,54 @@ export function courseAfterLoad(
   if (current.courseSlug !== slug) return null;
   if (saved?.courseSlug === slug) return mergeCourseProgress(current, saved);
   return hasCourseProgress(current) ? { ...current } : null;
+}
+
+/**
+ * The course state once a guest's last-played course (`migrated`) has moved
+ * to their account on sign-in — it's already saved there — or null for
+ * "leave it as it is". It's merged in only when it's the course being
+ * played, as courseAfterLoad does, keeping what the learner did while their
+ * account loaded; shown when no course is being played; and any other
+ * course being played is left alone, so its steps stay its own: the
+ * migrated course loads like any other when it's opened.
+ */
+export function courseAfterMigration(
+  current: CourseProgress,
+  migrated: CourseProgress
+): CourseProgress | null {
+  if (!migrated.courseSlug) return null;
+  if (current.courseSlug === null) return { ...migrated };
+  return courseAfterLoad(current, migrated.courseSlug, migrated);
+}
+
+/**
+ * The Comp Card once the saved one (`saved`, null if none) has loaded.
+ * `local` is the card in the store, which started as `blank`. If the
+ * learner filled it in while the saved card loaded (updatedAt set), what
+ * they entered is newer and wins, field by field: a text with more than
+ * whitespace in it, a confidence or privacy changed from the blank card's.
+ * A field they didn't touch keeps the saved value — they never saw it, so
+ * leaving it isn't clearing it. updatedAt stays set, so the store's
+ * write-through saves the merged card. Nothing entered: the saved card.
+ */
+export function mergeCompCardOnHydrate(
+  local: CompCardData,
+  saved: CompCardData | null,
+  blank: CompCardData
+): CompCardData {
+  if (!saved) return local;
+  if (!local.updatedAt) return saved;
+  const text = (l: string, s: string) => (answered(l) ? l : s);
+  return {
+    wentWell: text(local.wentWell, saved.wentWell),
+    difficult: text(local.difficult, saved.difficult),
+    improve: text(local.improve, saved.improve),
+    behaviour: text(local.behaviour, saved.behaviour),
+    confidence:
+      local.confidence !== blank.confidence ? local.confidence : saved.confidence,
+    privacy: local.privacy !== blank.privacy ? local.privacy : saved.privacy,
+    updatedAt: local.updatedAt,
+  };
 }
 
 /** Badges are only ever earned: the server's, then any earned locally. */
