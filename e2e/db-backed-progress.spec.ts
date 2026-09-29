@@ -144,6 +144,194 @@ describe("DB-backed learner progress", () => {
   });
 });
 
+/**
+ * Holds every Next.js server-action POST (they carry a `next-action` header)
+ * until `release()`. Nothing the learner store asks the server — membership,
+ * saved badges and progress, saves — can answer while it's held, so the test
+ * can act before the learner's data has loaded: the window a cold server
+ * opens by accident, deterministically.
+ */
+async function holdServerActions(page: import("@playwright/test").Page) {
+  let release!: () => void;
+  const released = new Promise<void>((resolve) => (release = resolve));
+  let held = 0;
+  await page.route("**/*", async (route) => {
+    const req = route.request();
+    if (req.method() === "POST" && (await req.headerValue("next-action"))) {
+      held++;
+      await released;
+    }
+    await route.continue();
+  });
+  return { held: () => held, release };
+}
+
+const ALL_STAGES = [
+  "CONTEXT",
+  "CONCEPT",
+  "BEHAVIOUR",
+  "SIMULATION",
+  "SCENARIO",
+  "REFLECTION",
+  "ASSESSMENT",
+];
+
+describe("progress made before the learner's data has loaded", () => {
+  const firstEmail = "e2e-early-first@example.com";
+  const resumeEmail = "e2e-early-resume@example.com";
+  const users: Record<string, { id: string; session: string }> = {};
+
+  test.beforeAll(async () => {
+    await prisma.user.deleteMany({
+      where: { email: { in: [firstEmail, resumeEmail] } },
+    });
+    for (const email of [firstEmail, resumeEmail]) {
+      const user = await prisma.user.create({
+        data: { email, emailVerified: new Date() },
+      });
+      const session = `e2e-early-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      await prisma.session.create({
+        data: {
+          sessionToken: session,
+          userId: user.id,
+          expires: new Date(Date.now() + 86_400_000),
+        },
+      });
+      users[email] = { id: user.id, session };
+    }
+  });
+
+  test.afterAll(async () => {
+    await prisma.user.deleteMany({
+      where: { email: { in: [firstEmail, resumeEmail] } },
+    });
+  });
+
+  const signIn = (
+    context: import("@playwright/test").BrowserContext,
+    email: string
+  ) =>
+    context.addCookies([
+      {
+        name: "authjs.session-token",
+        value: users[email].session,
+        domain: "localhost",
+        path: "/",
+        httpOnly: true,
+        sameSite: "Lax",
+      },
+    ]);
+
+  /** Everything the walk should leave in the database, in one snapshot. */
+  const savedFor = async (userId: string) => {
+    const course = await prisma.course.findFirst({
+      where: { slug: "workplace-conflict" },
+    });
+    const [e, badges, memberships] = await Promise.all([
+      prisma.courseEnrollment.findFirst({
+        where: { userId, courseId: course!.id },
+      }),
+      prisma.userBadge.findMany({ where: { userId }, include: { badge: true } }),
+      prisma.membership.count({ where: { userId, role: "LEARNER" } }),
+    ]);
+    return {
+      enrollment: e
+        ? {
+            completed: !!e.completedAt,
+            stages: e.stagesCompleted,
+            scenarioRoot: e.scenarioRoot,
+            reflection: e.reflection,
+          }
+        : null,
+      badges: badges.map((b) => b.badge.slug).sort(),
+      memberships,
+    };
+  };
+
+  test("a first visit walked to completion is saved: enrollment, badge, membership", async ({
+    page,
+    context,
+  }) => {
+    const { id: userId } = users[firstEmail];
+    await signIn(context, firstEmail);
+    const actions = await holdServerActions(page);
+
+    await walkWorkplaceConflict(page);
+    // …and looks back at the first lesson, leaving the completion screen
+    // (which would otherwise hand out the badge again).
+    await page
+      .getByRole("navigation", { name: "Course stages" })
+      .getByRole("button", { name: "Context", exact: true })
+      .click();
+    await expect(
+      page.getByRole("heading", { name: /course complete/i })
+    ).toBeHidden();
+
+    // The provider had started loading the learner's data — and it's still
+    // waiting: all of that happened before it arrived.
+    await expect.poll(actions.held).toBeGreaterThan(0);
+    actions.release();
+
+    await expect
+      .poll(() => savedFor(userId), { timeout: 15_000 })
+      .toMatchObject({
+        enrollment: {
+          completed: true,
+          stages: ALL_STAGES,
+          scenarioRoot: "private",
+        },
+        badges: ["voice-without-edges"],
+        memberships: 1,
+      });
+  });
+
+  test("saved progress is merged with the steps taken while it loaded, not swapped in", async ({
+    page,
+    context,
+  }) => {
+    const { id: userId } = users[resumeEmail];
+    // Earlier visit: two lessons done and a reflection answer, plus another
+    // course's badge.
+    const course = await prisma.course.findFirst({
+      where: { slug: "workplace-conflict" },
+    });
+    await prisma.courseEnrollment.create({
+      data: {
+        userId,
+        courseId: course!.id,
+        stagesCompleted: ["CONTEXT", "CONCEPT"],
+        reflection: { p1: "Saved on an earlier visit", p2: "", p3: "" },
+      },
+    });
+    const otherBadge = await prisma.badge.findFirst({
+      where: { slug: { not: "voice-without-edges" } },
+    });
+    await prisma.userBadge.create({
+      data: { userId, badgeId: otherBadge!.id },
+    });
+
+    await signIn(context, resumeEmail);
+    const actions = await holdServerActions(page);
+
+    await walkWorkplaceConflict(page);
+    await expect.poll(actions.held).toBeGreaterThan(0);
+    actions.release();
+
+    await expect
+      .poll(() => savedFor(userId), { timeout: 15_000 })
+      .toMatchObject({
+        enrollment: {
+          completed: true,
+          stages: ALL_STAGES,
+          scenarioRoot: "private",
+          // Untouched on this visit, so the saved answer stays.
+          reflection: { p1: "Saved on an earlier visit" },
+        },
+        badges: [otherBadge!.slug, "voice-without-edges"].sort(),
+      });
+  });
+});
+
 describe("facilitator sees real learners", () => {
   const staffEmail = "e2e-staff@example.com";
   const learnerEmail = "e2e-cohort-learner@example.com";
