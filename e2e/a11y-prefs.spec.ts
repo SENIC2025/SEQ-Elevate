@@ -7,9 +7,12 @@ import { PrismaPg } from "@prisma/adapter-pg";
  * contrast) are saved on their account — User.fontSize / dyslexic /
  * contrast — and the page never saves over them what it didn't load: a
  * load that finds no session or fails is tried again, a choice made while
- * they load is kept along with the saved settings it didn't change, and a
+ * they load is kept along with the saved settings it didn't change, a
+ * session that can't be read for a moment doesn't lose a choice, and a
  * save made for one account never lands in another. A guest's settings stay
- * in this browser and move to their account on first sign-in.
+ * in this browser and move to their account on first sign-in — only the
+ * settings chosen here, never another account's still on screen, and again
+ * on the next visit if their save didn't get through.
  *
  * Requires a real database — gated on E2E_DB=1, like
  * db-backed-progress.spec.ts. Run: E2E_DB=1 pnpm test:e2e e2e/a11y-prefs.spec.ts
@@ -124,6 +127,51 @@ async function holdServerActions(page: Page) {
   return { held: () => held, release };
 }
 
+/**
+ * Fails the Next.js server actions the page sends whose body `matches` (all
+ * of them by default), as on a dropped connection, until `stop()`. Stopped
+ * once the next page has started loading (page.reload({ waitUntil:
+ * "commit" })), nothing the page before it sends gets through.
+ */
+async function failServerActions(
+  page: Page,
+  matches: (body: string) => boolean = () => true
+) {
+  let failing = true;
+  let failed = 0;
+  await page.route("**/*", async (route) => {
+    const req = route.request();
+    if (
+      failing &&
+      req.method() === "POST" &&
+      (await req.headerValue("next-action")) &&
+      matches(req.postData() ?? "")
+    ) {
+      failed++;
+      return route.abort("failed");
+    }
+    return route.continue();
+  });
+  return {
+    failed: () => failed,
+    stop: () => {
+      failing = false;
+    },
+  };
+}
+
+/** Sets two reading-help settings as a guest: Extra large, easy-read font. */
+async function chooseAsGuest(page: Page) {
+  await page.goto("/en/learner");
+  await openReadingHelp(page);
+  const panel = page.getByRole("dialog", { name: "Reading help" });
+  await panel.getByRole("button", { name: "Extra large" }).click();
+  await panel.getByText("Easy-read font").click();
+  const chosen = { fontSize: "xl", dyslexic: true, contrast: false };
+  await expectShown(page, chosen);
+  return chosen;
+}
+
 /** The page's answer to its reading-help load. */
 function readingHelpLoaded(page: Page) {
   return page.waitForResponse(
@@ -176,6 +224,11 @@ describe("reading-help settings kept when a load fails or the session changes ha
     switchNext: "e2e-a11y-switch-next@example.com",
     signOutFirst: "e2e-a11y-signout-first@example.com",
     signOutNext: "e2e-a11y-signout-next@example.com",
+    guestAfterFirst: "e2e-a11y-guest-after-first@example.com",
+    guestAfterNext: "e2e-a11y-guest-after-next@example.com",
+    sessionBlip: "e2e-a11y-session-blip@example.com",
+    firstLoadFails: "e2e-a11y-first-load-fails@example.com",
+    moveLost: "e2e-a11y-move-lost@example.com",
   };
   const all = Object.values(emails);
   const users: Record<string, { id: string; session: string }> = {};
@@ -390,5 +443,159 @@ describe("reading-help settings kept when a load fails or the session changes ha
 
     expect(await savedPrefs(next.id)).toEqual(DEFAULTS);
     await expectShown(page, DEFAULTS);
+  });
+
+  test("a guest's choice after a sign-out in another tab moves into the next account alone, not the first one's other settings", async ({
+    page,
+    context,
+  }) => {
+    test.setTimeout(60_000);
+    const first = users[emails.guestAfterFirst];
+    const next = users[emails.guestAfterNext];
+    await savePrefs(first.id, ALL_ON);
+    await signIn(context, emails.guestAfterFirst);
+    await page.goto("/en/learner");
+    await expectShown(page, ALL_ON);
+
+    // They sign out in another tab; this one keeps showing the settings.
+    const other = await context.newPage();
+    await other.goto("/en/learner");
+    await other.getByRole("button", { name: "Sign out" }).click();
+    const signOut = page.getByRole("button", { name: "Sign out" });
+    await expect(signOut).toBeHidden();
+    // Past the page's second look at the session (about 3 s): still no
+    // one, so whoever is at the keyboard now is a guest.
+    await page.waitForTimeout(4500);
+
+    // As a guest: Large, on top of the first account's settings.
+    await openReadingHelp(page);
+    await page.getByRole("button", { name: "Large", exact: true }).click();
+    await expectShown(page, { ...ALL_ON, fontSize: "lg" });
+
+    // Someone else, still on the defaults, signs in on this browser.
+    await signIn(context, emails.guestAfterNext);
+    await recheckSession(page);
+    await expect(signOut).toBeVisible();
+
+    // Only the guest's own choice moved in.
+    const moved = { fontSize: "lg", dyslexic: false, contrast: false };
+    await expect
+      .poll(() => savedPrefs(next.id), { timeout: 15_000 })
+      .toEqual(moved);
+    await expectShown(page, moved);
+    expect(await savedPrefs(first.id)).toEqual(ALL_ON);
+  });
+
+  test("a choice waiting to be saved when the session can't be read for a moment is kept and saved", async ({
+    page,
+    context,
+  }) => {
+    test.setTimeout(60_000);
+    const { id: userId } = users[emails.sessionBlip];
+    const saved = { fontSize: "normal", dyslexic: true, contrast: true };
+    await savePrefs(userId, saved);
+    await signIn(context, emails.sessionBlip);
+    const loaded = readingHelpLoaded(page);
+    await page.goto("/en/learner");
+    await loaded;
+    const signOut = page.getByRole("button", { name: "Sign out" });
+    await expect(signOut).toBeVisible();
+    await expectShown(page, saved);
+
+    // The next session read finds no one, as when Auth.js's database
+    // lookup fails; the reads after it are fine.
+    let blips = 0;
+    await page.route("**/api/auth/session", (route) => {
+      if (blips > 0) return route.continue();
+      blips++;
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: "null",
+      });
+    });
+
+    // A choice, its save waiting out the debounce, when the tab reads its
+    // session again (another tab opened) and finds no one…
+    await openReadingHelp(page);
+    await page.getByRole("button", { name: "Extra large" }).click();
+    await recheckSession(page);
+    await expect.poll(() => blips).toBe(1);
+    // …and a moment later reads it fine again.
+    await page.waitForTimeout(1500);
+    await recheckSession(page);
+    await expect(signOut).toBeVisible();
+
+    const chosen = { ...saved, fontSize: "xl" };
+    await expect
+      .poll(() => savedPrefs(userId), { timeout: 15_000 })
+      .toEqual(chosen);
+    // Not loaded back over the choice.
+    await page.waitForTimeout(1500);
+    await expectShown(page, chosen);
+    expect(await savedPrefs(userId)).toEqual(chosen);
+  });
+
+  test("a choice made while a first sign-in's settings can't load moves in with the guest's on the next visit", async ({
+    page,
+    context,
+  }) => {
+    test.setTimeout(60_000);
+    const { id: userId } = users[emails.firstLoadFails];
+    const guest = await chooseAsGuest(page);
+
+    // Signed in to an account on the defaults, whose settings can't load.
+    await signIn(context, emails.firstLoadFails);
+    const actions = await failServerActions(page);
+    await page.goto("/en/learner");
+    await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
+    await expect.poll(actions.failed).toBeGreaterThan(0);
+    await expectShown(page, guest);
+
+    // Meanwhile: high contrast.
+    await openReadingHelp(page);
+    await page
+      .getByRole("dialog", { name: "Reading help" })
+      .getByText("High contrast")
+      .click();
+    const all = { ...guest, contrast: true };
+    await expectShown(page, all);
+
+    // The next visit loads them: the guest's settings and the choice move in.
+    await page.reload({ waitUntil: "commit" });
+    actions.stop();
+    await expect
+      .poll(() => savedPrefs(userId), { timeout: 15_000 })
+      .toEqual(all);
+    await expectShown(page, all);
+  });
+
+  test("a guest's settings moved into an account are moved in again on the next visit if their save didn't get through", async ({
+    page,
+    context,
+  }) => {
+    test.setTimeout(60_000);
+    const { id: userId } = users[emails.moveLost];
+    const guest = await chooseAsGuest(page);
+
+    // Signed in to an account on the defaults: the settings load, and the
+    // guest's move in, but their save fails…
+    await signIn(context, emails.moveLost);
+    const saves = await failServerActions(page, (body) => body.includes('"fontSize"'));
+    const loaded = readingHelpLoaded(page);
+    await page.goto("/en/learner");
+    await loaded;
+    await expect.poll(saves.failed, { timeout: 10_000 }).toBeGreaterThan(0);
+    await expectShown(page, guest);
+    expect(await savedPrefs(userId)).toEqual(DEFAULTS);
+
+    // …and the page is left before a try gets through. The next visit
+    // moves them in again.
+    await page.reload({ waitUntil: "commit" });
+    saves.stop();
+    await expect
+      .poll(() => savedPrefs(userId), { timeout: 15_000 })
+      .toEqual(guest);
+    await expectShown(page, guest);
   });
 });
