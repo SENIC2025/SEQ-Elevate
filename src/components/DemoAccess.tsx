@@ -5,8 +5,8 @@ import { demoSignIn } from "@/app/actions/demo";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { BrandLogo } from "@/components/BrandLogo";
 import {
-  Sparkles,
   LogIn,
   Loader2,
   AlertTriangle,
@@ -60,9 +60,7 @@ export function DemoAccess({
   return (
     <div className="mx-auto max-w-3xl px-4 py-10">
       <div className="flex items-center gap-2 font-semibold tracking-tight">
-        <span className="flex h-7 w-7 items-center justify-center rounded-md bg-[var(--primary)] text-[var(--primary-foreground)]">
-          <Sparkles className="h-4 w-4" />
-        </span>
+        <BrandLogo variant="mark" width={21} className="shrink-0" />
         SEQ Elevate
         <Badge variant="primary" className="ml-1 text-[10px]">
           Demo access
