@@ -100,4 +100,17 @@ describe("NarrativeBlocks", () => {
       '<div class="seq-prose text-sm leading-relaxed"><ul><li>a</li><li>b</li></ul></div>'
     );
   });
+
+  it("survives malformed blocks from the CMS or a direct database write", () => {
+    const broken = [
+      { kind: "paragraph", text: 42 },
+      { kind: "callout", text: { oops: true } },
+      { kind: "list", items: "not a list" },
+      { kind: "list", items: [{ nested: 1 }, "ok"] },
+      { kind: "compare", compare: [null, { label: 7, text: ["x"], tone: "positive" }] },
+    ] as unknown as NarrativeBlock[];
+    const html = render(broken);
+    expect(html).toContain("<li class=\"text-base\">ok</li>");
+    expect(html).not.toContain("[object Object]");
+  });
 });

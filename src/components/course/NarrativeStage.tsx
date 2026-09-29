@@ -85,9 +85,9 @@ function Block({ block }: { block: NarrativeBlock }) {
       );
 
     case "list": {
-      const items = (block.items ?? []).map((item, i) => (
+      const items = listOf(block.items).map((item, i) => (
         <li key={i} className="text-base">
-          {item}
+          {asText(item)}
         </li>
       ));
       // Numbered unless the author chose bullets: lists saved before
@@ -116,8 +116,8 @@ function Block({ block }: { block: NarrativeBlock }) {
     case "compare":
       return (
         <div className="grid sm:grid-cols-2 gap-3">
-          {(block.compare ?? []).map((side, i) => {
-            const positive = side.tone === "positive";
+          {listOf(block.compare).map((side, i) => {
+            const positive = side?.tone === "positive";
             const color = positive ? "var(--success)" : "var(--warning)";
             return (
               <div
@@ -133,10 +133,10 @@ function Block({ block }: { block: NarrativeBlock }) {
                   style={{ color }}
                 >
                   <Quote className="h-3 w-3" />
-                  {side.label}
+                  {asText(side?.label)}
                 </p>
                 <FormattedText
-                  text={side.text}
+                  text={asText(side?.text)}
                   className="text-sm leading-relaxed"
                 />
               </div>
@@ -148,4 +148,14 @@ function Block({ block }: { block: NarrativeBlock }) {
     default:
       return null;
   }
+}
+
+// Saves are sanitised, but content can also arrive from the CMS provider or a
+// direct database write: never let a malformed block take the lesson down.
+function listOf<T>(value: readonly T[] | undefined): readonly T[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function asText(value: unknown): string {
+  return typeof value === "string" ? value : "";
 }

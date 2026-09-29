@@ -49,7 +49,8 @@ export function RichTextView({
   const value = rich == null ? null : sanitizeRichText(rich).value;
   // Plain text is converted, not sanitized: existing lessons must render
   // byte for byte as they did before rich text (legacy-parity.test.ts).
-  const doc = value?.doc ?? legacyTextToDoc(text);
+  const doc =
+    value?.doc ?? legacyTextToDoc(typeof text === "string" ? text : "");
   if (isEmptyDoc(doc)) return null;
 
   return (
