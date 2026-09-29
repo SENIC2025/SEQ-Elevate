@@ -100,32 +100,105 @@ function emptyStructure(kind: StructureStageKey): StoredStructure {
   };
 }
 
-export function StructureAuthor() {
+/** A value the page may control; local state when it doesn't. */
+function useMaybeControlled<T>(value: T | undefined, initial: T) {
+  const [inner, setInner] = React.useState(initial);
+  return [value ?? inner, setInner, value !== undefined] as const;
+}
+
+/**
+ * Tell the page when unsaved edits appear and when they're gone — saved,
+ * reloaded, or discarded because the editor closed.
+ */
+function useReportDirty(dirty: boolean, onDirtyChange?: (d: boolean) => void) {
+  const report = React.useRef(onDirtyChange);
+  React.useEffect(() => {
+    report.current = onDirtyChange;
+  });
+  React.useEffect(() => {
+    if (!dirty) return;
+    report.current?.(true);
+    return () => report.current?.(false);
+  }, [dirty]);
+}
+
+interface LoadedStructure {
+  key: string;
+  draft: StoredStructure;
+  /** What's stored (or the empty template): unsaved edits = draft !== saved. */
+  saved: StoredStructure;
+  authored: boolean;
+}
+
+/**
+ * Author a CMS course's interactive stage. On the course page the lesson is
+ * given (`courseSlug`, `kind`, `locale`, `initial`) and the pickers hide; on
+ * its own it lists the CMS-created courses to pick from.
+ */
+export function StructureAuthor({
+  courseSlug: courseSlugProp,
+  kind: kindProp,
+  locale: localeProp,
+  initial,
+  regionLabel,
+  embedded = false,
+  onSaved,
+  onCleared,
+  onDirtyChange,
+}: {
+  courseSlug?: string;
+  kind?: StructureStageKey;
+  /** The language being written. The draft holds every language at once. */
+  locale?: Locale;
+  /** What's stored for this lesson (null = not added yet); skips the load. */
+  initial?: StoredStructure | null;
+  /** Heading and region name, e.g. "Interactive stage — Simulation". */
+  regionLabel?: string;
+  /** Inside a lesson on the course page: lighter frame. */
+  embedded?: boolean;
+  onSaved?: (structure: StoredStructure) => void;
+  onCleared?: () => void;
+  onDirtyChange?: (dirty: boolean) => void;
+} = {}) {
   const headingId = React.useId();
   const router = useRouter();
   const [courses, setCourses] = React.useState<AuthorableCourse[] | null>(null);
-  const [slug, setSlug] = React.useState("");
-  const [kind, setKind] = React.useState<StructureStageKey>("simulation");
-  const [locale, setLocale] = React.useState<Locale>("en");
+  const [slug, setSlug, courseControlled] = useMaybeControlled(
+    courseSlugProp,
+    ""
+  );
+  const [kind, setKind, kindControlled] =
+    useMaybeControlled<StructureStageKey>(kindProp, "simulation");
+  const [locale, setLocale, localeControlled] = useMaybeControlled<Locale>(
+    localeProp,
+    "en"
+  );
+  // The page hands over what's stored, so the first load is already done.
+  const [seededKey] = React.useState(() =>
+    courseControlled && initial !== undefined ? `${slug}:${kind}` : null
+  );
   // The draft plus the (course, stage) it belongs to, as one unit. Deriving
   // `ready` from the key means switching course then saving quickly can never
   // write one course's draft onto another — Save waits for the matching load.
-  const [loaded, setLoaded] = React.useState<{
-    key: string;
-    draft: StoredStructure;
-    authored: boolean;
-  } | null>(null);
+  const [loaded, setLoaded] = React.useState<LoadedStructure | null>(() => {
+    if (seededKey === null) return null;
+    const draft = initial ?? emptyStructure(kind);
+    return { key: seededKey, draft, saved: draft, authored: Boolean(initial) };
+  });
   const setDraft = (next: StoredStructure) =>
     setLoaded((l) => (l ? { ...l, draft: next } : l));
   const [status, setStatus] = React.useState<
     "idle" | "saving" | "saved" | "error"
   >("idle");
   const [issues, setIssues] = React.useState<string[]>([]);
+  const [clearError, setClearError] = React.useState("");
   const [reloadKey, setReloadKey] = React.useState(0);
 
-  // Load the authorable (CMS-created) courses once.
+  // Load the authorable (CMS-created) courses once — unless the page has
+  // already chosen the course (it's gated on the server).
   const [denied, setDenied] = React.useState(false);
   React.useEffect(() => {
+    if (courseControlled) return;
     let cancelled = false;
     listAuthorableCourses().then((list) => {
       if (cancelled) return;
@@ -138,17 +211,21 @@ export function StructureAuthor() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [courseControlled, setSlug]);
 
   React.useEffect(() => {
     if (!slug) return;
+    // Seeded from the page: nothing to fetch until a reload is asked for.
+    if (reloadKey === 0 && seededKey === `${slug}:${kind}`) return;
     let cancelled = false;
     (async () => {
       const existing = await getStructure(slug, kind);
       if (cancelled) return;
+      const draft = existing ?? emptyStructure(kind);
       setLoaded({
         key: `${slug}:${kind}`,
-        draft: existing ?? emptyStructure(kind),
+        draft,
+        saved: draft,
         authored: Boolean(existing),
       });
       setStatus("idle");
@@ -157,13 +234,16 @@ export function StructureAuthor() {
     return () => {
       cancelled = true;
     };
-  }, [slug, kind, reloadKey]);
+  }, [slug, kind, reloadKey, seededKey]);
 
   // Until the load for the current selectors resolves, `loaded.key` still holds
   // the previous pair, so `ready` is false — no synchronous reset needed.
   const ready = loaded?.key === `${slug}:${kind}`;
   const draft = ready ? loaded!.draft : null;
   const authored = ready ? loaded!.authored : false;
+  const dirty = ready && loaded!.draft !== loaded!.saved;
+  useReportDirty(dirty, onDirtyChange);
+  const kindLabel = KINDS.find((k) => k.key === kind)?.label ?? "Stage";
 
   React.useEffect(() => {
     if (status !== "saved") return;
@@ -175,14 +255,19 @@ export function StructureAuthor() {
     if (!draft || !ready) return;
     const savedKey = `${slug}:${kind}`;
     setStatus("saving");
+    setClearError("");
     const res = await saveStructure(slug, kind, draft);
     if (res.ok) {
       // The server stores exactly this draft, so keep it rather than reloading:
       // a reload resets status to "idle" (the "Saved" confirmation flashed for
-      // ~25ms) and overwrites anything typed while it was in flight.
-      setLoaded((l) => (l?.key === savedKey ? { ...l, authored: true } : l));
+      // ~25ms) and overwrites anything typed while it was in flight — which
+      // stays unsaved, since it's a newer draft than the one sent.
+      setLoaded((l) =>
+        l?.key === savedKey ? { ...l, authored: true, saved: draft } : l
+      );
       setStatus("saved");
       setIssues([]);
+      onSaved?.(draft);
       router.refresh();
     } else {
       setStatus("error");
@@ -203,35 +288,54 @@ export function StructureAuthor() {
   }
 
   async function onClear() {
+    if (
+      !window.confirm(
+        `Remove this ${kindLabel.toLowerCase()}? Learners will no longer see it.`
+      )
+    ) {
+      return;
+    }
     setStatus("saving");
-    await clearStructure(slug, kind);
+    setClearError("");
+    const res = await clearStructure(slug, kind);
+    if (!res.ok) {
+      setStatus("error");
+      setClearError(
+        "Couldn't remove the stage: only editors and admins can change courses."
+      );
+      return;
+    }
     setReloadKey((k) => k + 1);
+    onCleared?.();
     router.refresh();
   }
 
-  if (denied) return null;
-  if (courses === null) {
-    return (
-      <Card>
-        <CardContent className="p-4 text-sm text-[var(--muted-foreground)]">
-          Loading…
-        </CardContent>
-      </Card>
-    );
-  }
-  if (courses.length === 0) {
-    return (
-      <Card>
-        <CardContent className="p-4 text-sm text-[var(--muted-foreground)]">
-          Create a course first — interactive stages are authored on
-          CMS-created courses. Built-in courses keep their own structure.
-        </CardContent>
-      </Card>
-    );
+  // Picking from the course list (not on the course page).
+  if (!courseControlled) {
+    if (denied) return null;
+    if (courses === null) {
+      return (
+        <Card>
+          <CardContent className="p-4 text-sm text-[var(--muted-foreground)]">
+            Loading…
+          </CardContent>
+        </Card>
+      );
+    }
+    if (courses.length === 0) {
+      return (
+        <Card>
+          <CardContent className="p-4 text-sm text-[var(--muted-foreground)]">
+            Create a course first — interactive stages are authored on
+            CMS-created courses. Built-in courses keep their own structure.
+          </CardContent>
+        </Card>
+      );
+    }
   }
 
   return (
-    <Card>
+    <Card className={embedded ? "shadow-none" : undefined}>
       <CardContent className="p-4" role="region" aria-labelledby={headingId}>
         <div className="flex flex-wrap items-center gap-2 mb-3">
           <h3
@@ -239,61 +343,71 @@ export function StructureAuthor() {
             className="text-sm font-semibold flex items-center gap-1.5"
           >
             <Puzzle className="h-4 w-4 text-[var(--accent)]" aria-hidden />
-            Interactive stage
+            {regionLabel ?? "Interactive stage"}
           </h3>
           <Badge variant={authored ? "accent" : "muted"} className="text-[10px]">
             {authored ? "Authored" : "Not added yet"}
           </Badge>
         </div>
 
-        {/* Selectors */}
-        <div className="flex flex-wrap gap-2 mb-4">
-          <label className="text-xs text-[var(--muted-foreground)]">
-            <span className="block mb-1">Course</span>
-            <select
-              value={slug}
-              onChange={(e) => setSlug(e.target.value)}
-              aria-label="Course"
-              className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-sm"
-            >
-              {courses.map((c) => (
-                <option key={c.slug} value={c.slug}>
-                  {c.title}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="text-xs text-[var(--muted-foreground)]">
-            <span className="block mb-1">Stage</span>
-            <select
-              value={kind}
-              onChange={(e) => setKind(e.target.value as StructureStageKey)}
-              aria-label="Stage"
-              className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-sm"
-            >
-              {KINDS.map((k) => (
-                <option key={k.key} value={k.key}>
-                  {k.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="text-xs text-[var(--muted-foreground)]">
-            <span className="block mb-1">Language</span>
-            <select
-              value={locale}
-              onChange={(e) => setLocale(e.target.value as Locale)}
-              aria-label="Language"
-              className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-sm"
-            >
-              {LOCALES.map((l) => (
-                <option key={l.code} value={l.code}>
-                  {l.label}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
+        {/* Selectors — each one hides when the page has chosen for it. */}
+        {courseControlled && kindControlled && localeControlled ? null : (
+          <div className="flex flex-wrap gap-2 mb-4">
+            {courseControlled ? null : (
+              <label className="text-xs text-[var(--muted-foreground)]">
+                <span className="block mb-1">Course</span>
+                <select
+                  value={slug}
+                  onChange={(e) => setSlug(e.target.value)}
+                  aria-label="Course"
+                  className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-sm"
+                >
+                  {(courses ?? []).map((c) => (
+                    <option key={c.slug} value={c.slug}>
+                      {c.title}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {kindControlled ? null : (
+              <label className="text-xs text-[var(--muted-foreground)]">
+                <span className="block mb-1">Stage</span>
+                <select
+                  value={kind}
+                  onChange={(e) =>
+                    setKind(e.target.value as StructureStageKey)
+                  }
+                  aria-label="Stage"
+                  className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-sm"
+                >
+                  {KINDS.map((k) => (
+                    <option key={k.key} value={k.key}>
+                      {k.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {localeControlled ? null : (
+              <label className="text-xs text-[var(--muted-foreground)]">
+                <span className="block mb-1">Language</span>
+                <select
+                  value={locale}
+                  onChange={(e) => setLocale(e.target.value as Locale)}
+                  aria-label="Language"
+                  className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-sm"
+                >
+                  {LOCALES.map((l) => (
+                    <option key={l.code} value={l.code}>
+                      {l.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+          </div>
+        )}
 
         {issues.length ? (
           <div
@@ -360,6 +474,15 @@ export function StructureAuthor() {
             >
               <CheckCircle2 className="h-4 w-4" />
               Saved
+            </span>
+          ) : null}
+          {clearError ? (
+            <span
+              role="alert"
+              className="text-xs text-[var(--danger)] inline-flex items-start gap-1"
+            >
+              <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+              {clearError}
             </span>
           ) : null}
         </div>
