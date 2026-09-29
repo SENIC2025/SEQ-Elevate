@@ -21,14 +21,8 @@ export interface AdminCounts {
   courses: number;
 }
 
-export function AdminDashboard({
-  counts,
-  canManage = false,
-}: {
-  counts?: AdminCounts;
-  /** Only true admins get the management entry points. */
-  canManage?: boolean;
-}) {
+/** The admin overview. The page renders it for admins only. */
+export function AdminDashboard({ counts }: { counts?: AdminCounts }) {
   const t = useTranslations("admin");
 
   return (
@@ -61,23 +55,21 @@ export function AdminDashboard({
         />
       </div>
 
-      {/* Management entry points — admins only */}
-      {canManage ? (
-        <div className="mt-6 grid sm:grid-cols-2 gap-4">
-          <ManageLink
-            href="/admin/cohorts"
-            icon={<Building2 className="h-5 w-5" />}
-            title="Organisations & cohorts"
-            desc="Add partner organisations and the cohorts learners belong to."
-          />
-          <ManageLink
-            href="/admin/people"
-            icon={<Users className="h-5 w-5" />}
-            title="People & roles"
-            desc="Invite people, set what they can do, assign them to a cohort."
-          />
-        </div>
-      ) : null}
+      {/* Management entry points */}
+      <div className="mt-6 grid sm:grid-cols-2 gap-4">
+        <ManageLink
+          href="/admin/cohorts"
+          icon={<Building2 className="h-5 w-5" />}
+          title="Organisations & cohorts"
+          desc="Add partner organisations and the cohorts learners belong to."
+        />
+        <ManageLink
+          href="/admin/people"
+          icon={<Users className="h-5 w-5" />}
+          title="People & roles"
+          desc="Invite people, set what they can do, assign them to a cohort."
+        />
+      </div>
 
       {/* GDPR self-service — the account page handles both requests */}
       <Card className="mt-8">
@@ -111,9 +103,9 @@ export function AdminDashboard({
       </Card>
 
       <p className="mt-8 rounded-xl border border-[var(--border)] bg-[var(--surface-muted)] p-4 text-sm text-[var(--muted-foreground)]">
-        {canManage
-          ? "Counts above are live. Organisations, cohorts, people and roles are editable from the two panels above — every change is written to the database and recorded in the audit log."
-          : "Counts above are live. Managing organisations, cohorts and people requires an admin account."}
+        Counts above are live. Organisations, cohorts, people and roles are
+        editable from the two panels above — every change is written to the
+        database and recorded in the audit log.
       </p>
     </div>
   );
