@@ -68,11 +68,16 @@ export function mediaUrlMessage(
 export function unstorableVideoMessage(
   video: Pick<VideoContent, "provider" | "src" | "captions">
 ): string | null {
-  const isYouTubeId =
+  if (typeof video !== "object" || video === null) {
+    return mediaUrlMessage("video", "not-web");
+  }
+  // Only the bare id is exempt: parseYouTubeId also reads the id out of a
+  // non-web link such as javascript://youtube.com/watch?v=…
+  const isBareYouTubeId =
     video.provider === "youtube" &&
     typeof video.src === "string" &&
-    parseYouTubeId(video.src) !== null;
-  const source = isYouTubeId ? null : mediaUrlProblem(video.src);
+    parseYouTubeId(video.src) === video.src.trim();
+  const source = isBareYouTubeId ? null : mediaUrlProblem(video.src);
   if (source) return mediaUrlMessage("video", source);
   const tracks: unknown = video.captions ?? [];
   if (!Array.isArray(tracks)) return mediaUrlMessage("caption", "not-web");

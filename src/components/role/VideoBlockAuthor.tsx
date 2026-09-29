@@ -549,6 +549,15 @@ export function VideoBlockAuthor({
             <p className="mt-1.5 text-xs text-[var(--success)] flex items-center gap-1.5">
               <CheckCircle2 className="h-3.5 w-3.5" />
               Captions attached.
+              {/* An uploaded file's link isn't in the URL box to clear. */}
+              <button
+                type="button"
+                onClick={() => onCaptionUrl("")}
+                aria-label="Remove captions"
+                className="font-medium text-[var(--accent)] underline underline-offset-2"
+              >
+                Remove
+              </button>
             </p>
           ) : captionSrc ? (
             <p className="mt-1.5 text-xs text-[var(--muted-foreground)] flex items-start gap-1.5">

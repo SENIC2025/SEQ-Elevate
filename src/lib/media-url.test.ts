@@ -123,6 +123,25 @@ describe("unstorableVideoMessage", () => {
     ).toMatch(/^This video link can't be used/);
   });
 
+  it("refuses a non-web link even when it reads as a YouTube link", () => {
+    // parseYouTubeId finds an id in these, but only https/http may be saved.
+    for (const src of [
+      "javascript://youtube.com/watch?v=dQw4w9WgXcQ&x=%0Aalert(1)",
+      "javascript://youtu.be/dQw4w9WgXcQ/%0Aalert(1)",
+      "ftp://www.youtube.com/embed/dQw4w9WgXcQ",
+    ]) {
+      expect(
+        unstorableVideoMessage(video({ provider: "youtube", src }))
+      ).toMatch(/^This video link can't be used/);
+    }
+  });
+
+  it("refuses a missing video from a crafted request", () => {
+    expect(
+      unstorableVideoMessage(null as unknown as VideoContent)
+    ).toMatch(/^This video link can't be used/);
+  });
+
   it("refuses malformed caption lists from a crafted request", () => {
     const bad = (captions: unknown) =>
       unstorableVideoMessage(
