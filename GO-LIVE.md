@@ -95,6 +95,17 @@ Sign-in is passwordless — if email doesn't deliver, no one can log in.
 - Point `EMAIL_FROM` at an address on that verified domain.
 - Send a test sign-in to a real inbox (incl. Outlook/Gmail) and confirm it lands **in the inbox, not spam**.
 
+### When an email doesn't arrive — how to find out why
+
+All platform email (sign-in links and invitations) goes through **Resend**, from `EMAIL_FROM` (currently `SEQ Elevate <no-reply@senic.world>`), using `RESEND_API_KEY`.
+
+1. **Ask the platform.** In *Manage people*, click **Resend invitation** on the person. The screen now reports the truth: either *"sent"* (Resend accepted it) or *"couldn't be sent — the email service said: …"* with Resend's own reason. (Before 29 Sep 2026 a refused invitation was wrongly reported as sent — D27 addendum.)
+2. **If it says sent → Resend has it; check delivery.** Resend dashboard → **Emails** → search the address. *Delivered* = it reached their mail server → check **spam/junk/quarantine** (organisation mailboxes often quarantine first contact). *Bounced* = the address is wrong or doesn't exist. *Delayed* = their server is deferring; Resend retries.
+3. **Server log.** Vercel → the project → **Logs**, search `[email]`: every send is recorded as *"Resend accepted the … email to …@domain (id …)"* (the id matches Resend's dashboard) or *"Resend refused … — reason"*. Only the recipient's domain is logged, never the full address.
+4. **Safe test anytime:** sign in (or invite) with `delivered@resend.dev` — Resend's test inbox; nobody receives anything and it shows up in the dashboard.
+
+**Deliverability tip:** emails come from `senic.world` but link to `seq-elevate.eu`; some spam filters dislike that mismatch. Verifying `seq-elevate.eu` in Resend and setting `EMAIL_FROM=SEQ Elevate <no-reply@seq-elevate.eu>` removes it.
+
 ---
 
 ## 5. File storage region — **EU / Frankfurt (already done)**  **[Dashboard]**  *(Decision D13)*

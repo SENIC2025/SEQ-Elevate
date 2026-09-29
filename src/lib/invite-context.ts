@@ -27,6 +27,12 @@ export interface InviteIntent {
   email: string;
   /** Localised email copy, rendered once Auth.js has built the link. */
   copy: InviteCopy;
+  /**
+   * Set by the invitation provider when the email service refuses the email.
+   * Auth.js swallows that error (reporting only a generic "Configuration"
+   * failure), so this is how the admin gets told the actual reason.
+   */
+  failure?: string;
 }
 
 const intents = new AsyncLocalStorage<InviteIntent>();

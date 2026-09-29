@@ -22,14 +22,21 @@ import {
   INVITE_PROVIDER,
   INVITE_VALID_DAYS,
   withInviteIntent,
+  type InviteIntent,
 } from "@/lib/invite-context";
 import type { InviteCopy } from "@/lib/invite-email";
+import { signInErrorType, wasVerificationSent } from "@/lib/signin-result";
 import { featuredWorkspaces, primaryRole } from "@/lib/workspaces";
 import type { Locale } from "@/lib/cms/types";
 
 export type InviteResult =
   | { ok: true }
-  | { ok: false; error: "rate-limited" | "send-failed" };
+  | {
+      ok: false;
+      error: "rate-limited" | "send-failed";
+      /** The email service's own explanation, when it gave one. */
+      reason?: string;
+    };
 
 /** What happened to someone's invitation, as reported to the admin UI. */
 export type InviteOutcome =
@@ -67,9 +74,10 @@ export async function sendInvitation(opts: {
     return { ok: false, error: "rate-limited" };
   }
 
+  let intent: InviteIntent | null = null;
   try {
-    const copy = await buildCopy(opts);
-    await withInviteIntent({ email, copy }, () =>
+    intent = { email, copy: await buildCopy(opts) };
+    const result = await withInviteIntent(intent, () =>
       signIn(INVITE_PROVIDER, {
         email,
         redirect: false,
@@ -77,10 +85,18 @@ export async function sendInvitation(opts: {
         redirectTo: `/${opts.locale}`,
       })
     );
+    // signIn() does not throw when the email fails to send — it returns
+    // Auth.js's error-page URL. Only "check your email" means it went out.
+    if (!wasVerificationSent(result)) {
+      console.error(
+        `[invite] not sent (${signInErrorType(result) ?? "unexpected result"}): ${intent.failure ?? "no reason given"}`
+      );
+      return { ok: false, error: "send-failed", reason: intent.failure };
+    }
     return { ok: true };
   } catch (e) {
     console.error("[invite] sending failed", e);
-    return { ok: false, error: "send-failed" };
+    return { ok: false, error: "send-failed", reason: intent?.failure };
   }
 }
 

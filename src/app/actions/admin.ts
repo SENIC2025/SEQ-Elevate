@@ -150,9 +150,9 @@ async function inviteUser(
   admin: User,
   user: User,
   locale: Locale
-): Promise<InviteOutcome> {
+): Promise<{ outcome: InviteOutcome; reason?: string }> {
   // Someone who has signed in before doesn't need a join link.
-  if (user.emailVerified) return "already-joined";
+  if (user.emailVerified) return { outcome: "already-joined" };
   const roles = (
     await prisma.membership.findMany({
       where: { userId: user.id, projectId: PROJECT },
@@ -166,9 +166,10 @@ async function inviteUser(
     locale,
     inviter: admin,
   });
-  if (!res.ok) return res.error;
+  if (!res.ok) return { outcome: res.error, reason: res.reason };
+  // Audited only once the email service has actually accepted it.
   await audit(admin.id, "member.invited", "User", user.id);
-  return "sent";
+  return { outcome: "sent" };
 }
 
 /**
@@ -209,10 +210,10 @@ export async function addMember(
     update: {},
   });
   await audit(admin.id, "member.added", "User", user.id);
-  const invite: InviteOutcome = opts?.invite
+  const { outcome: invite, reason: inviteReason } = opts?.invite
     ? await inviteUser(admin, user, toLocale(opts.locale))
-    : "not-requested";
-  return { ok: true as const, id: user.id, invite };
+    : { outcome: "not-requested" as InviteOutcome, reason: undefined };
+  return { ok: true as const, id: user.id, invite, inviteReason };
 }
 
 /** Send (again) the invitation for someone who hasn't joined yet. */
@@ -224,10 +225,10 @@ export async function resendInvitation(userId: string, locale?: string) {
     where: { id: userId, memberships: { some: { projectId: PROJECT } } },
   });
   if (!user) return { ok: false as const, error: "not-found" };
-  const invite = await inviteUser(admin, user, toLocale(locale));
-  return invite === "sent"
-    ? { ok: true as const, invite }
-    : { ok: false as const, error: invite };
+  const { outcome, reason } = await inviteUser(admin, user, toLocale(locale));
+  return outcome === "sent"
+    ? { ok: true as const, invite: outcome }
+    : { ok: false as const, error: outcome, reason };
 }
 
 /** Replace a member's roles in the project. */

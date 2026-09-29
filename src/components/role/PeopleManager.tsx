@@ -45,7 +45,12 @@ const inputCls =
 type Notice = { kind: "ok" | "warn"; text: string };
 
 /** Plain-language feedback for what happened to an invitation. */
-function inviteNotice(email: string, outcome: InviteOutcome, adding: boolean): Notice {
+function inviteNotice(
+  email: string,
+  outcome: InviteOutcome,
+  adding: boolean,
+  reason?: string
+): Notice {
   const added = adding ? `Added ${email}` : null;
   switch (outcome) {
     case "sent":
@@ -73,7 +78,10 @@ function inviteNotice(email: string, outcome: InviteOutcome, adding: boolean): N
     default:
       return {
         kind: "warn",
-        text: `${added ? `${added}, but the` : "The"} invitation email couldn't be sent. You can try again from the list below.`,
+        text:
+          `${added ? `${added}, but the` : "The"} invitation email couldn't be sent.` +
+          (reason ? ` The email service said: "${reason.replace(/\.$/, "")}".` : "") +
+          " You can try again from the list below.",
       };
   }
 }
@@ -128,7 +136,7 @@ export function PeopleManager({
     if (res.ok) {
       setEmail("");
       setName("");
-      setNotice(inviteNotice(address, res.invite, true));
+      setNotice(inviteNotice(address, res.invite, true, res.inviteReason));
     }
     report(res);
   }
@@ -143,7 +151,14 @@ export function PeopleManager({
     } else if (res.error === "forbidden") {
       report(res);
     } else {
-      setNotice(inviteNotice(m.email, res.error as InviteOutcome, false));
+      setNotice(
+        inviteNotice(
+          m.email,
+          res.error as InviteOutcome,
+          false,
+          "reason" in res ? res.reason : undefined
+        )
+      );
       setPending(null);
       router.refresh();
     }

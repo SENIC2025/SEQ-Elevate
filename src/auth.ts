@@ -46,19 +46,35 @@ const hasRealResendKey =
   process.env.RESEND_API_KEY.startsWith("re_") &&
   process.env.RESEND_API_KEY !== "re_placeholder";
 
-/** Send one transactional email through Resend (sign-in links, invitations). */
-async function sendEmail(mail: {
-  to: string;
-  subject: string;
-  html: string;
-  text: string;
-}) {
+// Without a real key, local dev / CI print links to the console instead of
+// emailing them. The live site must never do that: it would silently send
+// nothing AND put working sign-in links into the server logs.
+const isLiveSite = process.env.VERCEL_ENV === "production";
+const EMAIL_NOT_CONFIGURED =
+  "Email sending is not set up on this site (RESEND_API_KEY is missing).";
+
+/**
+ * Send one transactional email through Resend (sign-in links, invitations).
+ * Logs Resend's verdict — the email id on success, Resend's own reason on
+ * failure — with only the recipient's domain, never the full address.
+ */
+async function sendEmail(
+  kind: "sign-in" | "invitation",
+  mail: { to: string; subject: string; html: string; text: string }
+) {
   const { Resend: ResendClient } = await import("resend");
   const client = new ResendClient(process.env.RESEND_API_KEY!);
-  const { error } = await client.emails.send({ from: EMAIL_FROM, ...mail });
+  const { data, error } = await client.emails.send({ from: EMAIL_FROM, ...mail });
+  const toDomain = mail.to.split("@")[1] ?? "?";
   if (error) {
-    throw new Error(`Resend error: ${JSON.stringify(error)}`);
+    console.error(
+      `[email] Resend refused the ${kind} email to …@${toDomain}: ${error.name} (${error.statusCode ?? "no status"}) — ${error.message}`
+    );
+    throw new Error(error.message || "The email service refused the email.");
   }
+  console.info(
+    `[email] Resend accepted the ${kind} email to …@${toDomain} (id ${data?.id ?? "unknown"})`
+  );
 }
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
@@ -90,15 +106,16 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         }
 
         // Dev / no-key fallback: log the magic link so auth is testable
-        // without email delivery configured.
+        // without email delivery configured. Never on the live site.
         if (!hasRealResendKey) {
+          if (isLiveSite) throw new Error(EMAIL_NOT_CONFIGURED);
           console.log("\n🔗 Magic link for", identifier);
           console.log("   ", url, "\n");
           return;
         }
 
         // Production: send via Resend.
-        await sendEmail({
+        await sendEmail("sign-in", {
           to: identifier,
           subject: "Your SEQ Elevate sign-in link",
           html: magicLinkEmail(url),
@@ -123,14 +140,21 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         if (!intent || intent.email !== identifier) {
           throw new Error("No invitation in progress for this address.");
         }
-        const mail = renderInviteEmail({ url, copy: intent.copy });
-
-        if (!hasRealResendKey) {
-          console.log("\n✉️  Invitation link for", identifier);
-          console.log("   ", url, "\n");
-          return;
+        try {
+          const mail = renderInviteEmail({ url, copy: intent.copy });
+          if (!hasRealResendKey) {
+            if (isLiveSite) throw new Error(EMAIL_NOT_CONFIGURED);
+            console.log("\n✉️  Invitation link for", identifier);
+            console.log("   ", url, "\n");
+            return;
+          }
+          await sendEmail("invitation", { to: identifier, ...mail });
+        } catch (e) {
+          // Auth.js swallows this error and reports only a generic failure;
+          // record the real reason so the admin can be told what happened.
+          intent.failure = e instanceof Error ? e.message : String(e);
+          throw e;
         }
-        await sendEmail({ to: identifier, ...mail });
       },
     }),
   ],
