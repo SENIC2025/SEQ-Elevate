@@ -11,6 +11,8 @@
  * responsible for falling back to the default locale for missing strings.
  */
 
+import type { RichText } from "@/lib/rich-text/types";
+
 export type Locale = "en" | "de" | "el";
 
 export type StageKey =
@@ -104,7 +106,14 @@ export interface NarrativeBlock {
   /** "paragraph" | "list" | "callout" | "compare" — rendered generically */
   kind: "paragraph" | "list" | "callout" | "compare";
   text?: string;
+  /**
+   * paragraph/callout: structured rich text (D36). Absent = legacy plain
+   * `text`. When present, `text` is server-derived from it.
+   */
+  rich?: RichText;
   items?: string[];
+  /** list only. Absent = "number" (legacy lists always rendered <ol>). */
+  listStyle?: "bullet" | "number";
   /** for "compare": two labelled sides */
   compare?: { label: string; text: string; tone: "negative" | "positive" }[];
 }
