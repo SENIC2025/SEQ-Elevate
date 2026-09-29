@@ -3,13 +3,20 @@
 import * as React from "react";
 import { Badge } from "@/components/ui/badge";
 import type { NarrativeBlock } from "@/lib/cms/types";
+import { isEmptyDoc, sanitizeRichText } from "@/lib/rich-text/sanitize";
+import { RichTextView } from "@/components/rich-text/RichTextView";
+import {
+  LazyRichTextEditor,
+  preloadRichTextEditor,
+} from "@/components/rich-text/LazyRichTextEditor";
 import type { Keyed } from "./block-ops";
-import { BLOCK_KIND_LABEL } from "./block-templates";
+import { blockLabel } from "./block-templates";
 import {
   ChevronUp,
   ChevronDown,
   Copy,
   ListPlus,
+  Pencil,
   Trash2,
   Plus,
   X,
@@ -37,8 +44,9 @@ const iconBtn =
 
 /**
  * One content block in the lesson editor: a header with its controls, then
- * the fields for its kind. Blocks are edited as plain text; the learner view
- * (NarrativeStage) turns "•" and "1." lines into real lists.
+ * the fields for its kind. Paragraphs and key messages are formatted text
+ * (RichBlock), shown exactly as learners see them; lists, and the two sides
+ * of a comparison, are plain text.
  */
 export function BlockEditor({
   block,
@@ -67,8 +75,11 @@ export function BlockEditor({
   onRemove: () => void;
 }) {
   const rootRef = React.useRef<HTMLDivElement>(null);
-  const kindLabel = BLOCK_KIND_LABEL[block.kind];
+  const kindLabel = blockLabel(block);
   const groupLabel = `Block ${index + 1} of ${total}: ${kindLabel}`;
+  // A block just added (or copied, or put back) asks for focus as it mounts:
+  // an empty text block then opens its editor with the cursor in it.
+  const [focusOnOpen] = React.useState(() => focus?.target === "field");
 
   React.useEffect(() => {
     if (!focus) return;
@@ -166,28 +177,12 @@ export function BlockEditor({
         </div>
       </div>
 
-      {block.kind === "paragraph" ? (
-        <textarea
-          data-block-field
-          value={block.text ?? ""}
-          onChange={(e) => onChange({ text: e.target.value })}
-          rows={4}
-          aria-label="Paragraph text"
-          placeholder="Write the paragraph. Start a line with • for a bullet point."
-          className={`${inputCls} resize-y leading-relaxed`}
-        />
-      ) : null}
-
-      {block.kind === "callout" ? (
-        <textarea
-          data-block-field
-          value={block.text ?? ""}
-          onChange={(e) => onChange({ text: e.target.value })}
-          rows={2}
-          aria-label="Key message text"
-          placeholder="The one point learners should remember"
-          // Tinted like the highlighted box learners see.
-          className={`${inputCls} resize-y border-[var(--accent)]/30 bg-[var(--primary)]/10 font-medium`}
+      {block.kind === "paragraph" || block.kind === "callout" ? (
+        <RichBlock
+          block={block}
+          variant={block.kind}
+          focusOnOpen={focusOnOpen}
+          onChange={onChange}
         />
       ) : null}
 
@@ -202,7 +197,104 @@ export function BlockEditor({
   );
 }
 
-/** A numbered list: one field per item; Enter adds the next item. */
+/**
+ * The classes of the learner's element for each kind (NarrativeStage's
+ * Block), so a block's preview is exactly what learners see.
+ */
+const LEARNER_CLASS = {
+  paragraph: "text-base leading-relaxed",
+  callout:
+    "inline-block rounded-lg bg-[var(--primary)]/10 border border-[var(--accent)]/20 px-4 py-3 font-medium text-[var(--accent)]",
+} as const;
+
+/** No text to show: a new block, or one saved empty. */
+function isBlank(block: NarrativeBlock): boolean {
+  const rich = block.rich == null ? null : sanitizeRichText(block.rich).value;
+  return rich ? isEmptyDoc(rich.doc) : !(block.text ?? "").trim();
+}
+
+/**
+ * A paragraph or key message. It shows as learners see it; selecting it
+ * (click, Enter or Space) opens the formatting editor in its place, which
+ * then stays open for this block. So only the blocks an author works on
+ * load an editor, and a block saved as plain text stays exactly as it is
+ * until it's changed. An empty block opens straight away.
+ */
+function RichBlock({
+  block,
+  variant,
+  focusOnOpen,
+  onChange,
+}: {
+  block: EditableBlock;
+  variant: "paragraph" | "callout";
+  /** Put the cursor in the editor if it opens as the block mounts. */
+  focusOnOpen: boolean;
+  onChange: (patch: Partial<NarrativeBlock>) => void;
+}) {
+  const ids = React.useId();
+  const [open, setOpen] = React.useState(() => isBlank(block));
+  const [focusEditor, setFocusEditor] = React.useState(focusOnOpen);
+
+  if (open) {
+    return (
+      <LazyRichTextEditor
+        rich={block.rich}
+        text={block.text}
+        variant={variant}
+        autoFocus={focusEditor}
+        onChange={(rich, text) => onChange({ rich, text })}
+      />
+    );
+  }
+
+  const openEditor = () => {
+    setFocusEditor(true);
+    setOpen(true);
+  };
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      data-block-field
+      aria-label={variant === "callout" ? "Edit key message" : "Edit paragraph"}
+      aria-describedby={`${ids}-text`}
+      onClick={openEditor}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          openEditor();
+        }
+      }}
+      // Fetch the editor while the author is still pointing at the block.
+      onPointerEnter={preloadRichTextEditor}
+      onFocus={preloadRichTextEditor}
+      className="group relative cursor-text rounded-md border border-dashed border-[var(--border)] px-3 py-2 pr-16 hover:border-[var(--accent)]/50"
+    >
+      <div id={`${ids}-text`}>
+        <RichTextView
+          rich={block.rich}
+          text={block.text}
+          compact={variant === "callout"}
+          className={LEARNER_CLASS[variant]}
+        />
+      </div>
+      <span
+        aria-hidden
+        className="pointer-events-none absolute right-1.5 top-1.5 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-[var(--muted-foreground)] group-hover:text-[var(--accent)]"
+      >
+        <Pencil className="h-3 w-3" />
+        Edit
+      </span>
+    </div>
+  );
+}
+
+/**
+ * A list block: one field per point; Enter adds the next point. Learners
+ * see bullets or numbers ("Bullets | Numbers"); a list saved before the
+ * choice existed shows numbers.
+ */
 function ListItems({
   block,
   onChange,
@@ -211,6 +303,7 @@ function ListItems({
   onChange: (patch: Partial<NarrativeBlock>) => void;
 }) {
   const items = block.items ?? [];
+  const bullets = block.listStyle === "bullet";
   const listRef = React.useRef<HTMLOListElement>(null);
   // The item to focus after adding or removing one ({n} makes repeats count).
   const [focusItem, setFocusItem] = React.useState<{
@@ -237,6 +330,37 @@ function ListItems({
 
   return (
     <div>
+      <div
+        role="group"
+        aria-label="List style"
+        className="mb-2 inline-flex rounded-md border border-[var(--border)] p-0.5 text-xs"
+      >
+        {(
+          [
+            ["bullet", "Bullets"],
+            ["number", "Numbers"],
+          ] as const
+        ).map(([style, label]) => {
+          const on = style === "bullet" ? bullets : !bullets;
+          return (
+            <button
+              key={style}
+              type="button"
+              aria-pressed={on}
+              onClick={() => {
+                if (!on) onChange({ listStyle: style });
+              }}
+              className={
+                on
+                  ? "rounded bg-[var(--accent)] px-2.5 py-1 font-medium text-[var(--accent-foreground)]"
+                  : "rounded px-2.5 py-1 text-[var(--muted-foreground)] hover:bg-[var(--surface-muted)] hover:text-[var(--foreground)]"
+              }
+            >
+              {label}
+            </button>
+          );
+        })}
+      </div>
       <ol ref={listRef} className="space-y-1.5">
         {items.map((item, ii) => (
           <li key={ii} className="flex items-center gap-2">
@@ -244,7 +368,7 @@ function ListItems({
               aria-hidden
               className="w-5 text-right text-xs tabular-nums text-[var(--muted-foreground)]"
             >
-              {ii + 1}.
+              {bullets ? "•" : `${ii + 1}.`}
             </span>
             <input
               data-item={ii}
