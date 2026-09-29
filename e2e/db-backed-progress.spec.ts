@@ -1522,10 +1522,15 @@ describe("creating a course in the CMS (no code)", () => {
     await page.getByLabel(/skill area/i).first().fill("Communication");
     await page.getByRole("button", { name: /create draft/i }).first().click();
 
-    // It appears in the catalogue as a draft.
-    const row = page.locator("li", { hasText: TITLE }).first();
-    await expect(row).toBeVisible({ timeout: 15000 });
-    await expect(row.getByText(/^draft$/i).first()).toBeVisible();
+    // It opens on its own course page, as a draft.
+    await expect(page).toHaveURL(new RegExp(`/en/content/courses/${SLUG}`), {
+      timeout: 15000,
+    });
+    await expect(
+      page
+        .getByRole("region", { name: /^publishing$/i })
+        .getByText(/^draft$/i)
+    ).toBeVisible({ timeout: 15000 });
 
     const course = await prisma.course.findFirst({ where: { slug: SLUG } });
     expect(course, "course row created").toBeTruthy();
