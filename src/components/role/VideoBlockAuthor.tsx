@@ -10,11 +10,13 @@ import { saveLessonVideo } from "@/app/actions/lesson";
 import { STAGES } from "@/data/course";
 import type { VideoContent, VideoCue } from "@/lib/cms/types";
 import {
+  CAPTION_UPLOAD,
   VIDEO_UPLOAD,
   acceptAttribute,
   checkFile,
   formatSize,
 } from "@/lib/uploads";
+import { isStorableMediaUrl, mediaUrlMessage } from "@/lib/media-url";
 import { saveFailureMessage } from "@/lib/author-feedback";
 import {
   fetchStorageStatus,
@@ -44,7 +46,8 @@ import {
  * An uploaded file goes straight to Vercel Blob (see useBlobUpload). While it
  * uploads — or if it can't — the preview plays from an in-browser object URL,
  * labelled "Not saved yet", and it can't be saved to a lesson until the file
- * is stored: a blob: URL would be a broken video for every learner.
+ * is stored: a blob: URL would be a broken video for every learner. A picked
+ * .vtt caption file goes the same way (the server refuses blob: URLs too).
  */
 
 let cueSeq = 0;
@@ -95,6 +98,12 @@ export function VideoBlockAuthor({
   const [caption, setCaption] = React.useState("");
   const [captionSrc, setCaptionSrc] = React.useState("");
   const [captionLabel, setCaptionLabel] = React.useState("English");
+  // captionFromUpload: captionSrc is a picked file (local, then stored), not a
+  // pasted link. captionPicked: the upload's outcome is still worth showing.
+  const [captionFromUpload, setCaptionFromUpload] = React.useState(false);
+  const [captionPicked, setCaptionPicked] = React.useState(false);
+  const captionUpload = useBlobUpload(CAPTION_UPLOAD);
+  const captionNoticeId = React.useId();
   const [cues, setCues] = React.useState<EditableCue[]>([]);
   const objectUrl = React.useRef<string | null>(null);
   const captionObjUrl = React.useRef<string | null>(null);
@@ -106,14 +115,57 @@ export function VideoBlockAuthor({
     };
   }, []);
 
+  const captionPickerDisabled =
+    captionUpload.problem !== null ||
+    captionUpload.state.phase === "uploading";
+
+  // A .vtt is stored like the video: the preview uses the local copy while it
+  // uploads, but only the stored URL can be saved to a lesson.
   function onCaptionFile(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0];
+    e.target.value = ""; // so picking the same file again still fires
     if (!f) return;
-    if (captionObjUrl.current) URL.revokeObjectURL(captionObjUrl.current);
-    const url = URL.createObjectURL(f);
-    captionObjUrl.current = url;
-    setCaptionSrc(url);
+    setCaptionPicked(true);
+    if (checkFile(f, CAPTION_UPLOAD).ok) {
+      if (captionObjUrl.current) URL.revokeObjectURL(captionObjUrl.current);
+      const url = URL.createObjectURL(f);
+      captionObjUrl.current = url;
+      setCaptionSrc(url);
+      setCaptionFromUpload(true);
+      setSaveState("idle");
+    }
+    void sendCaption(f);
   }
+
+  async function sendCaption(f: File) {
+    const local = captionObjUrl.current;
+    const stored = await captionUpload.start(f);
+    if (stored) {
+      setCaptionSrc((current) => (current === local ? stored.url : current));
+    }
+  }
+
+  function onCaptionUrl(value: string) {
+    setCaptionSrc(value.trim());
+    setCaptionFromUpload(false);
+    setCaptionPicked(false);
+  }
+
+  const captionMessage = !captionPicked
+    ? null
+    : captionUpload.state.phase === "stored"
+      ? {
+          tone: "success" as const,
+          text: "Uploaded — the caption file is stored.",
+        }
+      : captionUpload.state.phase === "failed" ||
+          captionUpload.state.phase === "rejected"
+        ? { tone: "error" as const, text: captionUpload.state.message }
+        : null;
+  const failedCaption =
+    captionPicked && captionUpload.state.phase === "failed"
+      ? captionUpload.state
+      : null;
 
   // Uploading needs a signed-in editor and connected storage; until the
   // status says otherwise the picker stays usable (the route still checks).
@@ -209,11 +261,23 @@ export function VideoBlockAuthor({
       }
     : null;
 
-  // A preview playing from this browser (blob:) isn't a video learners can load.
+  // A preview playing from this browser (blob:) isn't a video learners can
+  // load, and neither are captions that haven't been stored yet.
   const localOnly = src.startsWith("blob:");
+  const captionLocalOnly = captionSrc.startsWith("blob:");
+  const saveBlocked = localOnly || captionLocalOnly;
+  const saveHint = !draft
+    ? null
+    : localOnly && captionLocalOnly
+      ? "Finish uploading the video and its captions (or paste links) before saving them to a lesson."
+      : localOnly
+        ? "Finish uploading the video (or paste a link) before saving it to a lesson."
+        : captionLocalOnly
+          ? "Finish uploading the captions (or paste a link to a .vtt file) before saving the video to a lesson."
+          : null;
 
   async function handleSaveToLesson() {
-    if (!draft || !targetCourse || localOnly) return;
+    if (!draft || !targetCourse || saveBlocked) return;
     setSaveState("saving");
     try {
       const res = await saveLessonVideo(targetCourse, targetStage, draft);
@@ -221,13 +285,18 @@ export function VideoBlockAuthor({
         setSaveState("saved");
         return;
       }
-      // "forbidden" covers both signed out and not an editor — ask which.
-      setSaveError(
-        saveFailureMessage({
-          kind: "refused",
-          access: await fetchStorageStatus(),
-        })
-      );
+      if (res.error === "unstorable-media") {
+        // Names what learners couldn't load, e.g. a file still in this browser.
+        setSaveError(res.message);
+      } else {
+        // "forbidden" covers both signed out and not an editor — ask which.
+        setSaveError(
+          saveFailureMessage({
+            kind: "refused",
+            access: await fetchStorageStatus(),
+          })
+        );
+      }
     } catch (error) {
       setSaveError(saveFailureMessage({ kind: "thrown", error }));
     }
@@ -401,22 +470,33 @@ export function VideoBlockAuthor({
             Captions (WebVTT) — required for accessibility
           </label>
           <div className="flex flex-wrap items-center gap-2">
-            <label className="inline-flex items-center gap-1.5 rounded-md border border-[var(--border)] px-3 py-2 text-sm cursor-pointer hover:bg-[var(--surface-muted)]">
+            <label
+              className={`inline-flex items-center gap-1.5 rounded-md border border-[var(--border)] px-3 py-2 text-sm focus-within:ring-2 focus-within:ring-[var(--ring)] ${
+                captionPickerDisabled
+                  ? "cursor-not-allowed opacity-60"
+                  : "cursor-pointer hover:bg-[var(--surface-muted)]"
+              }`}
+            >
               <Upload className="h-4 w-4" />
               Upload .vtt
               <input
                 type="file"
-                accept=".vtt,text/vtt"
+                accept={acceptAttribute(CAPTION_UPLOAD)}
                 onChange={onCaptionFile}
+                disabled={captionPickerDisabled}
+                aria-describedby={
+                  captionUpload.problem ? captionNoticeId : undefined
+                }
                 className="sr-only"
               />
             </label>
             <span className="text-xs text-[var(--muted-foreground)]">or</span>
             <input
               type="url"
-              value={captionSrc.startsWith("blob:") ? "" : captionSrc}
-              onChange={(e) => setCaptionSrc(e.target.value.trim())}
+              value={captionFromUpload ? "" : captionSrc}
+              onChange={(e) => onCaptionUrl(e.target.value)}
               placeholder="https://….vtt"
+              aria-label="Caption file URL"
               className={`${inputCls} flex-1 min-w-[180px]`}
             />
             <input
@@ -427,10 +507,53 @@ export function VideoBlockAuthor({
               className="w-28 rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm"
             />
           </div>
-          {captionSrc ? (
+          {captionUpload.problem ? (
+            <StorageNotice
+              storage={captionUpload.storage}
+              id={captionNoticeId}
+              whenMissing={
+                <p>Meanwhile, you can paste a link to a .vtt file instead.</p>
+              }
+            />
+          ) : null}
+          <UploadStatus
+            state={captionUpload.state}
+            message={captionMessage}
+            onRetry={
+              failedCaption && !captionUpload.problem
+                ? () => void sendCaption(failedCaption.file)
+                : undefined
+            }
+          />
+          {captionLocalOnly ? (
+            <p className="mt-1.5 text-xs text-[var(--muted-foreground)] flex items-start gap-1.5">
+              <AlertTriangle className="h-3.5 w-3.5 text-[var(--warning)] flex-shrink-0 mt-0.5" />
+              {captionUpload.state.phase === "uploading" ? (
+                <span>Captions not saved yet — still uploading.</span>
+              ) : (
+                <span>
+                  Captions not saved yet — they&apos;re only on your computer.
+                  Upload the file again, paste a link to a .vtt file, or{" "}
+                  <button
+                    type="button"
+                    onClick={() => onCaptionUrl("")}
+                    className="font-medium text-[var(--accent)] underline underline-offset-2"
+                  >
+                    remove them
+                  </button>
+                  .
+                </span>
+              )}
+            </p>
+          ) : isStorableMediaUrl(captionSrc) ? (
             <p className="mt-1.5 text-xs text-[var(--success)] flex items-center gap-1.5">
               <CheckCircle2 className="h-3.5 w-3.5" />
               Captions attached.
+            </p>
+          ) : captionSrc ? (
+            <p className="mt-1.5 text-xs text-[var(--muted-foreground)] flex items-start gap-1.5">
+              <AlertTriangle className="h-3.5 w-3.5 text-[var(--warning)] flex-shrink-0 mt-0.5" />
+              {mediaUrlMessage("caption", "not-web")}
             </p>
           ) : (
             <p className="mt-1.5 text-xs text-[var(--muted-foreground)] flex items-start gap-1.5">
@@ -552,10 +675,13 @@ export function VideoBlockAuthor({
               <Button
                 size="sm"
                 disabled={
-                  !draft || !targetCourse || localOnly || saveState === "saving"
+                  !draft ||
+                  !targetCourse ||
+                  saveBlocked ||
+                  saveState === "saving"
                 }
                 onClick={handleSaveToLesson}
-                aria-describedby={draft && localOnly ? saveHintId : undefined}
+                aria-describedby={saveHint ? saveHintId : undefined}
               >
                 {saveState === "saving" ? (
                   <>
@@ -583,13 +709,12 @@ export function VideoBlockAuthor({
                 ) : null}
               </span>
             </div>
-            {draft && localOnly ? (
+            {saveHint ? (
               <p
                 id={saveHintId}
                 className="mt-2 text-xs text-[var(--muted-foreground)]"
               >
-                Finish uploading the video (or paste a link) before saving it
-                to a lesson.
+                {saveHint}
               </p>
             ) : null}
           </div>

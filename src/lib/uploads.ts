@@ -42,6 +42,17 @@ export const VIDEO_UPLOAD: UploadRules = {
   tooLargeTip: "Try exporting at 720p or 1080p.",
 };
 
+/** WebVTT captions for a lesson video (browsers often leave `type` empty). */
+export const CAPTION_UPLOAD: UploadRules = {
+  handleUploadUrl: "/api/caption/upload",
+  maxBytes: 2 * MB,
+  contentTypes: ["text/vtt"],
+  extensions: { ".vtt": "text/vtt" },
+  formats: "WebVTT (.vtt)",
+  tooLargeTip:
+    "Caption files are usually far smaller, so check it's a WebVTT file.",
+};
+
 export const DOCUMENT_UPLOAD: UploadRules = {
   handleUploadUrl: "/api/document/upload",
   maxBytes: 50 * MB,

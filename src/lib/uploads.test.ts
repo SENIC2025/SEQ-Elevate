@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   VIDEO_UPLOAD,
   DOCUMENT_UPLOAD,
+  CAPTION_UPLOAD,
   acceptAttribute,
   checkFile,
   formatSize,
@@ -15,10 +16,11 @@ describe("upload rules", () => {
   it("keep the limits the routes have always enforced", () => {
     expect(VIDEO_UPLOAD.maxBytes).toBe(500 * MB);
     expect(DOCUMENT_UPLOAD.maxBytes).toBe(50 * MB);
+    expect(CAPTION_UPLOAD.maxBytes).toBe(2 * MB);
   });
 
   it("only map extensions to types the route allows", () => {
-    for (const rules of [VIDEO_UPLOAD, DOCUMENT_UPLOAD]) {
+    for (const rules of [VIDEO_UPLOAD, DOCUMENT_UPLOAD, CAPTION_UPLOAD]) {
       for (const type of Object.values(rules.extensions)) {
         expect(rules.contentTypes).toContain(type);
       }
@@ -112,6 +114,42 @@ describe("checkFile", () => {
       message:
         "This file is 63.2 MB — the limit is 50 MB. Try compressing it, or split it into smaller files.",
     });
+  });
+});
+
+describe("checkFile for captions", () => {
+  const vtt = (name: string, size: number, type: string) =>
+    checkFile({ name, size, type }, CAPTION_UPLOAD);
+
+  it("sends text/vtt even when the browser gives no type", () => {
+    expect(vtt("lesson.en.VTT", 12 * 1024, "")).toEqual({
+      ok: true,
+      contentType: "text/vtt",
+    });
+    expect(vtt("lesson.vtt", 12 * 1024, "text/vtt").ok).toBe(true);
+  });
+
+  it("only takes WebVTT", () => {
+    expect(vtt("lesson.srt", 12 * 1024, "application/x-subrip")).toEqual({
+      ok: false,
+      message: "This file type isn't supported. Use WebVTT (.vtt).",
+    });
+    expect(vtt("notes.txt", 12 * 1024, "text/plain").ok).toBe(false);
+  });
+
+  it("refuses a caption file over 2 MB", () => {
+    expect(vtt("lesson.vtt", 3 * MB, "text/vtt")).toEqual({
+      ok: false,
+      message:
+        "This file is 3 MB — the limit is 2 MB. Caption files are usually far smaller, so check it's a WebVTT file.",
+    });
+  });
+
+  it("offers .vtt in the picker", () => {
+    expect(acceptAttribute(CAPTION_UPLOAD).split(",")).toEqual([
+      "text/vtt",
+      ".vtt",
+    ]);
   });
 });
 

@@ -13,6 +13,7 @@ import { getCurrentUser, getProjectMemberships } from "@/lib/auth-helpers";
 import { canEditContent } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
 import { getCourse } from "@/lib/cms";
+import { unstorableVideoMessage } from "@/lib/media-url";
 import type {
   VideoContent,
   LessonDocumentRef,
@@ -68,7 +69,17 @@ export async function saveLessonVideo(
   video: VideoContent
 ) {
   const editor = await requireEditor();
-  if (!editor) return { ok: false as const, error: "forbidden" };
+  if (!editor) return { ok: false as const, error: "forbidden" as const };
+  // Only web links load for learners — never an upload still in the author's
+  // browser (blob:), which would save a broken video or captions.
+  const unstorable = unstorableVideoMessage(video);
+  if (unstorable) {
+    return {
+      ok: false as const,
+      error: "unstorable-media" as const,
+      message: unstorable,
+    };
+  }
   await prisma.lesson.upsert({
     where: lessonKey(courseSlug, stageKey),
     create: {
