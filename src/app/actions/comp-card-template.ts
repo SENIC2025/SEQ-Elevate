@@ -9,7 +9,8 @@
  * genuinely new field is a schema change, not a content change.
  */
 
-import { getCurrentUser, hasRole } from "@/lib/auth-helpers";
+import { getCurrentUser, getProjectMemberships } from "@/lib/auth-helpers";
+import { canEditContent } from "@/lib/permissions";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getBaseCompCardTemplate } from "@/lib/cms";
@@ -27,10 +28,8 @@ const PROJECT = "seq-elevate";
 async function requireEditor() {
   const user = await getCurrentUser();
   if (!user) return null;
-  const ok =
-    (await hasRole(PROJECT, "ADMIN")) ||
-    (await hasRole(PROJECT, "CONTENT_EDITOR"));
-  return ok ? user : null;
+  const roles = (await getProjectMemberships(PROJECT)).map((m) => m.role);
+  return canEditContent(roles) ? user : null;
 }
 
 export interface CompCardEditorField {

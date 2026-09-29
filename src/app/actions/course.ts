@@ -12,7 +12,8 @@
  * change shows on the next load — no revalidation needed.
  */
 
-import { getCurrentUser, hasRole } from "@/lib/auth-helpers";
+import { getCurrentUser, getProjectMemberships } from "@/lib/auth-helpers";
+import { canEditContent } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
 import { listCourses } from "@/lib/cms";
 import { slugify } from "@/lib/slug";
@@ -31,10 +32,8 @@ const STATUSES: CourseStatus[] = ["draft", "published", "archived"];
 async function requireEditor() {
   const user = await getCurrentUser();
   if (!user) return null;
-  const ok =
-    (await hasRole(PROJECT, "ADMIN")) ||
-    (await hasRole(PROJECT, "CONTENT_EDITOR"));
-  return ok ? user : null;
+  const roles = (await getProjectMemberships(PROJECT)).map((m) => m.role);
+  return canEditContent(roles) ? user : null;
 }
 
 async function audit(
