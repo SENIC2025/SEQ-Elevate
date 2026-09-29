@@ -19,8 +19,6 @@ const SRC = path.join(process.cwd(), "src");
 const ALLOWED: Record<string, string> = {
   "app/[locale]/dev/": "developer pages; the layout 404s them on the live site",
   "components/dev/": "component gallery used only by the developer pages",
-  "components/auth/SignInForm.tsx":
-    "its test sign-in link only renders when test sign-in is on; reword it and drop this entry",
 };
 
 function isAllowed(rel: string) {

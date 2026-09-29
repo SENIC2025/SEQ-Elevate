@@ -1,3 +1,4 @@
+import { notFound } from "next/navigation";
 import { setRequestLocale } from "next-intl/server";
 import { DemoAccess } from "@/components/DemoAccess";
 import { DEMO_PROFILES } from "@/lib/demo-profiles";
@@ -12,12 +13,13 @@ export default async function Page({
 }) {
   const { locale } = await params;
   setRequestLocale(locale);
+  // Test sign-in exists only on test copies; the live site has no such page.
+  if (process.env.DEMO_LOGIN_DISABLED === "true") notFound();
   const profiles = DEMO_PROFILES.map(({ id, name, roleLabel, blurb }) => ({
     id,
     name,
     roleLabel,
     blurb,
   }));
-  const enabled = process.env.DEMO_LOGIN_DISABLED !== "true";
-  return <DemoAccess profiles={profiles} locale={locale} enabled={enabled} />;
+  return <DemoAccess profiles={profiles} locale={locale} />;
 }

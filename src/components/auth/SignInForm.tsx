@@ -86,7 +86,7 @@ export function SignInForm({
             href="/demo"
             className="text-sm font-medium text-[var(--accent)] hover:underline"
           >
-            Demo / client access →
+            Test sign-in →
           </Link>
         ) : null}
         <Link

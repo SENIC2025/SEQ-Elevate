@@ -24,11 +24,9 @@ interface ProfileCard {
 export function DemoAccess({
   profiles,
   locale,
-  enabled,
 }: {
   profiles: ProfileCard[];
   locale: string;
-  enabled: boolean;
 }) {
   const [code, setCode] = React.useState("");
   const [pending, setPending] = React.useState<string | null>(null);
@@ -71,9 +69,8 @@ export function DemoAccess({
         Sign in with a test account
       </h1>
       <p className="mt-2 text-sm text-[var(--muted-foreground)] max-w-xl">
-        {enabled
-          ? "Pick an account to sign straight in with that role — no email needed. For checking the platform on test copies."
-          : "Test sign-in is turned off on this site. Sign in with your email address instead."}
+        Pick an account to sign straight in with that role — no email
+        needed. For checking the platform on test copies.
       </p>
 
       {/* Access code */}
@@ -90,7 +87,6 @@ export function DemoAccess({
           }}
           placeholder="Enter the code you were given"
           className="w-full rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm"
-          disabled={!enabled}
         />
       </div>
 
@@ -118,7 +114,7 @@ export function DemoAccess({
               <Button
                 size="sm"
                 className="mt-3 self-start"
-                disabled={!enabled || pending !== null}
+                disabled={pending !== null}
                 onClick={() => enter(p.id)}
               >
                 {pending === p.id ? (
