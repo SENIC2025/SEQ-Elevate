@@ -237,6 +237,7 @@ export function LessonSection({
                     stageKey={key}
                     initialVideo={lesson.video}
                     builtInVideo={lesson.builtInVideo}
+                    locale={lang}
                     embedded
                     onSaved={onVideoSaved}
                     onDirtyChange={report}

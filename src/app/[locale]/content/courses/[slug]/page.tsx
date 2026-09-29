@@ -5,6 +5,7 @@ import { getTranslations, setRequestLocale } from "next-intl/server";
 import { AccessNotice } from "@/components/AccessNotice";
 import { CourseWorkspace } from "@/components/course-manager/CourseWorkspace";
 import type { TimeLabel } from "@/components/course-manager/CourseHeader";
+import { editedAgo, editedAt } from "@/components/course-manager/edited-time";
 import { viewerCanEditContent } from "@/lib/editor-gate";
 import { getCourseOutline } from "@/lib/cms/course-admin";
 import { isContentLocale, isStageKey } from "@/lib/cms/course-admin-types";
@@ -86,35 +87,14 @@ export default async function Page({
   );
 }
 
-const UNITS: [Intl.RelativeTimeFormatUnit, number][] = [
-  ["year", 365 * 86400],
-  ["month", 30 * 86400],
-  ["week", 7 * 86400],
-  ["day", 86400],
-  ["hour", 3600],
-  ["minute", 60],
-];
-
 /**
- * "3 days ago" plus the exact time, formatted here on the server so the
- * client renders the same text it hydrates (no clock mismatch).
+ * "Last edited 3 days ago" plus the exact time, in the same wording as the
+ * course cards, formatted here on the server so the client renders the same
+ * text it hydrates (no clock mismatch).
  */
 function timeLabel(iso: string | null, locale: Locale): TimeLabel | null {
   if (!iso) return null;
-  const date = new Date(iso);
-  const seconds = (date.getTime() - Date.now()) / 1000;
-  const rtf = new Intl.RelativeTimeFormat(locale, { numeric: "auto" });
-  const unit = UNITS.find(([, size]) => Math.abs(seconds) >= size);
-  return {
-    iso,
-    relative: unit
-      ? rtf.format(Math.round(seconds / unit[1]), unit[0])
-      : rtf.format(0, "second"),
-    absolute:
-      new Intl.DateTimeFormat(locale, {
-        dateStyle: "long",
-        timeStyle: "short",
-        timeZone: "UTC",
-      }).format(date) + " UTC",
-  };
+  const relative = editedAgo(iso, locale);
+  const absolute = editedAt(iso, locale);
+  return relative && absolute ? { iso, relative, absolute } : null;
 }

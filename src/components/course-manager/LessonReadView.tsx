@@ -256,8 +256,10 @@ function StageBody({ stage }: { stage: CourseStage | null }) {
   }
 
   if (!stage.blocks?.length) return empty;
+  // NarrativeBlocks keeps the player's gap under the lesson heading; here
+  // there's no heading above it, only the subtitle (if any).
   return (
-    <div>
+    <div className={stage.subtitle ? "[&>div]:mt-2" : "[&>div]:mt-0"}>
       {stage.subtitle ? (
         <p className="text-xs font-semibold uppercase tracking-wider text-[var(--accent)]">
           {stage.subtitle}
