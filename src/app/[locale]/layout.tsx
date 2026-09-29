@@ -1,4 +1,4 @@
-import type { Metadata, Viewport } from "next";
+import type { Viewport } from "next";
 import { Inter } from "next/font/google";
 import { NextIntlClientProvider, hasLocale } from "next-intl";
 import { getMessages, getTranslations, setRequestLocale } from "next-intl/server";
@@ -17,34 +17,6 @@ const inter = Inter({
   subsets: ["latin", "latin-ext", "greek"],
   display: "swap",
 });
-
-export const metadata: Metadata = {
-  // Canonical base for absolute OG/social URLs. AUTH_URL pins it in every real
-  // environment (staging + production); the literal is only a build-time
-  // fallback when AUTH_URL is unset. Production host is the apex seq-elevate.eu.
-  metadataBase: new URL(
-    process.env.AUTH_URL ?? "https://seq-elevate.eu"
-  ),
-  title: {
-    default: "SEQ Elevate",
-    template: "%s · SEQ Elevate",
-  },
-  description:
-    "SEQ Elevate — a learning journey for skills that matter. Created and Powered by SENIC.",
-  applicationName: "SEQ Elevate",
-  appleWebApp: {
-    capable: true,
-    title: "SEQ Elevate",
-    statusBarStyle: "default",
-  },
-  openGraph: {
-    title: "SEQ Elevate",
-    description:
-      "A learning journey for skills that matter — for life, work and what comes next.",
-    siteName: "SEQ Elevate",
-    type: "website",
-  },
-};
 
 export const viewport: Viewport = {
   themeColor: "#cad12c",
