@@ -30,7 +30,7 @@ import {
   INVITE_VALID_DAYS,
   currentInviteIntent,
 } from "@/lib/invite-context";
-import { renderInviteEmail } from "@/lib/invite-email";
+import { emailHeaderHtml, renderInviteEmail } from "@/lib/invite-email";
 import type { Role } from "@prisma/client";
 
 // Cap magic-link requests per email so the endpoint can't be used to
@@ -218,9 +218,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 function magicLinkEmail(url: string): string {
   return `
   <div style="font-family: Inter, system-ui, sans-serif; max-width: 480px; margin: 0 auto; padding: 32px; color: #2e2e3d;">
-    <div style="border-bottom: 3px solid #cad12c; padding-bottom: 12px; margin-bottom: 24px;">
-      <p style="font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; font-weight: 700; color: #7467ae; margin: 0;">SEQ Elevate</p>
-    </div>
+    ${emailHeaderHtml(url)}
     <h1 style="font-size: 20px; margin: 0 0 12px;">Sign in to SEQ Elevate</h1>
     <p style="font-size: 14px; line-height: 1.6; color: #4d4d66;">Click the button below to sign in. This link works once and expires shortly.</p>
     <a href="${url}" style="display: inline-block; margin: 20px 0; background: #cad12c; color: #2e2e3d; font-weight: 600; text-decoration: none; padding: 12px 24px; border-radius: 8px;">Sign in</a>
