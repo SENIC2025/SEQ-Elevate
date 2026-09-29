@@ -22,7 +22,7 @@ export function AccessibilityToolbar() {
         className="flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm hover:bg-[var(--surface-muted)]"
       >
         <Accessibility className="h-4 w-4" aria-hidden="true" />
-        <span className="hidden sm:inline">{t("title")}</span>
+        <span className="hidden lg:inline">{t("title")}</span>
       </button>
 
       {open ? (
