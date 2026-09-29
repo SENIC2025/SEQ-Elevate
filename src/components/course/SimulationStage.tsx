@@ -8,6 +8,7 @@ import { useDemoState } from "@/store/demo-state";
 import type { CourseStage } from "@/lib/cms/types";
 import { CheckCircle2, XCircle, ArrowRight, RotateCcw } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { FormattedText } from "./FormattedText";
 
 /**
  * Choose-response simulation. Renders any authored options from
@@ -47,7 +48,12 @@ export function SimulationStage({
     <Card>
       <CardContent className="p-6 sm:p-8">
         <h2 className="text-2xl font-bold tracking-tight">{stage.title}</h2>
-        <p className="mt-3 text-base leading-relaxed">{sim.prompt}</p>
+        {/* Authors type the situation in a textarea — keep its paragraphs and
+            lists, like narrative text. */}
+        <FormattedText
+          text={sim.prompt}
+          className="mt-3 text-base leading-relaxed"
+        />
         <p className="mt-2 text-sm text-[var(--muted-foreground)]">
           {sim.instruction}
         </p>

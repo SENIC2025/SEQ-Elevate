@@ -9,6 +9,7 @@ import { useDemoState } from "@/store/demo-state";
 import type { CourseStage, ScenarioChoice, OutcomeQuality } from "@/lib/cms/types";
 import { ArrowRight, RotateCcw, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { FormattedText } from "./FormattedText";
 
 /**
  * Branching scenario. Renders an authored tree: root choices → outcome
@@ -57,7 +58,12 @@ export function ScenarioStage({
           {t("branchingScenario")}
         </div>
         <h2 className="text-2xl font-bold tracking-tight">{stage.title}</h2>
-        <p className="mt-3 text-base leading-relaxed">{sc.setup}</p>
+        {/* Authors type the setup and outcomes in textareas — keep their
+            paragraphs and lists, like narrative text. */}
+        <FormattedText
+          text={sc.setup}
+          className="mt-3 text-base leading-relaxed"
+        />
 
         {/* Root choices */}
         <div className="mt-6">
@@ -165,7 +171,7 @@ function Outcome({
         </span>
         <Badge variant={variant}>{label}</Badge>
       </div>
-      <p className="text-sm leading-relaxed">{text}</p>
+      <FormattedText text={text} className="text-sm leading-relaxed" />
     </div>
   );
 }

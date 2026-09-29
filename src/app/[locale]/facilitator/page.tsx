@@ -12,7 +12,8 @@ export default async function Page({
   const { locale } = await params;
   setRequestLocale(locale);
   const loc = (["en", "de", "el"].includes(locale) ? locale : "en") as Locale;
-  // Staff (FACILITATOR/ADMIN) see real DB learners; guests/demo see the mock.
+  // Staff (FACILITATOR/ADMIN) see real DB learners; everyone else gets a note
+  // that the workspace is for staff.
   const realLearners = await getProjectLearners(loc);
   return realLearners ? (
     <RealFacilitatorView learners={realLearners} />

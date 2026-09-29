@@ -90,7 +90,7 @@ describe("primaryRole", () => {
 describe("workspaceForPath", () => {
   it("matches a workspace root and anything beneath it", () => {
     expect(workspaceForPath("/content")).toBe("content");
-    expect(workspaceForPath("/content/preview")).toBe("content");
+    expect(workspaceForPath("/content/anything")).toBe("content");
     expect(workspaceForPath("/admin/people")).toBe("admin");
     expect(workspaceForPath("/learner/course/workplace-conflict")).toBe(
       "learner"

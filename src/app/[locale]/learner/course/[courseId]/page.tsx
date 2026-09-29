@@ -3,7 +3,8 @@ import { setRequestLocale } from "next-intl/server";
 import { notFound } from "next/navigation";
 import { getCourse } from "@/lib/cms";
 import { getCourseStatus } from "@/lib/cms/course-overlay";
-import { hasRole } from "@/lib/auth-helpers";
+import { getProjectMemberships } from "@/lib/auth-helpers";
+import { canEditContent } from "@/lib/permissions";
 import type { Locale } from "@/lib/cms/types";
 import { CoursePlayer } from "@/components/course/CoursePlayer";
 
@@ -43,10 +44,8 @@ export default async function Page({
   const status = await getCourseStatus("seq-elevate", courseId);
   const isDraft = status !== null && status !== "published";
   if (isDraft) {
-    const mayPreview =
-      (await hasRole("seq-elevate", "ADMIN")) ||
-      (await hasRole("seq-elevate", "CONTENT_EDITOR"));
-    if (!mayPreview) notFound();
+    const roles = (await getProjectMemberships("seq-elevate")).map((m) => m.role);
+    if (!canEditContent(roles)) notFound();
   }
 
   return <CoursePlayer course={course} draftPreview={isDraft} />;
