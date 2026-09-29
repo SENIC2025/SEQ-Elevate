@@ -8,6 +8,7 @@ import {
   type Transaction,
 } from "@tiptap/pm/state";
 import { RT_LIMITS } from "@/lib/rich-text/types";
+import { indentPadding, RT_INDENT_STEP_REM } from "./RichTextView";
 
 /**
  * Indent, for the lesson text editor (D36).
@@ -35,9 +36,6 @@ declare module "@tiptap/core" {
     };
   }
 }
-
-/** One indent step, in rem — the same as the learner view's. */
-export const INDENT_STEP_REM = 1.5;
 
 const LIST_TYPES = new Set(["bulletList", "orderedList"]);
 const isListNode = (node: PmNode) => LIST_TYPES.has(node.type.name);
@@ -143,13 +141,11 @@ export const Indent = Extension.create<IndentOptions>({
                 lengthSteps(element.style.marginLeft);
               return Math.min(this.options.max, Math.max(0, steps));
             },
+            // The learner view's own value, so the paragraph sits in the
+            // same place while it's edited.
             renderHTML: (attributes) => {
-              const indent = Number(attributes.indent) || 0;
-              return indent > 0
-                ? {
-                    style: `padding-inline-start: ${indent * INDENT_STEP_REM}rem`,
-                  }
-                : {};
+              const padding = indentPadding(attributes.indent);
+              return padding ? { style: `padding-inline-start: ${padding}` } : {};
             },
           },
         },
@@ -208,7 +204,7 @@ export const Indent = Extension.create<IndentOptions>({
 /** "3rem" → 2 steps. */
 function remSteps(value: string): number {
   const rem = /^([\d.]+)rem$/.exec(value.trim());
-  return rem ? Math.round(Number(rem[1]) / INDENT_STEP_REM) : 0;
+  return rem ? Math.round(Number(rem[1]) / RT_INDENT_STEP_REM) : 0;
 }
 
 /** "36pt", "0.5in", "48px" → 1 step (Word's and Docs' default tab stop). */

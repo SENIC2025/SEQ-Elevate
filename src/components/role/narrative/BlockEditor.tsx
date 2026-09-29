@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import type { NarrativeBlock } from "@/lib/cms/types";
 import { isEmptyDoc, sanitizeRichText } from "@/lib/rich-text/sanitize";
 import { RichTextView } from "@/components/rich-text/RichTextView";
+import { NARRATIVE_TEXT_CLASS } from "@/components/course/NarrativeStage";
 import {
   LazyRichTextEditor,
   preloadRichTextEditor,
@@ -197,16 +198,6 @@ export function BlockEditor({
   );
 }
 
-/**
- * The classes of the learner's element for each kind (NarrativeStage's
- * Block), so a block's preview is exactly what learners see.
- */
-const LEARNER_CLASS = {
-  paragraph: "text-base leading-relaxed",
-  callout:
-    "inline-block rounded-lg bg-[var(--primary)]/10 border border-[var(--accent)]/20 px-4 py-3 font-medium text-[var(--accent)]",
-} as const;
-
 /** No text to show: a new block, or one saved empty. */
 function isBlank(block: NarrativeBlock): boolean {
   const rich = block.rich == null ? null : sanitizeRichText(block.rich).value;
@@ -276,7 +267,8 @@ function RichBlock({
           rich={block.rich}
           text={block.text}
           compact={variant === "callout"}
-          className={LEARNER_CLASS[variant]}
+          // The learner's own classes: the preview is what learners see.
+          className={NARRATIVE_TEXT_CLASS[variant]}
         />
       </div>
       <span

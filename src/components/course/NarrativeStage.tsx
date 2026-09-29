@@ -63,6 +63,16 @@ export function NarrativeBlocks({ blocks }: { blocks: NarrativeBlock[] }) {
   );
 }
 
+/**
+ * The look of a paragraph and a key message. Exported so the lesson editor's
+ * block previews use exactly these, and show what learners see.
+ */
+export const NARRATIVE_TEXT_CLASS = {
+  paragraph: "text-base leading-relaxed",
+  callout:
+    "inline-block rounded-lg bg-[var(--primary)]/10 border border-[var(--accent)]/20 px-4 py-3 font-medium text-[var(--accent)]",
+} as const;
+
 function Block({ block }: { block: NarrativeBlock }) {
   switch (block.kind) {
     case "paragraph":
@@ -70,7 +80,7 @@ function Block({ block }: { block: NarrativeBlock }) {
         <RichTextView
           rich={block.rich}
           text={block.text}
-          className="text-base leading-relaxed"
+          className={NARRATIVE_TEXT_CLASS.paragraph}
         />
       );
 
@@ -99,7 +109,7 @@ function Block({ block }: { block: NarrativeBlock }) {
           rich={block.rich}
           text={block.text}
           compact
-          className="inline-block rounded-lg bg-[var(--primary)]/10 border border-[var(--accent)]/20 px-4 py-3 font-medium text-[var(--accent)]"
+          className={NARRATIVE_TEXT_CLASS.callout}
         />
       );
 

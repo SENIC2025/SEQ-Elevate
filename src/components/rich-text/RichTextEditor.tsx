@@ -76,16 +76,6 @@ const VARIANT = {
   },
 } as const;
 
-/** The empty editor's hint (Tiptap's Placeholder marks the paragraph). */
-const PLACEHOLDER =
-  "[&_p.is-editor-empty:first-child]:before:pointer-events-none [&_p.is-editor-empty:first-child]:before:float-left [&_p.is-editor-empty:first-child]:before:h-0 [&_p.is-editor-empty:first-child]:before:font-normal [&_p.is-editor-empty:first-child]:before:text-[var(--muted-foreground)] [&_p.is-editor-empty:first-child]:before:content-[attr(data-placeholder)]";
-
-/**
- * The editor holds a list point's first line in a <p>; learners see it right
- * inside the <li>. No extra space above it, so lists look the same.
- */
-const TIGHT_ITEMS = "[&_li>p:first-child]:mt-0";
-
 /**
  * The lesson text editor for one paragraph or key message (D36): bold,
  * italic, bulleted and numbered lists, indent, undo — the formatting
@@ -129,12 +119,10 @@ export function RichTextEditor({
     extensions: editorExtensions(v.placeholder),
     editorProps: {
       attributes: {
-        class: cn(
-          "seq-prose rt-editor min-h-[4.5rem]",
-          v.prose,
-          PLACEHOLDER,
-          TIGHT_ITEMS
-        ),
+        // rt-editor (globals.css): the height, the empty editor's hint, and
+        // no gap above a list point's first line — the editor holds it in a
+        // <p>, learners see it right inside the <li>.
+        class: cn("seq-prose rt-editor", v.prose),
         role: "textbox",
         "aria-multiline": "true",
         "aria-label": v.label,
