@@ -33,19 +33,15 @@ export function AdminDashboard({
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8">
-      <div className="flex flex-wrap items-baseline justify-between gap-2 mb-2">
-        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">
-          {t("title")}
-        </h1>
-        <p className="text-sm text-[var(--muted-foreground)]">
-          {t("anonymisedNote")}
-        </p>
-      </div>
+      <h1 className="mb-2 text-2xl sm:text-3xl font-bold tracking-tight">
+        {t("title")}
+      </h1>
 
       <div className="mt-6 grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* counts.users counts LEARNER memberships only (getAdminCounts) */}
         <Stat
           icon={<Users className="h-5 w-5" />}
-          label={t("users")}
+          label={t("learners")}
           value={String(counts?.users ?? 0)}
         />
         <Stat

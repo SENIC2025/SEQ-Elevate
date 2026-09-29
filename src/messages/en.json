@@ -586,12 +586,11 @@
   },
   "admin": {
     "title": "Admin dashboard",
-    "users": "Users",
+    "learners": "Learners",
     "cohorts": "Cohorts",
     "organisations": "Organisations",
     "courses": "Published courses",
-    "gdpr": "GDPR self-service",
-    "anonymisedNote": "All reporting metrics are anonymised by default."
+    "gdpr": "GDPR self-service"
   },
   "content": {
     "title": "Create courses",

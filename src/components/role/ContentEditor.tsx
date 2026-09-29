@@ -21,13 +21,13 @@ const SECTIONS = [
     id: "lessons",
     title: "Lesson content",
     intro:
-      "Each tool starts with the course and lesson stage you want to work on.",
+      "Edit the teaching text, build interactive stages, add videos and attach documents. Each tool has its own course and lesson picker.",
   },
   {
     id: "comp-card",
     title: "Comp Card",
     intro:
-      "The reflection questions learners answer on their Comp Card. Changes apply to every course.",
+      "Reword, reorder or hide the reflection questions learners answer on their Comp Card, in each language. Changes apply to every course.",
   },
 ] as const;
 
@@ -35,7 +35,7 @@ type SectionId = (typeof SECTIONS)[number]["id"];
 
 /**
  * The "Create courses" workspace: every authoring tool on one page. Each tool
- * checks the editor's role itself and saves its own changes.
+ * saves through its own server action, which checks the editor's role.
  */
 export function ContentEditor({
   courses = [],

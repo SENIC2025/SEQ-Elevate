@@ -586,12 +586,11 @@
   },
   "admin": {
     "title": "Admin-Dashboard",
-    "users": "Nutzer:innen",
+    "learners": "Lernende",
     "cohorts": "Kohorten",
     "organisations": "Organisationen",
     "courses": "Veröffentlichte Kurse",
-    "gdpr": "DSGVO-Selbstbedienung",
-    "anonymisedNote": "Alle Reporting-Metriken sind standardmäßig anonymisiert."
+    "gdpr": "DSGVO-Selbstbedienung"
   },
   "content": {
     "title": "Kurse erstellen",
