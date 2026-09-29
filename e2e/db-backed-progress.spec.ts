@@ -2140,6 +2140,86 @@ describe("authoring an interactive stage in the CMS", () => {
     expect(log, "save audited").toBeTruthy();
   });
 
+  test("a stage saved elsewhere since it opened isn't overwritten", async ({
+    page,
+    context,
+  }) => {
+    await context.addCookies([
+      {
+        name: "authjs.session-token",
+        value: editorSession,
+        domain: "localhost",
+        path: "/",
+        httpOnly: true,
+        sameSite: "Lax",
+      },
+    ]);
+
+    // The simulation saved by the test above.
+    await page.goto(`/en/content/courses/${SLUG}?lesson=simulation`);
+    const panel = page.getByRole("region", {
+      name: /^interactive stage — simulation$/i,
+    });
+    const optionText = panel.getByLabel(/option text/i);
+    await expect(optionText.nth(0)).toHaveValue("Name it calmly", {
+      timeout: 15000,
+    });
+
+    // Meanwhile a partner adds the German prompt (same row, all languages).
+    const where = {
+      projectId_courseSlug_stageKey: {
+        projectId: "seq-elevate",
+        courseSlug: SLUG,
+        stageKey: "simulation",
+      },
+    };
+    type Sim = {
+      prompt: Record<string, string>;
+      options: { text: Record<string, string> }[];
+    };
+    const before = (await prisma.lesson.findUnique({ where }))
+      ?.structure as Sim;
+    await prisma.lesson.update({
+      where,
+      data: {
+        structure: {
+          ...before,
+          prompt: { ...before.prompt, de: "Jemand unterbricht dich." },
+        },
+      },
+    });
+
+    // Saving from this (older) page is refused, and nothing is lost.
+    await optionText.nth(0).fill("Name it calmly, now");
+    await panel.getByRole("button", { name: /save stage/i }).click();
+    await expect(panel.getByRole("alert")).toContainText(
+      /someone else saved this stage/i,
+      { timeout: 15000 }
+    );
+    const stored = async () =>
+      (await prisma.lesson.findUnique({ where }))?.structure as Sim;
+    expect((await stored()).prompt.de, "the German prompt survives").toBe(
+      "Jemand unterbricht dich."
+    );
+    expect((await stored()).options[0].text.en).toBe("Name it calmly");
+    await expect(optionText.nth(0)).toHaveValue("Name it calmly, now");
+
+    // Reload the saved version, then save on top of it: both land.
+    page.once("dialog", (dialog) => void dialog.accept());
+    await panel
+      .getByRole("button", { name: /^reload the saved version$/i })
+      .click();
+    await expect(optionText.nth(0)).toHaveValue("Name it calmly", {
+      timeout: 15000,
+    });
+    await optionText.nth(0).fill("Name it calmly, now");
+    await panel.getByRole("button", { name: /save stage/i }).click();
+    await expect(panel.getByText(/^saved$/i)).toBeVisible({ timeout: 15000 });
+    const after = await stored();
+    expect(after.prompt.de).toBe("Jemand unterbricht dich.");
+    expect(after.options[0].text.en).toBe("Name it calmly, now");
+  });
+
   test("an editor authors an assessment; the ticked answer is the correct id", async ({
     page,
     context,

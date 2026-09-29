@@ -73,6 +73,12 @@ export interface NarrativeInitial {
   blocks: NarrativeBlock[];
   /** An editor has written this language (vs. the built-in or fallback text). */
   hasOverride: boolean;
+  /**
+   * Fingerprint of this language's stored text (null = none stored). A save
+   * sends it back, so one made from an out-of-date page can't silently undo
+   * a colleague's newer save (stored-json.ts, D33).
+   */
+  version: string | null;
   /** CMS only: nothing written in this language yet; learners see this one. */
   fallbackFrom?: Locale;
 }

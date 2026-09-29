@@ -233,6 +233,7 @@ function lesson(
         text: "x",
       })),
       hasOverride: written[l] !== undefined,
+      version: written[l] !== undefined ? `v-${l}` : null,
     };
     byLang[l] = { stage: null, narrative: n };
   }

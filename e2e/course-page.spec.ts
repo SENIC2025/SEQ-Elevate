@@ -381,6 +381,80 @@ describe("Manage courses — the course page", () => {
     ).toBe(0);
   });
 
+  test("a save from an out-of-date page is refused and offers the colleague's version", async ({
+    page,
+    context,
+  }) => {
+    const text = (title: string) => ({
+      en: { title, blocks: [{ kind: "paragraph", text: "Why it matters." }] },
+    });
+    await prisma.lesson.upsert({
+      where: {
+        projectId_courseSlug_stageKey: {
+          projectId: PROJECT,
+          courseSlug: SLUG,
+          stageKey: "context",
+        },
+      },
+      create: {
+        projectId: PROJECT,
+        courseSlug: SLUG,
+        stageKey: "context",
+        narrative: text("Opened title"),
+      },
+      update: { narrative: text("Opened title") },
+    });
+
+    await useSession(context, editorSession);
+    await page.goto(`/en/content/courses/${SLUG}?lesson=context`);
+    const editor = page
+      .locator("#lesson-context")
+      .getByRole("region", { name: /lesson text/i });
+    const title = editor.getByLabel(/^lesson title$/i);
+    await expect(title).toHaveValue("Opened title", { timeout: 15000 });
+
+    // A colleague saves the same lesson meanwhile.
+    await prisma.lesson.update({
+      where: {
+        projectId_courseSlug_stageKey: {
+          projectId: PROJECT,
+          courseSlug: SLUG,
+          stageKey: "context",
+        },
+      },
+      data: { narrative: text("Colleague's title") },
+    });
+
+    await title.fill("My title");
+    await editor.getByRole("button", { name: /^save english$/i }).click();
+    await expect(editor.getByRole("alert")).toContainText(
+      /someone else saved/i,
+      { timeout: 15000 }
+    );
+    const stored = async () =>
+      (
+        (
+          await prisma.lesson.findFirst({
+            where: { courseSlug: SLUG, stageKey: "context" },
+          })
+        )?.narrative as { en?: { title?: string } } | null
+      )?.en?.title;
+    expect(await stored(), "their text is untouched").toBe("Colleague's title");
+    await expect(title, "my edits are still here").toHaveValue("My title");
+
+    // Load theirs, then save on top of it.
+    page.once("dialog", (dialog) => void dialog.accept());
+    await editor
+      .getByRole("button", { name: /^load the saved version$/i })
+      .click();
+    await expect(title).toHaveValue("Colleague's title", { timeout: 15000 });
+    await expect(editor.getByText(/loaded the saved version/i)).toBeVisible();
+    await title.fill("Agreed title");
+    await editor.getByRole("button", { name: /^save english$/i }).click();
+    await expect(editor.getByText(/^saved$/i)).toBeVisible({ timeout: 15000 });
+    expect(await stored()).toBe("Agreed title");
+  });
+
   test("an unknown course is a not-found page; a learner gets the notice", async ({
     page,
     context,

@@ -23,6 +23,7 @@ import { normaliseStatus } from "./course-status";
 import { readCopyOverride, applyCopy } from "./course-copy";
 import { pickMeta, type CourseMeta } from "./db-course";
 import { STRUCTURE_STAGE_KEYS, type StoredStructure } from "./structure";
+import { fingerprint } from "./stored-json";
 import {
   presentStageKeys,
   languageCoverage,
@@ -331,5 +332,10 @@ function narrativeInitial(
           subtitle: stage.subtitle ?? "",
           blocks: stage.blocks ?? [],
         };
-  return { ...base, hasOverride, ...(fallbackFrom ? { fallbackFrom } : {}) };
+  return {
+    ...base,
+    hasOverride,
+    version: fingerprint(narrative?.[locale]),
+    ...(fallbackFrom ? { fallbackFrom } : {}),
+  };
 }

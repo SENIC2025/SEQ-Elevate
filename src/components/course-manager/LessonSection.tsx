@@ -46,7 +46,7 @@ export function LessonSection({
   onOpen,
   onClose,
   onNarrativeSaved,
-  onReverted,
+  onReread,
   onStructureSaved,
   onStructureCleared,
   onVideoSaved,
@@ -64,7 +64,11 @@ export function LessonSection({
   onOpen: () => void;
   onClose: () => void;
   onNarrativeSaved: (value: NarrativeInitial) => void;
-  onReverted: () => void;
+  /**
+   * Re-read this lesson's text in `lang` from the server, once it is no
+   * longer the `stale` version the editor had (then `rev` bumps).
+   */
+  onReread: (stale: string | null) => void;
   onStructureSaved: (structure: StoredStructure) => void;
   onStructureCleared: () => void;
   onVideoSaved: (video: VideoContent | null) => void;
@@ -123,14 +127,15 @@ export function LessonSection({
     const stageKind = key as StructureStageKey;
     body = (
       // Not keyed by language: its draft holds every language, so unsaved
-      // work survives a language switch.
+      // work survives a language switch. It reads the stage itself when the
+      // lesson opens — the outline is from page load, and a colleague may
+      // have saved another language since.
       <DirtyScope id={`lesson:${key}:structure`} label={label}>
         {(report) => (
           <StructureAuthor
             courseSlug={slug}
             kind={stageKind}
             locale={lang}
-            initial={lesson.structure}
             regionLabel={`Interactive stage — ${KIND_LABEL[stageKind]}`}
             embedded
             onSaved={onStructureSaved}
@@ -156,7 +161,7 @@ export function LessonSection({
             embedded
             onSaved={onNarrativeSaved}
             onDirtyChange={report}
-            onReverted={onReverted}
+            onReread={onReread}
           />
         )}
       </DirtyScope>

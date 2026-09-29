@@ -26,6 +26,7 @@ import {
   AlertTriangle,
   RotateCcw,
   Undo2,
+  RefreshCw,
 } from "lucide-react";
 
 // Authoring-tool copy stays English (like the other tools), so language
@@ -36,7 +37,16 @@ const LANGUAGE: Record<Locale, string> = {
   el: "Greek",
 };
 
-type Status = "idle" | "saving" | "saved" | "error" | "reverting" | "reverted";
+type Status =
+  | "idle"
+  | "saving"
+  | "saved"
+  | "error"
+  | "reverting"
+  | "reverted"
+  | "reloading"
+  | "reloaded"
+  | "discarded";
 
 /** The first paragraph's text — all a reflection lesson's intro is. */
 const introOf = (blocks: NarrativeBlock[]) =>
@@ -55,6 +65,10 @@ const introOf = (blocks: NarrativeBlock[]) =>
  * learner view reads back exactly the title and the first paragraph.
  *
  * Saves go live at once on a published course (D33); the page says so.
+ *
+ * Each save (and "Remove") sends back the fingerprint of the text it started
+ * from. If a colleague saved this language since, the server refuses, and the
+ * editor offers to load their version instead of overwriting it unseen.
  */
 export function LessonNarrativeEditor({
   courseSlug,
@@ -68,7 +82,7 @@ export function LessonNarrativeEditor({
   embedded = false,
   onSaved,
   onDirtyChange,
-  onReverted,
+  onReread,
 }: {
   courseSlug: string;
   stageKey: StageKey;
@@ -76,7 +90,7 @@ export function LessonNarrativeEditor({
   /** What learners see now, in this language (from the course outline). */
   initial: NarrativeInitial;
   /**
-   * The page bumps this after re-reading the lesson (see onReverted): the
+   * The page bumps this after re-reading the lesson (see onReread): the
    * editor then starts over from `initial`. Any other change to `initial`
    * is ignored, so a refresh never overwrites what is being typed.
    */
@@ -90,11 +104,13 @@ export function LessonNarrativeEditor({
   onSaved?: (value: NarrativeInitial) => void;
   onDirtyChange?: (dirty: boolean) => void;
   /**
-   * This language's text was deleted. Only the server knows what learners
-   * see instead (built-in text, the English text, or the defaults), so the
-   * page re-reads the lesson and bumps `initialRev`.
+   * Ask the page to re-read this lesson and bump `initialRev` once the text
+   * is no longer `stale` (the version this editor had) — after this
+   * language's text was deleted (only the server knows what learners see
+   * instead: built-in text, the English text, or the defaults), or to load a
+   * colleague's newer save.
    */
-  onReverted: () => void;
+  onReread: (stale: string | null) => void;
 }) {
   const ids = React.useId();
   const headingRef = React.useRef<HTMLHeadingElement>(null);
@@ -116,6 +132,13 @@ export function LessonNarrativeEditor({
   const dirty = edits !== cleanAt;
   const [status, setStatus] = React.useState<Status>("idle");
   const [saveError, setSaveError] = React.useState("");
+  // Someone else saved this language's text after it was loaded here: kept
+  // until the editor loads their version or a save goes through.
+  const [conflict, setConflict] = React.useState(false);
+  // Why the page is re-reading the lesson, for what to say once it has.
+  const [rereadFor, setRereadFor] = React.useState<"revert" | "reload" | null>(
+    null
+  );
   // Bumped on save / discard, so the block list drops its "Undo".
   const [resetKey, setResetKey] = React.useState(0);
 
@@ -129,14 +152,17 @@ export function LessonNarrativeEditor({
     setResetKey((k) => k + 1);
   }
 
-  // The page re-read the lesson (after "Revert"): start over from it.
+  // The page re-read the lesson (after "Remove", or to load a colleague's
+  // save): start over from it.
   const [seenRev, setSeenRev] = React.useState(initialRev);
   if (initialRev !== seenRev) {
     setSeenRev(initialRev);
     load(initial);
     setHasOverride(initial.hasOverride);
     setFallbackFrom(initial.fallbackFrom);
-    setStatus("reverted");
+    setConflict(false);
+    setStatus(rereadFor === "reload" ? "reloaded" : "reverted");
+    setRereadFor(null);
   }
 
   React.useEffect(() => {
@@ -145,39 +171,57 @@ export function LessonNarrativeEditor({
 
   function edited() {
     setEdits((n) => n + 1);
-    if (status !== "saving" && status !== "reverting") setStatus("idle");
+    if (
+      status !== "saving" &&
+      status !== "reverting" &&
+      status !== "reloading"
+    ) {
+      setStatus("idle");
+    }
   }
 
   async function handleSave() {
     const at = edits;
-    const saved: NarrativeInitial = reflection
+    const text = reflection
       ? {
           title,
           subtitle: "",
-          blocks: [{ kind: "paragraph", text: intro }],
-          hasOverride: true,
+          blocks: [{ kind: "paragraph" as const, text: intro }],
         }
-      : {
-          title,
-          subtitle,
-          blocks: blocks.map(stripKey),
-          hasOverride: true,
-        };
+      : { title, subtitle, blocks: blocks.map(stripKey) };
     setStatus("saving");
     try {
-      const res = await saveLessonNarrative(courseSlug, stageKey, locale, {
-        title: saved.title,
-        subtitle: reflection ? undefined : saved.subtitle || undefined,
-        blocks: saved.blocks,
-      });
+      const res = await saveLessonNarrative(
+        courseSlug,
+        stageKey,
+        locale,
+        {
+          title: text.title,
+          subtitle: reflection ? undefined : text.subtitle || undefined,
+          blocks: text.blocks,
+        },
+        baseline.version
+      );
       if (res.ok) {
+        const saved: NarrativeInitial = {
+          ...text,
+          hasOverride: true,
+          version: res.version,
+        };
         setCleanAt(at);
         setBaseline(saved);
         setHasOverride(true);
         setFallbackFrom(undefined);
+        setConflict(false);
         setResetKey((k) => k + 1);
         setStatus("saved");
         onSaved?.(saved);
+        return;
+      }
+      if (res.error === "changed-elsewhere") {
+        // Nothing was written; the edits stay on screen.
+        setConflict(true);
+        setStatus("idle");
         return;
       }
       // "forbidden" covers both signed out and not an editor — ask which.
@@ -196,7 +240,24 @@ export function LessonNarrativeEditor({
   function handleDiscard() {
     if (!window.confirm("Discard your unsaved changes to this lesson?")) return;
     load(baseline);
-    setStatus("idle");
+    // "Discard changes" goes away with the changes: keep focus in the editor.
+    headingRef.current?.focus();
+    setStatus("discarded");
+  }
+
+  function handleReload() {
+    if (
+      dirty &&
+      !window.confirm(
+        `Load the saved ${lang} text of this lesson? Your unsaved edits here will be replaced.`
+      )
+    ) {
+      return;
+    }
+    headingRef.current?.focus();
+    setRereadFor("reload");
+    setStatus("reloading");
+    onReread(baseline.version);
   }
 
   // What learners see once this language's text is gone.
@@ -222,9 +283,20 @@ export function LessonNarrativeEditor({
     headingRef.current?.focus();
     setStatus("reverting");
     try {
-      const res = await clearLessonNarrative(courseSlug, stageKey, locale);
+      const res = await clearLessonNarrative(
+        courseSlug,
+        stageKey,
+        locale,
+        baseline.version
+      );
       if (res.ok) {
-        onReverted();
+        setRereadFor("revert");
+        onReread(baseline.version);
+        return;
+      }
+      if (res.error === "changed-elsewhere") {
+        setConflict(true);
+        setStatus("idle");
         return;
       }
       setSaveError(
@@ -239,7 +311,8 @@ export function LessonNarrativeEditor({
     setStatus("error");
   }
 
-  const busy = status === "saving" || status === "reverting";
+  const busy =
+    status === "saving" || status === "reverting" || status === "reloading";
   const heading = reflection ? "Reflection text" : "Lesson text";
 
   const badge = hasOverride ? (
@@ -386,6 +459,36 @@ export function LessonNarrativeEditor({
         </div>
       )}
 
+      {conflict ? (
+        <div
+          role="alert"
+          className="mt-4 rounded-lg border border-[var(--warning)] bg-[var(--warning)]/10 p-3 text-sm"
+        >
+          <p className="flex items-start gap-1.5">
+            <AlertTriangle
+              className="mt-0.5 h-4 w-4 flex-shrink-0 text-[var(--warning)]"
+              aria-hidden
+            />
+            <span>
+              Someone else saved the {lang} text of this lesson since you
+              opened it, so nothing was changed. Load their version to see it —
+              your edits stay here until you do, so you can copy anything you
+              want to keep.
+            </span>
+          </p>
+          <Button
+            size="sm"
+            variant="outline"
+            className="mt-2"
+            disabled={busy}
+            onClick={handleReload}
+          >
+            <RefreshCw className="h-4 w-4" aria-hidden />
+            Load the saved version
+          </Button>
+        </div>
+      ) : null}
+
       <div className="mt-5 flex flex-wrap items-center gap-2 border-t border-[var(--border)] pt-3">
         <Button size="sm" disabled={busy} onClick={handleSave}>
           {status === "saving" ? (
@@ -435,6 +538,19 @@ export function LessonNarrativeEditor({
             <span className="inline-flex items-center gap-1 text-[var(--success)]">
               <CheckCircle2 className="h-3.5 w-3.5" aria-hidden />
               Back to {fallbackText}.
+            </span>
+          ) : status === "reloading" ? (
+            <span className="text-[var(--muted-foreground)]">
+              Loading the saved version…
+            </span>
+          ) : status === "reloaded" ? (
+            <span className="inline-flex items-center gap-1 text-[var(--success)]">
+              <CheckCircle2 className="h-3.5 w-3.5" aria-hidden />
+              Loaded the saved version.
+            </span>
+          ) : status === "discarded" ? (
+            <span className="text-[var(--muted-foreground)]">
+              Changes discarded.
             </span>
           ) : status === "error" ? (
             <span className="inline-flex items-start gap-1 text-[var(--danger)]">

@@ -33,10 +33,13 @@ interface State {
    * raced a save can never put the old content back into an editor.
    */
   lessons: LessonOutline[];
-  /** Per "lesson:language": bumped when its text was re-read after a revert. */
+  /** Per "lesson:language": bumped when its text was re-read (see "reread"). */
   revs: Record<string, number>;
-  /** "lesson:language" pairs reverted and waiting for the re-read. */
-  pending: string[];
+  /**
+   * "lesson:language" pairs waiting for a re-read, each with the version of
+   * the text it's moving away from (null = none was stored).
+   */
+  pending: Record<string, string | null>;
   /** The outline last taken in (see "outline"). */
   seen: CourseOutline;
 }
@@ -49,7 +52,7 @@ type Action =
       lang: Locale;
       value: NarrativeInitial;
     }
-  | { type: "reverted"; key: StageKey; lang: Locale }
+  | { type: "reread"; key: StageKey; lang: Locale; stale: string | null }
   | { type: "structureSaved"; key: StageKey; structure: StoredStructure }
   | { type: "structureCleared"; key: StageKey }
   | { type: "videoSaved"; key: StageKey; video: VideoContent | null }
@@ -80,10 +83,15 @@ function reducer(state: State, action: Action): State {
           [action.lang]: { ...l.byLang[action.lang], narrative: action.value },
         },
       }));
-    case "reverted":
+    case "reread":
+      // The text was removed, or a colleague saved a newer one: take the
+      // next outline whose text differs from the editor's (`stale`).
       return {
         ...state,
-        pending: [...state.pending, pair(action.key, action.lang)],
+        pending: {
+          ...state.pending,
+          [pair(action.key, action.lang)]: action.stale,
+        },
       };
     case "structureSaved":
       // A new interactive lesson now exists for learners — and can take a
@@ -120,13 +128,13 @@ function reducer(state: State, action: Action): State {
  * A fresh outline after router.refresh(): take what learners see now (for
  * the read views), and fresh start points for texts nobody wrote in that
  * language yet (a fallback may have changed). A text an editor saved is kept
- * — unless it was just reverted, which is what the refresh was for.
+ * — unless it is waiting for a re-read, which is what the refresh was for.
  */
 function takeRefreshedOutline(state: State, outline: CourseOutline): State {
   if (outline === state.seen) return state;
   const fresh = new Map(outline.lessons.map((l) => [l.key, l]));
   const revs = { ...state.revs };
-  const pending: string[] = [];
+  const pending: State["pending"] = {};
 
   const lessons = state.lessons.map((lesson) => {
     const f = fresh.get(lesson.key);
@@ -137,14 +145,16 @@ function takeRefreshedOutline(state: State, outline: CourseOutline): State {
       const mine = lesson.byLang[lang].narrative;
       const theirs = f.byLang[lang].narrative;
       let narrative = mine;
-      if (state.pending.includes(id)) {
-        // Wait for an outline that no longer has the reverted text (a refresh
-        // started before the revert may still arrive first).
-        if (theirs && !theirs.hasOverride) {
+      if (id in state.pending) {
+        // Wait for an outline without the text this page had (a refresh
+        // started before the revert or the colleague's save may still
+        // arrive first).
+        const stale = state.pending[id];
+        if (theirs && theirs.version !== stale) {
           narrative = theirs;
           revs[id] = (revs[id] ?? 0) + 1;
         } else {
-          pending.push(id);
+          pending[id] = stale;
         }
       } else if (mine && !mine.hasOverride && theirs) {
         narrative = theirs;
@@ -203,7 +213,7 @@ function Workspace({
   const [state, dispatch] = React.useReducer(reducer, outline, (o): State => ({
     lessons: o.lessons,
     revs: {},
-    pending: [],
+    pending: {},
     seen: o,
   }));
   // A refreshed outline arrived (router.refresh after a save): take it in.
@@ -348,8 +358,8 @@ function Workspace({
                     });
                     refresh();
                   }}
-                  onReverted={() => {
-                    dispatch({ type: "reverted", key: lesson.key, lang });
+                  onReread={(stale) => {
+                    dispatch({ type: "reread", key: lesson.key, lang, stale });
                     refresh();
                   }}
                   onStructureSaved={(structure) => {
