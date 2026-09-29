@@ -78,7 +78,7 @@ describe("parseLegacyText", () => {
   });
 
   it("accepts the bullet markers people type or paste", () => {
-    for (const marker of ["•", "◦", "▪", "●", "■", "‣", "⁃", "·", "", "-", "–", "*"]) {
+    for (const marker of ["•", "◦", "▪", "●", "■", "‣", "⁃", "·", "\uF0B7", "\uF0A7", "-", "–", "*"]) {
       expect(parseLegacyText(`${marker} one\n${marker} two`)).toEqual([
         { type: "bullets", items: ["one", "two"] },
       ]);
@@ -86,8 +86,29 @@ describe("parseLegacyText", () => {
   });
 
   it("accepts a tab or non-breaking space after the marker (Word pastes)", () => {
-    expect(parseLegacyText("•\tone\n·  two")).toEqual([
+    expect(parseLegacyText("•\tone\n·\u00A0\u00A0two")).toEqual([
       { type: "bullets", items: ["one", "two"] },
+    ]);
+  });
+
+  it("accepts a bullet glyph typed without a space", () => {
+    expect(parseLegacyText("•Pause\n•Question\n\uF0B7Decide")).toEqual([
+      { type: "bullets", items: ["Pause", "Question", "Decide"] },
+    ]);
+    expect(parseLegacyText("•Pause • Question • Decide")).toEqual([
+      { type: "bullets", items: ["Pause", "Question", "Decide"] },
+    ]);
+  });
+
+  it("accepts the bullets Word writes for nested list levels", () => {
+    expect(parseLegacyText("·\tLevel one\no\tLevel two\n§\tLevel three")).toEqual([
+      { type: "bullets", items: ["Level one", "Level two", "Level three"] },
+    ]);
+  });
+
+  it("keeps words and section signs that only look like Word's nested bullets", () => {
+    expect(parseLegacyText("o well, try again\n§ 12 applies here")).toEqual([
+      { type: "paragraph", lines: ["o well, try again", "§ 12 applies here"] },
     ]);
   });
 

@@ -19,15 +19,19 @@ export type LegacyNode =
   | { type: "numbers"; items: string[]; start: number };
 
 /**
- * A bullet line: a marker followed by whitespace. Markers are the common
- * Unicode bullets, the middle dot and U+F0B7 (the private-use "Symbol" bullet
- * that Word lists often paste as), and the typed "-", "–" and "*". The
- * whitespace is required, so "-5 °C", "-based" or "*note*" stay plain text.
+ * A bullet line. Bullet glyphs — the common Unicode bullets and U+F0B7 /
+ * U+F0A7 (the private-use "Symbol" / "Wingdings" bullets Word lists often
+ * paste as) — mark an item even when typed without a space ("•Pause"). The
+ * middle dot and the typed "-", "–" and "*" need whitespace after them, so
+ * "-5 °C", "-based" or "*note*" stay plain text. Word's plain-text copy of a
+ * list writes "·", "o" and "§" plus a tab for levels one to three; "o" and
+ * "§" only count with that tab, so ordinary words and "§ 12" stay text.
+ * Nested levels become items of the same list.
  */
-const BULLET_LINE = /^[•◦▪●■‣⁃·*–-]\s+(.*)$/;
+const BULLET_LINE = /^(?:[•◦▪●■‣⁃\uF0B7\uF0A7]\s*|[·*–-]\s+|[o§]\t\s*)(.+)$/;
 
 /** A bullet glyph alone on its line — how bullets arrive when copied from a PDF. */
-const LONE_BULLET = /^[•◦▪●■‣⁃·]$/;
+const LONE_BULLET = /^[•◦▪●■‣⁃·\uF0B7\uF0A7]$/;
 
 /** "1. …" or "1) …" — up to three digits, so a year like "2024." stays text. */
 const NUMBER_LINE = /^(\d{1,3})[.)]\s+(.*)$/;
