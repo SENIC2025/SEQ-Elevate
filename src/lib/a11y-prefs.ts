@@ -53,32 +53,54 @@ export function samePrefs(a: A11yPrefs, b: A11yPrefs): boolean {
 }
 
 /**
+ * `raw` as the settings it holds validly, one by one: a setting it doesn't
+ * hold, or holds a value for that isn't one (see toA11yPrefs), is left out.
+ */
+export function toPartialPrefs(raw: unknown): Partial<A11yPrefs> {
+  if (!raw || typeof raw !== "object") return {};
+  const r = raw as { fontSize?: unknown; dyslexia?: unknown; contrast?: unknown };
+  const out: Partial<A11yPrefs> = {};
+  if ((FONT_SIZES as readonly unknown[]).includes(r.fontSize)) {
+    out.fontSize = r.fontSize as FontSize;
+  }
+  if (typeof r.dyslexia === "boolean") out.dyslexia = r.dyslexia;
+  if (typeof r.contrast === "boolean") out.contrast = r.contrast;
+  return out;
+}
+
+/**
  * This browser's copy of the settings (localStorage): a guest's only
  * copy, and for a signed-in user a mirror for an instant paint on the next
- * load, kept after they sign out. `fromAccount` says whose they are: true
- * once they're a signed-in account's (loaded from it, or chosen while
- * signed in), false while they're a guest's own choice. Only a guest's own
- * settings move into an account (prefsAfterLoad): an account's must not
- * move into the next account that signs in on this browser.
+ * load, kept after they sign out — so what's shown (`prefs`) may be an
+ * account's. `unclaimed` are the settings chosen in this browser that no
+ * account holds yet, one entry per setting chosen: a guest's, or chosen
+ * while an account's settings loaded. Only these move into an account
+ * (prefsAfterLoad): an account's settings must not move into the next
+ * account that signs in on this browser, and a guest's choice made on top
+ * of them moves in alone. They're kept until an account holds them — its
+ * save of them confirmed — so a save lost on the way (the page closed
+ * within the debounce, every try failed) is made again on the next visit.
  */
 export interface LocalPrefs {
   prefs: A11yPrefs;
-  fromAccount: boolean;
+  unclaimed: Partial<A11yPrefs>;
 }
 
 /**
  * The stored copy (`raw`, as localStorage holds it), or null if there is
- * none or it can't be read. A copy stored before `fromAccount` was kept
- * counts as a guest's, as every copy did then.
+ * none or it can't be read. A copy stored before `unclaimed` was kept is
+ * all a guest's, as every copy counted then.
  */
 export function parseLocalPrefs(raw: string | null): LocalPrefs | null {
   if (!raw) return null;
   try {
     const p: unknown = JSON.parse(raw);
     if (!p || typeof p !== "object") return null;
+    const prefs = toA11yPrefs(p);
+    const unclaimed = (p as { unclaimed?: unknown }).unclaimed;
     return {
-      prefs: toA11yPrefs(p),
-      fromAccount: (p as { fromAccount?: unknown }).fromAccount === true,
+      prefs,
+      unclaimed: unclaimed === undefined ? { ...prefs } : toPartialPrefs(unclaimed),
     };
   } catch {
     return null;
@@ -87,7 +109,7 @@ export function parseLocalPrefs(raw: string | null): LocalPrefs | null {
 
 /** The stored copy of `local`, as parseLocalPrefs reads it back. */
 export function serializeLocalPrefs(local: LocalPrefs): string {
-  return JSON.stringify({ ...local.prefs, fromAccount: local.fromAccount });
+  return JSON.stringify({ ...local.prefs, unclaimed: local.unclaimed });
 }
 
 /**
@@ -95,8 +117,9 @@ export function serializeLocalPrefs(local: LocalPrefs): string {
  * loaded. The saved ones win, except:
  *
  * - on first sign-in, an account still on the defaults takes the settings
- *   a guest chose in this browser (`guest`; null when what this browser
- *   holds is an account's — see LocalPrefs);
+ *   chosen in this browser that no account holds (`unclaimed`, see
+ *   LocalPrefs) — the defaults for those not chosen. `movedIn` says it
+ *   did: they're this account's to save, and no one else's to take;
  * - a setting chosen while they loaded (`chosen`, one entry per setting
  *   the user changed) is newer, and kept. The settings not chosen are the
  *   saved ones: the whole on-screen set would save this browser's copy, or
@@ -104,12 +127,12 @@ export function serializeLocalPrefs(local: LocalPrefs): string {
  */
 export function prefsAfterLoad(
   saved: A11yPrefs,
-  guest: A11yPrefs | null,
+  unclaimed: Partial<A11yPrefs>,
   chosen: Partial<A11yPrefs>
-): A11yPrefs {
-  const base =
-    guest && isDefaultPrefs(saved) && !isDefaultPrefs(guest) ? guest : saved;
-  return { ...base, ...chosen };
+): { prefs: A11yPrefs; movedIn: boolean } {
+  const guest: A11yPrefs = { ...DEFAULT_A11Y_PREFS, ...unclaimed };
+  const movedIn = isDefaultPrefs(saved) && !isDefaultPrefs(guest);
+  return { prefs: { ...(movedIn ? guest : saved), ...chosen }, movedIn };
 }
 
 /**
@@ -127,17 +150,4 @@ export function isPrefsOwner(
 ): boolean {
   if (typeof forUser !== "string") return true;
   return user.id === forUser || (user.email !== null && user.email === forUser);
-}
-
-/**
- * Has the session changed hands, from `held` to `now` (see sessionOwner:
- * an account, null for a guest, undefined while the session loads)? Signed
- * in, signed out, or another account signed in — not the session loading,
- * nor the first owner it finds.
- */
-export function ownerChanged(
-  held: string | null | undefined,
-  now: string | null | undefined
-): boolean {
-  return held !== undefined && now !== undefined && now !== held;
 }

@@ -46,11 +46,16 @@ export async function loadA11yPrefs(): Promise<A11yPrefs> {
  * Persist the signed-in user's accessibility preferences. They must be
  * `forUser`, the account whose settings the provider loaded (isPrefsOwner):
  * a save still on its way when another account signed in on this browser
- * is dropped, not written to that account.
+ * is dropped, not written to that account. Answers whether they were
+ * saved: the provider only takes a guest's settings moved into the account
+ * as the account's once they are (see LocalPrefs in lib/a11y-prefs.ts).
  */
-export async function saveA11yPrefs(prefs: A11yPrefs, forUser: string) {
+export async function saveA11yPrefs(
+  prefs: A11yPrefs,
+  forUser: string
+): Promise<boolean> {
   const user = await signedInUser();
-  if (!isPrefsOwner(user, forUser)) return;
+  if (!isPrefsOwner(user, forUser)) return false;
   if (!prefs || typeof prefs !== "object") throw new Error("Invalid settings");
   const p = toA11yPrefs(prefs);
   await prisma.user.update({
@@ -61,4 +66,5 @@ export async function saveA11yPrefs(prefs: A11yPrefs, forUser: string) {
       contrast: p.contrast,
     },
   });
+  return true;
 }

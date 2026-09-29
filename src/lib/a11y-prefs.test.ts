@@ -3,12 +3,12 @@ import {
   DEFAULT_A11Y_PREFS,
   isDefaultPrefs,
   isPrefsOwner,
-  ownerChanged,
   parseLocalPrefs,
   prefsAfterLoad,
   samePrefs,
   serializeLocalPrefs,
   toA11yPrefs,
+  toPartialPrefs,
   type A11yPrefs,
 } from "./a11y-prefs";
 
@@ -42,21 +42,40 @@ describe("isDefaultPrefs / samePrefs", () => {
   });
 });
 
+describe("toPartialPrefs", () => {
+  it("keeps the settings held validly, and only those", () => {
+    expect(toPartialPrefs(ALL_ON)).toEqual(ALL_ON);
+    expect(toPartialPrefs({ fontSize: "lg" })).toEqual({ fontSize: "lg" });
+    expect(toPartialPrefs({ dyslexia: false, contrast: true })).toEqual({
+      dyslexia: false,
+      contrast: true,
+    });
+  });
+
+  it("leaves out a setting whose value isn't one", () => {
+    expect(toPartialPrefs({ fontSize: "huge", dyslexia: "yes", contrast: 1 })).toEqual({});
+    expect(toPartialPrefs({ fontSize: "xl", contrast: null })).toEqual({ fontSize: "xl" });
+  });
+
+  it("is empty for anything but an object", () => {
+    expect(toPartialPrefs(null)).toEqual({});
+    expect(toPartialPrefs(undefined)).toEqual({});
+    expect(toPartialPrefs("xl")).toEqual({});
+    expect(toPartialPrefs([])).toEqual({});
+  });
+});
+
 describe("parseLocalPrefs / serializeLocalPrefs", () => {
-  it("reads back what it stored, with whose settings they are", () => {
-    for (const fromAccount of [true, false]) {
-      const local = { prefs: ALL_ON, fromAccount };
+  it("reads back what it stored, with the settings no account holds", () => {
+    for (const unclaimed of [{}, { fontSize: "lg" as const }, ALL_ON]) {
+      const local = { prefs: ALL_ON, unclaimed };
       expect(parseLocalPrefs(serializeLocalPrefs(local))).toEqual(local);
     }
   });
 
-  it("reads a copy stored before `fromAccount` was kept as a guest's", () => {
-    expect(
-      parseLocalPrefs(JSON.stringify({ fontSize: "lg", dyslexia: true, contrast: false }))
-    ).toEqual({
-      prefs: { fontSize: "lg", dyslexia: true, contrast: false },
-      fromAccount: false,
-    });
+  it("reads a copy stored before `unclaimed` was kept as all a guest's", () => {
+    const prefs: A11yPrefs = { fontSize: "lg", dyslexia: true, contrast: false };
+    expect(parseLocalPrefs(JSON.stringify(prefs))).toEqual({ prefs, unclaimed: prefs });
   });
 
   it("is null for no copy or one it can't read", () => {
@@ -68,46 +87,78 @@ describe("parseLocalPrefs / serializeLocalPrefs", () => {
   });
 
   it("repairs settings it can't use", () => {
-    expect(parseLocalPrefs(JSON.stringify({ fontSize: "huge", fromAccount: "yes" }))).toEqual({
-      prefs: DEFAULT_A11Y_PREFS,
-      fromAccount: false,
+    expect(
+      parseLocalPrefs(
+        JSON.stringify({ fontSize: "huge", unclaimed: { fontSize: "huge", contrast: true } })
+      )
+    ).toEqual({ prefs: DEFAULT_A11Y_PREFS, unclaimed: { contrast: true } });
+    expect(parseLocalPrefs(JSON.stringify({ ...ALL_ON, unclaimed: "all" }))).toEqual({
+      prefs: ALL_ON,
+      unclaimed: {},
     });
   });
 });
 
 describe("prefsAfterLoad", () => {
-  it("shows the saved settings over this browser's copy", () => {
+  it("shows the saved settings over what no account holds", () => {
     const saved: A11yPrefs = { fontSize: "lg", dyslexia: false, contrast: true };
-    expect(prefsAfterLoad(saved, ALL_ON, {})).toEqual(saved);
-    expect(prefsAfterLoad(saved, null, {})).toEqual(saved);
+    expect(prefsAfterLoad(saved, ALL_ON, {})).toEqual({ prefs: saved, movedIn: false });
+    expect(prefsAfterLoad(saved, {}, {})).toEqual({ prefs: saved, movedIn: false });
   });
 
-  it("shows the defaults when those are what's saved and there's no guest's choice", () => {
-    expect(prefsAfterLoad(DEFAULT_A11Y_PREFS, null, {})).toEqual(DEFAULT_A11Y_PREFS);
-    expect(prefsAfterLoad(DEFAULT_A11Y_PREFS, DEFAULT_A11Y_PREFS, {})).toEqual(
-      DEFAULT_A11Y_PREFS
-    );
+  it("shows the defaults when those are what's saved and nothing was chosen here", () => {
+    expect(prefsAfterLoad(DEFAULT_A11Y_PREFS, {}, {})).toEqual({
+      prefs: DEFAULT_A11Y_PREFS,
+      movedIn: false,
+    });
+    expect(prefsAfterLoad(DEFAULT_A11Y_PREFS, DEFAULT_A11Y_PREFS, {})).toEqual({
+      prefs: DEFAULT_A11Y_PREFS,
+      movedIn: false,
+    });
+    // Chosen here, but only back to a default: nothing to move in.
+    expect(prefsAfterLoad(DEFAULT_A11Y_PREFS, { fontSize: "normal" }, {})).toEqual({
+      prefs: DEFAULT_A11Y_PREFS,
+      movedIn: false,
+    });
   });
 
-  it("moves a guest's settings into an account still on the defaults", () => {
-    expect(prefsAfterLoad(DEFAULT_A11Y_PREFS, ALL_ON, {})).toEqual(ALL_ON);
+  it("moves the settings chosen here into an account still on the defaults", () => {
+    expect(prefsAfterLoad(DEFAULT_A11Y_PREFS, ALL_ON, {})).toEqual({
+      prefs: ALL_ON,
+      movedIn: true,
+    });
+  });
+
+  it("moves in only the settings chosen here, not the rest of what was shown", () => {
+    // A guest chose Large on top of another account's settings still on
+    // screen: only Large moves in.
+    expect(prefsAfterLoad(DEFAULT_A11Y_PREFS, { fontSize: "lg" }, {})).toEqual({
+      prefs: { fontSize: "lg", dyslexia: false, contrast: false },
+      movedIn: true,
+    });
   });
 
   it("keeps what was chosen while they loaded, and the saved settings not chosen", () => {
-    expect(prefsAfterLoad(ALL_ON, null, { fontSize: "lg" })).toEqual({
-      fontSize: "lg",
-      dyslexia: true,
-      contrast: true,
+    expect(prefsAfterLoad(ALL_ON, { fontSize: "lg" }, { fontSize: "lg" })).toEqual({
+      prefs: { fontSize: "lg", dyslexia: true, contrast: true },
+      movedIn: false,
     });
     expect(
-      prefsAfterLoad(ALL_ON, null, { dyslexia: false, contrast: false })
-    ).toEqual({ fontSize: "xl", dyslexia: false, contrast: false });
+      prefsAfterLoad(ALL_ON, {}, { dyslexia: false, contrast: false })
+    ).toEqual({
+      prefs: { fontSize: "xl", dyslexia: false, contrast: false },
+      movedIn: false,
+    });
   });
 
-  it("keeps a choice made while loading on top of a guest's migrated settings", () => {
+  it("keeps a choice made while loading on top of the settings moved in", () => {
     expect(
-      prefsAfterLoad(DEFAULT_A11Y_PREFS, ALL_ON, { contrast: false })
-    ).toEqual({ fontSize: "xl", dyslexia: true, contrast: false });
+      prefsAfterLoad(
+        DEFAULT_A11Y_PREFS,
+        { fontSize: "xl", dyslexia: true, contrast: true },
+        { contrast: true }
+      )
+    ).toEqual({ prefs: ALL_ON, movedIn: true });
   });
 });
 
@@ -128,21 +179,5 @@ describe("isPrefsOwner", () => {
 
   it("accepts a save sent without it, from a page loaded before it was sent", () => {
     expect(isPrefsOwner(user, undefined)).toBe(true);
-  });
-});
-
-describe("ownerChanged", () => {
-  it("is a sign-in, a sign-out, or another account signing in", () => {
-    expect(ownerChanged(null, "user-a")).toBe(true);
-    expect(ownerChanged("user-a", null)).toBe(true);
-    expect(ownerChanged("user-a", "user-b")).toBe(true);
-  });
-
-  it("isn't the same owner, the session loading, or the first owner found", () => {
-    expect(ownerChanged("user-a", "user-a")).toBe(false);
-    expect(ownerChanged(null, null)).toBe(false);
-    expect(ownerChanged("user-a", undefined)).toBe(false);
-    expect(ownerChanged(undefined, "user-a")).toBe(false);
-    expect(ownerChanged(undefined, null)).toBe(false);
   });
 });
