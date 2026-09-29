@@ -166,6 +166,45 @@ async function holdServerActions(page: import("@playwright/test").Page) {
   return { held: () => held, release };
 }
 
+/**
+ * Fails the first `times` server-action POSTs called with `args` the way a
+ * dropped connection does; every other request, and every later call, goes
+ * through. Next sends a server action's arguments as its JSON body: `[]`
+ * for ensureLearnerMembership / loadLearnerGlobal, `[slug, locale]` for
+ * loadCourseProgress.
+ */
+async function failServerActions(
+  page: import("@playwright/test").Page,
+  args: unknown[],
+  times: number
+) {
+  const body = JSON.stringify(args);
+  let failed = 0;
+  await page.route("**/*", async (route) => {
+    const req = route.request();
+    const matches =
+      req.method() === "POST" &&
+      !!(await req.headerValue("next-action")) &&
+      req.postData() === body;
+    if (matches && failed < times) {
+      failed++;
+      return route.abort("failed");
+    }
+    await route.continue();
+  });
+  return { failed: () => failed };
+}
+
+/** Clicks the player's Continue `times` times, one lesson each. */
+async function continueTimes(
+  page: import("@playwright/test").Page,
+  times: number
+) {
+  for (let i = 0; i < times; i++) {
+    await page.getByRole("button", { name: /^continue$/i }).click();
+  }
+}
+
 const ALL_STAGES = [
   "CONTEXT",
   "CONCEPT",
@@ -328,6 +367,282 @@ describe("progress made before the learner's data has loaded", () => {
           reflection: { p1: "Saved on an earlier visit" },
         },
         badges: [otherBadge!.slug, "voice-without-edges"].sort(),
+      });
+  });
+});
+
+describe("progress kept when the learner's data loads late, fails or overlaps", () => {
+  const emails = {
+    back: "e2e-overlap-back@example.com",
+    hydration: "e2e-retry-hydration@example.com",
+    courseLoad: "e2e-retry-course@example.com",
+    compCard: "e2e-early-compcard@example.com",
+    guestOther: "e2e-migrate-other-course@example.com",
+    guestSame: "e2e-migrate-same-course@example.com",
+  };
+  const all = Object.values(emails);
+  const users: Record<string, { id: string; session: string }> = {};
+
+  test.beforeAll(async () => {
+    await prisma.user.deleteMany({ where: { email: { in: all } } });
+    for (const email of all) {
+      const user = await prisma.user.create({
+        data: { email, emailVerified: new Date() },
+      });
+      const session = `e2e-late-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      await prisma.session.create({
+        data: {
+          sessionToken: session,
+          userId: user.id,
+          expires: new Date(Date.now() + 86_400_000),
+        },
+      });
+      users[email] = { id: user.id, session };
+    }
+  });
+
+  test.afterAll(async () => {
+    await prisma.user.deleteMany({ where: { email: { in: all } } });
+  });
+
+  const signIn = (
+    context: import("@playwright/test").BrowserContext,
+    email: string
+  ) =>
+    context.addCookies([
+      {
+        name: "authjs.session-token",
+        value: users[email].session,
+        domain: "localhost",
+        path: "/",
+        httpOnly: true,
+        sameSite: "Lax",
+      },
+    ]);
+
+  /** One course's saved progress for a learner, or null if not enrolled. */
+  const enrollmentFor = async (userId: string, slug: string) => {
+    const e = await prisma.courseEnrollment.findFirst({
+      where: { userId, course: { slug } },
+    });
+    return e ? { stages: e.stagesCompleted, reflection: e.reflection } : null;
+  };
+
+  test("going back to a course whose progress had loaded, before another course's has, doesn't overwrite it", async ({
+    page,
+    context,
+  }) => {
+    const { id: userId } = users[emails.back];
+    const course = await prisma.course.findFirst({
+      where: { slug: "workplace-conflict" },
+    });
+    await prisma.courseEnrollment.create({
+      data: {
+        userId,
+        courseId: course!.id,
+        stagesCompleted: ["CONTEXT", "CONCEPT"],
+        reflection: { p1: "Saved on an earlier visit", p2: "", p3: "" },
+      },
+    });
+    await signIn(context, emails.back);
+
+    // The course's progress loads, and a lesson done on this visit is saved.
+    await page.goto("/en/learner/course/workplace-conflict");
+    await continueTimes(page, 3);
+    await expect
+      .poll(() => enrollmentFor(userId, "workplace-conflict"), {
+        timeout: 15_000,
+      })
+      .toMatchObject({ stages: ["CONTEXT", "CONCEPT", "BEHAVIOUR"] });
+
+    // Then the server slows down. The learner opens the other course and
+    // comes back before its progress has loaded…
+    const actions = await holdServerActions(page);
+    const main = page.getByRole("main");
+    const toDashboard = () =>
+      main.getByRole("link", { name: "Dashboard", exact: true }).click();
+    await toDashboard();
+    await main
+      .locator('a[href="/en/learner/course/receiving-feedback"]')
+      .first()
+      .click();
+    await expect(page).toHaveURL(/\/learner\/course\/receiving-feedback$/);
+    await expect(main.getByRole("heading", { level: 1 })).toHaveText(
+      /receiving feedback/i
+    );
+    await expect.poll(actions.held).toBeGreaterThan(0);
+    await toDashboard();
+    await main
+      .locator('a[href="/en/learner/course/workplace-conflict"]')
+      .first()
+      .click();
+    await expect(page).toHaveURL(/\/learner\/course\/workplace-conflict$/);
+
+    // …and walks on to a lesson not done before.
+    await continueTimes(page, 3);
+    await page.getByText(/the bus was late\. when you say/i).click();
+    await continueTimes(page, 1);
+    await page.waitForTimeout(1000); // past the save debounce
+    actions.release();
+
+    await expect
+      .poll(() => enrollmentFor(userId, "workplace-conflict"), {
+        timeout: 15_000,
+      })
+      .toMatchObject({
+        stages: ["CONTEXT", "CONCEPT", "BEHAVIOUR", "SIMULATION"],
+        reflection: { p1: "Saved on an earlier visit" },
+      });
+  });
+
+  test("the learner's data is loaded again when the first try fails, and what they did meanwhile is saved", async ({
+    page,
+    context,
+  }) => {
+    test.setTimeout(60_000);
+    const { id: userId } = users[emails.hydration];
+    await signIn(context, emails.hydration);
+    // Membership and the saved badges / Comp Card: the first two calls fail.
+    const failing = await failServerActions(page, [], 2);
+
+    await page.goto("/en/learner/course/workplace-conflict");
+    await continueTimes(page, 3);
+
+    await expect
+      .poll(() => enrollmentFor(userId, "workplace-conflict"), {
+        timeout: 30_000,
+      })
+      .toMatchObject({ stages: ["CONTEXT", "CONCEPT", "BEHAVIOUR"] });
+    expect(failing.failed()).toBeGreaterThan(0);
+    expect(
+      await prisma.membership.count({ where: { userId, role: "LEARNER" } })
+    ).toBe(1);
+  });
+
+  test("a course's progress is loaded again when the first try fails, and what they did meanwhile is saved", async ({
+    page,
+    context,
+  }) => {
+    test.setTimeout(60_000);
+    const { id: userId } = users[emails.courseLoad];
+    await signIn(context, emails.courseLoad);
+    const failing = await failServerActions(
+      page,
+      ["workplace-conflict", "en"],
+      2
+    );
+
+    await page.goto("/en/learner/course/workplace-conflict");
+    await continueTimes(page, 3);
+
+    await expect
+      .poll(() => enrollmentFor(userId, "workplace-conflict"), {
+        timeout: 30_000,
+      })
+      .toMatchObject({ stages: ["CONTEXT", "CONCEPT", "BEHAVIOUR"] });
+    expect(failing.failed()).toBeGreaterThan(0);
+  });
+
+  test("Comp Card text typed before the saved card loaded is kept, and saved with it", async ({
+    page,
+    context,
+  }) => {
+    const { id: userId } = users[emails.compCard];
+    await prisma.compCard.create({
+      data: {
+        userId,
+        projectId: "seq-elevate",
+        wentWell: "Saved: I stayed calm",
+        difficult: "Saved: speaking up",
+        privacy: "FACILITATOR",
+      },
+    });
+    await signIn(context, emails.compCard);
+    const actions = await holdServerActions(page);
+
+    await page.goto("/en/learner/comp-card");
+    const improve = page.getByPlaceholder("One thing.");
+    await improve.fill("Typed before it loaded");
+    await expect.poll(actions.held).toBeGreaterThan(0);
+    actions.release();
+
+    await expect
+      .poll(
+        () =>
+          prisma.compCard.findFirst({
+            where: { userId },
+            select: { wentWell: true, difficult: true, improve: true },
+          }),
+        { timeout: 15_000 }
+      )
+      .toEqual({
+        wentWell: "Saved: I stayed calm",
+        difficult: "Saved: speaking up",
+        improve: "Typed before it loaded",
+      });
+    await expect(improve).toHaveValue("Typed before it loaded");
+    await expect(page.getByPlaceholder("Even small wins count.")).toHaveValue(
+      "Saved: I stayed calm"
+    );
+  });
+
+  test("a guest's course migrated on sign-in doesn't take over the other course being played", async ({
+    page,
+    context,
+  }) => {
+    const { id: userId } = users[emails.guestOther];
+    // As a guest: two lessons of workplace conflict, kept in this browser.
+    await page.goto("/en/learner/course/workplace-conflict");
+    await continueTimes(page, 2);
+
+    // Signed in, straight into the other course. The guest progress moves
+    // to the account…
+    await signIn(context, emails.guestOther);
+    await page.goto("/en/learner/course/receiving-feedback");
+    await expect
+      .poll(() => enrollmentFor(userId, "workplace-conflict"), {
+        timeout: 15_000,
+      })
+      .toMatchObject({ stages: ["CONTEXT", "CONCEPT"] });
+
+    // …and the lessons played now are this course's.
+    await continueTimes(page, 3);
+    await expect
+      .poll(() => enrollmentFor(userId, "receiving-feedback"), {
+        timeout: 15_000,
+      })
+      .toMatchObject({ stages: ["CONTEXT", "CONCEPT", "BEHAVIOUR"] });
+    expect(await enrollmentFor(userId, "workplace-conflict")).toMatchObject({
+      stages: ["CONTEXT", "CONCEPT"],
+    });
+  });
+
+  test("lessons played while a guest's course migrates on sign-in are kept", async ({
+    page,
+    context,
+  }) => {
+    const { id: userId } = users[emails.guestSame];
+    // As a guest: two lessons, kept in this browser.
+    await page.goto("/en/learner/course/workplace-conflict");
+    await continueTimes(page, 2);
+
+    // Signed in, back in the same course, and on to the simulation while
+    // the account (and the migration) loads.
+    await signIn(context, emails.guestSame);
+    const actions = await holdServerActions(page);
+    await page.goto("/en/learner/course/workplace-conflict");
+    await continueTimes(page, 3);
+    await page.getByText(/the bus was late\. when you say/i).click();
+    await continueTimes(page, 1);
+    await expect.poll(actions.held).toBeGreaterThan(0);
+    actions.release();
+
+    await expect
+      .poll(() => enrollmentFor(userId, "workplace-conflict"), {
+        timeout: 15_000,
+      })
+      .toMatchObject({
+        stages: ["CONTEXT", "CONCEPT", "BEHAVIOUR", "SIMULATION"],
       });
   });
 });
