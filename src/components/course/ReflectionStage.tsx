@@ -7,7 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useDemoState } from "@/store/demo-state";
 import type { CourseStage } from "@/lib/cms/types";
 import { ArrowRight, NotebookPen } from "lucide-react";
-import { FormattedText } from "./FormattedText";
+import { ReflectionIntro } from "./ReflectionIntro";
 
 /**
  * Reflection stage. Renders authored prompts; answers are private to the
@@ -41,11 +41,9 @@ export function ReflectionStage({
         </div>
         <h2 className="text-2xl font-bold tracking-tight">{stage.title}</h2>
         {/* The intro can be the author's own paragraph (see db-course.ts), so
-            it keeps their line breaks and lists like narrative text does. */}
-        <FormattedText
-          text={ref.intro}
-          className="mt-2 text-sm text-[var(--muted-foreground)]"
-        />
+            it keeps their formatting, line breaks and lists like narrative
+            text does. */}
+        <ReflectionIntro reflection={ref} className="mt-2" />
 
         <div className="mt-6 space-y-5">
           {ref.prompts.slice(0, 3).map((prompt, i) => {

@@ -154,7 +154,14 @@ export interface CourseStage {
   };
   /** reflection stage */
   reflection?: {
+    /** Plain text; with `introRich`, the text derived from it (D36). */
     intro: string;
+    /**
+     * A created course's intro as its author formatted it (D36), already
+     * sanitized. Absent = plain `intro` (built-in courses, defaults, and
+     * intros nobody has edited since rich text).
+     */
+    introRich?: RichText;
     prompts: { label: string; placeholder: string }[];
   };
   /** assessment stage */

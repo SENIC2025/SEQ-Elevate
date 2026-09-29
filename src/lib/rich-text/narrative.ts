@@ -1,5 +1,5 @@
 import type { NarrativeBlock } from "@/lib/cms/types";
-import { RT_LIMITS } from "./types";
+import { RT_LIMITS, type RichText } from "./types";
 import {
   RT_PROBLEM,
   cleanPlainText,
@@ -214,6 +214,32 @@ export function blockPlainText(block: {
   if (block.rich == null) return undefined;
   const { value } = sanitizeRichText(block.rich);
   return value ? docToPlainText(value.doc) : undefined;
+}
+
+/**
+ * A reflection lesson's introduction from its stored blocks: the first
+ * paragraph, which is all the reflection editor writes. Its plain text (see
+ * blockPlainText) and, when it has rich text that passes the check, that
+ * too, sanitized — a doc that doesn't is left out, and learners see the
+ * text. Undefined when there's no paragraph with either.
+ *
+ * Read from a stored lesson, which a direct database write or the external
+ * CMS may have shaped differently, so anything that isn't a block is
+ * skipped rather than trusted.
+ */
+export function introFromBlocks(
+  blocks: unknown
+): { text: string; rich?: RichText } | undefined {
+  if (!Array.isArray(blocks)) return undefined;
+  const paragraph = blocks.find(
+    (block): block is Rec => isRecord(block) && block.kind === "paragraph"
+  );
+  if (!paragraph) return undefined;
+  const text = blockPlainText(paragraph);
+  if (text === undefined) return undefined;
+  const rich =
+    paragraph.rich == null ? null : sanitizeRichText(paragraph.rich).value;
+  return rich ? { text, rich } : { text };
 }
 
 /**

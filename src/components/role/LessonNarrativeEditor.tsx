@@ -18,6 +18,8 @@ import { fetchStorageStatus } from "@/components/role/useBlobUpload";
 import { BlockList, withKeys } from "@/components/role/narrative/BlockList";
 import { inputCls } from "@/components/role/narrative/BlockEditor";
 import { stripKey } from "@/components/role/narrative/block-ops";
+import { LazyRichTextEditor } from "@/components/rich-text/LazyRichTextEditor";
+import type { RichText } from "@/lib/rich-text/types";
 import {
   PenSquare,
   Save,
@@ -48,9 +50,27 @@ type Status =
   | "reloaded"
   | "discarded";
 
-/** The first paragraph's text — all a reflection lesson's intro is. */
-const introOf = (blocks: NarrativeBlock[]) =>
-  blocks.find((b) => b.kind === "paragraph")?.text ?? "";
+/**
+ * A reflection lesson's intro: the first paragraph — all it is. Its text,
+ * and its rich text once an author has formatted it (D36); an intro nobody
+ * has edited since stays plain text, as it's stored.
+ */
+interface Intro {
+  text: string;
+  rich?: RichText;
+}
+
+function introOf(blocks: NarrativeBlock[]): Intro {
+  const paragraph = blocks.find((b) => b.kind === "paragraph");
+  return {
+    text: paragraph?.text ?? "",
+    ...(paragraph?.rich ? { rich: paragraph.rich } : {}),
+  };
+}
+
+/** The intro as the one block a reflection lesson saves. */
+const introBlock = ({ text, rich }: Intro): NarrativeBlock =>
+  rich ? { kind: "paragraph", text, rich } : { kind: "paragraph", text };
 
 /**
  * The teaching text of one lesson in one language, on the course page.
@@ -61,8 +81,9 @@ const introOf = (blocks: NarrativeBlock[]) =>
  * remounts it (keyed by language) to switch language.
  *
  * mode "reflection" edits a created course's reflection lesson: just its
- * title and introduction (the questions learners answer are fixed). The
- * learner view reads back exactly the title and the first paragraph.
+ * title and introduction (the questions learners answer are fixed), the
+ * introduction formatted like a paragraph (D36). The learner view reads
+ * back exactly the title and the first paragraph.
  *
  * Saves go live at once on a published course (D33); the page says so.
  *
@@ -121,6 +142,9 @@ export function LessonNarrativeEditor({
   const [subtitle, setSubtitle] = React.useState(initial.subtitle);
   const [blocks, setBlocks] = React.useState(() => withKeys(initial.blocks));
   const [intro, setIntro] = React.useState(() => introOf(initial.blocks));
+  // The intro's editor keeps its own text once it opens (RichTextEditor):
+  // bumped to open it again on what load() puts back.
+  const [introRev, setIntroRev] = React.useState(0);
   const [hasOverride, setHasOverride] = React.useState(initial.hasOverride);
   const [fallbackFrom, setFallbackFrom] = React.useState(initial.fallbackFrom);
   // What a save or "Discard changes" goes back to.
@@ -149,6 +173,7 @@ export function LessonNarrativeEditor({
     setSubtitle(from.subtitle);
     setBlocks(withKeys(from.blocks));
     setIntro(introOf(from.blocks));
+    setIntroRev((n) => n + 1);
     setBaseline(from);
     setCleanAt(edits);
     setResetKey((k) => k + 1);
@@ -189,7 +214,7 @@ export function LessonNarrativeEditor({
       ? {
           title,
           subtitle: "",
-          blocks: [{ kind: "paragraph" as const, text: intro }],
+          blocks: [introBlock(intro)],
         }
       : { title, subtitle, blocks: blocks.map(stripKey) };
     setStatus("saving");
@@ -394,21 +419,24 @@ export function LessonNarrativeEditor({
         </div>
         {reflection ? (
           <div>
-            <label
-              htmlFor={`${ids}-intro`}
-              className="mb-1 block text-xs font-medium text-[var(--muted-foreground)]"
+            {/* Names the editor (aria-labelledby): a <label> can't point at
+                an editable <div>. */}
+            <p
+              id={`${ids}-intro`}
+              className="mb-1 text-xs font-medium text-[var(--muted-foreground)]"
             >
               Introduction
-            </label>
-            <textarea
-              id={`${ids}-intro`}
-              value={intro}
-              rows={3}
-              onChange={(e) => {
-                setIntro(e.target.value);
+            </p>
+            <LazyRichTextEditor
+              key={introRev}
+              rich={intro.rich}
+              text={intro.text}
+              variant="reflection-intro"
+              labelledBy={`${ids}-intro`}
+              onChange={(rich, text) => {
+                setIntro({ text, rich });
                 edited();
               }}
-              className={`${inputCls} resize-y`}
             />
           </div>
         ) : (

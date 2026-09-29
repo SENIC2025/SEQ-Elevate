@@ -39,8 +39,16 @@ export interface RichTextEditorProps {
   rich?: unknown;
   /** The block's plain text: what the editor opens without a readable `rich`. */
   text?: string;
-  /** A paragraph or a key message: its look (the learner's) and names. */
-  variant: "paragraph" | "callout";
+  /**
+   * A paragraph, a key message or a reflection lesson's introduction: its
+   * look (the learner's) and names.
+   */
+  variant: "paragraph" | "callout" | "reflection-intro";
+  /**
+   * The id of a visible label for the text, which then names it (instead of
+   * the variant's own name), as a form field's label would.
+   */
+  labelledBy?: string;
   /** Put the cursor at the end of the text once the editor is ready. */
   autoFocus?: boolean;
   /**
@@ -53,10 +61,11 @@ export interface RichTextEditorProps {
 }
 
 /**
- * Per kind of block. `prose` holds the classes of the learner's element
- * (NarrativeStage), so the text looks the same while it is edited.
+ * Per kind of text. `prose` holds the classes of the learner's element
+ * (NarrativeStage, ReflectionIntro), so the text looks the same while it is
+ * edited; editor-schema.test.ts checks they haven't drifted apart.
  */
-const VARIANT = {
+export const VARIANT = {
   paragraph: {
     name: "Paragraph",
     subject: "This paragraph",
@@ -74,12 +83,21 @@ const VARIANT = {
     // The learner's highlighted box, at full width while editing.
     box: "m-2 rounded-lg border border-[var(--accent)]/20 bg-[var(--primary)]/10 px-4 py-3",
   },
+  "reflection-intro": {
+    name: "Introduction",
+    subject: "This introduction",
+    label: "Introduction",
+    placeholder: "Write a short introduction…",
+    prose: "text-sm text-[var(--muted-foreground)]",
+    box: "px-3 py-2",
+  },
 } as const;
 
 /**
- * The lesson text editor for one paragraph or key message (D36): bold,
- * italic, bulleted and numbered lists, indent, undo — the formatting
- * learners see, drawn with the same .seq-prose styles, and nothing else.
+ * The lesson text editor for one paragraph, key message or reflection
+ * introduction (D36): bold, italic, bulleted and numbered lists, indent,
+ * undo — the formatting learners see, drawn with the same .seq-prose
+ * styles, and nothing else.
  *
  * - It opens `rich` when that reads as version 1, otherwise `text` by the
  *   rules learners already see (Round 1), so an old block shows the
@@ -101,6 +119,7 @@ export function RichTextEditor({
   rich,
   text,
   variant,
+  labelledBy,
   autoFocus = false,
   onChange,
 }: RichTextEditorProps) {
@@ -125,7 +144,9 @@ export function RichTextEditor({
         class: cn("seq-prose rt-editor", v.prose),
         role: "textbox",
         "aria-multiline": "true",
-        "aria-label": v.label,
+        ...(labelledBy
+          ? { "aria-labelledby": labelledBy }
+          : { "aria-label": v.label }),
         "aria-describedby": `${ids}-tip ${ids}-keys`,
         // Where BlockEditor puts focus when it's asked to.
         "data-block-field": "",

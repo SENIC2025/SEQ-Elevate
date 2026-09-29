@@ -324,9 +324,16 @@ function narrativeInitial(
           title: stage.title,
           subtitle: "",
           // The editor shows the intro as a single paragraph (db-course.ts
-          // reads back exactly the title and the first paragraph's text).
+          // reads back exactly the title and the first paragraph), with its
+          // formatting when it has any (D36).
           blocks: [
-            { kind: "paragraph" as const, text: stage.reflection?.intro ?? "" },
+            {
+              kind: "paragraph" as const,
+              text: stage.reflection?.intro ?? "",
+              ...(stage.reflection?.introRich
+                ? { rich: stage.reflection.introRich }
+                : {}),
+            },
           ],
         }
       : {

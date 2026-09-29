@@ -3,6 +3,7 @@ import {
   NARRATIVE_LIMITS,
   blockPlainText,
   cleanNarrativeLine,
+  introFromBlocks,
   sanitizeNarrativeBlocks,
 } from "./narrative";
 
@@ -303,6 +304,75 @@ describe("blockPlainText", () => {
   it("is undefined when there's nothing readable", () => {
     expect(blockPlainText({})).toBeUndefined();
     expect(blockPlainText({ rich: { v: 9 } })).toBeUndefined();
+  });
+});
+
+describe("introFromBlocks", () => {
+  const bold = { type: "bold" };
+
+  it("is the first paragraph's text, plain when it was never formatted", () => {
+    expect(
+      introFromBlocks([
+        { kind: "callout", text: "Not this" },
+        { kind: "paragraph", text: "Take a moment.\n• Pause" },
+        { kind: "paragraph", text: "Nor this" },
+      ])
+    ).toEqual({ text: "Take a moment.\n• Pause" });
+    expect(introFromBlocks([{ kind: "paragraph", text: "" }])).toEqual({
+      text: "",
+    });
+  });
+
+  it("carries the paragraph's rich text, sanitized, beside its text", () => {
+    const intro = introFromBlocks([
+      {
+        kind: "paragraph",
+        text: "Take a moment",
+        rich: rich(
+          p(t("Take a "), t("moment", bold)),
+          // Not in the format: dropped, as on every read.
+          { type: "heading", content: [t("Big")] }
+        ),
+      },
+    ]);
+    expect(intro).toEqual({
+      text: "Take a moment",
+      rich: rich(p(t("Take a "), t("moment", bold))),
+    });
+  });
+
+  it("derives the text from rich text stored without it", () => {
+    expect(
+      introFromBlocks([{ kind: "paragraph", rich: rich(p(t("Only rich"))) }])
+    ).toEqual({ text: "Only rich", rich: rich(p(t("Only rich"))) });
+  });
+
+  it("keeps just the text when the rich text doesn't pass the check", () => {
+    expect(
+      introFromBlocks([
+        { kind: "paragraph", text: "Plain", rich: { v: 9, doc: {} } },
+      ])
+    ).toEqual({ text: "Plain" });
+    expect(
+      introFromBlocks([
+        { kind: "paragraph", text: "Long", rich: rich(p(t("x".repeat(10_001)))) },
+      ])
+    ).toEqual({ text: "Long" });
+  });
+
+  it("is undefined without a readable paragraph, whatever is stored", () => {
+    expect(introFromBlocks(undefined)).toBeUndefined();
+    expect(introFromBlocks({ kind: "paragraph", text: "x" })).toBeUndefined();
+    expect(introFromBlocks([])).toBeUndefined();
+    expect(introFromBlocks([{ kind: "list", items: ["a"] }])).toBeUndefined();
+    expect(introFromBlocks([{ kind: "paragraph" }])).toBeUndefined();
+    expect(
+      introFromBlocks([null, 7, { kind: "paragraph", rich: { v: 9 } }])
+    ).toBeUndefined();
+    // A malformed entry is skipped, not trusted or fatal.
+    expect(introFromBlocks([null, { kind: "paragraph", text: "Found" }])).toEqual(
+      { text: "Found" }
+    );
   });
 });
 
