@@ -74,6 +74,9 @@ async function changeFailure(
  * steps: the file goes to Vercel Blob (useBlobUpload), then the lesson gets a
  * row pointing at it — each with its own "Try again".
  *
+ * A new document starts hidden from learners (even on a live course) until
+ * the editor chooses "Show to learners"; the list says so in words.
+ *
  * The course page gives the lesson (`courseSlug`, `stageKey`, and its
  * documents as `initialDocuments`); `onChange` reports the list after every
  * change that went through.
@@ -99,6 +102,9 @@ export function LessonDocumentManager({
   const upload = useBlobUpload(DOCUMENT_UPLOAD);
   const [attach, setAttach] = React.useState<AttachState>({ phase: "idle" });
   const [listError, setListError] = React.useState("");
+  // Said once a document is removed (its row, and its buttons, are gone).
+  const [listNotice, setListNotice] = React.useState("");
+  const headingRef = React.useRef<HTMLHeadingElement>(null);
   const noticeId = React.useId();
   const [reloadKey, setReloadKey] = React.useState(0);
   const refresh = () => setReloadKey((k) => k + 1);
@@ -138,6 +144,7 @@ export function LessonDocumentManager({
 
   async function send(f: File) {
     setAttach({ phase: "idle" });
+    setListNotice("");
     const stored = await upload.start(f);
     if (!stored) return;
     await attachToLesson({
@@ -181,7 +188,7 @@ export function LessonDocumentManager({
       : attach.phase === "done"
         ? {
             tone: "success" as const,
-            text: `Added “${attach.name}” to this lesson.`,
+            text: `Added “${attach.name}” as a draft — learners can't see it until you choose “Show to learners”.`,
           }
         : attach.phase === "failed"
           ? { tone: "error" as const, text: attach.message }
@@ -200,12 +207,17 @@ export function LessonDocumentManager({
 
   async function onRemove(doc: LessonDocumentRef) {
     if (!window.confirm(`Remove “${doc.name}” from this lesson?`)) return;
+    // Its row goes away: keep focus in this editor rather than the page.
+    headingRef.current?.focus();
     setListError("");
+    setListNotice("");
     const what = `Couldn't remove “${doc.name}”`;
     try {
       const res = await removeLessonDocument(doc.id);
-      if (res.ok) refresh();
-      else setListError(await changeFailure(what, "refused"));
+      if (res.ok) {
+        setListNotice(`Removed “${doc.name}” from this lesson.`);
+        refresh();
+      } else setListError(await changeFailure(what, "refused"));
     } catch (thrown) {
       setListError(await changeFailure(what, { thrown }));
     }
@@ -221,6 +233,7 @@ export function LessonDocumentManager({
     const previous = docs;
     setDocs(next);
     setListError("");
+    setListNotice("");
     try {
       const res = await save();
       if (res.ok) {
@@ -264,7 +277,9 @@ export function LessonDocumentManager({
             <FolderOpen className="h-5 w-5" />
           </div>
           <div>
-            <h3 className="font-semibold">Lesson documents</h3>
+            <h3 ref={headingRef} tabIndex={-1} className="font-semibold">
+              Lesson documents
+            </h3>
             <p className="text-xs text-[var(--muted-foreground)]">
               Attach PDFs, Office files or images to a lesson.
             </p>
@@ -316,79 +331,84 @@ export function LessonDocumentManager({
               {docs.map((d, i) => (
                 <li
                   key={d.id}
-                  className="flex items-center gap-2 rounded-lg border border-[var(--border)] px-2 py-2 text-sm"
+                  className="flex flex-wrap items-center gap-x-2 gap-y-1.5 rounded-lg border border-[var(--border)] px-2 py-2 text-sm"
                 >
-                  <span className="flex h-6 w-7 flex-shrink-0 items-center justify-center rounded bg-[var(--accent)]/10 text-xs font-semibold text-[var(--accent)] tabular-nums">
-                    {i + 1}
-                  </span>
-                  <div className="flex flex-col flex-shrink-0">
+                  <div className="flex min-w-[10rem] flex-1 items-center gap-2">
+                    <span className="flex h-6 w-7 flex-shrink-0 items-center justify-center rounded bg-[var(--accent)]/10 text-xs font-semibold text-[var(--accent)] tabular-nums">
+                      {i + 1}
+                    </span>
+                    <div className="flex flex-col flex-shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => move(i, "up")}
+                        disabled={i === 0}
+                        aria-label={`Move ${d.name} up`}
+                        className="text-[var(--muted-foreground)] hover:text-[var(--accent)] disabled:opacity-30"
+                      >
+                        <ChevronUp className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => move(i, "down")}
+                        disabled={i === docs.length - 1}
+                        aria-label={`Move ${d.name} down`}
+                        className="text-[var(--muted-foreground)] hover:text-[var(--accent)] disabled:opacity-30"
+                      >
+                        <ChevronDown className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                    <FileText className="h-4 w-4 text-[var(--muted-foreground)] flex-shrink-0" />
+                    <a
+                      href={d.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={`min-w-0 flex-1 truncate hover:underline ${
+                        d.published ? "" : "text-[var(--muted-foreground)]"
+                      }`}
+                    >
+                      {d.name}
+                    </a>
+                    <span className="hidden sm:inline text-xs text-[var(--muted-foreground)] tabular-nums">
+                      {formatSize(d.sizeBytes)}
+                    </span>
+                  </div>
+                  {/* Wraps under the name on a phone. */}
+                  <div className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
+                    {d.published ? (
+                      <Badge variant="success" className="text-[10px]">
+                        Published
+                      </Badge>
+                    ) : (
+                      <Badge variant="muted" className="text-[10px]">
+                        Draft — hidden from learners
+                      </Badge>
+                    )}
                     <button
                       type="button"
-                      onClick={() => move(i, "up")}
-                      disabled={i === 0}
-                      aria-label={`Move ${d.name} up`}
-                      className="text-[var(--muted-foreground)] hover:text-[var(--accent)] disabled:opacity-30"
+                      onClick={() => togglePublish(d, !d.published)}
+                      aria-label={
+                        d.published
+                          ? `Hide from learners: ${d.name}`
+                          : `Show to learners: ${d.name}`
+                      }
+                      className="inline-flex items-center gap-1 rounded-md border border-[var(--border)] px-2 py-1 text-xs text-[var(--foreground)] hover:bg-[var(--surface-muted)] hover:text-[var(--accent)]"
                     >
-                      <ChevronUp className="h-3.5 w-3.5" />
+                      {d.published ? (
+                        <EyeOff className="h-3.5 w-3.5" aria-hidden />
+                      ) : (
+                        <Eye className="h-3.5 w-3.5" aria-hidden />
+                      )}
+                      {d.published ? "Hide from learners" : "Show to learners"}
                     </button>
                     <button
                       type="button"
-                      onClick={() => move(i, "down")}
-                      disabled={i === docs.length - 1}
-                      aria-label={`Move ${d.name} down`}
-                      className="text-[var(--muted-foreground)] hover:text-[var(--accent)] disabled:opacity-30"
+                      onClick={() => onRemove(d)}
+                      aria-label={`Remove ${d.name}`}
+                      className="rounded-md p-1 text-[var(--muted-foreground)] hover:text-[var(--danger)]"
                     >
-                      <ChevronDown className="h-3.5 w-3.5" />
+                      <Trash2 className="h-4 w-4" />
                     </button>
                   </div>
-                  <FileText className="h-4 w-4 text-[var(--muted-foreground)] flex-shrink-0" />
-                  <a
-                    href={d.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className={`flex-1 truncate hover:underline ${
-                      d.published ? "" : "text-[var(--muted-foreground)]"
-                    }`}
-                  >
-                    {d.name}
-                  </a>
-                  <span className="hidden sm:inline text-xs text-[var(--muted-foreground)] tabular-nums">
-                    {formatSize(d.sizeBytes)}
-                  </span>
-                  {d.published ? (
-                    <Badge variant="success" className="text-[10px]">
-                      Published
-                    </Badge>
-                  ) : (
-                    <Badge variant="muted" className="text-[10px]">
-                      Draft
-                    </Badge>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => togglePublish(d, !d.published)}
-                    aria-label={
-                      d.published
-                        ? `Unpublish ${d.name}`
-                        : `Publish ${d.name}`
-                    }
-                    title={d.published ? "Unpublish (hide)" : "Publish (show)"}
-                    className="rounded-md p-1 text-[var(--muted-foreground)] hover:text-[var(--accent)]"
-                  >
-                    {d.published ? (
-                      <Eye className="h-4 w-4 text-[var(--success)]" />
-                    ) : (
-                      <EyeOff className="h-4 w-4" />
-                    )}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onRemove(d)}
-                    aria-label={`Remove ${d.name}`}
-                    className="rounded-md p-1 text-[var(--muted-foreground)] hover:text-[var(--danger)]"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
                 </li>
               ))}
             </ol>
@@ -398,6 +418,17 @@ export function LessonDocumentManager({
               Use the arrows to set the order learners see (1, 2, 3…).
             </p>
           ) : null}
+          <p
+            role="status"
+            aria-live="polite"
+            className={
+              listNotice
+                ? "mt-2 text-xs text-[var(--muted-foreground)]"
+                : "sr-only"
+            }
+          >
+            {listNotice}
+          </p>
           {listError ? (
             <p
               role="alert"

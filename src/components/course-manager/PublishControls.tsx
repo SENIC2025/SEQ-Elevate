@@ -44,6 +44,7 @@ export function PublishControls({
   const t = useTranslations("courseManager");
   const tStage = useTranslations("course.stageLabel");
   const ids = React.useId();
+  const headingRef = React.useRef<HTMLHeadingElement>(null);
   const warningRef = React.useRef<HTMLParagraphElement>(null);
   const unpublishRef = React.useRef<HTMLButtonElement>(null);
   const [pending, setPending] = React.useState<CourseStatus | null>(null);
@@ -76,6 +77,10 @@ export function PublishControls({
       setError(t("page.errors.generic"));
     }
     setPending(null);
+    // The button that was pressed has gone (or was disabled while this ran):
+    // put focus back at the top of this section rather than on the page. The
+    // new status is announced by the badge's live region.
+    requestAnimationFrame(() => headingRef.current?.focus());
   }
 
   function cancelUnpublish() {
@@ -116,13 +121,22 @@ export function PublishControls({
       className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4"
     >
       <div className="flex flex-wrap items-center gap-2">
-        <h2 id={`${ids}-h`} className="text-sm font-semibold">
+        <h2
+          id={`${ids}-h`}
+          ref={headingRef}
+          tabIndex={-1}
+          className="text-sm font-semibold"
+        >
           {t("page.publishing")}
         </h2>
-        <Badge variant={status === "published" ? "success" : "muted"}>
-          <Icon className="h-3 w-3" aria-hidden />
-          {t(`status.${status}`)}
-        </Badge>
+        {/* Always mounted: a change of status is read out, the first
+            render isn't. */}
+        <span role="status">
+          <Badge variant={status === "published" ? "success" : "muted"}>
+            <Icon className="h-3 w-3" aria-hidden />
+            {t(`status.${status}`)}
+          </Badge>
+        </span>
       </div>
 
       {status !== "published" && readiness.length ? (
