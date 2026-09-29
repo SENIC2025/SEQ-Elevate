@@ -7,9 +7,10 @@ import type { Locale, StageKey } from "@/lib/cms/types";
 
 /**
  * Jump links to every lesson, in learner order, with the lesson's own title
- * in the content language — plus, on a created course, "Add a simulation /
- * branching scenario / quick check" for the practice lessons it doesn't have
- * yet. Sticks beside the lessons on wide screens.
+ * in the content language — plus, on a created course, "Add guided practice
+ * / an applied scenario / a quick check" for the practice lessons it doesn't
+ * have yet (named as learners will see them in the list). Sticks beside the
+ * lessons on wide screens.
  */
 export function LessonNav({
   lessons,

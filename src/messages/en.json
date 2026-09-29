@@ -693,8 +693,8 @@
       "done": "Done",
       "notAddedYet": "Not added yet",
       "addStage": {
-        "simulation": "Add a simulation",
-        "scenario": "Add a branching scenario",
+        "simulation": "Add guided practice",
+        "scenario": "Add an applied scenario",
         "assessment": "Add a quick check"
       },
       "builtInNotice": "This part of a built-in course comes with the platform and can't be edited here. You can still add a video and documents.",
@@ -708,7 +708,7 @@
         "copyMissing": "No {language} title and subtitle yet.",
         "lessonEmpty": "The “{stage}” lesson has no content yet.",
         "lessonUntranslated": "{count, plural, one {# lesson has} other {# lessons have}} no {language} text yet — learners see another language there.",
-        "noInteractive": "No practice activity yet — a simulation, branching scenario or quick check helps learners try the skill."
+        "noInteractive": "No practice activity yet — guided practice, an applied scenario or a quick check helps learners try the skill."
       },
       "read": {
         "video": "Video",

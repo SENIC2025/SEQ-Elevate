@@ -693,8 +693,8 @@
       "done": "Fertig",
       "notAddedYet": "Noch nicht hinzugefügt",
       "addStage": {
-        "simulation": "Simulation hinzufügen",
-        "scenario": "Verzweigtes Szenario hinzufügen",
+        "simulation": "Geführte Übung hinzufügen",
+        "scenario": "Anwendung hinzufügen",
         "assessment": "Schnellcheck hinzufügen"
       },
       "builtInNotice": "Dieser Teil eines mitgelieferten Kurses kommt mit der Plattform und kann hier nicht bearbeitet werden. Ein Video und Dokumente kannst du trotzdem hinzufügen.",
@@ -708,7 +708,7 @@
         "copyMissing": "Noch kein Titel und Untertitel auf {language}.",
         "lessonEmpty": "Die Lektion „{stage}“ hat noch keinen Inhalt.",
         "lessonUntranslated": "{count, plural, one {# Lektion hat} other {# Lektionen haben}} noch keinen Text auf {language} — Lernende sehen dort eine andere Sprache.",
-        "noInteractive": "Noch keine Übung — eine Simulation, ein verzweigtes Szenario oder ein Schnellcheck hilft Lernenden, die Fähigkeit auszuprobieren."
+        "noInteractive": "Noch keine Übung — eine geführte Übung, eine Anwendung oder ein Schnellcheck hilft Lernenden, die Fähigkeit auszuprobieren."
       },
       "read": {
         "video": "Video",
