@@ -10,7 +10,7 @@ import {
   removeBlock,
   restoreBlock,
 } from "./block-ops";
-import { BLOCK_KIND_LABEL, type BlockTemplate } from "./block-templates";
+import { blockLabel, type BlockTemplate } from "./block-templates";
 import { BlockTemplatePicker } from "./BlockTemplatePicker";
 import {
   BlockEditor,
@@ -116,7 +116,7 @@ export function BlockList({
   const undoRow = removed ? (
     <div className="flex flex-wrap items-center gap-2 rounded-lg border border-dashed border-[var(--border)] px-3 py-2 text-sm text-[var(--muted-foreground)]">
       <span id={`${ids}-removed`}>
-        {BLOCK_KIND_LABEL[removed.block.kind]} block removed.
+        {blockLabel(removed.block)} block removed.
       </span>
       <Button
         ref={undoRef}
