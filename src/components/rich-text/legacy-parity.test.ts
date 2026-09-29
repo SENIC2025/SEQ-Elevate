@@ -2,6 +2,8 @@ import { describe, it, expect } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { FormattedText } from "@/components/course/FormattedText";
+import { legacyTextToDoc } from "@/lib/rich-text/from-legacy";
+import { RichTextView } from "./RichTextView";
 
 /**
  * Parity guard for existing lesson text (D36). Every lesson written before
@@ -226,5 +228,23 @@ describe("legacy lesson text renders exactly as in Round 1", () => {
 
   it("renders nothing without text", () => {
     expect(render({ text: undefined })).toBe("");
+  });
+});
+
+// Added with the switch to RichTextView; the Round 1 captures above are
+// unchanged.
+describe("legacy lesson text through RichTextView", () => {
+  const view = (props: Parameters<typeof RichTextView>[0]) =>
+    renderToStaticMarkup(createElement(RichTextView, props));
+
+  it.each(CASES)("as plain text: %j", (input, html) => {
+    expect(view({ text: input })).toBe(html);
+  });
+
+  // An author's first edit turns a plain block into rich text. Converted
+  // by the same rules, it must still look the same to learners.
+  it.each(CASES)("converted to rich text: %j", (input, html) => {
+    const rich = { v: 1, doc: legacyTextToDoc(input) };
+    expect(view({ rich, text: "ignored while rich is usable" })).toBe(html);
   });
 });
