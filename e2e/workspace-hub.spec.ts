@@ -138,6 +138,13 @@ describe("Workspace hub", () => {
 
     await page.getByRole("link", { name: "Manage courses" }).first().click();
     await expect(page).toHaveURL(/\/en\/content\/courses$/);
+    // The course grid itself, not the editors-only notice.
+    await expect(
+      page.getByRole("heading", { level: 1, name: "Manage courses" })
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: /new course/i })
+    ).toBeVisible();
     // /content/courses is under /content: the longest route must win, or the
     // switcher would call this page "Create courses".
     await expect(page.locator("header summary").first()).toContainText(
