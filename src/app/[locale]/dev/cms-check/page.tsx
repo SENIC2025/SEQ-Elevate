@@ -1,4 +1,5 @@
 import { setRequestLocale } from "next-intl/server";
+import { assertDevPagesAllowed } from "@/lib/dev-pages";
 import { getCourse, listCourses } from "@/lib/cms";
 import { getCMSSource } from "@/lib/cms/provider";
 import { probeDbCourses } from "@/lib/cms/db-course";
@@ -14,6 +15,8 @@ export default async function Page({
 }: {
   params: Promise<{ locale: string }>;
 }) {
+  // Before any data is loaded — see assertDevPagesAllowed.
+  assertDevPagesAllowed();
   const { locale } = await params;
   setRequestLocale(locale);
   const loc = (["en", "de", "el"].includes(locale) ? locale : "en") as Locale;
