@@ -5,135 +5,186 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
-  getLessonContent,
   saveLessonNarrative,
   clearLessonNarrative,
 } from "@/app/actions/lesson";
-import type { NarrativeBlock, Locale } from "@/lib/cms/types";
+import type { Locale, NarrativeBlock, StageKey } from "@/lib/cms/types";
+import type {
+  CourseKind,
+  NarrativeInitial,
+} from "@/lib/cms/course-admin-types";
 import { saveFailureMessage } from "@/lib/author-feedback";
 import { fetchStorageStatus } from "@/components/role/useBlobUpload";
+import { BlockList, withKeys } from "@/components/role/narrative/BlockList";
+import { inputCls } from "@/components/role/narrative/BlockEditor";
+import { stripKey } from "@/components/role/narrative/block-ops";
 import {
   PenSquare,
   Save,
   Loader2,
   CheckCircle2,
   AlertTriangle,
-  Plus,
-  Trash2,
-  ChevronUp,
-  ChevronDown,
   RotateCcw,
+  Undo2,
 } from "lucide-react";
 
-const NARRATIVE_STAGES = ["context", "concept", "behaviour"] as const;
-const LOCALES: { code: Locale; label: string }[] = [
-  { code: "en", label: "English" },
-  { code: "de", label: "Deutsch" },
-  { code: "el", label: "Ελληνικά" },
-];
+// Authoring-tool copy stays English (like the other tools), so language
+// names are English too.
+const LANGUAGE: Record<Locale, string> = {
+  en: "English",
+  de: "German",
+  el: "Greek",
+};
 
-type EditableBlock = NarrativeBlock & { _key: string };
-let blockSeq = 0;
-const withKeys = (blocks: NarrativeBlock[]): EditableBlock[] =>
-  blocks.map((b) => ({ ...b, _key: `b-${blockSeq++}` }));
-function stripKey({ _key, ...rest }: EditableBlock): NarrativeBlock {
-  void _key;
-  return rest;
-}
+type Status = "idle" | "saving" | "saved" | "error" | "reverting" | "reverted";
 
-const inputCls =
-  "w-full rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm";
+/** The first paragraph's text — all a reflection lesson's intro is. */
+const introOf = (blocks: NarrativeBlock[]) =>
+  blocks.find((b) => b.kind === "paragraph")?.text ?? "";
 
+/**
+ * The teaching text of one lesson in one language, on the course page.
+ *
+ * The page chooses the course, lesson and language, and hands in where to
+ * start (`initial`, from the course outline) — so the editor never loads
+ * anything itself and can't save one lesson's text into another. The page
+ * remounts it (keyed by language) to switch language.
+ *
+ * mode "reflection" edits a created course's reflection lesson: just its
+ * title and introduction (the questions learners answer are fixed). The
+ * learner view reads back exactly the title and the first paragraph.
+ *
+ * Saves go live at once on a published course (D33); the page says so.
+ */
 export function LessonNarrativeEditor({
-  courses,
+  courseSlug,
+  stageKey,
+  locale,
+  initial,
+  initialRev = 0,
+  courseKind,
+  mode = "narrative",
+  prompts = [],
+  embedded = false,
+  onSaved,
+  onDirtyChange,
+  onReverted,
 }: {
-  courses: { slug: string; title: string }[];
+  courseSlug: string;
+  stageKey: StageKey;
+  locale: Locale;
+  /** What learners see now, in this language (from the course outline). */
+  initial: NarrativeInitial;
+  /**
+   * The page bumps this after re-reading the lesson (see onReverted): the
+   * editor then starts over from `initial`. Any other change to `initial`
+   * is ignored, so a refresh never overwrites what is being typed.
+   */
+  initialRev?: number;
+  courseKind: CourseKind;
+  mode?: "narrative" | "reflection";
+  /** Reflection only: the fixed questions learners answer (shown read-only). */
+  prompts?: string[];
+  /** On the course page: no card of its own. */
+  embedded?: boolean;
+  onSaved?: (value: NarrativeInitial) => void;
+  onDirtyChange?: (dirty: boolean) => void;
+  /**
+   * This language's text was deleted. Only the server knows what learners
+   * see instead (built-in text, the English text, or the defaults), so the
+   * page re-reads the lesson and bumps `initialRev`.
+   */
+  onReverted: () => void;
 }) {
-  const [courseSlug, setCourseSlug] = React.useState(courses[0]?.slug ?? "");
-  const [stageKey, setStageKey] = React.useState<string>("context");
-  const [locale, setLocale] = React.useState<Locale>("en");
-  const [title, setTitle] = React.useState("");
-  const [subtitle, setSubtitle] = React.useState("");
-  const [blocks, setBlocks] = React.useState<EditableBlock[]>([]);
-  const [hasOverride, setHasOverride] = React.useState(false);
-  const [status, setStatus] = React.useState<
-    "idle" | "saving" | "saved" | "error"
-  >("idle");
+  const ids = React.useId();
+  const headingRef = React.useRef<HTMLHeadingElement>(null);
+  const lang = LANGUAGE[locale];
+  const reflection = mode === "reflection";
+
+  const [title, setTitle] = React.useState(initial.title);
+  const [subtitle, setSubtitle] = React.useState(initial.subtitle);
+  const [blocks, setBlocks] = React.useState(() => withKeys(initial.blocks));
+  const [intro, setIntro] = React.useState(() => introOf(initial.blocks));
+  const [hasOverride, setHasOverride] = React.useState(initial.hasOverride);
+  const [fallbackFrom, setFallbackFrom] = React.useState(initial.fallbackFrom);
+  // What a save or "Discard changes" goes back to.
+  const [baseline, setBaseline] = React.useState(initial);
+  // Unsaved = edits made since the last save / load. Counting (rather than a
+  // flag) keeps a change typed while a save is in flight unsaved.
+  const [edits, setEdits] = React.useState(0);
+  const [cleanAt, setCleanAt] = React.useState(0);
+  const dirty = edits !== cleanAt;
+  const [status, setStatus] = React.useState<Status>("idle");
   const [saveError, setSaveError] = React.useState("");
-  const [reloadKey, setReloadKey] = React.useState(0);
+  // Bumped on save / discard, so the block list drops its "Undo".
+  const [resetKey, setResetKey] = React.useState(0);
 
-  // Load the current effective narrative whenever the lesson/locale changes.
+  function load(from: NarrativeInitial) {
+    setTitle(from.title);
+    setSubtitle(from.subtitle);
+    setBlocks(withKeys(from.blocks));
+    setIntro(introOf(from.blocks));
+    setBaseline(from);
+    setCleanAt(edits);
+    setResetKey((k) => k + 1);
+  }
+
+  // The page re-read the lesson (after "Revert"): start over from it.
+  const [seenRev, setSeenRev] = React.useState(initialRev);
+  if (initialRev !== seenRev) {
+    setSeenRev(initialRev);
+    load(initial);
+    setHasOverride(initial.hasOverride);
+    setFallbackFrom(initial.fallbackFrom);
+    setStatus("reverted");
+  }
+
   React.useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const c = await getLessonContent(courseSlug, stageKey, locale);
-      if (cancelled) return;
-      setTitle(c?.title ?? "");
-      setSubtitle(c?.subtitle ?? "");
-      setBlocks(withKeys(c?.blocks ?? []));
-      setHasOverride(!!c?.hasOverride);
-      setStatus("idle");
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [courseSlug, stageKey, locale, reloadKey]);
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
 
-  function patchBlock(key: string, patch: Partial<NarrativeBlock>) {
-    setBlocks((bs) =>
-      bs.map((b) => (b._key === key ? { ...b, ...patch } : b))
-    );
-    setStatus("idle");
-  }
-  function removeBlock(key: string) {
-    setBlocks((bs) => bs.filter((b) => b._key !== key));
-    setStatus("idle");
-  }
-  function moveBlock(index: number, dir: "up" | "down") {
-    const j = dir === "up" ? index - 1 : index + 1;
-    setBlocks((bs) => {
-      if (j < 0 || j >= bs.length) return bs;
-      const next = [...bs];
-      [next[index], next[j]] = [next[j], next[index]];
-      return next;
-    });
-    setStatus("idle");
-  }
-  function addBlock(kind: NarrativeBlock["kind"]) {
-    const base: NarrativeBlock =
-      kind === "list"
-        ? { kind, items: [""] }
-        : kind === "compare"
-          ? {
-              kind,
-              compare: [
-                { label: "", text: "", tone: "negative" },
-                { label: "", text: "", tone: "positive" },
-              ],
-            }
-          : { kind, text: "" };
-    setBlocks((bs) => [...bs, { ...base, _key: `b-${blockSeq++}` }]);
-    setStatus("idle");
+  function edited() {
+    setEdits((n) => n + 1);
+    if (status !== "saving" && status !== "reverting") setStatus("idle");
   }
 
   async function handleSave() {
+    const at = edits;
+    const saved: NarrativeInitial = reflection
+      ? {
+          title,
+          subtitle: "",
+          blocks: [{ kind: "paragraph", text: intro }],
+          hasOverride: true,
+        }
+      : {
+          title,
+          subtitle,
+          blocks: blocks.map(stripKey),
+          hasOverride: true,
+        };
     setStatus("saving");
     try {
       const res = await saveLessonNarrative(courseSlug, stageKey, locale, {
-        title,
-        subtitle: subtitle || undefined,
-        blocks: blocks.map(stripKey),
+        title: saved.title,
+        subtitle: reflection ? undefined : saved.subtitle || undefined,
+        blocks: saved.blocks,
       });
       if (res.ok) {
-        setStatus("saved");
+        setCleanAt(at);
+        setBaseline(saved);
         setHasOverride(true);
+        setFallbackFrom(undefined);
+        setResetKey((k) => k + 1);
+        setStatus("saved");
+        onSaved?.(saved);
         return;
       }
       // "forbidden" covers both signed out and not an editor — ask which.
       setSaveError(
         saveFailureMessage({
           kind: "refused",
-          access: await fetchStorageStatus(),
+          access: res.error === "forbidden" ? await fetchStorageStatus() : null,
         })
       );
     } catch (error) {
@@ -142,331 +193,271 @@ export function LessonNarrativeEditor({
     setStatus("error");
   }
 
-  async function handleRevert() {
-    await clearLessonNarrative(courseSlug, stageKey, locale);
-    setReloadKey((k) => k + 1);
+  function handleDiscard() {
+    if (!window.confirm("Discard your unsaved changes to this lesson?")) return;
+    load(baseline);
+    setStatus("idle");
   }
 
-  return (
-    <Card>
-      <CardContent className="p-5">
-        <div className="flex items-center gap-2 mb-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[var(--accent)]/10 text-[var(--accent)]">
-            <PenSquare className="h-5 w-5" />
-          </div>
-          <div className="flex-1">
-            <h3 className="font-semibold">Lesson narrative</h3>
-            <p className="text-xs text-[var(--muted-foreground)]">
-              Edit the teaching text for a lesson, per language.
-            </p>
-          </div>
-          {hasOverride ? (
-            <Badge variant="accent" className="text-[10px]">
-              Customised
-            </Badge>
-          ) : (
-            <Badge variant="muted" className="text-[10px]">
-              Default copy
-            </Badge>
-          )}
-        </div>
+  // What learners see once this language's text is gone.
+  const fallbackText =
+    courseKind === "bundled"
+      ? "the built-in text"
+      : locale !== "en"
+        ? "the English text"
+        : reflection
+          ? "the standard reflection text"
+          : "an empty lesson";
 
-        {/* Selectors */}
-        <div className="flex flex-wrap items-end gap-2">
-          <label className="text-xs text-[var(--muted-foreground)]">
-            <span className="block mb-1">Course</span>
-            <select
-              value={courseSlug}
-              onChange={(e) => setCourseSlug(e.target.value)}
-              className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm"
-            >
-              {courses.map((c) => (
-                <option key={c.slug} value={c.slug}>
-                  {c.title}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="text-xs text-[var(--muted-foreground)]">
-            <span className="block mb-1">Lesson</span>
-            <select
-              value={stageKey}
-              onChange={(e) => setStageKey(e.target.value)}
-              className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm capitalize"
-            >
-              {NARRATIVE_STAGES.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
-          </label>
-          <div className="inline-flex rounded-lg border border-[var(--border)] p-0.5 text-sm">
-            {LOCALES.map((l) => (
-              <button
-                key={l.code}
-                type="button"
-                onClick={() => setLocale(l.code)}
-                className={`rounded-md px-2.5 py-1.5 ${
-                  locale === l.code
-                    ? "bg-[var(--accent)]/10 text-[var(--accent)] font-medium"
-                    : "text-[var(--muted-foreground)]"
-                }`}
-                aria-pressed={locale === l.code}
-              >
-                {l.label}
-              </button>
-            ))}
-          </div>
-        </div>
+  async function handleRevert() {
+    if (
+      !window.confirm(
+        `Discard the ${lang} text of this lesson and go back to ${fallbackText}? This can't be undone.`
+      )
+    ) {
+      return;
+    }
+    // The buttons are disabled while this runs, and "Remove" then goes away:
+    // keep focus in the editor rather than letting it fall to the page.
+    headingRef.current?.focus();
+    setStatus("reverting");
+    try {
+      const res = await clearLessonNarrative(courseSlug, stageKey, locale);
+      if (res.ok) {
+        onReverted();
+        return;
+      }
+      setSaveError(
+        saveFailureMessage({
+          kind: "refused",
+          access: res.error === "forbidden" ? await fetchStorageStatus() : null,
+        })
+      );
+    } catch (error) {
+      setSaveError(saveFailureMessage({ kind: "thrown", error }));
+    }
+    setStatus("error");
+  }
 
-        {/* Title + subtitle */}
-        <div className="mt-4 grid sm:grid-cols-2 gap-3">
-          <div>
-            <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-1">
-              Title
-            </label>
-            <input
-              value={title}
-              onChange={(e) => {
-                setTitle(e.target.value);
-                setStatus("idle");
-              }}
-              className={inputCls}
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-1">
-              Eyebrow / subtitle
-            </label>
-            <input
-              value={subtitle}
-              onChange={(e) => {
-                setSubtitle(e.target.value);
-                setStatus("idle");
-              }}
-              className={inputCls}
-            />
-          </div>
-        </div>
+  const busy = status === "saving" || status === "reverting";
+  const heading = reflection ? "Reflection text" : "Lesson text";
 
-        {/* Blocks */}
-        <div className="mt-4">
-          <p className="text-sm font-semibold mb-2">Content blocks</p>
-          <div className="space-y-3">
-            {blocks.map((block, i) => (
-              <BlockEditor
-                key={block._key}
-                index={i}
-                total={blocks.length}
-                block={block}
-                onChange={(patch) => patchBlock(block._key, patch)}
-                onRemove={() => removeBlock(block._key)}
-                onMove={(dir) => moveBlock(i, dir)}
-              />
-            ))}
-          </div>
-          <div className="mt-2 flex flex-wrap gap-2">
-            {(["paragraph", "list", "callout", "compare"] as const).map((k) => (
-              <Button
-                key={k}
-                variant="outline"
-                size="sm"
-                onClick={() => addBlock(k)}
-              >
-                <Plus className="h-3.5 w-3.5" />
-                {k}
-              </Button>
-            ))}
-          </div>
-        </div>
-
-        {/* Actions */}
-        <div className="mt-5 flex flex-wrap items-center gap-2">
-          <Button size="sm" disabled={status === "saving"} onClick={handleSave}>
-            {status === "saving" ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Saving…
-              </>
-            ) : (
-              <>
-                <Save className="h-4 w-4" />
-                Save {LOCALES.find((l) => l.code === locale)?.label}
-              </>
-            )}
-          </Button>
-          {hasOverride ? (
-            <Button variant="ghost" size="sm" onClick={handleRevert}>
-              <RotateCcw className="h-4 w-4" />
-              Revert to default
-            </Button>
-          ) : null}
-          <span role="status" aria-live="polite">
-            {status === "saved" ? (
-              <span className="text-xs text-[var(--success)] inline-flex items-center gap-1">
-                <CheckCircle2 className="h-3.5 w-3.5" />
-                Saved — learners see it on this lesson.
-              </span>
-            ) : status === "error" ? (
-              <span className="text-xs text-[var(--danger)] inline-flex items-start gap-1">
-                <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
-                {saveError}
-              </span>
-            ) : null}
-          </span>
-        </div>
-      </CardContent>
-    </Card>
+  const badge = hasOverride ? (
+    <Badge variant="accent" className="text-[10px]">
+      Customised
+    </Badge>
+  ) : (
+    <Badge variant="muted" className="text-[10px]">
+      {courseKind === "bundled"
+        ? "Built-in text"
+        : fallbackFrom
+          ? `Not written in ${lang} yet`
+          : reflection
+            ? "Standard text"
+            : "Not written yet"}
+    </Badge>
   );
-}
 
-function BlockEditor({
-  index,
-  total,
-  block,
-  onChange,
-  onRemove,
-  onMove,
-}: {
-  index: number;
-  total: number;
-  block: EditableBlock;
-  onChange: (patch: Partial<NarrativeBlock>) => void;
-  onRemove: () => void;
-  onMove: (dir: "up" | "down") => void;
-}) {
-  return (
-    <div className="rounded-lg border border-[var(--border)] p-3">
-      <div className="flex items-center gap-2 mb-2">
-        <Badge variant="muted" className="text-[10px] capitalize">
-          {block.kind}
-        </Badge>
-        <div className="ml-auto flex items-center gap-1">
-          <button
-            type="button"
-            onClick={() => onMove("up")}
-            disabled={index === 0}
-            aria-label="Move block up"
-            className="rounded p-1 text-[var(--muted-foreground)] hover:text-[var(--accent)] disabled:opacity-30"
-          >
-            <ChevronUp className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            onClick={() => onMove("down")}
-            disabled={index === total - 1}
-            aria-label="Move block down"
-            className="rounded p-1 text-[var(--muted-foreground)] hover:text-[var(--accent)] disabled:opacity-30"
-          >
-            <ChevronDown className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            onClick={onRemove}
-            aria-label="Remove block"
-            className="rounded p-1 text-[var(--muted-foreground)] hover:text-[var(--danger)]"
-          >
-            <Trash2 className="h-4 w-4" />
-          </button>
+  const body = (
+    <section aria-labelledby={`${ids}-h`}>
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[var(--accent)]/10 text-[var(--accent)]">
+          <PenSquare className="h-5 w-5" aria-hidden />
         </div>
+        <div className="min-w-0 flex-1">
+          <h3
+            id={`${ids}-h`}
+            ref={headingRef}
+            tabIndex={-1}
+            className="font-semibold"
+          >
+            {heading} ({lang})
+          </h3>
+          <p className="text-xs text-[var(--muted-foreground)]">
+            {reflection
+              ? "The title and introduction learners read before they reflect."
+              : "The title and teaching text learners read in this lesson."}
+          </p>
+        </div>
+        {badge}
       </div>
 
-      {block.kind === "paragraph" || block.kind === "callout" ? (
-        <textarea
-          value={block.text ?? ""}
-          onChange={(e) => onChange({ text: e.target.value })}
-          rows={block.kind === "callout" ? 2 : 3}
-          placeholder={block.kind === "callout" ? "Highlighted line" : "Paragraph text"}
-          className={inputCls}
-        />
+      {fallbackFrom ? (
+        <p className="mb-3 rounded-md bg-[var(--surface-muted)] px-3 py-2 text-xs text-[var(--muted-foreground)]">
+          Not written in {lang} yet — showing the {LANGUAGE[fallbackFrom]} text,
+          which is what learners see. Saving creates the {lang} version.
+        </p>
       ) : null}
 
-      {block.kind === "list" ? (
-        <div className="space-y-1.5">
-          {(block.items ?? []).map((item, ii) => (
-            <div key={ii} className="flex items-center gap-2">
-              <span className="text-xs text-[var(--muted-foreground)] tabular-nums w-5">
-                {ii + 1}.
-              </span>
-              <input
-                value={item}
-                onChange={(e) => {
-                  const items = [...(block.items ?? [])];
-                  items[ii] = e.target.value;
-                  onChange({ items });
-                }}
-                className={inputCls}
-              />
-              <button
-                type="button"
-                onClick={() =>
-                  onChange({
-                    items: (block.items ?? []).filter((_, x) => x !== ii),
-                  })
-                }
-                aria-label={`Remove item ${ii + 1}`}
-                className="rounded p-1 text-[var(--muted-foreground)] hover:text-[var(--danger)]"
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          ))}
-          <button
-            type="button"
-            onClick={() => onChange({ items: [...(block.items ?? []), ""] })}
-            className="text-xs text-[var(--accent)] font-medium inline-flex items-center gap-1"
+      <div className={reflection ? "space-y-3" : "grid gap-3 sm:grid-cols-2"}>
+        <div>
+          <label
+            htmlFor={`${ids}-title`}
+            className="mb-1 block text-xs font-medium text-[var(--muted-foreground)]"
           >
-            <Plus className="h-3 w-3" />
-            Add item
-          </button>
+            Lesson title
+          </label>
+          <input
+            id={`${ids}-title`}
+            value={title}
+            maxLength={200}
+            onChange={(e) => {
+              setTitle(e.target.value);
+              edited();
+            }}
+            className={inputCls}
+          />
         </div>
-      ) : null}
+        {reflection ? (
+          <div>
+            <label
+              htmlFor={`${ids}-intro`}
+              className="mb-1 block text-xs font-medium text-[var(--muted-foreground)]"
+            >
+              Introduction
+            </label>
+            <textarea
+              id={`${ids}-intro`}
+              value={intro}
+              rows={3}
+              onChange={(e) => {
+                setIntro(e.target.value);
+                edited();
+              }}
+              className={`${inputCls} resize-y`}
+            />
+          </div>
+        ) : (
+          <div>
+            <label
+              htmlFor={`${ids}-subtitle`}
+              className="mb-1 block text-xs font-medium text-[var(--muted-foreground)]"
+            >
+              Lesson subtitle (optional)
+            </label>
+            <input
+              id={`${ids}-subtitle`}
+              value={subtitle}
+              maxLength={200}
+              aria-describedby={`${ids}-subtitle-hint`}
+              onChange={(e) => {
+                setSubtitle(e.target.value);
+                edited();
+              }}
+              className={inputCls}
+            />
+            <p
+              id={`${ids}-subtitle-hint`}
+              className="mt-1 text-xs text-[var(--muted-foreground)]"
+            >
+              A short line shown in small capitals above the title.
+            </p>
+          </div>
+        )}
+      </div>
 
-      {block.kind === "compare" ? (
-        <div className="grid sm:grid-cols-2 gap-2">
-          {(block.compare ?? []).map((side, si) => (
-            <div key={si} className="rounded-md border border-[var(--border)] p-2 space-y-1.5">
-              <input
-                value={side.label}
-                onChange={(e) => {
-                  const compare = [...(block.compare ?? [])];
-                  compare[si] = { ...compare[si], label: e.target.value };
-                  onChange({ compare });
-                }}
-                placeholder="Label"
-                className={inputCls}
-              />
-              <textarea
-                value={side.text}
-                onChange={(e) => {
-                  const compare = [...(block.compare ?? [])];
-                  compare[si] = { ...compare[si], text: e.target.value };
-                  onChange({ compare });
-                }}
-                rows={2}
-                placeholder="Text"
-                className={inputCls}
-              />
-              <select
-                value={side.tone}
-                onChange={(e) => {
-                  const compare = [...(block.compare ?? [])];
-                  compare[si] = {
-                    ...compare[si],
-                    tone: e.target.value as "negative" | "positive",
-                  };
-                  onChange({ compare });
-                }}
-                className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs"
-              >
-                <option value="negative">negative</option>
-                <option value="positive">positive</option>
-              </select>
-            </div>
-          ))}
+      {reflection ? (
+        prompts.length ? (
+          <div className="mt-4">
+            <p className="text-sm font-semibold">
+              Questions learners answer privately
+            </p>
+            <p className="text-xs text-[var(--muted-foreground)]">
+              The same for every course, so they can&rsquo;t be changed here.
+            </p>
+            <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm">
+              {prompts.map((p, i) => (
+                <li key={i}>{p}</li>
+              ))}
+            </ol>
+          </div>
+        ) : null
+      ) : (
+        <div className="mt-4">
+          <p className="mb-2 text-sm font-semibold">Content blocks</p>
+          <BlockList
+            blocks={blocks}
+            onBlocksChange={(next) => {
+              setBlocks(next);
+              edited();
+            }}
+            resetKey={resetKey}
+          />
         </div>
-      ) : null}
-    </div>
+      )}
+
+      <div className="mt-5 flex flex-wrap items-center gap-2 border-t border-[var(--border)] pt-3">
+        <Button size="sm" disabled={busy} onClick={handleSave}>
+          {status === "saving" ? (
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+          ) : (
+            <Save className="h-4 w-4" aria-hidden />
+          )}
+          Save {lang}
+        </Button>
+        {dirty ? (
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={busy}
+            onClick={handleDiscard}
+          >
+            <Undo2 className="h-4 w-4" aria-hidden />
+            Discard changes
+          </Button>
+        ) : null}
+        {hasOverride ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={busy}
+            onClick={handleRevert}
+          >
+            <RotateCcw className="h-4 w-4" aria-hidden />
+            {courseKind === "bundled"
+              ? "Use built-in text"
+              : `Remove ${lang} text`}
+          </Button>
+        ) : null}
+        <span role="status" aria-live="polite" className="text-xs">
+          {status === "saving" ? (
+            <span className="text-[var(--muted-foreground)]">Saving…</span>
+          ) : status === "saved" ? (
+            <span className="inline-flex items-center gap-1 text-[var(--success)]">
+              <CheckCircle2 className="h-3.5 w-3.5" aria-hidden />
+              Saved
+            </span>
+          ) : status === "reverting" ? (
+            <span className="text-[var(--muted-foreground)]">
+              Going back to {fallbackText}…
+            </span>
+          ) : status === "reverted" ? (
+            <span className="inline-flex items-center gap-1 text-[var(--success)]">
+              <CheckCircle2 className="h-3.5 w-3.5" aria-hidden />
+              Back to {fallbackText}.
+            </span>
+          ) : status === "error" ? (
+            <span className="inline-flex items-start gap-1 text-[var(--danger)]">
+              <AlertTriangle
+                className="mt-0.5 h-3.5 w-3.5 flex-shrink-0"
+                aria-hidden
+              />
+              {saveError}
+            </span>
+          ) : dirty ? (
+            <span className="text-[var(--muted-foreground)]">
+              Unsaved changes
+            </span>
+          ) : null}
+        </span>
+      </div>
+    </section>
+  );
+
+  if (embedded) return body;
+  return (
+    <Card>
+      <CardContent className="p-5">{body}</CardContent>
+    </Card>
   );
 }
