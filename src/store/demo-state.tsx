@@ -16,10 +16,13 @@ import type { Locale } from "@/lib/cms/types";
 import {
   courseAfterLoad,
   courseAfterMigration,
+  hasCourseProgress,
   mergeBadges,
   mergeCompCardOnHydrate,
 } from "./progress-merge";
+import { pendingSave } from "./pending-save";
 import { withRetry } from "./retry";
+import { forgetLearner, mustForget, sessionOwner } from "./session-owner";
 
 /**
  * Learner state. For AUTHENTICATED users it's backed by Postgres (Neon)
@@ -134,6 +137,7 @@ type Action =
   | { type: "awardBadge"; badge: string }
   | { type: "updateCompCard"; patch: Partial<CompCardData> }
   | { type: "reset" }
+  | { type: "forgetLearner" }
   | { type: "hydrate"; state: DemoState }
   | { type: "hydrateGlobal"; compCard: CompCardData | null; badges: string[] }
   | { type: "guestCourseMigrated"; course: CourseProgress }
@@ -148,6 +152,15 @@ function reducer(state: DemoState, action: Action): DemoState {
     case "setRole":
       return { ...state, role: action.role };
     case "setCourseContext":
+      // The same course opened again: nothing changes. A new course object
+      // would make the write-through save it, enrolling a learner who has
+      // only opened it.
+      if (
+        state.course.courseSlug === action.slug &&
+        state.course.courseTitle === action.title
+      ) {
+        return state;
+      }
       // If the learner opens a different course than the one in progress,
       // reset the per-course progress for the new course.
       if (state.course.courseSlug && state.course.courseSlug !== action.slug) {
@@ -244,6 +257,10 @@ function reducer(state: DemoState, action: Action): DemoState {
       };
     case "reset":
       return DEFAULT_STATE;
+    case "forgetLearner":
+      // The session changed hands: nothing of the learner's stays (see
+      // session-owner.ts).
+      return forgetLearner(state, DEFAULT_STATE);
     case "hydrate":
       return action.state;
     case "hydrateGlobal":
@@ -290,21 +307,43 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
   const [hydrated, setHydrated] = React.useState(false);
   const [dbReady, setDbReady] = React.useState(false);
 
-  const { status } = useSession();
+  const { data: session, status } = useSession();
   const router = useRouter();
   const locale = useLocale() as Locale;
   const authed = status === "authenticated";
+  // Whose data this is: the signed-in learner, null for a guest, undefined
+  // while the session loads (see session-owner.ts).
+  const owner = sessionOwner(status, session?.user);
 
   // The course whose saved progress has loaded and been merged into state;
   // null while one loads. Only this course is ever saved (see below).
   const loadedCourseRef = React.useRef<string | null>(null);
   const persistedBadges = React.useRef<Set<string>>(new Set());
-  const courseTimer = React.useRef<ReturnType<typeof setTimeout> | undefined>(
-    undefined
-  );
-  const cardTimer = React.useRef<ReturnType<typeof setTimeout> | undefined>(
-    undefined
-  );
+  // The debounced saves, one waiting at a time each (see pending-save.ts).
+  const [courseSave] = React.useState(() => pendingSave(700));
+  const [cardSave] = React.useState(() => pendingSave(700));
+
+  // ---- The session changed hands: let go of the learner's data ----
+  // Signed out in another tab (or the session couldn't be read), or another
+  // account signed in there: what's in memory is no longer this session's
+  // (see session-owner.ts). The saves still waiting are dropped — the
+  // session cookie may already be someone else's — and nothing is saved
+  // again until the new session's data has loaded and been merged (dbReady,
+  // loadedCourseRef). Declared before the effects below, which see the
+  // reset refs in the same commit; the hydration and course load re-run for
+  // the new owner.
+  const heldBy = React.useRef<string | null | undefined>(undefined);
+  React.useEffect(() => {
+    const held = heldBy.current;
+    if (owner !== undefined) heldBy.current = owner;
+    if (!mustForget(held, owner)) return;
+    courseSave.drop();
+    cardSave.drop();
+    loadedCourseRef.current = null;
+    persistedBadges.current = new Set();
+    setDbReady(false);
+    dispatch({ type: "forgetLearner" });
+  }, [owner, courseSave, cardSave]);
 
   // ---- Hydration: DB for authed users, localStorage for guests ----
   React.useEffect(() => {
@@ -316,7 +355,9 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
       if (authed) {
         // Nothing is saved until this has loaded, so a failed try doesn't
         // end it: it's tried again (see retry.ts), and what the learner
-        // does meanwhile stays in memory until it's through.
+        // does meanwhile stays in memory until it's through. A session
+        // lookup that failed is a failed try too: the actions fail rather
+        // than answer "nothing saved" (see requireLearner).
         let global: Awaited<ReturnType<typeof loadLearnerGlobal>>;
         try {
           global = await withRetry(
@@ -342,8 +383,8 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
         // DB always wins on conflict — we only fill gaps the server has no
         // data for. Runs before setDbReady(true) so the write-through
         // effects below don't race the migration.
-        let mergedCompCard = (global?.compCard ?? null) as CompCardData | null;
-        let mergedBadges = global?.badges ?? [];
+        let mergedCompCard = global.compCard as CompCardData | null;
+        let mergedBadges = global.badges;
         let migratedCourse: CourseProgress | null = null;
         let migratedAnything = false;
         try {
@@ -354,7 +395,7 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
             window.localStorage.removeItem(STORAGE_KEY);
             const guest = JSON.parse(raw) as DemoState;
             const enrolled = new Map(
-              (global?.enrollments ?? []).map((e) => [e.slug, e])
+              global.enrollments.map((e) => [e.slug, e])
             );
 
             // Badges: union. awardBadgeAction is idempotent.
@@ -444,17 +485,20 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
       if (!cancelled()) setHydrated(true);
     })();
     return () => abort.abort();
-  }, [status, authed, router]);
+  }, [status, authed, owner, router]);
 
   // ---- Guest localStorage write-through ----
+  // Never state loaded from the database (dbReady): in the commit where the
+  // session is lost, this still sees dbReady, and the learner's data is
+  // let go of (above) before a guest's state is written.
   React.useEffect(() => {
-    if (!hydrated || authed) return;
+    if (!hydrated || authed || dbReady) return;
     try {
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     } catch {
       /* ignore */
     }
-  }, [state, hydrated, authed]);
+  }, [state, hydrated, authed, dbReady]);
 
   // ---- Load a course's saved progress from the DB when it becomes active ----
   // The learner may be in the course before their data has loaded — on a
@@ -462,16 +506,21 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
   // skips every change until this load is done. So the result is always
   // dispatched, even when nothing is saved: courseProgressLoaded merges the
   // two, and a changed course object makes the save effect persist it.
-  // Whatever course was loaded before stops counting as loaded here: coming
-  // back to it resets it to empty (setCourseContext), so it has to load and
-  // merge again before it may be saved. A failed load is tried again (see
+  // Whatever course was loaded before stops counting as loaded as soon as
+  // another one is active, even while loading waits for the session or the
+  // learner's data: coming back to it resets it to empty (setCourseContext),
+  // so it has to load and merge again before it may be saved. Its last
+  // change, if still waiting out the save debounce, is sent now: the next
+  // course's first save would replace it. A failed load is tried again (see
   // retry.ts); until a try gets through, the course isn't saved and what
   // the learner does stays in memory.
   React.useEffect(() => {
-    if (!authed || !dbReady) return;
     const slug = state.course.courseSlug;
-    if (!slug || loadedCourseRef.current === slug) return;
-    loadedCourseRef.current = null;
+    if (loadedCourseRef.current !== slug) {
+      courseSave.flush();
+      loadedCourseRef.current = null;
+    }
+    if (!authed || !dbReady || !slug || loadedCourseRef.current === slug) return;
     const abort = new AbortController();
     (async () => {
       let prog: Awaited<ReturnType<typeof loadCourseProgress>>;
@@ -499,7 +548,7 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
       });
     })();
     return () => abort.abort();
-  }, [authed, dbReady, state.course.courseSlug, locale]);
+  }, [authed, dbReady, state.course.courseSlug, locale, owner, courseSave]);
 
   // ---- DB write-through: course progress (debounced) ----
   // Never a course whose saved progress hasn't loaded and been merged in
@@ -512,8 +561,9 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
     const slug = state.course.courseSlug;
     if (!slug || loadedCourseRef.current !== slug) return;
     const snap = state.course;
-    clearTimeout(courseTimer.current);
-    courseTimer.current = setTimeout(() => {
+    // Opening a course doesn't enroll anyone: nothing done, nothing saved.
+    if (!hasCourseProgress(snap)) return;
+    courseSave.schedule(() => {
       void saveCourseProgress(slug, {
         stagesCompleted: snap.stagesCompleted,
         simulation: snap.simulation,
@@ -522,15 +572,14 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
         assessment: snap.assessment,
         completedAt: snap.completedAt,
       });
-    }, 700);
-  }, [authed, dbReady, state.course]);
+    });
+  }, [authed, dbReady, state.course, courseSave]);
 
   // ---- DB write-through: Comp Card (debounced) ----
   React.useEffect(() => {
     if (!authed || !dbReady || !state.compCard.updatedAt) return;
     const snap = state.compCard;
-    clearTimeout(cardTimer.current);
-    cardTimer.current = setTimeout(() => {
+    cardSave.schedule(() => {
       void saveCompCard({
         wentWell: snap.wentWell,
         difficult: snap.difficult,
@@ -539,8 +588,8 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
         confidence: snap.confidence,
         privacy: snap.privacy,
       });
-    }, 700);
-  }, [authed, dbReady, state.compCard]);
+    });
+  }, [authed, dbReady, state.compCard, cardSave]);
 
   // ---- DB write-through: badges (append-only) ----
   React.useEffect(() => {
@@ -552,6 +601,17 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
       }
     }
   }, [authed, dbReady, state.badges]);
+
+  // ---- Unmounting: send what's still waiting now ----
+  // Not left to a timer outliving this store: sent now, it reaches the
+  // server before a store mounted next loads it back.
+  React.useEffect(
+    () => () => {
+      courseSave.flush();
+      cardSave.flush();
+    },
+    [courseSave, cardSave]
+  );
 
   const value = React.useMemo(() => ({ state, dispatch }), [state]);
 

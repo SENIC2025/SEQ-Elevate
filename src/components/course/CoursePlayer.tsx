@@ -136,8 +136,13 @@ export function CoursePlayer({
   useEffect(() => {
     // Resume at the learner's last position on mount, from persisted
     // progress. Intentional one-time setState after hydration. A preview
-    // has no saved progress, and starts where the editor asked.
-    if (preview || initialStage) return;
+    // has no saved progress, and starts where the editor asked. Only this
+    // course's progress counts: opened right after another course, the
+    // store here still holds that one's (setCourseContext above isn't
+    // applied yet), and resuming from it would open this course at the
+    // other's lesson — or complete it, badge included.
+    if (preview || initialStage || state.course.courseSlug !== course.slug)
+      return;
     /* eslint-disable react-hooks/set-state-in-effect */
     if (state.course.completedAt) {
       setCurrent("complete");

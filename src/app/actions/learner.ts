@@ -44,10 +44,26 @@ export interface CompCardInput {
   privacy: "self" | "facilitator" | "facilitatorAndMentor";
 }
 
+/**
+ * The signed-in learner, for the three loads the learner store makes. The
+ * store calls them only once the session says someone is signed in, so no
+ * user here means the session lookup failed, not that nothing is saved:
+ * Auth.js's database session lookup logs a database error (a cold start, a
+ * dropped connection) and answers "no session" instead of failing.
+ * Answering "nothing saved" would let the store save what it holds over
+ * the learner's saved data, so this fails, and the store tries again
+ * (src/store/retry.ts). A real sign-out ends the same way: nothing loads,
+ * so nothing is saved.
+ */
+async function requireLearner() {
+  const user = await getCurrentUser();
+  if (!user) throw new Error("No signed-in learner, or the session lookup failed");
+  return user;
+}
+
 /** Auto-provision a LEARNER membership on first use. */
 export async function ensureLearnerMembership() {
-  const user = await getCurrentUser();
-  if (!user) return false;
+  const user = await requireLearner();
   const existing = await prisma.membership.findFirst({
     where: { userId: user.id, projectId: PROJECT, role: "LEARNER" },
   });
@@ -61,8 +77,7 @@ export async function ensureLearnerMembership() {
 
 /** Global learner state: Comp Card, badges, per-course enrollment summaries. */
 export async function loadLearnerGlobal() {
-  const user = await getCurrentUser();
-  if (!user) return null;
+  const user = await requireLearner();
   const [compCard, badges, enrollments] = await Promise.all([
     prisma.compCard.findUnique({
       where: { userId_projectId: { userId: user.id, projectId: PROJECT } },
@@ -97,10 +112,12 @@ export async function loadLearnerGlobal() {
   };
 }
 
-/** A single course's progress, with display labels resolved from the CMS. */
+/**
+ * A single course's progress, with display labels resolved from the CMS;
+ * null when there is no such course or the learner isn't enrolled in it.
+ */
 export async function loadCourseProgress(slug: string, locale: Locale) {
-  const user = await getCurrentUser();
-  if (!user) return null;
+  const user = await requireLearner();
   const course = await prisma.course.findUnique({
     where: { projectId_slug: { projectId: PROJECT, slug } },
   });
