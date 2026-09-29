@@ -68,6 +68,27 @@ const WORD_HTML = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns
 <!--EndFragment-->
 </body></html>`;
 
+/**
+ * Blank lines as Word and Google Docs copy them: Word's empty paragraph
+ * (only a filler no-break space) and a break at a paragraph's end; the
+ * <br> Google Docs puts between paragraphs, inside its <b> wrapper, and
+ * the one it adds at the end.
+ */
+const WORD_BLANK_LINES = `<html xmlns:o="urn:schemas-microsoft-com:office:office">
+<body lang=EN-GB>
+<!--StartFragment-->
+<p class=MsoNormal>One<o:p></o:p></p>
+<p class=MsoNormal><o:p>&nbsp;</o:p></p>
+<p class=MsoNormal>Two<br><o:p></o:p></p>
+<!--EndFragment-->
+</body></html>`;
+const DOCS_BLANK_LINE =
+  '<meta charset="utf-8"><b style="font-weight:normal;" id="docs-internal-guid-5f1e2d3c-7fff-4a1b-9c2d-0e1f2a3b4c5d">' +
+  '<p dir="ltr" style="line-height:1.38;margin-top:0pt;margin-bottom:0pt;"><span style="font-size:11pt;font-family:Arial,sans-serif;color:#000000;font-weight:400;white-space:pre-wrap;">First</span></p>' +
+  "<br>" +
+  '<p dir="ltr" style="line-height:1.38;margin-top:0pt;margin-bottom:0pt;"><span style="font-size:11pt;font-family:Arial,sans-serif;color:#000000;font-weight:700;white-space:pre-wrap;">Second</span></p>' +
+  '</b><br class="Apple-interchange-newline">';
+
 /** Create a user holding `role`, plus a live session; returns both ids. */
 async function signedInUser(email: string, role: "CONTENT_EDITOR" | "LEARNER") {
   const user = await prisma.user.create({
@@ -583,6 +604,92 @@ describe("Rich text — the lesson text editor", () => {
     // One Tab stop: the next Tab is back in the text.
     await page.keyboard.press("Tab");
     await expect(text).toBeFocused();
+  });
+
+  test("blank lines: pasted ones never arrive, typed ones say learners won't see them; ⌘[ stays on the page", async ({
+    page,
+    context,
+  }) => {
+    await seedConcept([{ kind: "paragraph", text: "Intro." }]);
+    await useSession(context, editorSession);
+    const { region, blocks } = await openLesson(page);
+    const text = await openEditor(blocks.nth(0), "paragraph");
+    await expect(text).toBeFocused();
+
+    // Ctrl/⌘+[ and ] are always the editor's, even with nothing to move:
+    // on a Mac an unused ⌘[ is the browser's Back, and the page — with
+    // any unsaved edits — would be gone.
+    await page.evaluate(() => {
+      const w = window as unknown as { keys: [string, boolean][] };
+      w.keys = [];
+      window.addEventListener("keydown", (e) => {
+        if (e.key === "[" || e.key === "]") {
+          w.keys.push([e.key, e.defaultPrevented]);
+        }
+      });
+    });
+    const url = page.url();
+    await page.keyboard.press("ControlOrMeta+["); // nothing to outdent
+    await page.keyboard.press("ControlOrMeta+]");
+    await page.keyboard.press("ControlOrMeta+[");
+    expect(
+      await page.evaluate(
+        () => (window as unknown as { keys: [string, boolean][] }).keys
+      )
+    ).toEqual([
+      ["[", true],
+      ["]", true],
+      ["[", true],
+    ]);
+    expect(page.url()).toBe(url);
+    await expect(text).toBeFocused();
+    await expect(text.locator("p[style]")).toHaveCount(0);
+
+    // Enter twice, as in Word: the blank line says learners won't see it.
+    await page.keyboard.press("Enter");
+    await page.keyboard.press("Enter");
+    await page.keyboard.type("After a blank line.");
+    const blank = text.locator(":scope > p.rt-blank-line");
+    await expect(blank).toHaveCount(1);
+    await expect(blank).toHaveAttribute(
+      "data-hint",
+      /^empty line — learners won't see a gap here$/i
+    );
+
+    // Pasted blank lines never arrive: Word's empty paragraphs, the <br>
+    // Google Docs puts between paragraphs, a break at a paragraph's end.
+    await addBlock(region, /^paragraph$/i);
+    const word = blocks
+      .nth(1)
+      .getByRole("textbox", { name: /^paragraph text$/i });
+    await expect(word).toBeFocused({ timeout: 15000 });
+    await paste(word, {
+      "text/html": WORD_BLANK_LINES,
+      "text/plain": "One\n\nTwo",
+    });
+    await expect(word.locator(":scope > p")).toHaveText(["One", "Two"]);
+    await expect(word.locator("br:not(.ProseMirror-trailingBreak)")).toHaveCount(0);
+
+    await addBlock(region, /^paragraph$/i);
+    const docs = blocks
+      .nth(2)
+      .getByRole("textbox", { name: /^paragraph text$/i });
+    await expect(docs).toBeFocused({ timeout: 15000 });
+    await paste(docs, {
+      "text/html": DOCS_BLANK_LINE,
+      "text/plain": "First\n\nSecond",
+    });
+    await expect(docs.locator(":scope > p")).toHaveText(["First", "Second"]);
+    await expect(docs.locator("strong")).toHaveText("Second");
+    await expect(docs.locator("br:not(.ProseMirror-trailingBreak)")).toHaveCount(0);
+
+    await save(region);
+    const saved = await savedBlocks();
+    expect(saved.map((b) => b.text)).toEqual([
+      "Intro.\n\nAfter a blank line.",
+      "One\n\nTwo",
+      "First\n\nSecond",
+    ]);
   });
 
   test("text too long to save is flagged as it's pasted, and Save names the block", async ({

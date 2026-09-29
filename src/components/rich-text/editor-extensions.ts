@@ -1,4 +1,4 @@
-import { wrappingInputRule, type Extensions } from "@tiptap/core";
+import { Extension, wrappingInputRule, type Extensions } from "@tiptap/core";
 import { Document } from "@tiptap/extension-document";
 import { Paragraph } from "@tiptap/extension-paragraph";
 import { Text } from "@tiptap/extension-text";
@@ -8,6 +8,8 @@ import { HardBreak } from "@tiptap/extension-hard-break";
 import { BulletList, ListKeymap, OrderedList } from "@tiptap/extension-list";
 import { Placeholder, UndoRedo } from "@tiptap/extensions";
 import { Slice, type Schema } from "@tiptap/pm/model";
+import { Plugin, PluginKey } from "@tiptap/pm/state";
+import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import { legacyTextToDoc } from "@/lib/rich-text/from-legacy";
 import { RT_LIMITS } from "@/lib/rich-text/types";
 import { CappedListItem, Indent } from "./indent-extension";
@@ -40,9 +42,54 @@ export function editorExtensions(placeholder: string): Extensions {
     ListKeys,
     UndoRedo,
     Placeholder.configure({ placeholder }),
+    BlankLines,
     Indent.configure({ max: RT_LIMITS.maxIndent }),
   ];
 }
+
+/** What a blank line says in the editor (see BlankLines). */
+export const BLANK_LINE_HINT = "Empty line — learners won't see a gap here";
+
+export const blankLinesKey = new PluginKey("blankLines");
+
+/**
+ * A blank line between paragraphs — Enter pressed twice, as in Word — is a
+ * gap only while editing: learners never see one, as the stored text drops
+ * it (sanitizeRichText). So each blank top-level line says so, drawn like
+ * the placeholder (globals.css, .rt-blank-line). An editor that is empty
+ * shows its own placeholder instead. Its own plugin rather than the
+ * Placeholder's: showing that on every empty line makes it work out "is the
+ * editor empty?" from the state before each change, so the empty editor's
+ * placeholder would go missing once its text is deleted.
+ */
+const BlankLines = Extension.create({
+  name: "blankLines",
+
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        key: blankLinesKey,
+        props: {
+          decorations: ({ doc }) => {
+            if (doc.childCount < 2) return null;
+            const blank: Decoration[] = [];
+            doc.forEach((node, pos) => {
+              if (node.type.name === "paragraph" && !node.textContent.trim()) {
+                blank.push(
+                  Decoration.node(pos, pos + node.nodeSize, {
+                    class: "rt-blank-line",
+                    "data-hint": BLANK_LINE_HINT,
+                  })
+                );
+              }
+            });
+            return DecorationSet.create(doc, blank);
+          },
+        },
+      }),
+    ];
+  },
+});
 
 /** "- ", "* " or "+ " start a bulleted list as typed — and so does "• ". */
 const Bullets = BulletList.extend({
@@ -72,6 +119,25 @@ const Numbers = OrderedList.extend({
         },
       },
     };
+  },
+  // "1. " to "999. " starts a list as typed, as Round 1 reads "1." lines;
+  // "2024. " stays text (a list can't start there: the most is 999).
+  addInputRules() {
+    return [
+      wrappingInputRule({
+        find: /^(\d{1,3})\.\s$/,
+        type: this.type,
+        getAttributes: (match) => ({ start: Number(match[1]) }),
+        joinPredicate: (match, node) =>
+          node.childCount + node.attrs.start === Number(match[1]),
+      }),
+    ];
+  },
+  // Tiptap's own plain-text paste (a single "2024. …", "a) …" or "I. …"
+  // line becomes a list) is left out: plain text is pasted by Round 1's
+  // rules only (RichTextEditor's pastePlainText), and a single line as it is.
+  addProseMirrorPlugins() {
+    return [];
   },
 });
 

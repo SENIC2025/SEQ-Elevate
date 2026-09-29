@@ -21,6 +21,10 @@ import {
  * - Google Docs and others: a sub-list placed straight inside its parent
  *   list moves into the point above it, and a list whose points only carry
  *   their level as `aria-level` is nested again.
+ * - Blank lines go — Word's empty paragraphs, the <br> Google Docs puts
+ *   between paragraphs, a break at the start or end of a paragraph. The
+ *   editor would show each as a gap that learners never see, since the
+ *   stored text drops them (sanitizeRichText).
  *
  * Other HTML passes through unchanged. Browser only (DOMParser — its
  * documents never run scripts or load images); on any failure the HTML is
@@ -37,6 +41,7 @@ export function cleanPastedHtml(html: string): string {
     }
     liftStrayLists(body);
     nestAriaLevels(body);
+    removeBlankLines(body);
     return body.innerHTML;
   } catch {
     return html;
@@ -49,6 +54,7 @@ const WORD_HTML = /class=["']?Mso|urn:schemas-microsoft-com:office|mso-list/i;
 const MSO_LIST = /mso-list:\s*(l\d+)\s+level(\d+)/i;
 const MSO_IGNORE = /mso-list:\s*ignore/i;
 
+const ELEMENT_NODE = 1;
 const TEXT_NODE = 3;
 const COMMENT_NODE = 8;
 
@@ -158,5 +164,73 @@ function nestAriaLevels(root: HTMLElement) {
     );
     insertHtmlBefore(list, listTreeToHtml(nestListItems(items)));
     list.remove();
+  }
+}
+
+/** Elements that start a line of their own (ProseMirror reads them so). */
+const BLOCK_TAGS = new Set([
+  "ADDRESS", "ARTICLE", "ASIDE", "BLOCKQUOTE", "DD", "DIV", "DL", "DT",
+  "FIGURE", "FOOTER", "H1", "H2", "H3", "H4", "H5", "H6", "HEADER", "HR",
+  "LI", "OL", "P", "PRE", "SECTION", "TABLE", "TBODY", "TD", "TFOOT", "TH",
+  "THEAD", "TR", "UL",
+]);
+const BLOCKS = Array.from(BLOCK_TAGS, (tag) => tag.toLowerCase()).join(",");
+
+/** Elements that hold lines and show nothing when they hold no text. */
+const LINE_HOLDERS = "p, div, li, ul, ol, h1, h2, h3, h4, h5, h6";
+
+const isBlank = (text: string | null) => !text?.replace(/\s/g, "");
+
+/**
+ * Is there text beside `br` on its line (`forward`: after it, otherwise
+ * before it)? Looks past blank text, comments, other breaks and inline
+ * wrappers (Google Docs wraps its whole paste in a <b>), up to the edge of
+ * the block the line is in.
+ */
+function textBeside(br: Element, root: Element, forward: boolean): boolean {
+  let at: Node = br;
+  for (;;) {
+    for (
+      let node = forward ? at.nextSibling : at.previousSibling;
+      node;
+      node = forward ? node.nextSibling : node.previousSibling
+    ) {
+      if (node.nodeType === TEXT_NODE) {
+        if (!isBlank(node.textContent)) return true;
+      } else if (node.nodeType === ELEMENT_NODE) {
+        const el = node as Element;
+        if (BLOCK_TAGS.has(el.tagName) || el.querySelector(BLOCKS)) {
+          return false;
+        }
+        if (!isBlank(el.textContent)) return true;
+      }
+    }
+    const parent = at.parentNode;
+    if (
+      !parent ||
+      parent === root ||
+      BLOCK_TAGS.has((parent as Element).tagName)
+    ) {
+      return false;
+    }
+    at = parent;
+  }
+}
+
+/**
+ * Line breaks that don't sit between two pieces of text on one line go —
+ * one on its own between paragraphs, or at either end of one — and then
+ * every paragraph, list and point left without text. (Breaks between two
+ * lines of text stay, however many: learners see those.)
+ */
+function removeBlankLines(root: HTMLElement) {
+  for (const br of Array.from(root.querySelectorAll("br"))) {
+    if (!textBeside(br, root, false) || !textBeside(br, root, true)) {
+      br.remove();
+    }
+  }
+  // Innermost first, so a list emptied of its points goes too.
+  for (const el of Array.from(root.querySelectorAll(LINE_HOLDERS)).reverse()) {
+    if (isBlank(el.textContent)) el.remove();
   }
 }

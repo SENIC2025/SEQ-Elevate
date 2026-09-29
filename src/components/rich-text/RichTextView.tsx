@@ -53,7 +53,18 @@ export function RichTextView({
   if (isEmptyDoc(doc)) return null;
 
   return (
-    <div className={cn("seq-prose", compact && "seq-prose-compact", className)}>
+    <div
+      className={cn(
+        "seq-prose",
+        compact && "seq-prose-compact",
+        // Spaces as the editor keeps them (its white-space is break-spaces):
+        // runs of them, and spaces typed to indent a line, show as typed.
+        // Sanitized text holds no line breaks or tabs, and plain text keeps
+        // Round 1's rendering.
+        value && "whitespace-break-spaces",
+        className
+      )}
+    >
       {doc.content.map((block, i) => renderBlock(block, i, 1))}
     </div>
   );
@@ -130,17 +141,22 @@ function renderParagraph(
 /**
  * A list item, rendered tight: the first paragraph's text sits directly in
  * the <li> (so "• Pause" is <li>Pause</li>, as in Round 1), and anything
- * after it — more paragraphs, a nested list — follows as blocks.
+ * after it — more paragraphs, a nested list — follows as blocks. A point
+ * whose own text was deleted but that still holds a sub-list starts with an
+ * empty line, as in the editor, so its bullet doesn't join the sub-list's.
  */
 function renderItem(item: RtListItem, key: number, listDepth: number) {
   const [first, ...rest] = item.content;
   const lead = first?.type === "paragraph" ? first : null;
+  const after = lead ? rest : item.content;
   return (
     <li key={key}>
-      {lead ? renderInline(lead.content ?? []) : null}
-      {(lead ? rest : item.content).map((block, i) =>
-        renderBlock(block, i, listDepth + 1)
-      )}
+      {lead?.content?.length ? (
+        renderInline(lead.content)
+      ) : after.length ? (
+        <br />
+      ) : null}
+      {after.map((block, i) => renderBlock(block, i, listDepth + 1))}
     </li>
   );
 }

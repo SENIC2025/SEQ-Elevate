@@ -242,9 +242,17 @@ describe("legacy lesson text through RichTextView", () => {
   });
 
   // An author's first edit turns a plain block into rich text. Converted
-  // by the same rules, it must still look the same to learners.
+  // by the same rules, it must still look the same to learners: the same
+  // markup, its root only adding the editor's handling of spaces (the rules
+  // trim every line, so that changes nothing but runs of spaces inside one,
+  // which the author saw while editing).
   it.each(CASES)("converted to rich text: %j", (input, html) => {
     const rich = { v: 1, doc: legacyTextToDoc(input) };
-    expect(view({ rich, text: "ignored while rich is usable" })).toBe(html);
+    expect(view({ rich, text: "ignored while rich is usable" })).toBe(
+      html.replace(
+        '<div class="seq-prose">',
+        '<div class="seq-prose whitespace-break-spaces">'
+      )
+    );
   });
 });

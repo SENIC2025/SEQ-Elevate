@@ -31,7 +31,11 @@ const ol = (start: unknown, ...items: Json[]): Json => ({
   content: items,
 });
 
-const wrap = (html: string) => `<div class="seq-prose">${html}</div>`;
+// Rich text keeps typed spaces, as the editor does; plain text renders as
+// in Round 1.
+const wrap = (html: string) =>
+  `<div class="seq-prose whitespace-break-spaces">${html}</div>`;
+const plainWrap = (html: string) => `<div class="seq-prose">${html}</div>`;
 
 describe("RichTextView", () => {
   it("renders bold, italic and both, bold outside italic", () => {
@@ -85,6 +89,26 @@ describe("RichTextView", () => {
     expect(
       render({ rich: doc(ul(li(p(text("First")), p(text("More"))))) })
     ).toBe(wrap("<ul><li>First<p>More</p></li></ul>"));
+  });
+
+  it("starts a point without text of its own on an empty line, as the editor does", () => {
+    // Its text deleted, its sub-list kept: its bullet stays on a line of its
+    // own instead of joining the sub-list's first line.
+    const empty = { type: "paragraph" };
+    expect(
+      render({ rich: doc(ul(li(empty, ul(li(p(text("Child"))))))) })
+    ).toBe(wrap("<ul><li><br/><ul><li>Child</li></ul></li></ul>"));
+    expect(render({ rich: doc(ul(li(empty, p(text("More"))))) })).toBe(
+      wrap("<ul><li><br/><p>More</p></li></ul>")
+    );
+  });
+
+  it("keeps spaces as typed, as the editor shows them", () => {
+    const html = render({ rich: doc(p(text("  a  b"))) });
+    expect(html).toBe(wrap("<p>  a  b</p>"));
+    expect(html).toContain('class="seq-prose whitespace-break-spaces"');
+    // Plain text is rendered as it always was.
+    expect(render({ text: "a  b" })).toBe(plainWrap("<p>a  b</p>"));
   });
 
   it("always writes the start number of a numbered list", () => {
@@ -172,16 +196,16 @@ describe("RichTextView", () => {
 
   it("shows the plain text, by Round 1's rules, when there is no rich text", () => {
     expect(render({ text: "Remember:\n• Pause\n• Decide" })).toBe(
-      wrap("<p>Remember:</p><ul><li>Pause</li><li>Decide</li></ul>")
+      plainWrap("<p>Remember:</p><ul><li>Pause</li><li>Decide</li></ul>")
     );
-    expect(render({ rich: null, text: "Hi" })).toBe(wrap("<p>Hi</p>"));
+    expect(render({ rich: null, text: "Hi" })).toBe(plainWrap("<p>Hi</p>"));
     expect(render({})).toBe("");
   });
 
   it("falls back to the plain text for a format version it doesn't know", () => {
     const v2 = { v: 2, doc: { type: "doc", content: [p(text("New"))] } };
     expect(render({ rich: v2, text: "Fallback" })).toBe(
-      wrap("<p>Fallback</p>")
+      plainWrap("<p>Fallback</p>")
     );
   });
 
@@ -197,7 +221,7 @@ describe("RichTextView", () => {
       doc(p(text("x".repeat(20_000)))),
     ]) {
       expect(render({ rich, text: "Fallback" })).toBe(
-        wrap("<p>Fallback</p>")
+        plainWrap("<p>Fallback</p>")
       );
     }
   });
@@ -208,7 +232,7 @@ describe("RichTextView", () => {
     (item.content as Json[]).push(p(text("loop")), list);
     // It runs out of the node budget, so it can't be used at all.
     expect(render({ rich: doc(list), text: "Fallback" })).toBe(
-      wrap("<p>Fallback</p>")
+      plainWrap("<p>Fallback</p>")
     );
   });
 
@@ -219,7 +243,9 @@ describe("RichTextView", () => {
         compact: true,
         className: "inline-block text-sm",
       })
-    ).toBe('<div class="seq-prose seq-prose-compact inline-block text-sm"><p>Hi</p></div>');
+    ).toBe(
+      '<div class="seq-prose seq-prose-compact whitespace-break-spaces inline-block text-sm"><p>Hi</p></div>'
+    );
   });
 });
 
@@ -291,7 +317,7 @@ describe("RichTextView keeps hostile content inert", () => {
   it("emits no attributes but the root class", () => {
     // Every opening tag: text is escaped, so a "<" in it can't start one.
     const tags = html.match(/<[a-z][^>]*>/gi) ?? [];
-    expect(tags[0]).toBe('<div class="seq-prose">');
+    expect(tags[0]).toBe('<div class="seq-prose whitespace-break-spaces">');
     for (const tag of tags.slice(1)) {
       expect(tag).toMatch(/^<(?:p|ul|ol|li|br\/|strong|em)>$/);
     }

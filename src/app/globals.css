@@ -248,4 +248,15 @@ body {
     color: var(--muted-foreground);
     font-weight: 400;
   }
+  /* A blank line between paragraphs is a gap only here; learners never
+     see one, so it says so (BlankLines in editor-extensions.ts). */
+  .rt-editor > p.rt-blank-line:not(.is-editor-empty)::before {
+    content: attr(data-hint);
+    float: left;
+    height: 0;
+    pointer-events: none;
+    color: var(--muted-foreground);
+    font-weight: 400;
+    font-style: italic;
+  }
 }

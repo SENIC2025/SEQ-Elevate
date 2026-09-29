@@ -173,8 +173,17 @@ export const Indent = Extension.create<IndentOptions>({
 
   addKeyboardShortcuts() {
     return {
-      "Mod-]": () => this.editor.commands.indent(),
-      "Mod-[": () => this.editor.commands.outdent(),
+      // Always taken, even with nothing to move: on a Mac an unused ⌘[ or
+      // ⌘] goes to the browser as Back or Forward, leaving the page and
+      // any unsaved edits. (Tab, not these, is what moves focus on.)
+      "Mod-]": () => {
+        this.editor.commands.indent();
+        return true;
+      },
+      "Mod-[": () => {
+        this.editor.commands.outdent();
+        return true;
+      },
     };
   },
 

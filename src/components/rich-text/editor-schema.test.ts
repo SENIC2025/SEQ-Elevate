@@ -1,6 +1,12 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { Editor, getSchema, type JSONContent } from "@tiptap/core";
-import { editorExtensions, plainTextSlice } from "./editor-extensions";
+import { Fragment, Slice } from "@tiptap/pm/model";
+import type { DecorationSet } from "@tiptap/pm/view";
+import {
+  blankLinesKey,
+  editorExtensions,
+  plainTextSlice,
+} from "./editor-extensions";
 import { canSinkWithin } from "./indent-extension";
 import { legacyTextToDoc } from "@/lib/rich-text/from-legacy";
 import { sanitizeRichText } from "@/lib/rich-text/sanitize";
@@ -170,6 +176,63 @@ const firstIndent = (editor: Editor) =>
 const stored = (editor: Editor) =>
   sanitizeRichText({ v: 1, doc: editor.getJSON() }).value?.doc.content;
 
+/* The browser's part, for a page-less editor: each event is offered to the
+   plugins in turn, as ProseMirror does, and the answer is whether one took
+   it. What isn't taken, the browser does itself. */
+
+// ProseMirror's own test for "Mod" meaning ⌘ rather than Ctrl.
+const mac =
+  typeof navigator !== "undefined" &&
+  /Mac|iP(hone|[oa]d)/.test(navigator.platform);
+
+/** Press `key` with Ctrl (⌘ on a Mac) when `mod`; true if the editor took it. */
+function press(editor: Editor, key: string, mod = false): boolean {
+  const event = {
+    key,
+    ctrlKey: mod && !mac,
+    metaKey: mod && mac,
+    altKey: false,
+    shiftKey: false,
+  } as KeyboardEvent;
+  return editor.extensionManager.plugins.some(
+    (plugin) => plugin.props.handleKeyDown?.call(plugin, editor.view, event) === true
+  );
+}
+
+/** Type `text` at the cursor: each character goes to the input rules first. */
+function type(editor: Editor, text: string) {
+  for (const ch of text) {
+    const { from, to } = editor.state.selection;
+    const insert = () => editor.state.tr.insertText(ch, from, to);
+    const taken = editor.extensionManager.plugins.some(
+      (plugin) =>
+        plugin.props.handleTextInput?.call(
+          plugin,
+          editor.view,
+          from,
+          to,
+          ch,
+          insert
+        ) === true
+    );
+    if (!taken) editor.view.dispatch(insert());
+  }
+}
+
+/** Does a plugin take a paste of this plain text (no HTML)? */
+function pasteTaken(editor: Editor, text: string): boolean {
+  const event = {
+    clipboardData: {
+      getData: (kind: string) => (kind === "text/plain" ? text : ""),
+    },
+  } as unknown as ClipboardEvent;
+  const slice = new Slice(Fragment.from(editor.schema.text(text)), 0, 0);
+  return editor.extensionManager.plugins.some(
+    (plugin) =>
+      plugin.props.handlePaste?.call(plugin, editor.view, event, slice) === true
+  );
+}
+
 /** Every paragraph's indent, lists included. */
 function indents(editor: Editor): number[] {
   const out: number[] = [];
@@ -178,6 +241,12 @@ function indents(editor: Editor): number[] {
   });
   return out;
 }
+
+/** A paragraph as the editor hands it back, with its default indent. */
+const withDefaults = (node: JSONContent): JSONContent => ({
+  ...node,
+  attrs: { indent: 0, ...node.attrs },
+});
 
 describe("indent", () => {
   it("steps a paragraph in up to 4 times, and back out to none", () => {
@@ -246,6 +315,14 @@ describe("list depth (Tab)", () => {
     expect(canSinkWithin(tooDeep.state, 3)).toBe(false);
   });
 
+  it("leaves Tab to the browser at the third level, so focus moves on", () => {
+    const editor = editorWith(deep);
+    cursorIn(editor, "C2");
+    expect(press(editor, "Tab")).toBe(false);
+    cursorIn(editor, "B2");
+    expect(press(editor, "Tab")).toBe(true);
+  });
+
   it("never sinks a first point or text outside a list", () => {
     // Nothing above it to move under: Tab isn't taken there either.
     const first = editorWith(ul(li("A"), li("B")));
@@ -258,7 +335,79 @@ describe("list depth (Tab)", () => {
   });
 });
 
+describe("indent keys", () => {
+  // On a Mac, a ⌘[ or ⌘] the editor doesn't take is the browser's Back or
+  // Forward: the page — and every unsaved edit on it — would be gone.
+  it("takes Ctrl/⌘+[ and ] even when there is nothing to move", () => {
+    const flat = editorWith(p("Text"));
+    cursorIn(flat, "Text");
+    expect(flat.can().outdent()).toBe(false);
+    expect(press(flat, "[", true)).toBe(true);
+    expect(flat.getJSON().content).toEqual([p("Text")].map(withDefaults));
+
+    const far = editorWith(p("Far", 4));
+    cursorIn(far, "Far");
+    expect(press(far, "]", true)).toBe(true);
+    expect(firstIndent(far)).toBe(4);
+
+    const first = editorWith(ul(li("A"), li("B")));
+    cursorIn(first, "A");
+    expect(press(first, "]", true)).toBe(true);
+    expect(stored(first)).toEqual([ul(li("A"), li("B"))]);
+  });
+
+  it("still indents and outdents with them", () => {
+    const editor = editorWith(p("Text"));
+    cursorIn(editor, "Text");
+    expect(press(editor, "]", true)).toBe(true);
+    expect(firstIndent(editor)).toBe(1);
+    expect(press(editor, "[", true)).toBe(true);
+    expect(firstIndent(editor)).toBe(0);
+  });
+});
+
+describe("typing a number", () => {
+  it('starts a numbered list at "1. " to "999. ", from that number', () => {
+    for (const [typed, start] of [
+      ["1. ", 1],
+      ["12. ", 12],
+      ["999. ", 999],
+    ] as const) {
+      const editor = editorWith({ type: "paragraph" });
+      editor.commands.setTextSelection(1);
+      type(editor, `${typed}Point`);
+      const list = ol(li("Point"));
+      expect(stored(editor), typed).toEqual([
+        start === 1 ? list : { ...list, attrs: { start } },
+      ]);
+    }
+  });
+
+  it('keeps "2024. " as text: learners\' lists can\'t start there', () => {
+    const editor = editorWith({ type: "paragraph" });
+    editor.commands.setTextSelection(1);
+    type(editor, "2024. Was a big year");
+    expect(stored(editor)).toEqual([p("2024. Was a big year")]);
+  });
+
+  it("continues the list just above with its next number", () => {
+    const editor = editorWith(ol(li("One")), { type: "paragraph" });
+    editor.commands.setTextSelection(editor.state.doc.content.size - 1);
+    type(editor, "2. Two");
+    expect(stored(editor)).toEqual([ol(li("One"), li("Two"))]);
+  });
+});
+
 describe("pasting plain text", () => {
+  it("leaves a single line to the normal paste, whatever it starts with", () => {
+    // No list from one line: Tiptap's own list paste isn't in the editor.
+    for (const line of ["2024. Annual report", "a) Ask first", "I. Introduction", "3. Decide"]) {
+      const editor = editorWith({ type: "paragraph" });
+      editor.commands.setTextSelection(1);
+      expect(pasteTaken(editor, line), line).toBe(false);
+    }
+  });
+
   /** Paste `text` at the cursor, as the editor's paste handler does. */
   function pasteText(editor: Editor, text: string) {
     const slice = plainTextSlice(editor.schema, text);
@@ -295,5 +444,33 @@ describe("pasting plain text", () => {
 
   it("leaves a single line to the normal paste", () => {
     expect(plainTextSlice(schema, "Berlin • Athens • Rome")).toBeNull();
+  });
+});
+
+describe("blank lines", () => {
+  /** The top-level paragraphs marked as blank, by their text's position. */
+  function marked(editor: Editor): number[] {
+    const plugin = blankLinesKey.get(editor.state);
+    const set = plugin?.props.decorations?.call(plugin, editor.state) as
+      | DecorationSet
+      | null
+      | undefined;
+    return (set?.find() ?? []).map((d) => d.from);
+  }
+
+  it("marks each blank line between paragraphs: learners won't see a gap", () => {
+    const editor = editorWith(
+      p("One"),
+      { type: "paragraph" },
+      { type: "paragraph", content: [{ type: "text", text: "   " }] },
+      p("Two")
+    );
+    // "One" is 5 positions long; the next paragraph starts at 5, then 7.
+    expect(marked(editor)).toEqual([5, 7]);
+  });
+
+  it("leaves an empty editor to its placeholder, and list points alone", () => {
+    expect(marked(editorWith({ type: "paragraph" }))).toEqual([]);
+    expect(marked(editorWith(ul(li("A"), li("B"))))).toEqual([]);
   });
 });

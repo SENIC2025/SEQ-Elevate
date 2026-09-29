@@ -29,7 +29,7 @@ describe("NarrativeBlocks", () => {
       },
     ]);
     expect(html).toContain(
-      '<div class="seq-prose text-base leading-relaxed"><p>Stay <strong>calm</strong></p></div>'
+      '<div class="seq-prose whitespace-break-spaces text-base leading-relaxed"><p>Stay <strong>calm</strong></p></div>'
     );
   });
 
@@ -51,7 +51,7 @@ describe("NarrativeBlocks", () => {
       },
     ]);
     expect(html).toMatch(
-      /<div class="seq-prose seq-prose-compact inline-block rounded-lg [^"]*"><p><em>Pause<\/em><\/p><\/div>/
+      /<div class="seq-prose seq-prose-compact whitespace-break-spaces inline-block rounded-lg [^"]*"><p><em>Pause<\/em><\/p><\/div>/
     );
   });
 
