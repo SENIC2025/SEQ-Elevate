@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type APIResponse } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 
 /**
@@ -7,6 +7,22 @@ import AxeBuilder from "@axe-core/playwright";
  * the quiz; answering resumes. Driven by the bundled WebM (public/demo), which
  * Playwright's Chromium can decode.
  */
+
+/**
+ * A guest must never mint a Blob upload token. The refusal carries a stable
+ * code: "signed-out" (401) — or, where no Blob token is configured (local
+ * runs, CI), "storage-missing" (503), which the route checks first.
+ */
+async function expectGuestRefused(res: APIResponse) {
+  expect(res.ok()).toBeFalsy();
+  const body = await res.json();
+  if (res.status() === 503) {
+    expect(body.code).toBe("storage-missing");
+  } else {
+    expect(res.status()).toBe(401);
+    expect(body.code).toBe("signed-out");
+  }
+}
 
 test.describe("interactive video", () => {
   test("pauses at a cue, quizzes the learner, then resumes", async ({
@@ -58,7 +74,6 @@ test.describe("interactive video", () => {
   test("the video upload endpoint rejects unauthenticated callers", async ({
     request,
   }) => {
-    // A guest must not be able to mint a Blob upload token.
     const res = await request.post("/api/video/upload", {
       data: {
         type: "blob.generate-client-token",
@@ -70,8 +85,7 @@ test.describe("interactive video", () => {
         },
       },
     });
-    expect(res.ok()).toBeFalsy();
-    expect(res.status()).toBe(400);
+    await expectGuestRefused(res);
   });
 
   test("the quiz popup has no serious a11y violations", async ({ page }) => {
@@ -117,6 +131,13 @@ test("the document upload endpoint rejects unauthenticated callers", async ({
       },
     },
   });
-  expect(res.ok()).toBeFalsy();
-  expect(res.status()).toBe(400);
+  await expectGuestRefused(res);
+});
+
+test("the storage status endpoint tells a guest they're signed out", async ({
+  request,
+}) => {
+  const res = await request.get("/api/storage/status");
+  expect(res.status()).toBe(401);
+  expect(await res.json()).toEqual({ signedIn: false });
 });
