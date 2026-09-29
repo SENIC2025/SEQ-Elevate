@@ -12,8 +12,8 @@
     "close": "Schließen",
     "minutes": "{count, plural, one {# Minute} other {# Minuten}}",
     "switchRole": "Rolle wechseln",
-    "demoBannerLine1": "Das ist die SEQ Elevate Plattform-Shell — eine funktionierende Demo der leeren Plattform, die SENIC liefern wird.",
-    "demoBannerLine2": "Die hier gezeigten Kursinhalte sind Platzhalter, die das Konsortium ersetzen wird.",
+    "demoBannerLine1": "Du bist in einer Testumgebung von SEQ Elevate, in der Änderungen geprüft werden, bevor sie live gehen.",
+    "demoBannerLine2": "Nutze sie nur zum Testen. Die Live-Plattform findest du unter seq-elevate.eu.",
     "account": "Konto"
   },
   "account": {
@@ -67,8 +67,8 @@
   "landing": {
     "title": "Willkommen bei SEQ Elevate",
     "subtitle": "Eine mobile-first Lernreise für NEET-Jugendliche, gebaut um echte Praxis, Reflexion und Nachweise — keine Vorlesungen.",
-    "demoNote": "Das ist eine funktionierende Demonstration der Plattform-Shell. Wähle eine Rolle, um einzusteigen.",
-    "pickRole": "Wie möchtest du die Demo betreten?",
+    "demoNote": "Das ist eine Testumgebung der Plattform. Wähle eine Rolle, um dich umzusehen.",
+    "pickRole": "Wähle eine Rolle zum Testen",
     "languageLabel": "Sprache",
     "scaffoldNote": "In Tagen gebaut, nicht in Monaten — Erstellt und betrieben von SENIC.",
     "exploreLearner": "Die Lerner-Reise durchlaufen",
@@ -503,7 +503,7 @@
     "unsupported": "Dein Browser kann dieses Video nicht abspielen.",
     "demo": {
       "title": "Ansehen: ansprechen ohne Vorwürfe",
-      "caption": "Platzhalter-Clip – das Konsortium ersetzt ihn im CMS durch ein eigenes Lernvideo.",
+      "caption": "Ein kurzer Clip darüber, wie du auf eine Meinungsverschiedenheit bei der Arbeit reagierst. Zwischendurch erscheint eine kurze Frage.",
       "question": "Eine „Ich-Botschaft“ konzentriert sich auf …",
       "optBlame": "Was die andere Person falsch gemacht hat",
       "optFeel": "Was du gefühlt hast und was du dir wünschst",
