@@ -19,9 +19,10 @@ import {
  * in types.ts, so an unknown node, mark or attribute (a link, an image, a
  * `style` or `onclick`) simply isn't copied. Recursion only follows lists
  * and stops at RT_LIMITS.maxListDepth; deeper lists are flattened with a
- * work stack, and every node visited counts against RT_LIMITS.maxNodes — so
- * very deep or cyclic input ends in a result, never a stack overflow or a
- * hang. Raw input is never JSON.stringify'd (only the rebuilt value is).
+ * work stack, every node visited counts against RT_LIMITS.maxNodes, and
+ * every character of text read against RT_LIMITS.maxJsonChars — so very
+ * deep, cyclic or repetitive input ends in a result, never a stack overflow
+ * or a hang. Raw input is never JSON.stringify'd (only the rebuilt value is).
  *
  * Pure, so it runs the same on the server and in the browser.
  */
@@ -158,6 +159,8 @@ function makeItem(kept: RtBlock[]): RtListItem | null {
 class Walker {
   private nodes = 0;
   private chars = 0;
+  /** Raw characters looked at, kept or not (see text()). */
+  private scanned = 0;
   fatal: RtIssue | null = null;
   readonly issues = new Set<RtIssue>();
 
@@ -234,8 +237,12 @@ class Walker {
       this.issues.add("dropped-node");
       return;
     }
-    // Far over the limit whatever cleaning removes: don't scan it.
-    if (raw.length > RT_LIMITS.maxJsonChars) {
+    // Count what is scanned, not what is kept: text that cleans to nothing,
+    // or one string referenced many times (a server action's arguments may
+    // repeat a value by reference), must not be scanned without end. Real
+    // text is at most maxTextChars once cleaned, so this never refuses it.
+    this.scanned += raw.length;
+    if (this.scanned > RT_LIMITS.maxJsonChars) {
       this.fail("too-much-text");
       return;
     }

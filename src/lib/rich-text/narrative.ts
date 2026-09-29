@@ -59,6 +59,19 @@ const isRecord = (value: unknown): value is Rec =>
 const plain = (value: unknown): string =>
   typeof value === "string" ? cleanPlainText(value) : "";
 
+/**
+ * `value` as plain text (see plain), or null when that is over `max`
+ * characters. A string over twice `max` is refused before it's cleaned:
+ * whatever cleaning would remove, reading it is wasted work — and a server
+ * action's arguments can repeat one huge string, by reference, in every
+ * block and list point.
+ */
+function plainWithin(value: unknown, max: number): string | null {
+  if (typeof value === "string" && value.length > 2 * max) return null;
+  const text = plain(value);
+  return text.length > max ? null : text;
+}
+
 const count = (n: number) => n.toLocaleString("en");
 
 export function sanitizeNarrativeBlocks(input: unknown): NarrativeBlocksResult {
@@ -118,8 +131,8 @@ function sanitizeBlock(
       }
       return { kind, rich: value, text: docToPlainText(value.doc) };
     }
-    const text = plain(raw.text);
-    if (text.length > NARRATIVE_LIMITS.maxTextChars) {
+    const text = plainWithin(raw.text, NARRATIVE_LIMITS.maxTextChars);
+    if (text === null) {
       issues.push(RT_PROBLEM["too-much-text"](name));
       return null;
     }
@@ -134,17 +147,17 @@ function sanitizeBlock(
       );
       return null;
     }
-    const items = rawItems
-      .filter((item): item is string => typeof item === "string")
-      .map(cleanPlainText);
-    const long = items.findIndex(
-      (item) => item.length > NARRATIVE_LIMITS.maxListItemChars
-    );
-    if (long !== -1) {
-      issues.push(
-        `${name}: point ${long + 1} is too long — at most ${count(NARRATIVE_LIMITS.maxListItemChars)} characters.`
-      );
-      return null;
+    const items: string[] = [];
+    for (const item of rawItems) {
+      if (typeof item !== "string") continue;
+      const text = plainWithin(item, NARRATIVE_LIMITS.maxListItemChars);
+      if (text === null) {
+        issues.push(
+          `${name}: point ${items.length + 1} is too long — at most ${count(NARRATIVE_LIMITS.maxListItemChars)} characters.`
+        );
+        return null;
+      }
+      items.push(text);
     }
     const block: NarrativeBlock = { kind, items };
     if (raw.listStyle === "bullet" || raw.listStyle === "number") {
@@ -154,30 +167,37 @@ function sanitizeBlock(
   }
 
   // compare
+  let ok = true;
   const sides = (Array.isArray(raw.compare) ? raw.compare : [])
     .slice(0, NARRATIVE_LIMITS.maxCompareSides)
     .filter(isRecord)
-    .map((side) => ({
-      label: plain(side.label),
-      text: plain(side.text),
-      tone:
-        side.tone === "positive" ? ("positive" as const) : ("negative" as const),
-    }));
-  let ok = true;
-  sides.forEach((side, i) => {
-    if (side.label.length > NARRATIVE_LIMITS.maxCompareLabelChars) {
-      issues.push(
-        `${name}: the heading of side ${i + 1} is too long — at most ${NARRATIVE_LIMITS.maxCompareLabelChars} characters.`
+    .map((side, i) => {
+      const label = plainWithin(
+        side.label,
+        NARRATIVE_LIMITS.maxCompareLabelChars
       );
-      ok = false;
-    }
-    if (side.text.length > NARRATIVE_LIMITS.maxCompareTextChars) {
-      issues.push(
-        `${name}: the text of side ${i + 1} is too long — at most ${count(NARRATIVE_LIMITS.maxCompareTextChars)} characters.`
-      );
-      ok = false;
-    }
-  });
+      if (label === null) {
+        issues.push(
+          `${name}: the heading of side ${i + 1} is too long — at most ${NARRATIVE_LIMITS.maxCompareLabelChars} characters.`
+        );
+        ok = false;
+      }
+      const text = plainWithin(side.text, NARRATIVE_LIMITS.maxCompareTextChars);
+      if (text === null) {
+        issues.push(
+          `${name}: the text of side ${i + 1} is too long — at most ${count(NARRATIVE_LIMITS.maxCompareTextChars)} characters.`
+        );
+        ok = false;
+      }
+      return {
+        label: label ?? "",
+        text: text ?? "",
+        tone:
+          side.tone === "positive"
+            ? ("positive" as const)
+            : ("negative" as const),
+      };
+    });
   return ok ? { kind, compare: sides } : null;
 }
 

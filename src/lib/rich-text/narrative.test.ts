@@ -151,6 +151,43 @@ describe("sanitizeNarrativeBlocks", () => {
     ).toEqual(["Block 1 (List): point 2 is too long — at most 1,000 characters."]);
   });
 
+  it("refuses a string over twice its limit before cleaning it", () => {
+    // Invisible characters clean away to nothing, but a string this long is
+    // never read: one such string can be sent by reference in every block
+    // and list point of a save.
+    const hidden = (n: number) => "\u0001".repeat(n);
+    expect(
+      refused([
+        { kind: "paragraph", text: hidden(2 * NARRATIVE_LIMITS.maxTextChars + 1) },
+        { kind: "list", items: ["ok", hidden(900_000), hidden(900_000)] },
+        {
+          kind: "compare",
+          compare: [
+            { label: hidden(241), text: "ok" },
+            { label: "ok", text: hidden(4_001) },
+          ],
+        },
+      ])
+    ).toEqual([
+      "Block 1 (Paragraph) is too long — at most 10,000 characters. Split it into two blocks.",
+      "Block 2 (List): point 2 is too long — at most 1,000 characters.",
+      "Block 3 (Compare two sides): the heading of side 1 is too long — at most 120 characters.",
+      "Block 3 (Compare two sides): the text of side 2 is too long — at most 2,000 characters.",
+    ]);
+    // Up to twice the limit, what cleaning removes doesn't count.
+    expect(
+      saved([
+        { kind: "paragraph", text: "x".repeat(10_000) + hidden(10_000) },
+        { kind: "list", items: ["x" + hidden(1_999)] },
+        { kind: "compare", compare: [{ label: "L" + hidden(239), text: "T" + hidden(3_999) }] },
+      ])
+    ).toEqual([
+      { kind: "paragraph", text: "x".repeat(10_000) },
+      { kind: "list", items: ["x"] },
+      { kind: "compare", compare: [{ label: "L", text: "T", tone: "negative" }] },
+    ]);
+  });
+
   it("keeps two sides of a compare block, each with a known tone", () => {
     expect(
       saved([

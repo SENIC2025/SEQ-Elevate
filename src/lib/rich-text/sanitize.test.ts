@@ -290,6 +290,32 @@ describe("sanitizeRichText", () => {
     ]);
   });
 
+  it("stops reading text once a doc's worth has been scanned, kept or not", () => {
+    // One string that cleans to nothing, shared by every text node — a
+    // server action's arguments can repeat a value by reference. Each node
+    // is within the budget; together they are 1,490 times over it.
+    const invisible = "\u0001".repeat(RT_LIMITS.maxJsonChars - 1);
+    let reads = 0;
+    const node = {
+      type: "text",
+      get text() {
+        reads++;
+        return invisible;
+      },
+    };
+    const input = envelope(p(...Array.from({ length: 1_490 }, () => node)));
+    expect(sanitizeRichText(input)).toEqual({
+      value: null,
+      issues: ["too-much-text"],
+    });
+    expect(reads).toBe(2);
+    // Within the budget, text that cleans to nothing is simply left out.
+    expect(docOf(envelope(p(t("\u0001".repeat(1_000)), t("kept"))))).toEqual({
+      type: "doc",
+      content: [p(t("kept"))],
+    });
+  });
+
   it("refuses more nodes than RT_LIMITS allows", () => {
     // A paragraph and its text are two nodes.
     const paragraphs = (n: number) =>
