@@ -1,6 +1,6 @@
 "use client";
 
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { Link, getPathname } from "@/i18n/navigation";
 import { Badge } from "@/components/ui/badge";
 import type {
@@ -49,9 +49,11 @@ function LastEdited({ template, time }: { template: string; time: TimeLabel }) {
 /**
  * Opens the learner player in a new tab, sandboxed (D35), in the content
  * language — menus included, as a learner with that language sees it — and
- * at `lesson` when given. A plain link on purpose: the i18n Link would also
- * switch the editor's own saved language (the locale cookie) to the one
- * being previewed.
+ * at `lesson` when given. `ui` carries the editor's own menu language, so the
+ * preview's way back ("Back to editing", "Edit this lesson") returns in it
+ * rather than in the language being previewed. (Opening any /de/… page sets
+ * the saved-language cookie to German, link or not; the way back sets it
+ * back.)
  */
 export function PreviewLink({
   slug,
@@ -67,11 +69,12 @@ export function PreviewLink({
   children: React.ReactNode;
 }) {
   const t = useTranslations("courseManager.grid");
+  const ui = useLocale();
   const href = getPathname({
     locale: lang,
     href: {
       pathname: `/learner/course/${slug}`,
-      query: lesson ? { preview: "1", lesson } : { preview: "1" },
+      query: { preview: "1", ...(lesson ? { lesson } : {}), ui },
     },
   });
   return (

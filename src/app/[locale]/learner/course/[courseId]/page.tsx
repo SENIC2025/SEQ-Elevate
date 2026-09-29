@@ -8,6 +8,7 @@ import { isStageKey } from "@/lib/cms/course-admin-types";
 import { getViewerRoles } from "@/lib/server-queries";
 import { canEditContent } from "@/lib/permissions";
 import type { Locale } from "@/lib/cms/types";
+import { routing } from "@/i18n/routing";
 import { CoursePlayer } from "@/components/course/CoursePlayer";
 import { PreviewStateProvider } from "@/store/demo-state";
 
@@ -65,6 +66,8 @@ export async function generateMetadata({
  * course in a sandbox: nothing is saved — no enrolment, progress, badge or
  * statistics. Only preview honours `?lesson=` to start at a chosen lesson;
  * learners always start at the beginning and keep the step-by-step order.
+ * A preview opened from the course page also says which menu language the
+ * editor works in (`?ui=`), so its links back to editing use that one.
  */
 export default async function Page({
   params,
@@ -74,6 +77,7 @@ export default async function Page({
   searchParams: Promise<{
     lesson?: string | string[];
     preview?: string | string[];
+    ui?: string | string[];
   }>;
 }) {
   const { locale, courseId } = await params;
@@ -90,6 +94,11 @@ export default async function Page({
   const preview = canEdit && (isDraft || one(sp.preview) === "1");
   const lesson = one(sp.lesson);
   const initialStage = preview && isStageKey(lesson) ? lesson : undefined;
+  const ui = one(sp.ui);
+  const editLocale =
+    preview && (routing.locales as readonly string[]).includes(ui ?? "")
+      ? (ui as Locale)
+      : undefined;
 
   const player = (
     <CoursePlayer
@@ -98,6 +107,7 @@ export default async function Page({
       preview={preview}
       canEdit={canEdit}
       initialStage={initialStage}
+      editLocale={editLocale}
     />
   );
   return preview ? <PreviewStateProvider>{player}</PreviewStateProvider> : player;

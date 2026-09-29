@@ -1,6 +1,12 @@
 "use client";
 
-import { useState, useCallback, useEffect, useRef } from "react";
+import {
+  useState,
+  useCallback,
+  useEffect,
+  useRef,
+  type MouseEvent,
+} from "react";
 import { useTranslations } from "next-intl";
 import { useSession } from "next-auth/react";
 import { Link } from "@/i18n/navigation";
@@ -20,7 +26,7 @@ import { CompletionStage } from "./CompletionStage";
 import { InteractiveVideoPlayer } from "./InteractiveVideoPlayer";
 import { LessonDocuments } from "./LessonDocuments";
 import { useStageTimer } from "./useStageTimer";
-import type { CourseContent, CourseStage } from "@/lib/cms/types";
+import type { CourseContent, CourseStage, Locale } from "@/lib/cms/types";
 import { ChevronLeft, Pencil } from "lucide-react";
 
 /**
@@ -40,6 +46,7 @@ export function CoursePlayer({
   preview = false,
   canEdit = false,
   initialStage,
+  editLocale,
 }: {
   course: CourseContent;
   /** Editor previewing an unpublished course — learners never see this. */
@@ -50,6 +57,12 @@ export function CoursePlayer({
   canEdit?: boolean;
   /** Preview only: the lesson to open first. Ignored if the course lacks it. */
   initialStage?: Stage;
+  /**
+   * Preview opened from the course page: the editor's own menu language.
+   * The links back to editing use it, and "Back to editing" closes this tab
+   * to return to the course page it came from, when the browser allows.
+   */
+  editLocale?: Locale;
 }) {
   const tStage = useTranslations("course.stageLabel");
   const tPlayer = useTranslations("coursePlayer");
@@ -191,6 +204,16 @@ export function CoursePlayer({
     current === "complete" ? "" : `lesson=${current}&`
   }lang=${course.locale}`;
 
+  // Opened from the course page in a new tab: that page is still open, so go
+  // back to it instead of starting a second copy (whose saves could then
+  // overwrite each other). Only a tab with nothing else in its history may
+  // close itself; otherwise the link is followed as usual.
+  const backToOpener = (e: MouseEvent) => {
+    if (window.history.length !== 1) return;
+    window.close();
+    if (window.closed) e.preventDefault();
+  };
+
   return (
     <div className="mx-auto max-w-3xl px-4 py-6 sm:py-8">
       {preview || draftPreview ? (
@@ -206,6 +229,8 @@ export function CoursePlayer({
           {canEdit ? (
             <Link
               href={editHref}
+              locale={editLocale}
+              onClick={editLocale ? backToOpener : undefined}
               className="font-medium text-[var(--accent)] underline underline-offset-2"
             >
               {tPlayer("backToEditing")}
@@ -229,6 +254,7 @@ export function CoursePlayer({
           {canEdit && current !== "complete" ? (
             <Link
               href={editHref}
+              locale={editLocale}
               className="inline-flex items-center gap-1 rounded-md border border-[var(--border)] px-2 py-1 text-sm hover:bg-[var(--surface-muted)] transition-colors"
             >
               <Pencil className="h-4 w-4" aria-hidden />

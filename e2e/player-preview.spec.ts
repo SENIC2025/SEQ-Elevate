@@ -299,6 +299,52 @@ describe("Preview as learner", () => {
     });
   });
 
+  test("a preview in another language links back in the editor's own, and stays a preview when the menu language changes", async ({
+    page,
+    context,
+  }) => {
+    await useSession(context, editorSession);
+    // As "Preview as learner" opens it from an English course page that is
+    // writing German: German player, English editor.
+    await page.goto(
+      `/de/learner/course/${BUILT_IN}?preview=1&lesson=behaviour&ui=en`
+    );
+    await expect(
+      page.getByText(/nichts, was du hier tust, wird gespeichert/i).first()
+    ).toBeVisible({ timeout: 15000 });
+    // Both ways back open the course page with English menus, writing German.
+    await expect(
+      page.locator(
+        `a[href="/en/content/courses/${BUILT_IN}?lesson=behaviour&lang=de"]`
+      )
+    ).toHaveCount(2);
+
+    // Switching the menu language keeps the preview (and the lesson).
+    await page.getByRole("combobox", { name: /^language/i }).selectOption("en");
+    await expect(page).toHaveURL(
+      new RegExp(
+        `/en/learner/course/${BUILT_IN}\\?preview=1&lesson=behaviour&ui=en$`
+      ),
+      { timeout: 15000 }
+    );
+    await expect(
+      page.getByText(/nothing you do here is saved/i).first()
+    ).toBeVisible();
+    await expect(
+      page
+        .getByRole("navigation", { name: /course stages/i })
+        .locator('[aria-current="step"]')
+    ).toContainText(/behaviour model/i);
+
+    await page.getByRole("button", { name: /^continue$/i }).first().click();
+    await page.waitForTimeout(2000);
+    expect(await tracesOf(editorId, BUILT_IN)).toEqual({
+      enrolments: 0,
+      audits: 0,
+      badges: 0,
+    });
+  });
+
   test("an editor on a live course gets Edit this lesson for the lesson they're on", async ({
     page,
     context,
