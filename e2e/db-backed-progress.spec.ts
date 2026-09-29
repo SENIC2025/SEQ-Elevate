@@ -202,27 +202,44 @@ async function failServerActions(
  * answers "no session" instead of failing, so the action sees no one
  * signed in. The Session row is taken away while each of those requests
  * runs and put back before the page gets the answer; they run one at a
- * time (Next sends server actions one at a time anyway).
+ * time (Next sends server actions one at a time anyway). `args` may also
+ * be a test of the request body, for a call whose arguments aren't known
+ * in full (a save's payload). The page's own session reads (next-auth's
+ * GET of /api/auth/session) never see the row away — to Auth.js that's a
+ * sign-out, and it drops the cookie: it's only taken away once none is on
+ * its way, and one that starts meanwhile waits until it's back.
  */
 async function sessionLostDuring(
   page: import("@playwright/test").Page,
   sessionToken: string,
-  args: unknown[],
+  args: unknown[] | ((body: string) => boolean),
   times: number
 ) {
-  const body = JSON.stringify(args);
+  const isCall =
+    typeof args === "function"
+      ? args
+      : (body: string) => body === JSON.stringify(args);
   let taken = 0;
   let answered = 0;
   let queue: Promise<unknown> = Promise.resolve();
+  let away = false;
+  let rowBack: Promise<void> = Promise.resolve();
+  let reads = 0;
+  let noReads: (() => void) | null = null;
   await page.route("**/*", async (route) => {
     const req = route.request();
     const matches =
       req.method() === "POST" &&
       !!(await req.headerValue("next-action")) &&
-      req.postData() === body;
+      isCall(req.postData() ?? "");
     if (!matches || taken >= times) return route.continue();
     taken++;
     const turn = queue.then(async () => {
+      let back!: () => void;
+      away = true;
+      rowBack = new Promise<void>((resolve) => (back = resolve));
+      while (reads > 0) await new Promise<void>((resolve) => (noReads = resolve));
+      noReads = null;
       const session = await prisma.session.findUniqueOrThrow({
         where: { sessionToken },
       });
@@ -231,13 +248,68 @@ async function sessionLostDuring(
         return await route.fetch();
       } finally {
         await prisma.session.create({ data: session });
+        away = false;
+        back();
       }
     });
     queue = turn.catch(() => undefined);
     await route.fulfill({ response: await turn });
     answered++;
   });
+  // Routed last, so it comes first for the session reads.
+  await page.route("**/api/auth/session", async (route) => {
+    while (away) await rowBack;
+    reads++;
+    try {
+      await route.fulfill({ response: await route.fetch() });
+    } finally {
+      if (--reads === 0) noReads?.();
+    }
+  });
   return { answered: () => answered };
+}
+
+/**
+ * Answers the page's next `times` session reads (next-auth's GET of
+ * /api/auth/session) with no session, the way Auth.js answers one whose
+ * database lookup failed: it logs the error, answers null and leaves the
+ * session cookie as it is. The learner is still signed in; the next read
+ * finds them. Every other request goes on to the handlers routed before.
+ */
+async function sessionReadFails(
+  page: import("@playwright/test").Page,
+  times: number
+) {
+  let failed = 0;
+  await page.route("**/api/auth/session", async (route) => {
+    if (route.request().method() !== "GET" || failed >= times) {
+      return route.fallback();
+    }
+    failed++;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: "null",
+    });
+  });
+  return { failed: () => failed };
+}
+
+/** What this browser's guest store holds for the learner store, or null. */
+function guestStore(page: import("@playwright/test").Page) {
+  return page.evaluate(() => {
+    const raw = localStorage.getItem("seq-elevate-demo-state-v1");
+    return raw
+      ? (JSON.parse(raw) as {
+          badges: string[];
+          course: {
+            courseSlug: string | null;
+            stagesCompleted: string[];
+            completedAt: string | null;
+          };
+        })
+      : null;
+  });
 }
 
 /**
@@ -726,6 +798,13 @@ describe("progress kept when the session is lost, changes hands or the course ch
     signOutNext: "e2e-signout-next@example.com",
     afterCompleted: "e2e-after-completed@example.com",
     reopen: "e2e-reopen-course@example.com",
+    completedFirst: "e2e-signout-completed-first@example.com",
+    completedNext: "e2e-signout-completed-next@example.com",
+    readFailsLoading: "e2e-read-fails-loading@example.com",
+    readFailsSaving: "e2e-read-fails-saving@example.com",
+    saveNoSession: "e2e-nosession-save@example.com",
+    badgeNoSession: "e2e-nosession-badge@example.com",
+    dashboardSignOut: "e2e-signout-dashboard@example.com",
   };
   const all = Object.values(emails);
   const users: Record<string, { id: string; session: string }> = {};
@@ -956,12 +1035,14 @@ describe("progress kept when the session is lost, changes hands or the course ch
     const wentWell = compCardField(page, "Even small wins count.");
     await expect(wentWell).toHaveValue("Private: only mine");
 
-    // …and they sign out in another one.
+    // …and they sign out in another one. This tab reads its session again
+    // to tell that from a lookup that failed for a moment (about 3 s), and
+    // then lets go of the learner's data.
     const other = await context.newPage();
     await other.goto("/en/learner");
     await other.getByRole("button", { name: "Sign out" }).click();
     await expect(signOut).toBeHidden();
-    await expect(wentWell).toHaveValue("");
+    await expect(wentWell).toHaveValue("", { timeout: 15_000 });
     await page.waitForTimeout(500);
     const guestStore = await page.evaluate(
       () => localStorage.getItem("seq-elevate-demo-state-v1") ?? ""
@@ -982,6 +1063,213 @@ describe("progress kept when the session is lost, changes hands or the course ch
     expect(await prisma.compCard.findFirst({ where: { userId: next.id } })).toBeNull();
     expect(await prisma.userBadge.count({ where: { userId: next.id } })).toBe(0);
     await expect(wentWell).toHaveValue("");
+  });
+
+  test("signing out in another tab on the completion screen doesn't complete the course again for the guest store or the next account", async ({
+    page,
+    context,
+  }) => {
+    test.setTimeout(60_000);
+    const first = users[emails.completedFirst];
+    const next = users[emails.completedNext];
+    await signIn(context, emails.completedFirst);
+
+    // The learner finishes the course, and this tab stays on the
+    // completion screen once it's all saved…
+    await walkWorkplaceConflict(page);
+    await expect
+      .poll(async () => ({
+        completed: !!(
+          await prisma.courseEnrollment.findFirst({
+            where: { userId: first.id, course: { slug: "workplace-conflict" } },
+          })
+        )?.completedAt,
+        badges: await prisma.userBadge.count({ where: { userId: first.id } }),
+      }))
+      .toEqual({ completed: true, badges: 1 });
+    const signOut = page.getByRole("button", { name: "Sign out" });
+
+    // …while they sign out in another one.
+    const other = await context.newPage();
+    await other.goto("/en/learner");
+    await other.getByRole("button", { name: "Sign out" }).click();
+    await expect(signOut).toBeHidden();
+
+    // Nothing of theirs is written to the guest store, completion and
+    // badge included.
+    await expect.poll(() => guestStore(page), { timeout: 15_000 }).not.toBeNull();
+    await page.waitForTimeout(1000);
+    const stored = await guestStore(page);
+    expect(stored?.badges).toEqual([]);
+    expect(stored?.course.completedAt).toBeNull();
+    expect(stored?.course.stagesCompleted).toEqual([]);
+
+    // Someone else signs in on this browser, and this tab picks it up:
+    // the course isn't theirs, completed or not, nor is the badge.
+    await signIn(context, emails.completedNext);
+    await recheckSession(page);
+    await expect(signOut).toBeVisible();
+    await expect
+      .poll(() =>
+        prisma.membership.count({ where: { userId: next.id, role: "LEARNER" } })
+      )
+      .toBe(1);
+    await page.waitForTimeout(2000); // past a migration and the save debounce
+    expect(await prisma.userBadge.count({ where: { userId: next.id } })).toBe(0);
+    expect(await enrollmentFor(next.id, "workplace-conflict")).toBeNull();
+  });
+
+  test("progress made while the learner's data loads survives a session read that fails for a moment", async ({
+    page,
+    context,
+  }) => {
+    test.setTimeout(60_000);
+    const { id: userId } = users[emails.readFailsLoading];
+    await signIn(context, emails.readFailsLoading);
+    const actions = await holdServerActions(page);
+
+    // A cold server: the learner walks three lessons before their data
+    // has loaded.
+    await page.goto("/en/learner/course/workplace-conflict");
+    const signOut = page.getByRole("button", { name: "Sign out" });
+    await expect(signOut).toBeVisible();
+    await continueTimes(page, 3);
+    await expect.poll(actions.held).toBeGreaterThan(0);
+
+    // Another tab opens, and this tab's read of its session meets the same
+    // cold database: "no session" for a moment…
+    await sessionReadFails(page, 1);
+    await recheckSession(page);
+    await expect(signOut).toBeHidden();
+    // …and the next read finds the learner again.
+    await page.waitForTimeout(300);
+    await recheckSession(page);
+    await expect(signOut).toBeVisible();
+    actions.release();
+
+    await expect
+      .poll(() => enrollmentFor(userId, "workplace-conflict"), {
+        timeout: 30_000,
+      })
+      .toMatchObject({ stages: ["CONTEXT", "CONCEPT", "BEHAVIOUR"] });
+  });
+
+  test("a session read that fails for a moment doesn't lose the change still waiting to be saved, and the tab takes the session back up", async ({
+    page,
+    context,
+  }) => {
+    test.setTimeout(60_000);
+    const { id: userId } = users[emails.readFailsSaving];
+    await signIn(context, emails.readFailsSaving);
+    const loaded = courseLoaded(page, "workplace-conflict");
+    await page.goto("/en/learner/course/workplace-conflict");
+    await loaded;
+    const signOut = page.getByRole("button", { name: "Sign out" });
+    await expect(signOut).toBeVisible();
+    await page.waitForTimeout(300); // the loaded progress is merged in
+
+    // A lesson done, and within the save debounce another tab opens and
+    // this tab's session read fails.
+    await sessionReadFails(page, 1);
+    await continueTimes(page, 1);
+    await recheckSession(page);
+    await expect(signOut).toBeHidden();
+
+    await expect
+      .poll(() => enrollmentFor(userId, "workplace-conflict"), {
+        timeout: 15_000,
+      })
+      .toMatchObject({ stages: ["CONTEXT"] });
+    // Nothing else reads the session in this tab: it reads it again itself.
+    await expect(signOut).toBeVisible({ timeout: 15_000 });
+  });
+
+  test("a save that finds no session is sent again, not taken as saved", async ({
+    page,
+    context,
+  }) => {
+    test.setTimeout(60_000);
+    const { id: userId, session } = users[emails.saveNoSession];
+    await signIn(context, emails.saveNoSession);
+    const lost = await sessionLostDuring(
+      page,
+      session,
+      (body) => body.startsWith('["workplace-conflict",{"stagesCompleted"'),
+      1
+    );
+    const loaded = courseLoaded(page, "workplace-conflict");
+    await page.goto("/en/learner/course/workplace-conflict");
+    await loaded;
+    await page.waitForTimeout(300); // the loaded progress is merged in
+
+    // The only change of this visit, and its save finds no session.
+    await continueTimes(page, 1);
+    await expect.poll(lost.answered, { timeout: 15_000 }).toBe(1);
+
+    await expect
+      .poll(() => enrollmentFor(userId, "workplace-conflict"), {
+        timeout: 20_000,
+      })
+      .toMatchObject({ stages: ["CONTEXT"] });
+  });
+
+  test("a badge award that finds no session is sent again", async ({
+    page,
+    context,
+  }) => {
+    test.setTimeout(60_000);
+    const { id: userId, session } = users[emails.badgeNoSession];
+    await signIn(context, emails.badgeNoSession);
+    const lost = await sessionLostDuring(
+      page,
+      session,
+      (body) => body.startsWith('["voice-without-edges"'),
+      1
+    );
+
+    await walkWorkplaceConflict(page);
+    await expect.poll(lost.answered, { timeout: 15_000 }).toBe(1);
+
+    await expect
+      .poll(
+        async () =>
+          (
+            await prisma.userBadge.findMany({
+              where: { userId },
+              include: { badge: true },
+            })
+          ).map((b) => b.badge.slug),
+        { timeout: 20_000 }
+      )
+      .toEqual(["voice-without-edges"]);
+  });
+
+  test("signing out in another tab takes the learner's progress off this tab's dashboard", async ({
+    page,
+    context,
+  }) => {
+    test.setTimeout(60_000);
+    const { id: userId } = users[emails.dashboardSignOut];
+    await savedEarlier(userId);
+    await signIn(context, emails.dashboardSignOut);
+
+    // The dashboard shows the learner's course in progress (the server
+    // rendered it from their saved progress)…
+    await page.goto("/en/learner");
+    const main = page.getByRole("main");
+    const hero = main.getByRole("link", { name: /^resume/i });
+    const heroForAGuest = main.getByRole("link", { name: /^open course/i });
+    await expect(hero).toBeVisible();
+    const signOut = page.getByRole("button", { name: "Sign out" });
+
+    // …and they sign out in another tab: this one shows it no more.
+    const other = await context.newPage();
+    await other.goto("/en/learner");
+    await other.getByRole("button", { name: "Sign out" }).click();
+    await expect(signOut).toBeHidden();
+
+    await expect(heroForAGuest).toBeVisible({ timeout: 15_000 });
+    await expect(hero).toBeHidden();
   });
 
   test("a course opened after finishing another starts at its first lesson, and isn't completed", async ({
