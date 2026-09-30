@@ -798,6 +798,10 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
+/** How often, and how many times, LearnerView checks a refresh landed. */
+const LEARNER_VIEW_RECHECK_MS = 2000;
+const LEARNER_VIEW_REFRESHES = 3;
+
 /**
  * A page that shows the learner's data: the learner area's pages. It starts
  * over whenever the store lets go of the learner's data (their session gone,
@@ -806,15 +810,50 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
  * server-rendered parts are rendered again for whoever holds the session
  * now: the dashboard's progress comes from the server. Only these pages: an
  * editor's, a facilitator's or an admin's page keeps what's typed into it.
+ *
+ * `renderedFor` is whom the server rendered the page for (the learner's id,
+ * null for a guest). A refresh sometimes doesn't show until the next router
+ * update (Next 16), which would leave the last learner's progress on the
+ * page: until it's rendered for whoever holds the session now, it's
+ * refreshed again — the next refresh brings the stalled one in — and at
+ * last reloaded.
  */
-export function LearnerView({ children }: { children: React.ReactNode }) {
+export function LearnerView({
+  renderedFor,
+  children,
+}: {
+  renderedFor: string | null;
+  children: React.ReactNode;
+}) {
   const generation = React.useContext(GenerationContext);
   const router = useRouter();
+  const { data: session, status } = useSession();
+  const owner = sessionOwner(status, session?.user);
+  // For the checks below, which outlive the render that scheduled them.
+  const latest = React.useRef({ renderedFor, owner });
+  React.useEffect(() => {
+    latest.current = { renderedFor, owner };
+  });
   const shown = React.useRef(generation);
   React.useEffect(() => {
     if (shown.current === generation) return;
     shown.current = generation;
     router.refresh();
+    let refreshes = 1;
+    const timer = setInterval(() => {
+      const now = latest.current;
+      if (now.owner === undefined) return; // the session is loading
+      if (now.renderedFor === now.owner) {
+        clearInterval(timer);
+      } else if (refreshes < LEARNER_VIEW_REFRESHES) {
+        refreshes++;
+        router.refresh();
+      } else {
+        clearInterval(timer);
+        window.location.reload();
+      }
+    }, LEARNER_VIEW_RECHECK_MS);
+    return () => clearInterval(timer);
   }, [generation, router]);
   return <React.Fragment key={generation}>{children}</React.Fragment>;
 }
