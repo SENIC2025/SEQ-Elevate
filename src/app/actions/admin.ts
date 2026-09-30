@@ -16,6 +16,7 @@
  */
 
 import { getCurrentUser, hasRole } from "@/lib/auth-helpers";
+import { getAdminMembers } from "@/lib/admin-queries";
 import { prisma } from "@/lib/prisma";
 import { sendInvitation, type InviteOutcome } from "@/lib/invitations";
 import type { Locale } from "@/lib/cms/types";
@@ -213,7 +214,11 @@ export async function addMember(
   const { outcome: invite, reason: inviteReason } = opts?.invite
     ? await inviteUser(admin, user, toLocale(opts.locale))
     : { outcome: "not-requested" as InviteOutcome, reason: undefined };
-  return { ok: true as const, id: user.id, invite, inviteReason };
+  // The list as it is now, for the admin's page to show at once (see
+  // PeopleManager): after an invitation, the page's own refresh may not
+  // show it.
+  const members = await getAdminMembers();
+  return { ok: true as const, id: user.id, invite, inviteReason, members };
 }
 
 /** Send (again) the invitation for someone who hasn't joined yet. */
@@ -227,7 +232,7 @@ export async function resendInvitation(userId: string, locale?: string) {
   if (!user) return { ok: false as const, error: "not-found" };
   const { outcome, reason } = await inviteUser(admin, user, toLocale(locale));
   return outcome === "sent"
-    ? { ok: true as const, invite: outcome }
+    ? { ok: true as const, invite: outcome, members: await getAdminMembers() }
     : { ok: false as const, error: outcome, reason };
 }
 

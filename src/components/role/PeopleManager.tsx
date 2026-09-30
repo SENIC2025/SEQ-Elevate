@@ -113,6 +113,16 @@ export function PeopleManager({
   const [error, setError] = React.useState<string | null>(null);
   const [notice, setNotice] = React.useState<Notice | null>(null);
   const roleHintId = React.useId();
+  // The list an invitation's action returned, shown until the page's own
+  // list (`members`) is rendered again. Sending an invitation sets Auth.js
+  // cookies, so Next refreshes the page after the action by itself, and
+  // under load that refresh can fail to show until the next one: the
+  // person just added or invited would be missing from the list.
+  const [fresh, setFresh] = React.useState<{
+    from: AdminMember[];
+    list: AdminMember[];
+  } | null>(null);
+  const shown = fresh && fresh.from === members ? fresh.list : members;
   const selectedIncludes = includedLabels(role);
 
   function report(res: { ok: boolean; error?: string }) {
@@ -145,6 +155,7 @@ export function PeopleManager({
       locale: inviteLang,
     });
     if (res.ok) {
+      if (res.members) setFresh({ from: members, list: res.members });
       setEmail("");
       setName("");
       setNotice(inviteNotice(address, res.invite, true, res.inviteReason));
@@ -157,6 +168,7 @@ export function PeopleManager({
     setNotice(null);
     const res = await resendInvitation(m.id, inviteLang);
     if (res.ok) {
+      if (res.members) setFresh({ from: members, list: res.members });
       setNotice(inviteNotice(m.email, "sent", false));
       report(res);
     } else if (res.error === "forbidden") {
@@ -342,7 +354,7 @@ export function PeopleManager({
               </tr>
             </thead>
             <tbody>
-              {members.length === 0 ? (
+              {shown.length === 0 ? (
                 <tr>
                   <td
                     colSpan={6}
@@ -352,7 +364,7 @@ export function PeopleManager({
                   </td>
                 </tr>
               ) : (
-                members.map((m) => (
+                shown.map((m) => (
                   <tr
                     key={m.id}
                     className="border-b border-[var(--border)] last:border-0"
