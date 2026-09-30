@@ -201,6 +201,27 @@ Single source of truth for decisions made, decisions still open, and the rationa
 - **Q4 — no "Paste from Word" button.** Normal paste (Ctrl+V, ⌘V on Mac) tidies Word and Google Docs formatting automatically, keeping bold, italic and lists; a short tip by the toolbar says so. A button that in some browsers could only show instructions would confuse more than help.
 - **The reflection intro uses the same format** (SENIC principal: "make the reflection intro rich text too"): on a created course, the reflection lesson's *Introduction* is edited with the same toolbar and stored as its one paragraph, `rich` next to the server-derived `text` — so older code and a rollback still show it, unformatted. Learners, the course page and the editor draw it with the same styles. An intro nobody edits stays plain text; built-in courses' reflection stays read-only.
 
+
+### D37 · A learner's saved data is only ever saved over by what they did — never by a copy that didn't load
+**Decided**: 30 September 2026 · *Decider: SENIC principal ("fix the learner progress bug too"); rules: SENIC (build decision)*
+- **Load before save.** A signed-in learner's course, Comp Card and badges are saved only once their saved data has loaded into this page and been merged. A load that fails — or finds no session, which is what a failed session lookup looks like — is tried again (after 1, 2, 4 and 8 s); nothing is saved until one gets through, and what the learner does meanwhile stays on screen.
+- **Merging, not replacing.** What the learner did while their data loaded is kept: new lessons are added to the saved ones, answers they gave win, fields they didn't touch keep the saved value, badges are a union, the first completion date stays.
+- **A session that can't be read is held, not dropped.** The page keeps the learner's data (saving nothing new, writing nothing to the browser's guest store) and reads the session again after 1 s and 3 s; found again, what's on screen is saved; still no one, it's let go of. Another account signing in lets go at once. Every save carries the learner it was made for, and the server refuses it for anyone else, so nothing lands in the next account on a shared computer.
+- **On sign-in, the account wins.** A guest's progress moves to the account only where the account has nothing (per course, Comp Card, badge) — the same whether the sign-in link opens in this tab or in another one.
+
+### D38 · Reading-help settings: the account's own are never reset or overwritten
+**Decided**: 30 September 2026 · *Decider: SENIC principal ("fix the reading-help settings bug too"); rules: SENIC (build decision)*
+- Same load-before-save, retry, hold and "made for this account" rules as D37 for text size, dyslexia font and high contrast.
+- A setting chosen while the account's settings load wins — only that setting; the others are the saved ones.
+- Settings chosen in this browser that no account holds yet (a guest's) move into an account **only if that account is still on the defaults**, and stay in the browser until the server confirms the account holds them. An account's own settings never move into another account.
+- Unchanged settings aren't sent: no save follows a load.
+
+### D39 · Screens don't rely on a page refresh alone to show a change
+**Decided**: 30 September 2026 · *Decider: SENIC (build decision)*
+- In Next.js 16 a `router.refresh()` after a change sometimes doesn't show until the next router update; the data is saved, the screen looks unchanged. Upgrading to 16.2.12 didn't change this, so we work around it instead of changing framework versions in a fix release. It existed on the live site too; a settings save sent after every page load happened to hide it for changes made in the first half-second.
+- The **people** and **organisations & cohorts** screens now show the list each action returns, until the page's own list is rendered again.
+- **Learner pages** that must stop showing a learner's progress after a sign-out elsewhere check that the page was rendered for whoever holds the session now; if not, they refresh again (a later refresh brings a stalled one in) every 2 s and reload after the third try.
+
 ---
 
 ## 🟡 Open — must close before kickoff or Week 1
