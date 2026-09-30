@@ -44,8 +44,10 @@ export function sessionOwner(
  * What the store does with what it holds (`held`, its owner) when the
  * session's owner is `now`:
  *
- * - "keep": nothing changes — the same learner, a guest signing in (their
- *   progress moves to the account), or the session still loading;
+ * - "keep": nothing is let go of — the same learner, a guest signing in, or
+ *   the session still loading. A guest's progress moves to the account from
+ *   the guest store, under the account-wins rules (guest-migration.ts); a
+ *   tab signed in in place first drops its in-memory copy (demo-state.tsx);
  * - "hold": a signed-in learner's session can't be read now — signed out,
  *   or the lookup failed for a moment. Their data is held (nothing saved
  *   meanwhile, nothing written to the guest store) while the session is

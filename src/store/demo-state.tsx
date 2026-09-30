@@ -452,6 +452,14 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
     }
     heldBy.current = owner;
     if (change === "forget") letGo();
+    else if (held === null && typeof owner === "string") {
+      // A guest tab signed in in place (the sign-in link opened in another
+      // tab): the guest's copy in memory isn't newer than what the account
+      // has saved, and would win over it as if entered while it loaded. It's
+      // still in the guest store, and moves over from there under the
+      // account-wins rules (guest-migration.ts), as on a fresh page.
+      dispatch({ type: "forgetLearner" });
+    }
   }, [owner, courseSave, cardSave, letGo, hydrateGuest]);
 
   // ---- Hydration: DB for authed users, localStorage for guests ----

@@ -812,6 +812,7 @@ describe("progress kept when the session is lost, changes hands or the course ch
     migrateNoSession: "e2e-nosession-migrate@example.com",
     readFailsStale: "e2e-read-fails-stale@example.com",
     saveFailsReturn: "e2e-save-fails-return@example.com",
+    guestSignsIn: "e2e-guest-signs-in-in-place@example.com",
   };
   const all = Object.values(emails);
   const users: Record<string, { id: string; session: string }> = {};
@@ -1389,6 +1390,56 @@ describe("progress kept when the session is lost, changes hands or the course ch
         timeout: 30_000,
       })
       .toMatchObject({ stages: ["CONTEXT", "CONCEPT"] });
+  });
+
+  test("a guest tab signed in from another tab doesn't save the guest's copy over the account's saved data", async ({
+    page,
+    context,
+  }) => {
+    test.setTimeout(60_000);
+    const { id: userId } = users[emails.guestSignsIn];
+    await prisma.compCard.create({
+      data: {
+        userId,
+        projectId: "seq-elevate",
+        wentWell: "Saved: I stayed calm",
+        privacy: "FACILITATOR",
+      },
+    });
+    // As a guest, in this tab: a Comp Card, kept in this browser.
+    await page.goto("/en/learner/comp-card");
+    await compCardField(page, "Even small wins count.").fill(
+      "Guest: I listened"
+    );
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            JSON.parse(localStorage.getItem("seq-elevate-demo-state-v1") ?? "null")
+              ?.compCard?.wentWell
+        )
+      )
+      .toBe("Guest: I listened");
+
+    // The magic link opens in another tab: this one learns of it without
+    // reloading. The account's saved card wins, as when signing in on a
+    // fresh page (guest-migration.ts).
+    await signIn(context, emails.guestSignsIn);
+    await recheckSession(page);
+    await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(compCardField(page, "Even small wins count.")).toHaveValue(
+      "Saved: I stayed calm",
+      { timeout: 15_000 }
+    );
+    await page.waitForTimeout(2000); // past the save debounce
+    expect(
+      await prisma.compCard.findFirst({
+        where: { userId },
+        select: { wentWell: true },
+      })
+    ).toEqual({ wentWell: "Saved: I stayed calm" });
   });
 
   test("the learner found again after a session read that failed doesn't save this tab's older copy over what they saved since", async ({
