@@ -1452,12 +1452,16 @@ describe("progress kept when the session is lost, changes hands or the course ch
     const { id: userId } = users[emails.saveFailsReturn];
     await savedEarlier(userId);
     await signIn(context, emails.saveFailsReturn);
-    // This visit's saves of the course: the first three tries drop — the
-    // lesson's save is tried again after 1 s and 3 s, and gets through
-    // after 7 s, unless a newer save of the course has taken its place.
+    // The first three tries of the save holding the new lesson (behaviour)
+    // drop — it's tried again after 1 s and 3 s, and gets through after
+    // 7 s, unless a newer save of the course has taken its place. (The
+    // player opens at the first lesson, so the Continues below also
+    // re-complete saved lessons; those saves carry nothing new.)
     const saves = await failServerActions(
       page,
-      (body) => body.startsWith('["workplace-conflict",{"stagesCompleted"'),
+      (body) =>
+        body.startsWith('["workplace-conflict",{"stagesCompleted"') &&
+        body.includes('"behaviour"'),
       3
     );
     const loaded = courseLoaded(page, "workplace-conflict");
@@ -1465,8 +1469,8 @@ describe("progress kept when the session is lost, changes hands or the course ch
     await loaded;
     await page.waitForTimeout(300); // the loaded progress is merged in
 
-    // A lesson done; its save fails…
-    await continueTimes(page, 1);
+    // A new lesson done (the third); its save fails…
+    await continueTimes(page, 3);
     await expect.poll(saves.failed, { timeout: 15_000 }).toBeGreaterThan(0);
     // …while the learner opens the other course and comes back: the
     // course starts over empty and loads again.

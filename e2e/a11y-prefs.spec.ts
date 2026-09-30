@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { test, expect } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
@@ -172,13 +174,44 @@ async function chooseAsGuest(page: Page) {
   return chosen;
 }
 
-/** The page's answer to its reading-help load. */
+/**
+ * A server action's id in this build — what the page sends as the
+ * `next-action` header — looked up by file and exported name in the build's
+ * manifest (the E2E run always follows a build).
+ */
+function actionId(filename: string, exportedName: string): string {
+  const manifest = JSON.parse(
+    readFileSync(
+      join(process.cwd(), ".next/server/server-reference-manifest.json"),
+      "utf8"
+    )
+  ) as {
+    node?: Record<
+      string,
+      { workers: Record<string, { filename: string; exportedName: string }> }
+    >;
+  };
+  for (const [id, entry] of Object.entries(manifest.node ?? {})) {
+    const worker = Object.values(entry.workers)[0];
+    if (worker?.filename === filename && worker.exportedName === exportedName) {
+      return id;
+    }
+  }
+  throw new Error(`No server action ${exportedName} in ${filename}: build first`);
+}
+
+/**
+ * The page's answer to its reading-help load, told apart by the action's
+ * id: reading the answer's body to recognise it is unreliable — a response
+ * the browser has already discarded (a refresh right after load) has none.
+ */
 function readingHelpLoaded(page: Page) {
+  const loadPrefs = actionId("src/app/actions/a11y.ts", "loadA11yPrefs");
   return page.waitForResponse(
     async (r) =>
       r.request().method() === "POST" &&
-      r.request().postData() === "[]" &&
-      (await r.text()).includes('"dyslexia"')
+      (await r.request().headerValue("next-action")) === loadPrefs &&
+      r.ok()
   );
 }
 
