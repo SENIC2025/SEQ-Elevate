@@ -16,7 +16,7 @@
  */
 
 import { getCurrentUser, hasRole } from "@/lib/auth-helpers";
-import { getAdminMembers } from "@/lib/admin-queries";
+import { getAdminMembers, getAdminOrgs } from "@/lib/admin-queries";
 import { prisma } from "@/lib/prisma";
 import { sendInvitation, type InviteOutcome } from "@/lib/invitations";
 import type { Locale } from "@/lib/cms/types";
@@ -41,6 +41,13 @@ async function audit(actorId: string, action: string, entity: string, entityId: 
   });
 }
 
+/*
+ * The actions that change a list on the admin screens return the list as it
+ * is now, and the screen shows it at once (PeopleManager, OrgCohortManager):
+ * a router.refresh() after an action sometimes doesn't show until the next
+ * router update (Next 16), so the change would seem not to have happened.
+ */
+
 /* ----------------------------- Organisations ---------------------------- */
 
 export async function createOrganisation(name: string, shortName: string) {
@@ -55,7 +62,7 @@ export async function createOrganisation(name: string, shortName: string) {
     },
   });
   await audit(admin.id, "org.created", "Organisation", org.id);
-  return { ok: true as const, id: org.id };
+  return { ok: true as const, id: org.id, orgs: await getAdminOrgs() };
 }
 
 /** Deletes an organisation. Refuses while it still has cohorts. */
@@ -68,7 +75,7 @@ export async function deleteOrganisation(id: string) {
     where: { id, projectId: PROJECT },
   });
   await audit(admin.id, "org.deleted", "Organisation", id);
-  return { ok: true as const };
+  return { ok: true as const, orgs: await getAdminOrgs() };
 }
 
 /* -------------------------------- Cohorts ------------------------------- */
@@ -97,7 +104,7 @@ export async function createCohort(
     },
   });
   await audit(admin.id, "cohort.created", "Cohort", cohort.id);
-  return { ok: true as const, id: cohort.id };
+  return { ok: true as const, id: cohort.id, orgs: await getAdminOrgs() };
 }
 
 export async function updateCohort(
@@ -130,7 +137,7 @@ export async function deleteCohort(id: string) {
   if (!admin) return { ok: false as const, error: "forbidden" };
   await prisma.cohort.deleteMany({ where: { id, projectId: PROJECT } });
   await audit(admin.id, "cohort.deleted", "Cohort", id);
-  return { ok: true as const };
+  return { ok: true as const, orgs: await getAdminOrgs() };
 }
 
 /* -------------------------------- People -------------------------------- */
@@ -214,9 +221,6 @@ export async function addMember(
   const { outcome: invite, reason: inviteReason } = opts?.invite
     ? await inviteUser(admin, user, toLocale(opts.locale))
     : { outcome: "not-requested" as InviteOutcome, reason: undefined };
-  // The list as it is now, for the admin's page to show at once (see
-  // PeopleManager): after an invitation, the page's own refresh may not
-  // show it.
   const members = await getAdminMembers();
   return { ok: true as const, id: user.id, invite, inviteReason, members };
 }
@@ -269,7 +273,7 @@ export async function setMemberRoles(userId: string, roles: Role[]) {
     }
   }
   await audit(admin.id, "member.roles_changed", "User", userId);
-  return { ok: true as const };
+  return { ok: true as const, members: await getAdminMembers() };
 }
 
 /** Assign (or clear) a member's cohort across their project memberships. */
@@ -290,7 +294,7 @@ export async function assignCohort(userId: string, cohortId: string | null) {
     data: { cohortId, organisationId },
   });
   await audit(admin.id, "member.cohort_changed", "User", userId);
-  return { ok: true as const };
+  return { ok: true as const, members: await getAdminMembers() };
 }
 
 /** Remove someone from the project (keeps their user account). */
@@ -302,5 +306,5 @@ export async function removeMember(userId: string) {
     where: { userId, projectId: PROJECT },
   });
   await audit(admin.id, "member.removed", "User", userId);
-  return { ok: true as const };
+  return { ok: true as const, members: await getAdminMembers() };
 }

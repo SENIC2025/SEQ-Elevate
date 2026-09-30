@@ -31,6 +31,14 @@ export function OrgCohortManager({ orgs }: { orgs: AdminOrg[] }) {
   const [orgShort, setOrgShort] = React.useState("");
   const [pending, setPending] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
+  // The list the last change returned, shown until the page's own list
+  // (`orgs`) is rendered again: the refresh after a change sometimes
+  // doesn't show until the next router update (see actions/admin.ts).
+  const [fresh, setFresh] = React.useState<{
+    from: AdminOrg[];
+    list: AdminOrg[];
+  } | null>(null);
+  const shown = fresh && fresh.from === orgs ? fresh.list : orgs;
 
   // Per-organisation "new cohort" drafts.
   const [drafts, setDrafts] = React.useState<
@@ -43,8 +51,9 @@ export function OrgCohortManager({ orgs }: { orgs: AdminOrg[] }) {
     patch: Partial<{ name: string; startsAt: string; endsAt: string }>
   ) => setDrafts((d) => ({ ...d, [id]: { ...draftFor(id), ...patch } }));
 
-  function report(res: { ok: boolean; error?: string }) {
+  function report(res: { ok: boolean; error?: string; orgs?: AdminOrg[] | null }) {
     if (res.ok) {
+      if (res.orgs) setFresh({ from: orgs, list: res.orgs });
       setError(null);
       router.refresh();
     } else {
@@ -138,12 +147,12 @@ export function OrgCohortManager({ orgs }: { orgs: AdminOrg[] }) {
       </Card>
 
       {/* Organisations + their cohorts */}
-      {orgs.length === 0 ? (
+      {shown.length === 0 ? (
         <p className="text-sm text-[var(--muted-foreground)]">
           No organisations yet — add the first one above.
         </p>
       ) : (
-        orgs.map((org) => (
+        shown.map((org) => (
           <Card key={org.id}>
             {/* Labelled region: lets screen readers (and tests) address one
                 organisation's controls without ambiguity. */}
