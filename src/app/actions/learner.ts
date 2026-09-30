@@ -44,10 +44,45 @@ export interface CompCardInput {
   privacy: "self" | "facilitator" | "facilitatorAndMentor";
 }
 
+/**
+ * The signed-in learner, for every load and save the learner store makes.
+ * The store calls them only once the session says someone is signed in, so
+ * no user here means the session lookup failed, not that nothing is saved
+ * or that nothing needs saving: Auth.js's database session lookup logs a
+ * database error (a cold start, a dropped connection) and answers "no
+ * session" instead of failing. Answering "nothing saved" would let the
+ * store save what it holds over the learner's saved data, and answering a
+ * save as done would lose it, so this fails, and the store tries again
+ * (src/store/retry.ts, src/store/pending-save.ts). A real sign-out ends
+ * the same way: nothing loads or saves, and the store stops trying once it
+ * has let go of the learner's data (src/store/session-owner.ts).
+ */
+async function requireLearner() {
+  const user = await getCurrentUser();
+  if (!user) throw new Error("No signed-in learner, or the session lookup failed");
+  return user;
+}
+
+/**
+ * Is `user` the learner a save was made for? The store sends whose data
+ * it saves (`forUser`: the learner whose saved data it loaded — their id,
+ * or their email if a session had no id; src/store/session-owner.ts). A
+ * save still on its way when another account signed in on this browser
+ * must not land in that account: it's dropped, not tried again. A call
+ * without it comes from a page loaded before the store sent it, and is
+ * saved for whoever is signed in, as it was then.
+ */
+function isLearner(
+  user: { id: string; email: string | null },
+  forUser: string | undefined
+) {
+  if (typeof forUser !== "string") return true;
+  return user.id === forUser || (user.email !== null && user.email === forUser);
+}
+
 /** Auto-provision a LEARNER membership on first use. */
 export async function ensureLearnerMembership() {
-  const user = await getCurrentUser();
-  if (!user) return false;
+  const user = await requireLearner();
   const existing = await prisma.membership.findFirst({
     where: { userId: user.id, projectId: PROJECT, role: "LEARNER" },
   });
@@ -61,8 +96,7 @@ export async function ensureLearnerMembership() {
 
 /** Global learner state: Comp Card, badges, per-course enrollment summaries. */
 export async function loadLearnerGlobal() {
-  const user = await getCurrentUser();
-  if (!user) return null;
+  const user = await requireLearner();
   const [compCard, badges, enrollments] = await Promise.all([
     prisma.compCard.findUnique({
       where: { userId_projectId: { userId: user.id, projectId: PROJECT } },
@@ -97,10 +131,12 @@ export async function loadLearnerGlobal() {
   };
 }
 
-/** A single course's progress, with display labels resolved from the CMS. */
+/**
+ * A single course's progress, with display labels resolved from the CMS;
+ * null when there is no such course or the learner isn't enrolled in it.
+ */
 export async function loadCourseProgress(slug: string, locale: Locale) {
-  const user = await getCurrentUser();
-  if (!user) return null;
+  const user = await requireLearner();
   const course = await prisma.course.findUnique({
     where: { projectId_slug: { projectId: PROJECT, slug } },
   });
@@ -148,13 +184,19 @@ export async function loadCourseProgress(slug: string, locale: Locale) {
   };
 }
 
-/** Upsert a course's progress for the current user. */
+/**
+ * Upsert a course's progress for the current user, who must be `forUser`
+ * (see isLearner). A completed course's badge is saved with it, in one
+ * transaction: the badge award the store sends separately may not get
+ * through, and the course can't end up completed without its badge.
+ */
 export async function saveCourseProgress(
   slug: string,
-  progress: CourseProgressInput
+  progress: CourseProgressInput,
+  forUser: string
 ) {
-  const user = await getCurrentUser();
-  if (!user) return;
+  const user = await requireLearner();
+  if (!isLearner(user, forUser)) return;
   const course = await prisma.course.findUnique({
     where: { projectId_slug: { projectId: PROJECT, slug } },
   });
@@ -173,17 +215,29 @@ export async function saveCourseProgress(
     completedAt: progress.completedAt ? new Date(progress.completedAt) : null,
   };
 
-  await prisma.courseEnrollment.upsert({
+  const enrollment = prisma.courseEnrollment.upsert({
     where: { userId_courseId: { userId: user.id, courseId: course.id } },
     create: { userId: user.id, courseId: course.id, ...data },
     update: data,
   });
+  if (data.completedAt && course.badgeId) {
+    await prisma.$transaction([
+      enrollment,
+      prisma.userBadge.upsert({
+        where: { userId_badgeId: { userId: user.id, badgeId: course.badgeId } },
+        create: { userId: user.id, badgeId: course.badgeId },
+        update: {},
+      }),
+    ]);
+  } else {
+    await enrollment;
+  }
 }
 
-/** Upsert the current user's Comp Card. */
-export async function saveCompCard(input: CompCardInput) {
-  const user = await getCurrentUser();
-  if (!user) return;
+/** Upsert the current user's Comp Card; they must be `forUser` (isLearner). */
+export async function saveCompCard(input: CompCardInput, forUser: string) {
+  const user = await requireLearner();
+  if (!isLearner(user, forUser)) return;
   const data = {
     wentWell: input.wentWell,
     difficult: input.difficult,
@@ -199,10 +253,13 @@ export async function saveCompCard(input: CompCardInput) {
   });
 }
 
-/** Award a badge to the current user (idempotent). */
-export async function awardBadgeAction(slug: string) {
-  const user = await getCurrentUser();
-  if (!user) return;
+/**
+ * Award a badge to the current user (idempotent); they must be `forUser`
+ * (isLearner).
+ */
+export async function awardBadgeAction(slug: string, forUser: string) {
+  const user = await requireLearner();
+  if (!isLearner(user, forUser)) return;
   const badge = await prisma.badge.findUnique({
     where: { projectId_slug: { projectId: PROJECT, slug } },
   });

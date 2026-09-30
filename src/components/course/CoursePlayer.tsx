@@ -4,6 +4,7 @@ import {
   useState,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   type MouseEvent,
 } from "react";
@@ -124,8 +125,16 @@ export function CoursePlayer({
   }, [current]);
 
   // Record which course is being played, so Comp Card / facilitator views
-  // can show the course title + evidence without re-resolving content.
-  useEffect(() => {
+  // can show the course title + evidence without re-resolving content —
+  // and so every step the learner takes here is recorded against it. At
+  // once, as the player mounts: a layout effect's update is applied before
+  // the first click, at the clicks' own priority. From a passive effect,
+  // on a fresh page load, it has been seen waiting until the page's first
+  // server action (the telemetry below) had finished — the whole walk long
+  // on a slow server — while the clicks went into a store holding no
+  // course: the completion screen then had no course to complete, and a
+  // guest's course migrated on sign-in took the lessons over.
+  useLayoutEffect(() => {
     dispatch({
       type: "setCourseContext",
       slug: course.slug,
@@ -136,8 +145,13 @@ export function CoursePlayer({
   useEffect(() => {
     // Resume at the learner's last position on mount, from persisted
     // progress. Intentional one-time setState after hydration. A preview
-    // has no saved progress, and starts where the editor asked.
-    if (preview || initialStage) return;
+    // has no saved progress, and starts where the editor asked. Only this
+    // course's progress counts: opened right after another course, the
+    // store here still holds that one's (setCourseContext above isn't
+    // applied yet), and resuming from it would open this course at the
+    // other's lesson — or complete it, badge included.
+    if (preview || initialStage || state.course.courseSlug !== course.slug)
+      return;
     /* eslint-disable react-hooks/set-state-in-effect */
     if (state.course.completedAt) {
       setCurrent("complete");
