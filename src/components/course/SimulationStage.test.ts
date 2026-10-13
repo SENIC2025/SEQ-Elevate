@@ -6,6 +6,7 @@ import en from "@/messages/en.json";
 import de from "@/messages/de.json";
 import type { CourseStage } from "@/lib/cms/types";
 
+// The stage only dispatches on a pick; rendering needs no real store.
 vi.mock("@/store/demo-state", () => ({
   useDemoState: () => ({ state: {}, dispatch: () => {} }),
 }));
@@ -32,12 +33,12 @@ const stage = {
   },
 } as CourseStage;
 
-function render(locale: "en" | "de" = "en"): string {
+function render(locale: "en" | "de" = "en", shown: CourseStage = stage): string {
   return renderToStaticMarkup(
     createElement(
       IntlProvider,
       { locale, messages: locale === "en" ? en : de, timeZone: "UTC" },
-      createElement(SimulationStage, { stage, onContinue: () => {} })
+      createElement(SimulationStage, { stage: shown, onContinue: () => {} })
     )
   );
 }
@@ -52,5 +53,35 @@ describe("SimulationStage", () => {
 
   it("says it as plain text, not as an announcement", () => {
     expect(render()).not.toMatch(/aria-live|role="status"|role="alert"/);
+  });
+});
+
+function renderInstruction(instruction: string): string {
+  return render("en", {
+    key: "simulation",
+    title: "Practice",
+    simulation: {
+      prompt: "A customer is upset.",
+      instruction,
+      options: [{ id: "a", text: "Listen", isBest: true, feedback: "Good" }],
+    },
+  });
+}
+
+const INSTRUCTION = '<p class="mt-2 text-sm text-[var(--muted-foreground)]">';
+
+describe("SimulationStage quick links", () => {
+  // The course page's read view shows the instruction with its links
+  // (FormattedText); learners must get the same links.
+  it("links an address typed in the instruction", () => {
+    expect(renderInstruction("Read https://example.org/policy first")).toContain(
+      `${INSTRUCTION}Read <a href="https://example.org/policy" target="_blank" rel="noopener noreferrer" class="seq-link">https://example.org/policy<span class="sr-only"> (opens in a new tab)</span></a> first</p>`
+    );
+  });
+
+  it("renders an instruction without an address exactly as before", () => {
+    expect(renderInstruction("Pick the best reply.")).toContain(
+      `${INSTRUCTION}Pick the best reply.</p>`
+    );
   });
 });

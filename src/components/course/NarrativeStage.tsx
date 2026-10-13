@@ -5,7 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import type { CourseStage, NarrativeBlock } from "@/lib/cms/types";
 import { ArrowRight, Quote } from "lucide-react";
-import { RichTextView } from "@/components/rich-text/RichTextView";
+import { LinkedText, RichTextView } from "@/components/rich-text/RichTextView";
 import { FormattedText } from "./FormattedText";
 
 /**
@@ -14,7 +14,9 @@ import { FormattedText } from "./FormattedText";
  * course's narrative renders here — no per-course code. Paragraphs and key
  * messages show the author's bold, italic, lists and indents (RichTextView,
  * D36); older plain text keeps the line breaks and bullet or numbered lines
- * the author typed, as does the text of compare sides (FormattedText).
+ * the author typed, as does the text of compare sides (FormattedText). Web
+ * and email addresses typed in any of them, list points included, are
+ * links (quick links).
  */
 export function NarrativeStage({
   stage,
@@ -87,7 +89,7 @@ function Block({ block }: { block: NarrativeBlock }) {
     case "list": {
       const items = listOf(block.items).map((item, i) => (
         <li key={i} className="text-base">
-          {asText(item)}
+          <LinkedText text={asText(item)} />
         </li>
       ));
       // Numbered unless the author chose bullets: lists saved before

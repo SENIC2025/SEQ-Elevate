@@ -269,6 +269,9 @@ function RichBlock({
           compact={variant === "callout"}
           // The learner's own classes: the preview is what learners see.
           className={NARRATIVE_TEXT_CLASS[variant]}
+          // Addresses look as they will for learners, but aren't links
+          // here: the preview is a button that opens the editor.
+          inertLinks
         />
       </div>
       <span

@@ -8,6 +8,7 @@ import { useDemoState } from "@/store/demo-state";
 import type { CourseStage } from "@/lib/cms/types";
 import { CheckCircle2, XCircle, ArrowRight, RotateCcw } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { LinkedText } from "@/components/rich-text/RichTextView";
 import { FormattedText } from "./FormattedText";
 
 /**
@@ -55,8 +56,10 @@ export function SimulationStage({
           text={sim.prompt}
           className="mt-3 text-base leading-relaxed"
         />
+        {/* Addresses in the instruction are links, as the course page's
+            read view shows them to editors (quick links). */}
         <p className="mt-2 text-sm text-[var(--muted-foreground)]">
-          {sim.instruction}
+          <LinkedText text={sim.instruction} />
         </p>
 
         <div className="mt-6 space-y-2">

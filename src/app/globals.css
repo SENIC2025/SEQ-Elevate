@@ -113,6 +113,16 @@ body {
   border-radius: 4px;
 }
 
+/* A quick link in lesson text (.seq-link, below) gets a solid ring in its
+   own colour: around a few words of text the soft ring above is hard to
+   see. Outside the components layer, like the rule above, which a layered
+   rule could never override. */
+a.seq-link:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
 /* Skip-to-content link — hidden until focused (WCAG 2.4.1 Bypass Blocks) */
 .skip-link {
   position: absolute;
@@ -226,6 +236,30 @@ body {
   }
   .seq-prose ul ul ul {
     list-style-type: square;
+  }
+
+  /* Quick links: web and email addresses in lesson text (QuickLink, and
+     the same look without a link in the editor's block preview). Always
+     underlined, so they never rely on colour alone (WCAG 1.4.1). The
+     accent purple reads at 6.4:1 or better on every background lesson
+     text sits on (white, the page, the key message's and compare sides'
+     tints, the scenario outcome's grey), and the high-contrast setting
+     darkens it to 9:1 or better. Inside a key message the text is already accent-coloured,
+     and the underline tells the link apart. A long address wraps anywhere
+     rather than widening a phone screen, in list blocks too, which sit
+     outside .seq-prose. */
+  .seq-link {
+    color: var(--accent);
+    text-decoration-line: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 0.18em;
+    overflow-wrap: anywhere;
+  }
+  a.seq-link:hover {
+    text-decoration-thickness: 2px;
+  }
+  html[data-contrast="true"] .seq-link {
+    text-decoration-thickness: 2px;
   }
 
   /* The lesson editor. Its editable root carries the same seq-prose

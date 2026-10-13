@@ -1,6 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { createElement } from "react";
+import { createElement, type FC, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { NextIntlClientProvider } from "next-intl";
+import en from "@/messages/en.json";
+import de from "@/messages/de.json";
+import el from "@/messages/el.json";
 import { indentPadding, RichTextView } from "./RichTextView";
 
 // Static markup is what the server sends and what the client must hydrate
@@ -329,6 +333,164 @@ describe("RichTextView keeps hostile content inert", () => {
         "<p>&lt;script&gt;alert(1)&lt;/script&gt;<strong> click me</strong> &lt;img src=x onerror=&quot;alert(1)&quot;&gt;styled</p>" +
           "<ul><li>item</li></ul>"
       )
+    );
+  });
+});
+
+// Quick links: web and email addresses typed in lesson text are links for
+// learners, with the "(opens in a new tab)" cue in the interface language.
+const IntlProvider = NextIntlClientProvider as FC<{
+  locale: string;
+  messages: typeof en;
+  children?: ReactNode;
+}>;
+
+function renderIn(
+  locale: "en" | "de" | "el",
+  props: Parameters<typeof RichTextView>[0]
+): string {
+  const messages = { en, de, el }[locale] as typeof en;
+  return renderToStaticMarkup(
+    createElement(
+      IntlProvider,
+      { locale, messages },
+      createElement(RichTextView, props)
+    )
+  );
+}
+
+const linkTo = (href: string, inner: string, cue = "(opens in a new tab)") =>
+  `<a href="${href}" target="_blank" rel="noopener noreferrer" class="seq-link">${inner}<span class="sr-only"> ${cue}</span></a>`;
+
+describe("RichTextView quick links", () => {
+  it("links a web address typed in rich text, punctuation outside", () => {
+    expect(
+      renderIn("en", { rich: doc(p(text("Read https://example.org/guide."))) })
+    ).toBe(
+      wrap(
+        `<p>Read ${linkTo("https://example.org/guide", "https://example.org/guide")}.</p>`
+      )
+    );
+  });
+
+  it("links an email address as mailto", () => {
+    expect(
+      renderIn("en", { rich: doc(p(text("Ask help@example.org (any time)"))) })
+    ).toBe(
+      wrap(
+        `<p>Ask ${linkTo("mailto:help@example.org", "help@example.org")} (any time)</p>`
+      )
+    );
+  });
+
+  it("keeps bold and italic inside the link", () => {
+    expect(
+      renderIn("en", {
+        rich: doc(
+          p(
+            text("See "),
+            text("https://example.org", "bold"),
+            text(" or "),
+            text("help@example.org", "italic", "bold")
+          )
+        ),
+      })
+    ).toBe(
+      wrap(
+        `<p>See ${linkTo("https://example.org/", "<strong>https://example.org</strong>")} or ${linkTo(
+          "mailto:help@example.org",
+          "<strong><em>help@example.org</em></strong>"
+        )}</p>`
+      )
+    );
+  });
+
+  it("links addresses in list items, nested ones too", () => {
+    expect(
+      renderIn("en", {
+        rich: doc(
+          ul(
+            li(
+              p(text("Site: https://example.org")),
+              ul(li(p(text("help@example.org"))))
+            )
+          )
+        ),
+      })
+    ).toBe(
+      wrap(
+        `<ul><li>Site: ${linkTo("https://example.org/", "https://example.org")}<ul><li>${linkTo(
+          "mailto:help@example.org",
+          "help@example.org"
+        )}</li></ul></li></ul>`
+      )
+    );
+  });
+
+  it("links addresses in plain (legacy) text, in its lists too", () => {
+    expect(
+      renderIn("en", {
+        text: "More at (https://example.org/a_(b)).\n• Mail mailto:help@example.org",
+      })
+    ).toBe(
+      plainWrap(
+        `<p>More at (${linkTo("https://example.org/a_(b)", "https://example.org/a_(b)")}).</p>` +
+          `<ul><li>Mail ${linkTo("mailto:help@example.org", "mailto:help@example.org")}</li></ul>`
+      )
+    );
+  });
+
+  it("says the link opens in a new tab in the interface language", () => {
+    const rich = doc(p(text("https://example.org")));
+    expect(renderIn("de", { rich })).toContain(
+      '<span class="sr-only"> (öffnet in einem neuen Tab)</span>'
+    );
+    expect(renderIn("el", { rich })).toContain(
+      '<span class="sr-only"> (ανοίγει σε νέα καρτέλα)</span>'
+    );
+  });
+
+  it("never links other schemes, in any letter case", () => {
+    const html = renderIn("en", {
+      rich: doc(
+        p(
+          text(
+            "javascript:alert(1) JavaScript:alert(1) data:text/html,x vbscript:x file:///etc/passwd"
+          )
+        )
+      ),
+      text: "unused",
+    });
+    expect(html).not.toContain("<a");
+    expect(html).toBe(
+      wrap(
+        "<p>javascript:alert(1) JavaScript:alert(1) data:text/html,x vbscript:x file:///etc/passwd</p>"
+      )
+    );
+  });
+
+  it("escapes what an address carries into the href", () => {
+    const html = renderIn("en", {
+      rich: doc(p(text("https://example.org/?q='x'&y=1"))),
+    });
+    expect(html).toContain('href="https://example.org/?q=%27x%27&amp;y=1"');
+  });
+
+  it("shows addresses as links but not as controls in an inert preview", () => {
+    // The lesson editor's block preview is itself a button: a link inside
+    // it would be a control inside a control.
+    expect(
+      render({ rich: doc(p(text("Go to https://example.org"))), inertLinks: true })
+    ).toBe(wrap('<p>Go to <span class="seq-link">https://example.org</span></p>'));
+  });
+
+  it("renders text without addresses exactly as before", () => {
+    // Rendered without a messages provider: no address, no translation.
+    expect(render({ rich: doc(p(text("No links here."))) })).toBe(
+      wrap("<p>No links here.</p>")
+    );
+    expect(render({ text: "• a@ b\n• example.org" })).toBe(
+      plainWrap("<ul><li>a@ b</li><li>example.org</li></ul>")
     );
   });
 });

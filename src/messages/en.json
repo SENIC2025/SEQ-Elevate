@@ -521,6 +521,9 @@
       "explanation": "An I-statement names your experience and your need — it isn't an accusation."
     }
   },
+  "lessonLinks": {
+    "newTab": "(opens in a new tab)"
+  },
   "compCard": {
     "title": "Comp Card",
     "subtitle": "Short, structured, always yours.",
