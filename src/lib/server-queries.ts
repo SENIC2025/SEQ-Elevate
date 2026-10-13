@@ -8,6 +8,7 @@
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser, getProjectMemberships } from "@/lib/auth-helpers";
 import { getCourse } from "@/lib/cms";
+import { readAssessment, scoreAssessment } from "@/lib/assessment-progress";
 import { STAGES } from "@/data/course";
 import type { Locale, CourseContent } from "@/lib/cms/types";
 import type { Role } from "@prisma/client";
@@ -231,14 +232,11 @@ async function loadLearners(
         contentBySlug.get(e.course.slug)?.stages.find(
           (s) => s.key === "assessment"
         )?.assessment?.questions ?? [];
-      const ans = (e.assessment as Record<string, string | null>) ?? {};
-      qs.forEach((q, i) => {
-        const a = ans[`q${i + 1}`];
-        if (a != null) {
-          assessmentTotal += 1;
-          if (a === q.correctOptionId) assessmentCorrect += 1;
-        }
-      });
+      // By question id: a quiz made in the course editor has its own ids,
+      // and any number of questions (see assessment-progress.ts).
+      const score = scoreAssessment(qs, readAssessment(e.assessment));
+      assessmentTotal += score.total;
+      assessmentCorrect += score.correct;
     }
 
     return {

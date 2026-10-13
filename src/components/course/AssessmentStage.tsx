@@ -1,16 +1,22 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { useDemoState } from "@/store/demo-state";
+import { checkedQuiz } from "@/lib/assessment-progress";
 import type { CourseStage } from "@/lib/cms/types";
 import { CheckCircle2, XCircle, ArrowRight, Award } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /**
  * Micro-assessment. Renders authored questions; answers keyed by question
- * id (local state), so any number of questions render generically.
+ * id, so any number of questions render generically. The answers, and
+ * whether the learner checked them, live in the learner store, which saves
+ * them with the course (the account's, or this browser's for a guest): a
+ * learner who comes back finds their checked answers locked, their score
+ * and Continue. In an editor's preview the store is the preview's own,
+ * which saves nothing.
  */
 export function AssessmentStage({
   stage,
@@ -21,14 +27,15 @@ export function AssessmentStage({
 }) {
   const t = useTranslations("coursePlayer");
   const tCommon = useTranslations("common");
-  const [answers, setAnswers] = useState<Record<string, string>>({});
-  const [checked, setChecked] = useState(false);
+  const { state, dispatch } = useDemoState();
+  const progress = state.course.assessment;
+  const answers = progress.answers;
 
   const a = stage.assessment;
   if (!a) return null;
 
   const questions = a.questions;
-  const allAnswered = questions.every((q) => answers[q.id]);
+  const { allAnswered, checked } = checkedQuiz(questions, progress);
   const correctCount = questions.reduce(
     (acc, q) => (answers[q.id] === q.correctOptionId ? acc + 1 : acc),
     0
@@ -78,9 +85,14 @@ export function AssessmentStage({
                     <button
                       key={opt.id}
                       type="button"
+                      aria-pressed={isSelected}
                       disabled={checked}
                       onClick={() =>
-                        setAnswers((prev) => ({ ...prev, [q.id]: opt.id }))
+                        dispatch({
+                          type: "answerAssessment",
+                          questionId: q.id,
+                          optionId: opt.id,
+                        })
                       }
                       className={cn(
                         "w-full text-left rounded-lg border px-4 py-3 transition-colors text-sm sm:text-base flex items-start gap-3",
@@ -150,7 +162,7 @@ export function AssessmentStage({
             <Button
               size="md"
               disabled={!allAnswered}
-              onClick={() => setChecked(true)}
+              onClick={() => dispatch({ type: "checkAssessment" })}
             >
               {t("checkAnswers")}
             </Button>

@@ -1,0 +1,122 @@
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { createElement, type FC, type ReactNode } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { NextIntlClientProvider } from "next-intl";
+import en from "@/messages/en.json";
+import type { CourseStage } from "@/lib/cms/types";
+import type { AssessmentProgress } from "@/lib/assessment-progress";
+
+// The learner store, as the stage reads it: only the quick check matters.
+const store = vi.hoisted(() => ({
+  assessment: { answers: {}, checked: false } as {
+    answers: Record<string, string>;
+    checked: boolean;
+  },
+  dispatch: (() => {}) as (action: unknown) => void,
+}));
+vi.mock("@/store/demo-state", () => ({
+  useDemoState: () => ({
+    state: { course: { assessment: store.assessment } },
+    dispatch: store.dispatch,
+  }),
+}));
+
+import { AssessmentStage } from "./AssessmentStage";
+
+const IntlProvider = NextIntlClientProvider as FC<{
+  locale: string;
+  messages: typeof en;
+  timeZone: string;
+  children?: ReactNode;
+}>;
+
+/** A quiz made in the course editor: its own ids, and not three questions. */
+const stage: CourseStage = {
+  key: "assessment",
+  title: "Quick check",
+  assessment: {
+    intro: "Two questions.",
+    questions: [
+      {
+        id: "qk3f",
+        question: "First?",
+        options: [
+          { id: "a1x", text: "Right one" },
+          { id: "a2x", text: "Wrong one" },
+        ],
+        correctOptionId: "a1x",
+      },
+      {
+        id: "q9zz",
+        question: "Second?",
+        options: [
+          { id: "a3x", text: "Also wrong" },
+          { id: "a4x", text: "Also right" },
+        ],
+        correctOptionId: "a4x",
+      },
+    ],
+  },
+} as CourseStage;
+
+function render(progress: AssessmentProgress): string {
+  store.assessment = progress;
+  return renderToStaticMarkup(
+    createElement(
+      IntlProvider,
+      { locale: "en", messages: en, timeZone: "UTC" },
+      createElement(AssessmentStage, { stage, onContinue: () => {} })
+    )
+  );
+}
+
+/** Each button: its text, whether it's pressed, and whether it's disabled. */
+function buttons(html: string) {
+  return [...html.matchAll(/<button([^>]*)>(.*?)<\/button>/g)].map((m) => ({
+    label: m[2].replace(/<[^>]+>/g, "").trim(),
+    pressed: /aria-pressed="true"/.test(m[1]),
+    disabled: / disabled=""/.test(m[1]),
+  }));
+}
+
+describe("AssessmentStage", () => {
+  beforeEach(() => {
+    store.dispatch = () => {};
+  });
+
+  it("shows the answers the learner chose earlier, keyed by question id", () => {
+    const got = buttons(render({ answers: { qk3f: "a2x" }, checked: false }));
+    expect(got.find((b) => b.label.endsWith("Wrong one"))?.pressed).toBe(true);
+    expect(got.find((b) => b.label.endsWith("Right one"))?.pressed).toBe(false);
+    // One question still open: "Check answers" waits for it.
+    expect(got.find((b) => b.label === "Check answers")?.disabled).toBe(true);
+  });
+
+  it("brings a learner back to a checked quick check: answers locked, score and Continue", () => {
+    const html = render({
+      answers: { qk3f: "a1x", q9zz: "a3x" },
+      checked: true,
+    });
+    const got = buttons(html);
+    const options = got.filter((b) => b.label !== "Continue");
+    expect(options).toHaveLength(4);
+    expect(options.every((b) => b.disabled)).toBe(true);
+    expect(got.some((b) => b.label === "Continue" && !b.disabled)).toBe(true);
+    expect(got.some((b) => b.label === "Check answers")).toBe(false);
+    expect(html).toContain("You got 1 out of 2 right.");
+  });
+
+  it("doesn't count a quiz as checked once its questions have changed", () => {
+    // Checked before the editor added a question: the new one is open.
+    const got = buttons(render({ answers: { qk3f: "a1x" }, checked: true }));
+    expect(got.some((b) => b.label === "Continue")).toBe(false);
+    expect(got.find((b) => b.label.endsWith("Also right"))?.disabled).toBe(false);
+  });
+
+  it("ignores a saved answer that is no longer one of the question's options", () => {
+    const got = buttons(
+      render({ answers: { qk3f: "gone", q9zz: "a4x" }, checked: false })
+    );
+    expect(got.find((b) => b.label === "Check answers")?.disabled).toBe(true);
+  });
+});

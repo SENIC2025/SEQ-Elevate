@@ -11,6 +11,11 @@ import { getCurrentUser } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
 import { getCourse } from "@/lib/cms";
 import type { Locale } from "@/lib/cms/types";
+import {
+  parseAssessmentInput,
+  readAssessment,
+  type AssessmentProgress,
+} from "@/lib/assessment-progress";
 import type { StageKey, PrivacyChoice } from "@prisma/client";
 
 const PROJECT = "seq-elevate";
@@ -31,7 +36,13 @@ export interface CourseProgressInput {
   simulation: { choice: string; correct: boolean } | null;
   scenario: { root: string | null; followup: string | null };
   reflection: { p1: string; p2: string; p3: string };
-  assessment: { q1: string | null; q2: string | null; q3: string | null };
+  /**
+   * Quick-check answers by question id, and whether they were checked
+   * (see assessment-progress.ts). A page loaded before answers were kept
+   * still sends three empty slots ({ q1, q2, q3 }): that leaves the saved
+   * answers as they are.
+   */
+  assessment: AssessmentProgress | Record<string, string | null>;
   completedAt: string | null;
 }
 
@@ -160,7 +171,6 @@ export async function loadCourseProgress(slug: string, locale: Locale) {
 
   /* eslint-disable @typescript-eslint/no-explicit-any */
   const refl = (e.reflection as any) ?? {};
-  const asmt = (e.assessment as any) ?? {};
   return {
     courseSlug: slug,
     courseTitle: content?.title ?? null,
@@ -175,11 +185,7 @@ export async function loadCourseProgress(slug: string, locale: Locale) {
       followupLabel,
     },
     reflection: { p1: refl.p1 ?? "", p2: refl.p2 ?? "", p3: refl.p3 ?? "" },
-    assessment: {
-      q1: asmt.q1 ?? null,
-      q2: asmt.q2 ?? null,
-      q3: asmt.q3 ?? null,
-    },
+    assessment: readAssessment(e.assessment),
     completedAt: e.completedAt?.toISOString() ?? null,
   };
 }
@@ -197,6 +203,9 @@ export async function saveCourseProgress(
 ) {
   const user = await requireLearner();
   if (!isLearner(user, forUser)) return;
+  // From the browser, so checked: only short texts, and not too many of
+  // them. Throws for anything else; null leaves the saved answers alone.
+  const assessment = parseAssessmentInput(progress.assessment as unknown);
   const course = await prisma.course.findUnique({
     where: { projectId_slug: { projectId: PROJECT, slug } },
   });
@@ -211,7 +220,9 @@ export async function saveCourseProgress(
     scenarioRoot: progress.scenario.root,
     scenarioFollowup: progress.scenario.followup,
     reflection: progress.reflection,
-    assessment: progress.assessment,
+    // Left out (undefined): the column keeps what it holds, {} for a new
+    // enrollment.
+    assessment: assessment ?? undefined,
     completedAt: progress.completedAt ? new Date(progress.completedAt) : null,
   };
 

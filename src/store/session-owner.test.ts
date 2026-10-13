@@ -13,7 +13,7 @@ const blank: DemoState = {
     simulation: null,
     scenario: { root: null, followup: null, rootLabel: null, followupLabel: null },
     reflection: { p1: "", p2: "", p3: "" },
-    assessment: { q1: null, q2: null, q3: null },
+    assessment: { answers: {}, checked: false },
     completedAt: null,
   },
   compCard: {
@@ -85,7 +85,7 @@ describe("forgetLearner", () => {
         followupLabel: "Addressed directly",
       },
       reflection: { p1: "Mine", p2: "", p3: "" },
-      assessment: { q1: "a", q2: null, q3: null },
+      assessment: { answers: { q1: "a" }, checked: false },
       completedAt: "2026-09-29T10:05:00.000Z",
     },
     compCard: {

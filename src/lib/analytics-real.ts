@@ -14,6 +14,7 @@ import "server-only";
 
 import { prisma } from "@/lib/prisma";
 import { getCourse } from "@/lib/cms";
+import { readAssessment, scoreAssessment } from "@/lib/assessment-progress";
 import { STAGES } from "@/data/course";
 import type { Locale } from "@/lib/cms/types";
 import {
@@ -107,16 +108,10 @@ export async function buildRealAnalytics(
         contentBySlug.get(recent.course.slug)?.stages.find(
           (s) => s.key === "assessment"
         )?.assessment?.questions ?? [];
-      const ans = (recent.assessment as Record<string, string | null>) ?? {};
-      let assessmentCorrect = 0;
-      let assessmentTotal = 0;
-      qs.forEach((q, idx) => {
-        const a = ans[`q${idx + 1}`];
-        if (a != null) {
-          assessmentTotal += 1;
-          if (a === q.correctOptionId) assessmentCorrect += 1;
-        }
-      });
+      // By question id: a quiz made in the course editor has its own ids,
+      // and any number of questions (see assessment-progress.ts).
+      const { correct: assessmentCorrect, total: assessmentTotal } =
+        scoreAssessment(qs, readAssessment(recent.assessment));
 
       const status: LearnerRow["status"] = completed
         ? "done"

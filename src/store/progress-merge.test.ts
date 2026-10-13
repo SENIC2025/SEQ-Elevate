@@ -7,6 +7,7 @@ import {
   mergeBadges,
   mergeCompCardOnHydrate,
   mergeCourseProgress,
+  storedGuestState,
 } from "./progress-merge";
 import type { CompCardData, CourseProgress, DemoState } from "./demo-state";
 
@@ -20,7 +21,7 @@ function progress(patch: Partial<CourseProgress> = {}): CourseProgress {
     simulation: null,
     scenario: { root: null, followup: null, rootLabel: null, followupLabel: null },
     reflection: { p1: "", p2: "", p3: "" },
-    assessment: { q1: null, q2: null, q3: null },
+    assessment: { answers: {}, checked: false },
     completedAt: null,
     ...patch,
   };
@@ -45,7 +46,7 @@ const walked = progress({
     rootLabel: "Wait for a quiet moment",
     followupLabel: "Addressed directly",
   },
-  assessment: { q1: "a", q2: "b", q3: "c" },
+  assessment: { answers: { q1: "a", q2: "b", q3: "c" }, checked: true },
   completedAt: "2026-09-29T10:05:00.000Z",
 });
 
@@ -68,7 +69,9 @@ describe("hasCourseProgress", () => {
         scenario: { root: "r", followup: null, rootLabel: "R", followupLabel: null },
       },
       { reflection: { p1: "", p2: "", p3: "An answer" } },
-      { assessment: { q1: null, q2: "b", q3: null } },
+      { assessment: { answers: { q2: "b" }, checked: false } },
+      // A quiz made in the course editor: its questions have their own ids.
+      { assessment: { answers: { qk3f: "a1x" }, checked: false } },
       { completedAt: "2026-09-29T10:00:00.000Z" },
     ];
     for (const step of steps) expect(hasCourseProgress(progress(step))).toBe(true);
@@ -100,15 +103,51 @@ describe("mergeCourseProgress", () => {
   it("prefers the local simulation and assessment answers, per question", () => {
     const saved = progress({
       simulation: { choice: "old", correct: false },
-      assessment: { q1: "saved1", q2: "saved2", q3: null },
+      assessment: { answers: { q1: "saved1", q2: "saved2" }, checked: false },
     });
     const local = progress({
       simulation: { choice: "new", correct: true },
-      assessment: { q1: null, q2: "local2", q3: "local3" },
+      assessment: { answers: { q2: "local2", q3: "local3" }, checked: false },
     });
     const merged = mergeCourseProgress(local, saved);
     expect(merged.simulation).toEqual({ choice: "new", correct: true });
-    expect(merged.assessment).toEqual({ q1: "saved1", q2: "local2", q3: "local3" });
+    expect(merged.assessment).toEqual({
+      answers: { q1: "saved1", q2: "local2", q3: "local3" },
+      checked: false,
+    });
+  });
+
+  it("keeps a created quiz's answers under their own ids, and any number of them", () => {
+    const ids = ["qk3f", "q9zz", "qa01", "qb02", "qc03"];
+    const saved = progress({
+      assessment: {
+        answers: Object.fromEntries(ids.map((id) => [id, `saved-${id}`])),
+        checked: false,
+      },
+    });
+    const local = progress({
+      assessment: { answers: { qb02: "local", qnew: "local" }, checked: false },
+    });
+    expect(mergeCourseProgress(local, saved).assessment.answers).toEqual({
+      qk3f: "saved-qk3f",
+      q9zz: "saved-q9zz",
+      qa01: "saved-qa01",
+      qb02: "local",
+      qc03: "saved-qc03",
+      qnew: "local",
+    });
+  });
+
+  it("keeps a quick check checked when either side checked it", () => {
+    const checked = progress({
+      assessment: { answers: { q1: "a", q2: "b", q3: "c" }, checked: true },
+    });
+    const open = progress({
+      assessment: { answers: { q1: "a" }, checked: false },
+    });
+    expect(mergeCourseProgress(open, checked).assessment.checked).toBe(true);
+    expect(mergeCourseProgress(checked, open).assessment.checked).toBe(true);
+    expect(mergeCourseProgress(open, open).assessment.checked).toBe(false);
   });
 
   it("keeps the saved simulation when none was made locally", () => {
@@ -449,5 +488,56 @@ describe("guestStateAfterHydrate", () => {
       wentWell: "Stored card",
       improve: "Typed early",
     });
+  });
+});
+
+describe("storedGuestState", () => {
+  const blank: DemoState = {
+    projectId: "seq-elevate",
+    role: null,
+    badges: [],
+    course: { ...progress(), courseSlug: null },
+    compCard: {
+      wentWell: "",
+      difficult: "",
+      improve: "",
+      behaviour: "",
+      confidence: 3,
+      privacy: "facilitator",
+      updatedAt: null,
+    },
+  };
+
+  it("keeps a guest's quick-check answers and whether they were checked", () => {
+    const course = progress({
+      stagesCompleted: ["context"],
+      assessment: { answers: { qk3f: "a1x", q9zz: "a4x" }, checked: true },
+    });
+    expect(storedGuestState({ ...blank, course }, blank).course).toEqual(course);
+  });
+
+  it("reads a guest store written before answers were kept as a quick check not yet answered", () => {
+    const before = {
+      ...blank,
+      course: {
+        ...progress({ stagesCompleted: ["context", "concept"] }),
+        assessment: { q1: null, q2: null, q3: null },
+      },
+    };
+    const after = storedGuestState(before, blank);
+    expect(after.course.assessment).toEqual({ answers: {}, checked: false });
+    expect(after.course.stagesCompleted).toEqual(["context", "concept"]);
+  });
+
+  it("fills in what a stored copy lacks from the empty store", () => {
+    const after = storedGuestState({ badges: ["b"], course: { courseSlug: SLUG } }, blank);
+    expect(after.badges).toEqual(["b"]);
+    expect(after.course).toEqual({ ...blank.course, courseSlug: SLUG });
+    expect(after.compCard).toEqual(blank.compCard);
+  });
+
+  it("is the empty store for something that isn't a stored copy", () => {
+    expect(storedGuestState("nonsense", blank)).toEqual(blank);
+    expect(storedGuestState(null, blank)).toEqual(blank);
   });
 });

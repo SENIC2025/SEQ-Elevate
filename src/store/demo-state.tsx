@@ -14,12 +14,17 @@ import {
 } from "@/app/actions/learner";
 import type { Locale } from "@/lib/cms/types";
 import {
+  answerQuestion,
+  type AssessmentProgress,
+} from "@/lib/assessment-progress";
+import {
   courseAfterLoad,
   courseAfterMigration,
   guestStateAfterHydrate,
   hasCourseProgress,
   mergeBadges,
   mergeCompCardOnHydrate,
+  storedGuestState,
 } from "./progress-merge";
 import { migrateGuest } from "./guest-migration";
 import { pendingSave } from "./pending-save";
@@ -61,11 +66,7 @@ export interface ReflectionAnswers {
   p3: string;
 }
 
-export interface AssessmentAnswers {
-  q1: string | null;
-  q2: string | null;
-  q3: string | null;
-}
+export type { AssessmentProgress };
 
 export interface CourseProgress {
   /** The course currently being played (set when the player mounts). */
@@ -75,7 +76,8 @@ export interface CourseProgress {
   simulation: SimulationAttempt | null;
   scenario: ScenarioAttempt;
   reflection: ReflectionAnswers;
-  assessment: AssessmentAnswers;
+  /** Quick-check answers by question id, and whether they were checked. */
+  assessment: AssessmentProgress;
   completedAt: string | null;
 }
 
@@ -114,7 +116,7 @@ const DEFAULT_STATE: DemoState = {
     simulation: null,
     scenario: { root: null, followup: null, rootLabel: null, followupLabel: null },
     reflection: { p1: "", p2: "", p3: "" },
-    assessment: { q1: null, q2: null, q3: null },
+    assessment: { answers: {}, checked: false },
     completedAt: null,
   },
   compCard: {
@@ -139,7 +141,8 @@ type Action =
   | { type: "recordScenarioRoot"; choice: string; label: string }
   | { type: "recordScenarioFollowup"; choice: string; label: string }
   | { type: "updateReflection"; patch: Partial<ReflectionAnswers> }
-  | { type: "updateAssessment"; patch: Partial<AssessmentAnswers> }
+  | { type: "answerAssessment"; questionId: string; optionId: string }
+  | { type: "checkAssessment" }
   | { type: "completeCourse" }
   | { type: "awardBadge"; badge: string }
   | { type: "updateCompCard"; patch: Partial<CompCardData> }
@@ -236,14 +239,28 @@ function reducer(state: DemoState, action: Action): DemoState {
           reflection: { ...state.course.reflection, ...action.patch },
         },
       };
-    case "updateAssessment":
+    case "answerAssessment":
       return {
         ...state,
         course: {
           ...state.course,
-          assessment: { ...state.course.assessment, ...action.patch },
+          assessment: answerQuestion(
+            state.course.assessment,
+            action.questionId,
+            action.optionId
+          ),
         },
       };
+    case "checkAssessment":
+      return state.course.assessment.checked
+        ? state
+        : {
+            ...state,
+            course: {
+              ...state.course,
+              assessment: { ...state.course.assessment, checked: true },
+            },
+          };
     case "completeCourse":
       return {
         ...state,
@@ -370,9 +387,10 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
     try {
       const raw = window.localStorage.getItem(STORAGE_KEY);
       if (raw) {
-        const parsed = JSON.parse(raw) as DemoState;
-        dispatch({ type: "hydrate", state: { ...DEFAULT_STATE, ...parsed } });
-        persistedBadges.current = new Set(parsed.badges ?? []);
+        // Possibly written by an older page (see storedGuestState).
+        const stored = storedGuestState(JSON.parse(raw), DEFAULT_STATE);
+        dispatch({ type: "hydrate", state: stored });
+        persistedBadges.current = new Set(stored.badges);
       }
     } catch {
       /* ignore */
@@ -520,7 +538,7 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
             // Remove first, so a re-run (StrictMode, second tab) can't
             // double-migrate.
             window.localStorage.removeItem(STORAGE_KEY);
-            guest = JSON.parse(raw) as DemoState;
+            guest = storedGuestState(JSON.parse(raw), DEFAULT_STATE);
           }
         } catch {
           /* a bad localStorage blob: dropped — never block sign-in on it */
