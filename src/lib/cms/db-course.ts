@@ -334,3 +334,7 @@ export async function getDbCourse(
     return null;
   }
 }
+
+// Shared with the flexible editor (sections/defaults.ts), so the standard
+// reflection questions it offers are the ones learners get here (spec 9.3).
+export { DEFAULTS as CMS_STAGE_DEFAULTS };
