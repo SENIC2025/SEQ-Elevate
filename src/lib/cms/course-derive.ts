@@ -204,6 +204,9 @@ export function lastEdited(
  * - lesson-empty:        a CMS narrative lesson has no blocks in any language;
  * - lesson-untranslated: lessons with text in some language but not this one
  *                        (empty lessons are already reported above);
+ * - lesson-draft:        an interactive lesson has an unfinished draft that
+ *                        learners don't see (whether or not they see an
+ *                        earlier version of the lesson);
  * - no-interactive:      a CMS course has no simulation/scenario/quick check.
  */
 export function publishReadiness(
@@ -248,6 +251,12 @@ export function publishReadiness(
         locale,
         count,
       });
+    }
+  }
+
+  for (const l of outline.lessons) {
+    if (l.draft) {
+      issues.push({ level: "warning", code: "lesson-draft", stage: l.key });
     }
   }
 

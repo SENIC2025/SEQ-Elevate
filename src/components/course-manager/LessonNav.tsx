@@ -1,7 +1,7 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { Plus } from "lucide-react";
+import { FilePenLine, Plus } from "lucide-react";
 import type { LessonOutline } from "@/lib/cms/course-admin-types";
 import type { Locale, StageKey } from "@/lib/cms/types";
 
@@ -9,7 +9,8 @@ import type { Locale, StageKey } from "@/lib/cms/types";
  * Jump links to every lesson, in learner order, with the lesson's own title
  * in the content language — plus, on a created course, "Add guided practice
  * / an applied scenario / a quick check" for the practice lessons it doesn't
- * have yet (named as learners will see them in the list). Sticks beside the
+ * have yet (named as learners will see them in the list). A lesson with an
+ * unsaved-for-learners draft says "Draft" in words. Sticks beside the
  * lessons on wide screens.
  */
 export function LessonNav({
@@ -24,6 +25,13 @@ export function LessonNav({
   onAdd: (key: StageKey) => void;
 }) {
   const t = useTranslations("courseManager.page");
+  const tDraft = useTranslations("exerciseEditor.page");
+  const draftMark = (
+    <span className="ml-1.5 inline-flex items-center gap-0.5 rounded-full border border-dashed border-[var(--warning)] px-1.5 text-[10px] font-medium text-[var(--foreground)]">
+      <FilePenLine className="h-3 w-3" aria-hidden />
+      {tDraft("navDraft")}
+    </span>
+  );
 
   return (
     <nav
@@ -47,6 +55,7 @@ export function LessonNav({
                 >
                   <Plus className="h-3.5 w-3.5 flex-shrink-0" aria-hidden />
                   {t(`addStage.${key}`)}
+                  {lesson.draft ? draftMark : null}
                 </button>
               </li>
             );
@@ -59,6 +68,7 @@ export function LessonNav({
                 className="block rounded-full border border-[var(--border)] px-3 py-1.5 hover:bg-[var(--surface-muted)] lg:rounded-md lg:border-0 lg:px-2"
               >
                 <span className="font-medium">{lessonLabel(lesson.key)}</span>
+                {lesson.draft ? draftMark : null}
                 {title ? (
                   <span className="hidden truncate text-xs text-[var(--muted-foreground)] lg:block">
                     {title}

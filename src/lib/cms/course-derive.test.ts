@@ -245,6 +245,7 @@ function lesson(
     editable: { body: true, media: true },
     byLang,
     structure: null,
+    draft: null,
     video: null,
     builtInVideo: false,
     documents: [],
@@ -308,6 +309,27 @@ describe("publishReadiness", () => {
     const issues = publishReadiness(outline([lesson("reflection", {})]));
     expect(issues.some((i) => i.code === "lesson-untranslated")).toBe(false);
     expect(issues.some((i) => i.code === "lesson-empty")).toBe(false);
+  });
+
+  it("names each lesson with a draft learners don't see yet", () => {
+    const all = sim({ en: "a", de: "a", el: "a" });
+    const issues = publishReadiness(
+      outline([
+        // Saved for learners, with a newer draft beside it…
+        lesson("simulation", {}, { body: "interactive", structure: all, draft: sim({ en: "b" }) }),
+        // …and one that so far exists only as a draft.
+        lesson("assessment", {}, {
+          body: "interactive",
+          present: false,
+          addable: true,
+          draft: sim({ en: "c" }),
+        }),
+      ])
+    );
+    expect(issues).toEqual([
+      { level: "warning", code: "lesson-draft", stage: "simulation" },
+      { level: "warning", code: "lesson-draft", stage: "assessment" },
+    ]);
   });
 
   it("counts interactive lessons missing a language", () => {

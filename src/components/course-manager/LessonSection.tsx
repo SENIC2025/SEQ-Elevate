@@ -6,9 +6,10 @@ import { Button } from "@/components/ui/button";
 import { LessonNarrativeEditor } from "@/components/role/LessonNarrativeEditor";
 import { VideoBlockAuthor } from "@/components/role/VideoBlockAuthor";
 import { LessonDocumentManager } from "@/components/role/LessonDocumentManager";
-import { StructureAuthor } from "@/components/role/StructureAuthor";
+import { DraftBadge, StructureAuthor } from "@/components/role/StructureAuthor";
 import type {
   CourseKind,
+  CourseStatus,
   LessonOutline,
   NarrativeInitial,
 } from "@/lib/cms/course-admin-types";
@@ -40,6 +41,7 @@ export function LessonSection({
   label,
   slug,
   kind,
+  status,
   lang,
   open,
   rev,
@@ -48,6 +50,7 @@ export function LessonSection({
   onNarrativeSaved,
   onReread,
   onStructureSaved,
+  onStructureDraftChanged,
   onStructureCleared,
   onVideoSaved,
   onDocumentsChanged,
@@ -57,6 +60,8 @@ export function LessonSection({
   label: string;
   slug: string;
   kind: CourseKind;
+  /** The course's status: whether a save for learners goes live at once. */
+  status: CourseStatus;
   lang: Locale;
   open: boolean;
   /** Bumped when this lesson's text in `lang` was re-read after a revert. */
@@ -70,11 +75,14 @@ export function LessonSection({
    */
   onReread: (stale: string | null) => void;
   onStructureSaved: (structure: StoredStructure) => void;
+  /** An interactive lesson's draft was saved (as stored) or is gone (null). */
+  onStructureDraftChanged: (draft: StoredStructure | null) => void;
   onStructureCleared: () => void;
   onVideoSaved: (video: VideoContent | null) => void;
   onDocumentsChanged: (documents: LessonDocumentRef[]) => void;
 }) {
   const t = useTranslations("courseManager");
+  const tDraft = useTranslations("exerciseEditor.page");
   const { key } = lesson;
   const headingId = `lesson-${key}-h`;
   const panelId = `lesson-${key}-panel`;
@@ -82,7 +90,8 @@ export function LessonSection({
   const narrative = lesson.byLang[lang].narrative;
   const interactive = lesson.body === "interactive";
 
-  const toggle = lesson.addable ? (
+  // A lesson that so far exists only as a draft is edited, not added.
+  const toggle = lesson.addable && !lesson.draft ? (
     <Button
       size="sm"
       variant={open ? "outline" : "primary"}
@@ -136,9 +145,11 @@ export function LessonSection({
             courseSlug={slug}
             kind={stageKind}
             locale={lang}
+            courseStatus={status}
             regionLabel={`Interactive stage — ${KIND_LABEL[stageKind]}`}
             embedded
             onSaved={onStructureSaved}
+            onDraftChange={onStructureDraftChanged}
             onCleared={onStructureCleared}
             onDirtyChange={report}
           />
@@ -194,6 +205,11 @@ export function LessonSection({
           ) : stage?.title ? (
             <p className="mt-0.5 break-words text-sm text-[var(--muted-foreground)]">
               {stage.title}
+            </p>
+          ) : null}
+          {lesson.draft ? (
+            <p className="mt-1">
+              <DraftBadge label={tDraft("draftBadge")} />
             </p>
           ) : null}
           {lesson.present ? (
