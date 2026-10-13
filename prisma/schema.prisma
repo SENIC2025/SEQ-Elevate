@@ -98,6 +98,10 @@ model Lesson {
   // / assessment). Language-neutral shape + per-locale text; see
   // src/lib/cms/structure.ts. Null for narrative stages and bundled courses.
   structure  Json?
+  // An editor's unfinished version of `structure` (same shape, any field may
+  // still be blank). Only the course page reads it — learners only ever get
+  // `structure` (db-course.ts). A save for learners clears it.
+  structureDraft Json?
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
