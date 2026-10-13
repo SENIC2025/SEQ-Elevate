@@ -54,6 +54,7 @@ function render(l: LessonOutline, open: boolean, lang: "en" | "de" | "el" = "en"
     onVideoSaved: noop,
     onDocumentsChanged: noop,
     onOutline: noop,
+    announce: noop,
   };
   return renderToStaticMarkup(
     createElement(

@@ -54,6 +54,7 @@ export function LessonSection(props: LessonSectionProps) {
     onDocumentsChanged,
     reasons,
     onOutline,
+    announce,
   } = props;
   const t = useTranslations("courseManager");
   const tDraft = useTranslations("exerciseEditor.page");
@@ -192,6 +193,7 @@ export function LessonSection(props: LessonSectionProps) {
         reasons={reasons}
         main={body}
         onOutline={onOutline}
+        announce={announce}
       />
     ) : (
       body

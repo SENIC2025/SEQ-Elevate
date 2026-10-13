@@ -59,7 +59,7 @@ const FIELD = 'input:not([type="hidden"]), textarea, select, [contenteditable="t
  * Focus is kept predictable (WCAG 2.4.3): on the button pressed after a
  * move, on the next content after a removal, in the new content's first
  * box after an add (on "Add content" while it is being added, and if it is
- * refused); and one polite status line says what happened.
+ * refused); and the page's one polite live region says what happened.
  *
  * A removal sends the version of the content the page shows. Right after
  * the content's own save the page is still re-reading it, so a Remove
@@ -76,6 +76,7 @@ export function PartList({
   reasons,
   main,
   onOutline,
+  announce,
 }: {
   lesson: LessonOutline;
   /** The lesson's heading ("2. Skill concept"), for unsaved-changes prompts. */
@@ -88,6 +89,8 @@ export function PartList({
   /** The main content's editor, as today. */
   main: React.ReactNode;
   onOutline: (outline: CourseOutline) => void;
+  /** The page's one polite live region (spec 11.3). */
+  announce: (text: string) => void;
 }) {
   const t = useTranslations("lessonBlocks");
   const tEditor = useTranslations("exerciseEditor");
@@ -102,7 +105,6 @@ export function PartList({
   const [picker, setPicker] = React.useState<PartId | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<{ at: string; message: string } | null>(null);
-  const [announce, setAnnounce] = React.useState("");
   const [focus, setFocus] = React.useState<PartFocus | null>(null);
   // Texts whose "Load the saved version" waits for a refreshed page.
   const [pending, setPending] = React.useState<Record<string, string | null>>({});
@@ -167,9 +169,7 @@ export function PartList({
     [router]
   );
 
-  const say = (text: string) =>
-    // A repeat of the same words is still announced.
-    setAnnounce((prev) => (prev === text ? `${text} ` : text));
+  const say = announce;
 
   /** Words for a refused change, in the menu language. */
   const refusalText = (r: WriteRefusal) => {
@@ -477,9 +477,6 @@ export function PartList({
         })}
       </ol>
 
-      <p role="status" aria-live="polite" className="sr-only">
-        {announce}
-      </p>
     </div>
   );
 }

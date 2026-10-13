@@ -51,6 +51,7 @@ function render(
           reasons: opts.reasons ?? [],
           main: createElement("p", null, "MAIN EDITOR"),
           onOutline: () => {},
+          announce: () => {},
         })
       )
     )
@@ -119,11 +120,11 @@ describe("PartList — a lesson with added content", () => {
     expect(html).toContain(en.lessonBlocks.notInLearnerView);
   });
 
-  it("has an Add content after every item, and one polite status line", () => {
+  it("has an Add content after every item, and no live region of its own", () => {
     expect((html.match(/>Add content</g) ?? []).length).toBe(3);
     expect(html).toContain('aria-label="Add content after content 3: Quick check"');
-    expect((html.match(/role="status"/g) ?? []).length).toBeGreaterThanOrEqual(1);
-    expect(html).toMatch(/<p role="status" aria-live="polite" class="sr-only">/);
+    // It speaks through the page's one polite live region (spec 11.3).
+    expect(html).not.toMatch(/<p role="status" aria-live="polite" class="sr-only">/);
   });
 
   it("edits each question in its own region, named by its place", () => {

@@ -64,4 +64,9 @@ export interface LessonSectionProps {
    * whole course outline, built after it committed: take it in (D39).
    */
   onOutline(outline: CourseOutline): void;
+  /**
+   * Say something in the page's one polite live region (spec 11.3): content
+   * added, moved or removed. The same words twice are read twice.
+   */
+  announce(text: string): void;
 }

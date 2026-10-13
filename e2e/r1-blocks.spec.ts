@@ -288,7 +288,7 @@ describe("Release 1 — a lesson's content", () => {
         lesson.getByRole("group", { name: `Content ${n} of ${n}: ${type}` })
       ).toBeVisible({ timeout: 15000 });
       // Announced, once, in the page's words.
-      await expect(lesson.getByRole("status").filter({ hasText: `${type} added.` })).toHaveCount(1);
+      await expect(page.getByRole("status").filter({ hasText: `${type} added.` })).toHaveCount(1);
     }
     // The main content now has a header too, with no Remove.
     const main = lesson.getByRole("group", { name: "Content 1 of 7: Text" });
@@ -433,7 +433,7 @@ describe("Release 1 — a lesson's content", () => {
     await up.click();
     await expect(quizHeader).toHaveAccessibleName("Content 4 of 7: Quick check", { timeout: 15000 });
     await expect(up).toBeFocused();
-    await expect(lesson.getByRole("status").filter({ hasText: "Moved to position 4 of 7." })).toHaveCount(1);
+    await expect(page.getByRole("status").filter({ hasText: "Moved to position 4 of 7." })).toHaveCount(1);
     expect((await storedParts(SLUG, "concept")).map((i) => i.type).indexOf("quiz")).toBe(3);
 
     // Remove the text: confirmed, then gone from the page and the database.

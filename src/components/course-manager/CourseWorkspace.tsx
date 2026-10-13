@@ -312,6 +312,7 @@ function Workspace({
                   onClose={() => closeLesson(lesson.key)}
                   {...lessonContentCallbacks(lesson.key, lang, dispatch, refresh)}
                   onOutline={takeOutline}
+                  announce={announce}
                 />
               </li>
             ))}
