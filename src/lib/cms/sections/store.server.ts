@@ -107,6 +107,18 @@ export async function lockLessonRow(
   await tx.$queryRaw`SELECT id FROM "Lesson" WHERE "projectId" = ${PROJECT} AND "courseSlug" = ${slug} AND "stageKey" = ${stageKey} FOR UPDATE`;
 }
 
+/**
+ * Lock the lesson's row if there is one, without making one: for a delete,
+ * which has nothing to lock when the lesson never had a row.
+ */
+export async function lockLessonRowIfAny(
+  tx: Prisma.TransactionClient,
+  slug: string,
+  stageKey: string
+): Promise<void> {
+  await tx.$queryRaw`SELECT id FROM "Lesson" WHERE "projectId" = ${PROJECT} AND "courseSlug" = ${slug} AND "stageKey" = ${stageKey} FOR UPDATE`;
+}
+
 /** One Lesson row as the actions read it: the rules' facts, plus what a delete removes. */
 export interface LessonRowFacts extends SectionFacts {
   documentIds: string[];
