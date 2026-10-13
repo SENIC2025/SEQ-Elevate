@@ -121,6 +121,29 @@ describe("getCourseOutline with a cleared translation", () => {
     });
   });
 
+  it("says which language the English editor shows for a lesson written only in German", async () => {
+    // Learners reading in English get the German text when English has none
+    // (or only blanks), so the English editor opens on it and must say so:
+    // otherwise saving a typo fix would quietly store German as English.
+    lessons[0].narrative = {
+      en: { title: "", blocks: [para(" ")] },
+      de: written("Titel", "Text auf Deutsch"),
+    };
+    const outline = await getCourseOutline("asking-for-help");
+    const context = outline?.lessons.find((l) => l.key === "context");
+    expect(context?.byLang.en.narrative).toMatchObject({
+      hasOverride: false,
+      fallbackFrom: "de",
+      title: "Titel",
+      blocks: [para("Text auf Deutsch")],
+    });
+    // Greek has no text either: it gets German too, and says so.
+    expect(context?.byLang.el.narrative).toMatchObject({
+      hasOverride: false,
+      fallbackFrom: "de",
+    });
+  });
+
   it("calls a lesson with only blank blocks in every language empty", async () => {
     lessons[1].narrative = { en: { title: "Concept", blocks: [para(" ")] } };
     const outline = await getCourseOutline("asking-for-help");

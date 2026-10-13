@@ -22,6 +22,7 @@ import { getBaseCourseCopy, getCourse, listCourses } from "@/lib/cms";
 import { normaliseStatus } from "./course-status";
 import { readCopyOverride, applyCopy } from "./course-copy";
 import {
+  fallbackOrder,
   metaFallbackFrom,
   metaHasText,
   narrativeHasText,
@@ -325,14 +326,16 @@ function narrativeInitial(
   // A version with nothing but blanks (typed, then cleared) isn't written:
   // learners get another language's text, which the editor then starts from.
   const hasOverride = narrativeHasText(own);
-  // A CMS lesson not written in this language shows the English one
-  // (db-course.ts resolves it field by field: this language, else English).
+  // A CMS lesson not written in this language shows another language's
+  // text, in the order learners get it (db-course.ts: this language, then
+  // English, then the first one written). English is no exception: a lesson
+  // written only in German opens the English editor on the German text, and
+  // the note says so before saving stores it as English.
   const fallbackFrom: Locale | undefined =
-    kind === "cms" &&
-    !hasOverride &&
-    locale !== "en" &&
-    narrativeHasText(narrative?.en)
-      ? "en"
+    kind === "cms" && !hasOverride && narrative
+      ? (fallbackOrder(narrative, locale).find(
+          (k) => k !== locale && narrativeHasText(narrative[k as Locale])
+        ) as Locale | undefined)
       : undefined;
   // A CMS lesson written in this language starts from what is stored in it,
   // not from what learners see: they get English for any field still blank
