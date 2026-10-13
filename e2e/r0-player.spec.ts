@@ -8,10 +8,12 @@ import { PrismaPg } from "@prisma/adapter-pg";
  *
  * - quick-check answers, and whether they were checked, are kept: a
  *   learner who comes back to a checked quick check finds their answers
- *   locked, their score and Continue — a guest in this browser, a learner
- *   in their account, for built-in quizzes (q1–q3) and for quizzes made in
- *   the course editor (their own ids, any number of questions), which the
- *   facilitator view then scores;
+ *   locked, their score, "Try again" and Continue — a guest in this
+ *   browser, a learner in their account, for built-in quizzes (q1–q3) and
+ *   for quizzes made in the course editor (their own ids, any number of
+ *   questions), which the facilitator view then scores;
+ * - "Try again" opens a checked quick check afresh, and the latest check
+ *   is the one kept and scored;
  * - while Continue is hidden, the practice steps say what it waits for;
  * - every step opens at its top, focused.
  *
@@ -47,6 +49,13 @@ const HINT = {
 /** The built-in quick check's right answers (q1–q3 are all "b"). */
 const BUILT_IN_ANSWERS = [
   "Describes what you felt and what you'd prefer",
+  "Notice what you're feeling",
+  "It lets both people be heard without an audience",
+];
+
+/** The same quick check with q1 answered wrong ("a"): 2 out of 3. */
+const BUILT_IN_RETAKE = [
+  "Tells the other person what they did wrong",
   "Notice what you're feeling",
   "It lets both people be heard without an audience",
 ];
@@ -137,9 +146,37 @@ async function answerQuickCheck(page: Page) {
 }
 
 /**
+ * "Try again" on a checked quick check: focus goes to its heading — the
+ * button is gone — and the quiz is open again, nothing chosen, with the
+ * hint back in place of Continue.
+ */
+async function tryAgain(page: Page, heading: RegExp, answers: string[]) {
+  await page.getByRole("button", { name: /^try again$/i }).click();
+  await expect(page.getByRole("heading", { name: heading })).toBeFocused();
+  await expect(page.getByRole("button", { name: /^try again$/i })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /^continue$/i })).toHaveCount(0);
+  await expect(page.getByText(HINT.assessment)).toBeVisible();
+  await expect(page.getByText(/you got \d+ out of \d+ right/i)).toHaveCount(0);
+  for (const text of answers) {
+    const b = option(page, text);
+    await expect(b).toBeEnabled();
+    await expect(b).toHaveAttribute("aria-pressed", "false");
+  }
+  await expect(page.getByRole("button", { name: /check answers/i })).toBeDisabled();
+}
+
+/** Answer the quick check with `answers` and check them. */
+async function checkAgain(page: Page, answers: string[], score: string) {
+  for (const text of answers) await option(page, text).click();
+  await page.getByRole("button", { name: /check answers/i }).click();
+  await expect(page.getByText(score)).toBeVisible();
+}
+
+/**
  * Back on the course page after leaving it: open the quick check from the
  * step bar, once the saved progress has arrived, and find it as it was
- * left — the answers chosen and locked, the score, and Continue.
+ * left — the answers chosen and locked, the score, "Try again" and
+ * Continue.
  */
 async function expectCheckedOnReturn(page: Page, url: string, answers: string[], score: string) {
   await page.goto(url);
@@ -152,6 +189,7 @@ async function expectCheckedOnReturn(page: Page, url: string, answers: string[],
     await expect(b).toBeDisabled();
   }
   await expect(page.getByText(score)).toBeVisible();
+  await expect(page.getByRole("button", { name: /^try again$/i })).toBeVisible();
   await expect(cont(page)).toBeVisible();
   await expect(page.getByRole("button", { name: /check answers/i })).toHaveCount(0);
 }
@@ -202,7 +240,7 @@ async function savedAssessment(userId: string, slug: string) {
 }
 
 test.describe("R0 player — as a guest", () => {
-  test("practice steps say what Continue waits for; a checked quick check comes back locked", async ({
+  test("practice steps say what Continue waits for; a checked quick check comes back locked, and can be tried again", async ({
     page,
   }) => {
     await walkToQuickCheck(page);
@@ -218,6 +256,16 @@ test.describe("R0 player — as a guest", () => {
       `/en/learner/course/${BUILT_IN}`,
       BUILT_IN_ANSWERS,
       "You got 3 out of 3 right."
+    );
+
+    // Tried again, and checked with other answers: those are kept.
+    await tryAgain(page, /^quick check$/i, BUILT_IN_ANSWERS);
+    await checkAgain(page, BUILT_IN_RETAKE, "You got 2 out of 3 right.");
+    await expectCheckedOnReturn(
+      page,
+      `/en/learner/course/${BUILT_IN}`,
+      BUILT_IN_RETAKE,
+      "You got 2 out of 3 right."
     );
   });
 
@@ -377,6 +425,17 @@ dbDescribe("R0 player — quick-check answers are saved to the account", () => {
       .poll(() => savedAssessment(userId, BUILT_IN), { timeout: 15_000 })
       .toEqual({ answers: { q1: "b", q2: "b", q3: "b" }, checked: true });
 
+    // "Try again" is saved too: the old check is gone, then the new one is
+    // what the account holds.
+    await tryAgain(page, /^quick check$/i, BUILT_IN_ANSWERS);
+    await expect
+      .poll(() => savedAssessment(userId, BUILT_IN), { timeout: 15_000 })
+      .toEqual({ answers: {}, checked: false });
+    await checkAgain(page, BUILT_IN_RETAKE, "You got 2 out of 3 right.");
+    await expect
+      .poll(() => savedAssessment(userId, BUILT_IN), { timeout: 15_000 })
+      .toEqual({ answers: { q1: "a", q2: "b", q3: "b" }, checked: true });
+
     await cont(page).click();
     await expect(
       page.getByRole("heading", { name: /course complete/i })
@@ -385,8 +444,8 @@ dbDescribe("R0 player — quick-check answers are saved to the account", () => {
     await expectCheckedOnReturn(
       page,
       `/en/learner/course/${BUILT_IN}`,
-      BUILT_IN_ANSWERS,
-      "You got 3 out of 3 right."
+      BUILT_IN_RETAKE,
+      "You got 2 out of 3 right."
     );
   });
 
@@ -492,9 +551,15 @@ dbDescribe("R0 player — quick-check answers are saved to the account", () => {
       page.getByRole("button", { name: "First: right", exact: true })
     ).toBeVisible();
     await expect(page.getByText(/^ax\d$/i)).toHaveCount(0);
-    for (const text of chosen) await option(page, text).click();
-    await page.getByRole("button", { name: /check answers/i }).click();
-    await expect(page.getByText("You got 3 out of 4 right.")).toBeVisible();
+    // A first check, then "Try again": only the latest check is kept and
+    // scored.
+    await checkAgain(
+      page,
+      ["First: wrong", "Second: wrong", "Third: wrong", "Fourth: right"],
+      "You got 1 out of 4 right."
+    );
+    await tryAgain(page, /^quick check$/i, chosen);
+    await checkAgain(page, chosen, "You got 3 out of 4 right.");
 
     await expect
       .poll(() => savedAssessment(userId, SLUG), { timeout: 15_000 })

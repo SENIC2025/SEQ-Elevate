@@ -98,18 +98,47 @@ describe("AssessmentStage", () => {
     expect(got.find((b) => b.label === "Check answers")?.disabled).toBe(true);
   });
 
-  it("brings a learner back to a checked quick check: answers locked, score and Continue", () => {
+  it("brings a learner back to a checked quick check: answers locked, score, Try again and Continue", () => {
     const html = render({
       answers: { qk3f: "a1x", q9zz: "a3x" },
       checked: true,
     });
     const got = buttons(html);
-    const options = got.filter((b) => b.label !== "Continue");
+    const options = got.filter(
+      (b) => b.label !== "Continue" && b.label !== "Try again"
+    );
     expect(options).toHaveLength(4);
     expect(options.every((b) => b.disabled)).toBe(true);
     expect(got.some((b) => b.label === "Continue" && !b.disabled)).toBe(true);
+    expect(got.some((b) => b.label === "Try again" && !b.disabled)).toBe(true);
     expect(got.some((b) => b.label === "Check answers")).toBe(false);
     expect(html).toContain("You got 1 out of 2 right.");
+  });
+
+  it("offers Try again only once the answers are checked", () => {
+    const open = buttons(render({ answers: { qk3f: "a1x" }, checked: false }));
+    expect(open.some((b) => b.label === "Try again")).toBe(false);
+  });
+
+  it("opens a quiz tried again afresh: nothing chosen, nothing locked, the hint back", () => {
+    const html = render({ answers: {}, checked: false, retaken: true });
+    const got = buttons(html);
+    const options = got.filter((b) => b.label !== "Check answers");
+    expect(options).toHaveLength(4);
+    expect(options.some((b) => b.pressed || b.disabled)).toBe(false);
+    expect(got.find((b) => b.label === "Check answers")?.disabled).toBe(true);
+    expect(got.some((b) => b.label === "Continue" || b.label === "Try again")).toBe(false);
+    expect(html).toContain(
+      "Answer every question, then select “Check answers” to continue."
+    );
+    expect(html).not.toContain("You got");
+  });
+
+  it("lets Try again move focus to the quick check's heading", () => {
+    // The button goes once pressed; focus goes to the top of the quiz.
+    expect(render({ answers: {}, checked: false })).toMatch(
+      /<h2 tabindex="-1"[^>]*>Quick check<\/h2>/
+    );
   });
 
   it("doesn't count a quiz as checked once its questions have changed", () => {
