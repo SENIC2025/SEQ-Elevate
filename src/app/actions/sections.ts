@@ -70,7 +70,6 @@ import {
   loadLessonFacts,
   lockCourse,
   lockLessonRow,
-  lockLessonRowIfAny,
   newPartId,
   newSectionId,
   guardLive,
@@ -385,9 +384,16 @@ export async function deleteSection(
       const section = member(state, id);
       if (outlineVersion(state.outline) !== base) throw new ChangedElsewhere();
 
-      await lockLessonRowIfAny(tx, slug, id);
+      // Lock the lesson's row, making one when there is none: a colleague's
+      // first save of this lesson (no Course lock on a standard lesson) then
+      // waits for the delete, instead of committing between the re-read
+      // below and the delete — and being deleted unseen. A row made here
+      // is "no row" to the page's base.
+      const where = { projectId_courseSlug_stageKey: { projectId: PROJECT, courseSlug: slug, stageKey: id } };
+      const existed = (await tx.lesson.findUnique({ where, select: { stageKey: true } })) !== null;
+      await lockLessonRow(tx, slug, id);
       const lesson = await tx.lesson.findUnique({
-        where: { projectId_courseSlug_stageKey: { projectId: PROJECT, courseSlug: slug, stageKey: id } },
+        where,
         select: {
           narrative: true,
           structure: true,
@@ -397,8 +403,17 @@ export async function deleteSection(
           documents: { select: { id: true, url: true } },
         },
       });
+      const madeHere =
+        !existed &&
+        lesson !== null &&
+        lesson.narrative === null &&
+        lesson.structure === null &&
+        lesson.structureDraft === null &&
+        lesson.parts === null &&
+        lesson.video === null &&
+        lesson.documents.length === 0;
       const version = sectionContentVersion(
-        lesson ? { ...lesson, documentIds: lesson.documents.map((d) => d.id) } : null
+        lesson && !madeHere ? { ...lesson, documentIds: lesson.documents.map((d) => d.id) } : null
       );
       if (version !== contentBase) throw new ChangedElsewhere();
 

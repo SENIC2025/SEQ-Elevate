@@ -167,6 +167,19 @@ async function useSession(context: BrowserContext, sessionToken: string) {
 const lessonList = (page: Page) =>
   page.getByRole("navigation", { name: /^lessons$/i }).filter({ visible: true });
 
+/**
+ * Open "Actions for <label>", retried against the hydration race: pressed
+ * only while still closed, so a slow first press is never undone.
+ */
+async function openActions(page: Page, label: string): Promise<Locator> {
+  const toggle = lessonList(page).getByRole("button", { name: `Actions for ${label}`, exact: true });
+  await expect(async () => {
+    if ((await toggle.getAttribute("aria-expanded")) !== "true") await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-expanded", "true", { timeout: 2000 });
+  }).toPass({ timeout: 15000 });
+  return lessonList(page).getByRole("group", { name: `Actions for ${label}`, exact: true });
+}
+
 /** Open one lesson for editing; ready once its "Done" shows (hydrated). */
 async function openLesson(page: Page, key: string) {
   await page.goto(`/en/content/courses/${SLUG}?lesson=${key}`);
@@ -409,5 +422,29 @@ describe("Release 1 — a Release 0 course carries over", () => {
     // …and the editor is the one the author pressed Save in.
     await expect(page.locator('#lesson-simulation [data-e2e-same="1"]')).toHaveCount(1);
     expect((await rows()).simulation?.structure).toBeTruthy();
+  });
+
+  test("deleting the practice from the list with its card open leaves an empty editor", async ({
+    page,
+    context,
+  }) => {
+    // No learners: the practice saved above can be deleted. Its card stays
+    // open as the "Add guided practice" lesson — and must not go on showing
+    // the deleted exercise as saved.
+    await useSession(context, editorSession);
+    const lesson = await openLesson(page, "simulation");
+    const prompt = lesson.getByRole("textbox", { name: /^prompt/i });
+    await expect(prompt).toHaveValue("E2E carry-over: a colleague asks for help.", { timeout: 15000 });
+
+    const actions = await openActions(page, "4. Guided practice");
+    await actions.getByRole("button", { name: /^delete$/i }).click();
+    await lessonList(page).getByRole("button", { name: /^delete lesson$/i }).click();
+    await expect(lessonList(page).getByRole("button", { name: /^add guided practice/i })).toBeVisible({
+      timeout: 15000,
+    });
+    expect((await rows()).simulation).toBeUndefined();
+
+    await expect(prompt).toHaveValue("", { timeout: 15000 });
+    await expect(lesson.getByRole("button", { name: /^remove stage$/i })).toHaveCount(0);
   });
 });

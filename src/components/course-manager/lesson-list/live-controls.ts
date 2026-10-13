@@ -6,7 +6,9 @@
  * guard.ts): on a published course a change may not add anything learners
  * couldn't get yet (G3), so such a control is aria-disabled with the reason
  * rather than taken away — it stays focusable and says why. Deleting a lesson
- * needs nobody enrolled (G4), whatever the status. A move at either end is a
+ * learners have needs nobody enrolled (G4), whatever the status; a lesson of
+ * the course's own, or an exercise lesson with nothing saved for learners,
+ * isn't theirs (ListContext.learnerKeys). A move at either end is a
  * plain native `disabled` (nothing to explain). The server stays the
  * authority: a stale page still gets its refusal.
  */

@@ -266,8 +266,14 @@ async function writeIfUnchanged(
       }
       // Whatever the status, as for deleting a lesson (G4): otherwise
       // unpublishing, removing and publishing again would take the exercise
-      // from learners in three steps.
-      if (opts.guardLearners && course && (current?.structure ?? null) !== null) {
+      // from learners in three steps. Only a standard lesson's: learners
+      // don't get a lesson of the course's own before Release 2.
+      if (
+        opts.guardLearners &&
+        course &&
+        !isCustomSectionId(stageKey) &&
+        (current?.structure ?? null) !== null
+      ) {
         const count = await learnerCount(tx, course.id);
         if (count > 0) throw new Refusal({ ok: false, error: "has-learners", count });
       }
@@ -434,7 +440,8 @@ export async function discardStructureDraft(
  * not delete it unseen.
  *
  * Refused with "has-learners" while learners are enrolled and the stage is
- * one they have (G5): they would lose it. This holds on a draft or archived
+ * one they have (G5): they would lose it. (A lesson of the course's own
+ * isn't theirs before Release 2.) This holds on a draft or archived
  * course too, as for deleting a lesson (G4), since the course can be
  * published again. A stage that is only a draft can always go.
  */

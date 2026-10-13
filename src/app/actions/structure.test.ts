@@ -422,6 +422,16 @@ describe("a lesson of the course's own", () => {
     expect(db.lesson).toBeNull();
   });
 
+  it("removes its exercise with learners enrolled: learners don't get it before Release 2", async () => {
+    db.lesson = { structure: complete, structureDraft: null };
+    db.courseStatus = "draft";
+    db.enrolled = 3;
+    expect(await clearStructure(SLUG, OWN as never, { structure: complete, draft: null })).toEqual({
+      ok: true,
+    });
+    expect(db.lesson).toEqual({ structure: null, structureDraft: null });
+  });
+
   it("leaves the standard lessons' path as it was: no Course lock", async () => {
     await saveStructureDraft(SLUG, "scenario", unfinished, nothing);
     expect(db.locks).toEqual([LESSON_LOCK]);

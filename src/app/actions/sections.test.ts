@@ -427,6 +427,16 @@ describe("deleteSection", () => {
     expect(await deleteSection(SLUG, "simulation", base(), null)).toMatchObject({ ok: true });
   });
 
+  it("locks the lesson's row even when it has none, so a first save waits for the delete", async () => {
+    // context has no row: the delete makes one to lock, and the page's
+    // base (no row) still matches.
+    db.log = [];
+    expect(await deleteSection(SLUG, "context", base(), null)).toMatchObject({ ok: true });
+    expect(db.log.indexOf("upsert Lesson:context")).toBeGreaterThan(db.log.indexOf("lock Course update"));
+    expect(db.log.indexOf("delete Lesson:context")).toBeGreaterThan(db.log.indexOf("upsert Lesson:context"));
+    expect(db.lessons).toEqual([]);
+  });
+
   it("still refuses a lesson learners have while they are enrolled", async () => {
     db.enrolled = 1;
     db.lessons = [row("scenario", { structure: SCENARIO })];

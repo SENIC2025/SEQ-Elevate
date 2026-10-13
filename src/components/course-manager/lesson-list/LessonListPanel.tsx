@@ -84,6 +84,7 @@ export function LessonListPanel({
   onOutline,
   onRenamed,
   onAdded,
+  onDeleted,
   refresh,
   announce,
   renameRequest,
@@ -110,6 +111,8 @@ export function LessonListPanel({
   ) => void;
   /** A lesson was added: open it and put focus on its heading. */
   onAdded: (id: string) => void;
+  /** A lesson was deleted here: its card's editors start again from what is stored. */
+  onDeleted?: (id: string) => void;
   refresh: () => void;
   announce: (text: string) => void;
   renameRequest?: RenameRequest | null;
@@ -259,6 +262,7 @@ export function LessonListPanel({
       () => deleteSection(slug, id, sections.version, lesson.contentVersion),
       () => {
         setWhere(null);
+        onDeleted?.(id);
         announce(withLater(t("delete.deleted", { name }), later));
         focusEl(next ? elId(next, "link") : openerId);
       },

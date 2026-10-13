@@ -85,6 +85,10 @@ function Workspace({
     (text: string) => setAnnouncement((a) => ({ text, n: a.n + 1 })),
     []
   );
+  // A lesson deleted from the list gets a fresh card: its editors read what
+  // is stored now (nothing) instead of showing what was deleted. A lesson
+  // joining the list, or "Remove stage", keeps its editors (and "Saved").
+  const [fresh, setFresh] = React.useState<Record<string, number>>({});
   // The lesson card's Rename opens the name in the lesson list.
   const [renameRequest, setRenameRequest] = React.useState<RenameRequest | null>(null);
   // A refreshed outline arrived (router.refresh after a save): take it in.
@@ -254,6 +258,7 @@ function Workspace({
               dispatch({ type: "renamed", key, lang, label, version, name })
             }
             onAdded={(id) => openLesson(id, true)}
+            onDeleted={(id) => setFresh((f) => ({ ...f, [id]: (f[id] ?? 0) + 1 }))}
             refresh={refresh}
             announce={announce}
             renameRequest={renameRequest}
@@ -281,6 +286,7 @@ function Workspace({
             {state.lessons.map((lesson) => (
               <li key={lesson.key}>
                 <LessonSection
+                  key={fresh[lesson.key] ?? 0}
                   lesson={lesson}
                   label={lessonLabel(lesson.key)}
                   labelLang={sections ? lang : undefined}
