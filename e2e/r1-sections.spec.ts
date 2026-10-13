@@ -221,7 +221,7 @@ describe("Release 1 — the lesson list", () => {
     await expect(picker.getByRole("button", { name: /^text$/i })).toHaveAttribute("aria-pressed", "true");
     // Said before anything is added: the course is then one for Release 2.
     await expect(picker.getByText(/can be published from release 2/i)).toBeVisible();
-    await expect(picker.getByRole("combobox", { name: /^where$/i })).toHaveValue("5");
+    await expect(picker.getByRole("combobox", { name: /^where/i })).toHaveValue("5");
     await picker.getByRole("button", { name: /^add this lesson$/i }).click();
 
     // It is stored at the end, opens, and its heading takes focus.
