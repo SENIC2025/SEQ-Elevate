@@ -23,6 +23,7 @@ export function SimulationStage({
   onContinue: () => void;
 }) {
   const t = useTranslations("coursePlayer");
+  const tHint = useTranslations("continueHint");
   const tCommon = useTranslations("common");
   const { dispatch } = useDemoState();
   const [selected, setSelected] = useState<string | null>(null);
@@ -124,7 +125,13 @@ export function SimulationStage({
               <ArrowRight className="h-4 w-4" />
             </Button>
           </div>
-        ) : null}
+        ) : (
+          // Where Continue will appear, what it waits for. Plain text, not a
+          // live region: it's there from the start and read in page order.
+          <p className="mt-6 text-sm text-[var(--muted-foreground)] sm:text-right">
+            {tHint("simulation")}
+          </p>
+        )}
       </CardContent>
     </Card>
   );

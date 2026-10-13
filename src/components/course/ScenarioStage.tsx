@@ -10,6 +10,7 @@ import type { CourseStage, ScenarioChoice, OutcomeQuality } from "@/lib/cms/type
 import { ArrowRight, RotateCcw, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { FormattedText } from "./FormattedText";
+import { scenarioContinueHint } from "./continue-hint";
 
 /**
  * Branching scenario. Renders an authored tree: root choices → outcome
@@ -24,6 +25,7 @@ export function ScenarioStage({
   onContinue: () => void;
 }) {
   const t = useTranslations("coursePlayer");
+  const tHint = useTranslations("continueHint");
   const tCommon = useTranslations("common");
   const { dispatch } = useDemoState();
   const [rootId, setRootId] = useState<string | null>(null);
@@ -35,6 +37,11 @@ export function ScenarioStage({
   const rootChoice = sc.choices.find((c) => c.id === rootId);
   const followups = rootChoice?.followups ?? [];
   const followupChoice = followups.find((c) => c.id === followupId);
+  const hint = scenarioContinueHint({
+    rootChosen: !!rootChoice,
+    followups: followups.length,
+    followupChosen: !!followupChoice,
+  });
 
   const pickRoot = (c: ScenarioChoice) => {
     setRootId(c.id);
@@ -124,8 +131,14 @@ export function ScenarioStage({
           />
         ) : null}
 
-        {/* Continue when the branch is resolved (followup done, or no followups) */}
-        {followupChoice || (rootChoice && followups.length === 0) ? (
+        {/* Continue when the branch is resolved (followup done, or no
+            followups). Until then, in its place, what it waits for: plain
+            text, read in page order, not a live region. */}
+        {hint ? (
+          <p className="mt-6 text-sm text-[var(--muted-foreground)] sm:text-right">
+            {tHint(hint)}
+          </p>
+        ) : (
           <div className="mt-6 flex flex-wrap gap-3 justify-between">
             <Button variant="outline" size="md" onClick={reset}>
               <RotateCcw className="h-4 w-4" />
@@ -136,7 +149,7 @@ export function ScenarioStage({
               <ArrowRight className="h-4 w-4" />
             </Button>
           </div>
-        ) : null}
+        )}
       </CardContent>
     </Card>
   );

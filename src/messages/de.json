@@ -492,6 +492,12 @@
     "preview": "<b>Vorschau.</b> Nichts, was du hier tust, wird gespeichert.",
     "backToEditing": "Zurück zum Bearbeiten"
   },
+  "continueHint": {
+    "simulation": "Wähle eine Antwort, um weiterzumachen.",
+    "scenario": "Wähle, was du tun würdest, um weiterzumachen.",
+    "scenarioFollowup": "Beantworte die Folgefrage, um weiterzumachen.",
+    "assessment": "Beantworte alle Fragen und wähle dann „{button}“, um weiterzumachen."
+  },
   "video": {
     "regionLabel": "Lernvideo",
     "interactiveBadge": "{count, plural, one {# Frage} other {# Fragen}}",

@@ -119,4 +119,20 @@ describe("AssessmentStage", () => {
     );
     expect(got.find((b) => b.label === "Check answers")?.disabled).toBe(true);
   });
+
+  it("says what's needed to continue until the answers are checked, as plain text", () => {
+    const open = render({ answers: { qk3f: "a1x" }, checked: false });
+    expect(open).toContain(
+      "Answer every question, then select “Check answers” to continue."
+    );
+    expect(open).not.toMatch(/aria-live|role="status"|role="alert"/);
+    // The disabled "Check answers" button points to it.
+    const id = open.match(/<p id="([^"]+)"[^>]*>Answer every question/)?.[1];
+    expect(id).toBeTruthy();
+    expect(open).toMatch(
+      new RegExp(`<button[^>]*aria-describedby="${id}"[^>]*>Check answers`)
+    );
+    const done = render({ answers: { qk3f: "a1x", q9zz: "a4x" }, checked: true });
+    expect(done).not.toContain("Answer every question");
+  });
 });

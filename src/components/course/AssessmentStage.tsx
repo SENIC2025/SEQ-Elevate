@@ -1,6 +1,7 @@
 "use client";
 
 import { useTranslations } from "next-intl";
+import { useId } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useDemoState } from "@/store/demo-state";
@@ -26,7 +27,9 @@ export function AssessmentStage({
   onContinue: () => void;
 }) {
   const t = useTranslations("coursePlayer");
+  const tHint = useTranslations("continueHint");
   const tCommon = useTranslations("common");
+  const hintId = useId();
   const { state, dispatch } = useDemoState();
   const progress = state.course.assessment;
   const answers = progress.answers;
@@ -152,22 +155,31 @@ export function AssessmentStage({
           </div>
         ) : null}
 
-        <div className="mt-6 flex justify-end">
-          {checked ? (
+        {checked ? (
+          <div className="mt-6 flex justify-end">
             <Button size="md" onClick={onContinue}>
               {tCommon("continue")}
               <ArrowRight className="h-4 w-4" />
             </Button>
-          ) : (
+          </div>
+        ) : (
+          // Until the answers are checked, what Continue waits for, next to
+          // the button that stands in its place. Plain text, read in page
+          // order, not a live region.
+          <div className="mt-6 flex flex-wrap items-center justify-end gap-x-4 gap-y-3">
+            <p id={hintId} className="min-w-0 flex-1 basis-64 text-sm text-[var(--muted-foreground)] sm:text-right">
+              {tHint("assessment", { button: t("checkAnswers") })}
+            </p>
             <Button
               size="md"
               disabled={!allAnswered}
+              aria-describedby={hintId}
               onClick={() => dispatch({ type: "checkAssessment" })}
             >
               {t("checkAnswers")}
             </Button>
-          )}
-        </div>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
