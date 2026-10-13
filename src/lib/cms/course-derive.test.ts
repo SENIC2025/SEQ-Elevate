@@ -6,6 +6,7 @@ import {
   languageCoverage,
   lastEdited,
   publishReadiness,
+  offersAdd,
   type LessonFacts,
 } from "./course-derive";
 import type { StoredStructure } from "./structure";
@@ -265,6 +266,7 @@ function lesson(
     editable: { body: true, media: true },
     byLang,
     structure: null,
+    draft: null,
     video: null,
     builtInVideo: false,
     documents: [],
@@ -330,6 +332,27 @@ describe("publishReadiness", () => {
     expect(issues.some((i) => i.code === "lesson-empty")).toBe(false);
   });
 
+  it("names each lesson with a draft learners don't see yet", () => {
+    const all = sim({ en: "a", de: "a", el: "a" });
+    const issues = publishReadiness(
+      outline([
+        // Saved for learners, with a newer draft beside it…
+        lesson("simulation", {}, { body: "interactive", structure: all, draft: sim({ en: "b" }) }),
+        // …and one that so far exists only as a draft.
+        lesson("assessment", {}, {
+          body: "interactive",
+          present: false,
+          addable: true,
+          draft: sim({ en: "c" }),
+        }),
+      ])
+    );
+    expect(issues).toEqual([
+      { level: "warning", code: "lesson-draft", stage: "simulation" },
+      { level: "warning", code: "lesson-draft", stage: "assessment" },
+    ]);
+  });
+
   it("counts interactive lessons missing a language", () => {
     const issues = publishReadiness(
       outline([
@@ -358,5 +381,23 @@ describe("publishReadiness", () => {
       ])
     );
     expect(issues).toEqual([{ level: "info", code: "no-interactive" }]);
+  });
+});
+
+describe("offersAdd", () => {
+  const scenario = sim({ en: "a" });
+
+  it("offers to add a practice lesson that isn't written yet", () => {
+    expect(offersAdd(lesson("scenario", {}, { present: false, addable: true }))).toBe(true);
+  });
+
+  it("offers to edit, not add, a lesson that so far exists only as a draft", () => {
+    expect(
+      offersAdd(lesson("scenario", {}, { present: false, addable: true, draft: scenario }))
+    ).toBe(false);
+  });
+
+  it("never offers to add a lesson learners already have", () => {
+    expect(offersAdd(lesson("scenario", {}, { structure: scenario }))).toBe(false);
   });
 });

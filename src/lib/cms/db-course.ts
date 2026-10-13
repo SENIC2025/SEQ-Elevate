@@ -219,8 +219,11 @@ export async function getDbCourse(
     const entry = pickMeta(row.meta as CourseMeta | null, locale);
     if (!entry) return null;
 
+    // Only what learners get. Never `structureDraft`: an editor's unfinished
+    // stage stays on the course page until it is saved for learners.
     const lessons = await prisma.lesson.findMany({
       where: { projectId, courseSlug: slug },
+      select: { stageKey: true, narrative: true, structure: true },
     });
     const byStage = new Map(lessons.map((l) => [l.stageKey, l]));
     const isInteractive = (k: StageKey): k is StructureStageKey =>

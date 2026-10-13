@@ -54,6 +54,7 @@ type Action =
     }
   | { type: "reread"; key: StageKey; lang: Locale; stale: string | null }
   | { type: "structureSaved"; key: StageKey; structure: StoredStructure }
+  | { type: "draftChanged"; key: StageKey; draft: StoredStructure | null }
   | { type: "structureCleared"; key: StageKey }
   | { type: "videoSaved"; key: StageKey; video: VideoContent | null }
   | { type: "documentsChanged"; key: StageKey; documents: LessonDocumentRef[] };
@@ -95,18 +96,26 @@ function reducer(state: State, action: Action): State {
       };
     case "structureSaved":
       // A new interactive lesson now exists for learners — and can take a
-      // video and documents like any other.
+      // video and documents like any other. The save cleared any draft.
       return patchLesson(state, action.key, (l) => ({
         ...l,
         structure: action.structure,
+        draft: null,
         present: true,
         addable: false,
         editable: { ...l.editable, media: true },
+      }));
+    case "draftChanged":
+      // Learners see no change: only the lesson's "Draft" mark.
+      return patchLesson(state, action.key, (l) => ({
+        ...l,
+        draft: action.draft,
       }));
     case "structureCleared":
       return patchLesson(state, action.key, (l) => ({
         ...l,
         structure: null,
+        draft: null,
         present: false,
         addable: true,
         editable: { ...l.editable, media: false },
@@ -344,6 +353,7 @@ function Workspace({
                   label={lessonLabel(lesson.key)}
                   slug={outline.slug}
                   kind={outline.kind}
+                  status={status}
                   lang={lang}
                   open={open.has(lesson.key)}
                   rev={state.revs[pair(lesson.key, lang)] ?? 0}
@@ -368,6 +378,11 @@ function Workspace({
                       key: lesson.key,
                       structure,
                     });
+                    refresh();
+                  }}
+                  onStructureDraftChanged={(draft) => {
+                    dispatch({ type: "draftChanged", key: lesson.key, draft });
+                    // The publishing warnings list lessons with a draft.
                     refresh();
                   }}
                   onStructureCleared={() => {

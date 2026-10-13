@@ -23,6 +23,7 @@ import type {
   CourseKind,
   CourseOutline,
   LanguageCoverage,
+  LessonOutline,
   ReadinessIssue,
 } from "./course-admin-types";
 import type { Locale, StageKey } from "./types";
@@ -200,6 +201,16 @@ export function lastEdited(
 }
 
 /**
+ * Should the course page offer "Add …" for this lesson? Only while nothing
+ * of it is written: a practice lesson that so far exists only as a draft is
+ * already being worked on, so the lesson list and the lesson itself offer
+ * to edit it (with a "Draft" mark) rather than to add something new.
+ */
+export function offersAdd(lesson: Pick<LessonOutline, "addable" | "draft">): boolean {
+  return lesson.addable && !lesson.draft;
+}
+
+/**
  * Things worth knowing before publishing. Warnings only — publishing is never
  * blocked, since a course half-translated today is still useful in the
  * language it is written in (learners get fallbacks).
@@ -208,6 +219,9 @@ export function lastEdited(
  * - lesson-empty:        a CMS narrative lesson has no blocks in any language;
  * - lesson-untranslated: lessons with text in some language but not this one
  *                        (empty lessons are already reported above);
+ * - lesson-draft:        an interactive lesson has an unfinished draft that
+ *                        learners don't see (whether or not they see an
+ *                        earlier version of the lesson);
  * - no-interactive:      a CMS course has no simulation/scenario/quick check.
  */
 export function publishReadiness(
@@ -253,6 +267,12 @@ export function publishReadiness(
         locale,
         count,
       });
+    }
+  }
+
+  for (const l of outline.lessons) {
+    if (l.draft) {
+      issues.push({ level: "warning", code: "lesson-draft", stage: l.key });
     }
   }
 

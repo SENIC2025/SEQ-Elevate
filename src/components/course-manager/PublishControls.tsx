@@ -43,6 +43,7 @@ export function PublishControls({
 }) {
   const t = useTranslations("courseManager");
   const tStage = useTranslations("course.stageLabel");
+  const tDraft = useTranslations("exerciseEditor.page");
   const ids = React.useId();
   const headingRef = React.useRef<HTMLHeadingElement>(null);
   const warningRef = React.useRef<HTMLParagraphElement>(null);
@@ -110,6 +111,10 @@ export function PublishControls({
           count: issue.count ?? 1,
           language,
         });
+      case "lesson-draft":
+        return tDraft("readinessDraft", {
+          stage: issue.stage ? tStage(issue.stage) : "",
+        });
       case "no-interactive":
         return t("page.readiness.noInteractive");
     }
@@ -159,7 +164,9 @@ export function PublishControls({
                     }`}
                     aria-hidden
                   />
-                  {issue.code === "lesson-empty" && issue.stage ? (
+                  {(issue.code === "lesson-empty" ||
+                    issue.code === "lesson-draft") &&
+                  issue.stage ? (
                     <a
                       href={`#lesson-${issue.stage}`}
                       className="underline underline-offset-2 hover:text-[var(--accent)]"

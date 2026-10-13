@@ -1,16 +1,19 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { Plus } from "lucide-react";
+import { FilePenLine, PenLine, Plus } from "lucide-react";
 import type { LessonOutline } from "@/lib/cms/course-admin-types";
+import { offersAdd } from "@/lib/cms/course-derive";
 import type { Locale, StageKey } from "@/lib/cms/types";
 
 /**
  * Jump links to every lesson, in learner order, with the lesson's own title
  * in the content language — plus, on a created course, "Add guided practice
  * / an applied scenario / a quick check" for the practice lessons it doesn't
- * have yet (named as learners will see them in the list). Sticks beside the
- * lessons on wide screens.
+ * have yet (named as learners will see them in the list). A lesson with an
+ * unsaved-for-learners draft says "Draft" in words; one that so far exists
+ * only as a draft is named, not offered as "Add …" again (as in its
+ * section). Sticks beside the lessons on wide screens.
  */
 export function LessonNav({
   lessons,
@@ -24,6 +27,13 @@ export function LessonNav({
   onAdd: (key: StageKey) => void;
 }) {
   const t = useTranslations("courseManager.page");
+  const tDraft = useTranslations("exerciseEditor.page");
+  const draftMark = (
+    <span className="ml-1.5 inline-flex items-center gap-0.5 rounded-full border border-dashed border-[var(--warning)] px-1.5 text-[10px] font-medium text-[var(--foreground)]">
+      <FilePenLine className="h-3 w-3" aria-hidden />
+      {tDraft("navDraft")}
+    </span>
+  );
 
   return (
     <nav
@@ -38,6 +48,8 @@ export function LessonNav({
         {lessons.map((lesson) => {
           if (lesson.addable) {
             const key = lesson.key as "simulation" | "scenario" | "assessment";
+            // Learners don't have it yet, so there is no section to jump to
+            // that is open: the button opens it, whether to add or to edit.
             return (
               <li key={lesson.key}>
                 <button
@@ -45,8 +57,18 @@ export function LessonNav({
                   onClick={() => onAdd(lesson.key)}
                   className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-[var(--accent)]/40 px-3 py-1.5 text-left text-[var(--accent)] hover:bg-[var(--surface-muted)] lg:w-full lg:rounded-md lg:border-0 lg:px-2"
                 >
-                  <Plus className="h-3.5 w-3.5 flex-shrink-0" aria-hidden />
-                  {t(`addStage.${key}`)}
+                  {offersAdd(lesson) ? (
+                    <>
+                      <Plus className="h-3.5 w-3.5 flex-shrink-0" aria-hidden />
+                      {t(`addStage.${key}`)}
+                    </>
+                  ) : (
+                    <>
+                      <PenLine className="h-3.5 w-3.5 flex-shrink-0" aria-hidden />
+                      <span className="font-medium">{lessonLabel(lesson.key)}</span>
+                      {draftMark}
+                    </>
+                  )}
                 </button>
               </li>
             );
@@ -59,6 +81,7 @@ export function LessonNav({
                 className="block rounded-full border border-[var(--border)] px-3 py-1.5 hover:bg-[var(--surface-muted)] lg:rounded-md lg:border-0 lg:px-2"
               >
                 <span className="font-medium">{lessonLabel(lesson.key)}</span>
+                {lesson.draft ? draftMark : null}
                 {title ? (
                   <span className="hidden truncate text-xs text-[var(--muted-foreground)] lg:block">
                     {title}

@@ -176,66 +176,156 @@ export function resolveStructure(
 
 /* -------------------------------- validate -------------------------------- */
 
+/**
+ * Why a stage isn't ready for learners, as a code plus the numbers that name
+ * the exact place (1-based, as the editor numbers them). The editor turns
+ * each into a sentence in the author's menu language
+ * (messages: exerciseEditor.issues.<code>), so the server never sends
+ * English prose a German or Greek editor would have to decode.
+ */
+export type StructureIssueCode =
+  | "simOptionsTooFew"
+  | "simBestCount"
+  | "simPrompt"
+  | "simOptionText"
+  | "scenarioChoicesTooFew"
+  | "scenarioSetup"
+  | "scenarioQuestion"
+  | "scenarioChoiceText"
+  | "scenarioChoiceOutcome"
+  | "scenarioFollowupQuestion"
+  | "scenarioFollowupText"
+  | "scenarioFollowupOutcome"
+  | "assessmentNoQuestions"
+  | "assessmentQuestionText"
+  | "assessmentAnswersTooFew"
+  | "assessmentAnswerText"
+  | "assessmentCorrect";
+
 export interface StructureIssue {
-  message: string;
+  code: StructureIssueCode;
+  /** Which option / choice / follow-up / question / answer, counted from 1. */
+  params?: Partial<
+    Record<"option" | "choice" | "followup" | "question" | "answer", number>
+  >;
+}
+
+/** The reasons that are about one text box (not about the whole exercise). */
+const FIELD_ISSUES: ReadonlySet<StructureIssueCode> = new Set<StructureIssueCode>([
+  "simPrompt",
+  "simOptionText",
+  "scenarioSetup",
+  "scenarioQuestion",
+  "scenarioFollowupQuestion",
+  "scenarioChoiceText",
+  "scenarioChoiceOutcome",
+  "scenarioFollowupText",
+  "scenarioFollowupOutcome",
+  "assessmentQuestionText",
+  "assessmentAnswerText",
+]);
+
+const PLACES = ["option", "choice", "followup", "question", "answer"] as const;
+
+/**
+ * A key for one text box in the editor: the reason's code plus where it is.
+ * The editor gives each box the key of the reason that would name it, so a
+ * refused save can mark exactly those boxes as invalid and each reason can
+ * take the author to its box. Letters, digits and "-" only, so it can be
+ * part of an element id.
+ */
+export function fieldKey(
+  code: StructureIssueCode,
+  params: StructureIssue["params"] = {}
+): string {
+  return [code, ...PLACES.flatMap((p) => (params[p] ? [`${p}${params[p]}`] : []))].join(
+    "-"
+  );
+}
+
+/** The text box a reason is about, or null when it is about no single box. */
+export function issueField(issue: StructureIssue): string | null {
+  return FIELD_ISSUES.has(issue.code) ? fieldKey(issue.code, issue.params) : null;
+}
+
+/**
+ * Has this text been written in at least one language? A box that once held
+ * text and was emptied is stored as "" (or spaces), which must count as
+ * blank — and must not hide the text another language has.
+ */
+export function hasText(t: LocalizedText | undefined): boolean {
+  return Boolean(
+    t &&
+      Object.values(t).some((v) => typeof v === "string" && v.trim() !== "")
+  );
 }
 
 /**
  * Publish-time sanity checks. These guard the learner experience: a simulation
  * with no correct answer, or an assessment question whose "correct" id isn't
- * one of its options, would grade nonsensically. Returns [] when sound.
+ * one of its options, would grade nonsensically; a scenario follow-up with no
+ * question or blank buttons leaves the learner stuck mid-branch. Returns []
+ * when sound.
  *
  * Text must be present in at least ONE language per field — the resolver falls
  * back across locales, so a single authored language renders; a field blank in
  * every language would show nothing.
  */
-export function validateStructure(
-  s: StoredStructure,
-  defaultLocale: Locale = "en"
-): StructureIssue[] {
+export function validateStructure(s: StoredStructure): StructureIssue[] {
   const issues: StructureIssue[] = [];
-  const need = (t: LocalizedText | undefined, what: string) => {
-    if (!pickText(t, defaultLocale).trim()) {
-      issues.push({ message: `${what} needs text in at least one language.` });
-    }
+  const need = (
+    t: LocalizedText | undefined,
+    code: StructureIssueCode,
+    params?: StructureIssue["params"]
+  ) => {
+    if (!hasText(t)) issues.push(params ? { code, params } : { code });
   };
 
   if (s.kind === "simulation") {
-    if (s.options.length < 2) {
-      issues.push({ message: "A simulation needs at least two options." });
-    }
+    if (s.options.length < 2) issues.push({ code: "simOptionsTooFew" });
     if (s.options.filter((o) => o.isBest).length !== 1) {
-      issues.push({ message: "Mark exactly one option as the best response." });
+      issues.push({ code: "simBestCount" });
     }
-    need(s.prompt, "The simulation prompt");
-    s.options.forEach((o, i) => need(o.text, `Option ${i + 1}`));
+    need(s.prompt, "simPrompt");
+    s.options.forEach((o, i) =>
+      need(o.text, "simOptionText", { option: i + 1 })
+    );
   }
 
   if (s.kind === "scenario") {
-    if (s.choices.length < 2) {
-      issues.push({ message: "A scenario needs at least two first choices." });
+    if (s.choices.length < 2) issues.push({ code: "scenarioChoicesTooFew" });
+    need(s.setup, "scenarioSetup");
+    need(s.question, "scenarioQuestion");
+    // Learners see the follow-up question only after a choice that has
+    // follow-ups (ScenarioStage), so it is needed only then.
+    if (s.choices.some((c) => (c.followups ?? []).length > 0)) {
+      need(s.followupQuestion, "scenarioFollowupQuestion");
     }
-    need(s.setup, "The scenario setup");
-    need(s.question, "The scenario question");
     s.choices.forEach((c, i) => {
-      need(c.text, `Choice ${i + 1}`);
-      need(c.outcome, `Choice ${i + 1}'s outcome`);
+      const choice = i + 1;
+      need(c.text, "scenarioChoiceText", { choice });
+      need(c.outcome, "scenarioChoiceOutcome", { choice });
+      (c.followups ?? []).forEach((f, j) => {
+        const at = { choice, followup: j + 1 };
+        need(f.text, "scenarioFollowupText", at);
+        need(f.outcome, "scenarioFollowupOutcome", at);
+      });
     });
   }
 
   if (s.kind === "assessment") {
-    if (s.questions.length < 1) {
-      issues.push({ message: "An assessment needs at least one question." });
-    }
+    if (s.questions.length < 1) issues.push({ code: "assessmentNoQuestions" });
     s.questions.forEach((q, i) => {
-      need(q.question, `Question ${i + 1}`);
+      const question = i + 1;
+      need(q.question, "assessmentQuestionText", { question });
       if (q.options.length < 2) {
-        issues.push({ message: `Question ${i + 1} needs at least two answers.` });
+        issues.push({ code: "assessmentAnswersTooFew", params: { question } });
       }
+      q.options.forEach((o, j) =>
+        need(o.text, "assessmentAnswerText", { question, answer: j + 1 })
+      );
       if (!q.options.some((o) => o.id === q.correctOptionId)) {
-        issues.push({
-          message: `Question ${i + 1}: mark which answer is correct.`,
-        });
+        issues.push({ code: "assessmentCorrect", params: { question } });
       }
     });
   }

@@ -223,6 +223,10 @@ export async function getCourseOutline(
         kind === "cms" && isInteractive(key)
           ? ((lesson?.structure ?? null) as StoredStructure | null)
           : null,
+      draft:
+        kind === "cms" && isInteractive(key)
+          ? ((lesson?.structureDraft ?? null) as StoredStructure | null)
+          : null,
       video: (lesson?.video ?? null) as VideoContent | null,
       // From the platform's own course, not what learners see now: a stored
       // video hides the built-in one, which comes back if it's removed

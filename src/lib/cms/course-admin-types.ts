@@ -108,6 +108,11 @@ export interface LessonOutline {
   >;
   /** The stored interactive structure (CMS courses), or null. */
   structure: StoredStructure | null;
+  /**
+   * An editor's unfinished version of the interactive structure (CMS
+   * courses), or null. Learners never see it (db-course.ts).
+   */
+  draft: StoredStructure | null;
   /** The video stored for this lesson, or null (none in the DB). */
   video: VideoContent | null;
   /**
@@ -123,7 +128,12 @@ export interface LessonOutline {
 
 export interface ReadinessIssue {
   level: "warning" | "info";
-  code: "copy-missing" | "lesson-empty" | "lesson-untranslated" | "no-interactive";
+  code:
+    | "copy-missing"
+    | "lesson-empty"
+    | "lesson-untranslated"
+    | "lesson-draft"
+    | "no-interactive";
   locale?: Locale;
   stage?: StageKey;
   /** lesson-untranslated: how many lessons lack text in `locale`. */
