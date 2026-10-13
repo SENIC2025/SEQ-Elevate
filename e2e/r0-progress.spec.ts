@@ -288,32 +288,50 @@ describe("Release 0 — progress per course and cleared translations", () => {
     // Every course learners can open from here (coming-soon ones aren't
     // links). Each is marked finished with exactly its own lessons — five
     // for the course made here, which the seven-step count read as 5/7.
-    const hrefs = await page
-      .locator('a[href*="/learner/course/"]')
-      .evaluateAll((links) =>
-        links.map((a) => (a as HTMLAnchorElement).getAttribute("href") ?? "")
-      );
-    const slugs = [
-      ...new Set(hrefs.map((h) => h.split("/learner/course/")[1])),
-    ].filter(Boolean);
+    // Other spec files publish and remove courses while this runs, so the
+    // list is read again after each reload until no new course turns up.
+    const courseSlugs = () =>
+      page
+        .locator('a[href*="/learner/course/"]')
+        .evaluateAll((links) =>
+          links.map((a) => (a as HTMLAnchorElement).getAttribute("href") ?? "")
+        )
+        .then((hrefs) =>
+          [...new Set(hrefs.map((h) => h.split("/learner/course/")[1]))].filter(
+            Boolean
+          )
+        );
+    const finished = new Set<string>();
+    let slugs = await courseSlugs();
     expect(slugs).toContain(SLUG);
-    for (const slug of slugs) {
-      const course = await prisma.course.findFirst({
-        where: { projectId: PROJECT, slug },
-        select: { id: true },
-      });
-      expect(course, `course row for ${slug}`).toBeTruthy();
-      await prisma.courseEnrollment.create({
-        data: {
-          userId: finisher.userId,
-          courseId: course!.id,
-          stagesCompleted: slug === SLUG ? OWN_LESSONS : ALL_SEVEN,
-          completedAt: new Date(),
-        },
-      });
+    for (let round = 0; slugs.some((s) => !finished.has(s)); round++) {
+      expect(round, "the course list settles").toBeLessThan(4);
+      for (const slug of slugs.filter((s) => !finished.has(s))) {
+        const course = await prisma.course.findFirst({
+          where: { projectId: PROJECT, slug },
+          select: { id: true },
+        });
+        // Removed by another spec since the page listed it: gone from the
+        // next list. (A bundled course without a row would stay listed and
+        // fail the "settles" check.)
+        if (!course) continue;
+        await prisma.courseEnrollment.create({
+          data: {
+            userId: finisher.userId,
+            courseId: course.id,
+            stagesCompleted: slug === SLUG ? OWN_LESSONS : ALL_SEVEN,
+            completedAt: new Date(),
+          },
+        });
+        finished.add(slug);
+      }
+      await page.reload();
+      await expect(
+        page.getByRole("link", { name: new RegExp(TITLE) }).first()
+      ).toBeVisible({ timeout: 15000 });
+      slugs = await courseSlugs();
     }
 
-    await page.reload();
     // The first bar is "Overall completion".
     const overall = page.getByRole("progressbar").first();
     await expect(overall).toHaveAttribute("aria-valuenow", "100", {

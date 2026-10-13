@@ -23,8 +23,11 @@ vi.mock("@/lib/prisma", () => ({
     },
     lesson: {
       findMany: async ({ where }: { where: { NOT?: unknown } }) =>
-        // listDbCourses asks only for lessons with a structure.
-        where.NOT ? lessons.filter((l) => l.structure != null) : lessons,
+        // listDbCourses asks only for lessons with a structure, and groups
+        // them by course, as stored.
+        (where.NOT ? lessons.filter((l) => l.structure != null) : lessons).map(
+          (l) => ({ courseSlug: course.slug, ...l })
+        ),
     },
   },
 }));
@@ -176,5 +179,23 @@ describe("listDbCourses with a cleared translation", () => {
     const [summary] = await listDbCourses("p", "de");
     expect(summary.title).toBe("Asking for help");
     expect(summary.tagline).toBe("Short and real");
+  });
+});
+
+describe("listDbCourses lessons", () => {
+  // The dashboard counts a course against these: a created course without
+  // a scenario has six lessons, not seven.
+  it("lists the lessons the course has, the ones the player plays", async () => {
+    const [summary] = await listDbCourses("p", "en");
+    expect(summary.stageKeys).toEqual([
+      "context",
+      "concept",
+      "behaviour",
+      "simulation",
+      "reflection",
+      "assessment",
+    ]);
+    const course = await getDbCourse("p", "asking-for-help", "en");
+    expect(summary.stageKeys).toEqual(course?.stages.map((s) => s.key));
   });
 });
