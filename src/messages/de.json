@@ -787,5 +787,136 @@
     "expiredHelp": "Falls er abgelaufen ist, gehe auf {site} und melde dich mit dieser E-Mail-Adresse an.",
     "ignore": "Falls du diese Einladung nicht erwartet hast, kannst du diese E-Mail einfach ignorieren.",
     "footer": "Erstellt und betrieben von SENIC · senic.world"
+  },
+  "exerciseEditor": {
+    "badge": {
+      "added": "Hinzugefügt",
+      "notAdded": "Noch nicht hinzugefügt",
+      "draft": "Entwurf"
+    },
+    "draft": {
+      "title": "Entwurf — Lernende sehen das noch nicht",
+      "bodyLive": "Lernende sehen weiter die zuletzt gespeicherte Fassung dieser Übung. Nutze „Teil speichern“, wenn deine Änderungen fertig sind.",
+      "bodyNew": "Lernende sehen diese Übung noch nicht. Nutze „Teil speichern“, wenn sie fertig ist."
+    },
+    "hint": {
+      "live": "Dieser Kurs ist live: Mit „Teil speichern“ sehen Lernende deine Änderungen sofort. „Entwurf speichern“ hebt Unfertiges nur für die Redaktion auf.",
+      "notLive": "Mit „Teil speichern“ gehört er zum Kurs — Lernende sehen ihn, sobald der Kurs veröffentlicht ist. „Entwurf speichern“ hebt Unfertiges nur für die Redaktion auf."
+    },
+    "missing": {
+      "title": "Das fehlt noch, bevor Lernende das nutzen können:",
+      "notReady": "Noch nicht bereit zum Speichern. Fülle zuerst diese Felder aus — oder nutze „Entwurf speichern“, um deine Arbeit vorerst aufzuheben:",
+      "oneLanguage": "Text in einer Sprache reicht."
+    },
+    "issues": {
+      "simOptionsTooFew": "Füge mindestens zwei Optionen hinzu.",
+      "simBestCount": "Markiere genau eine Option als beste Antwort (mit dem Stern).",
+      "simPrompt": "Schreib die Ausgangssituation.",
+      "simOptionText": "Option {option}: Schreib den Text der Option.",
+      "scenarioChoicesTooFew": "Füge mindestens zwei erste Auswahlmöglichkeiten hinzu.",
+      "scenarioSetup": "Schreib die Ausgangslage.",
+      "scenarioQuestion": "Schreib die erste Frage.",
+      "scenarioFollowupQuestion": "Schreib die Folgefrage. Lernende sehen sie, nachdem sie eine Auswahl mit Folgeschritten gewählt haben.",
+      "scenarioChoiceText": "Auswahl {choice}: Schreib den Text der Auswahl.",
+      "scenarioChoiceOutcome": "Auswahl {choice}: Schreib, was danach passiert.",
+      "scenarioFollowupText": "Folgeschritt {choice}.{followup}: Schreib den Text des Folgeschritts.",
+      "scenarioFollowupOutcome": "Folgeschritt {choice}.{followup}: Schreib, was danach passiert.",
+      "assessmentNoQuestions": "Füge mindestens eine Frage hinzu.",
+      "assessmentQuestionText": "Frage {question}: Schreib die Frage.",
+      "assessmentAnswersTooFew": "Frage {question}: Füge mindestens zwei Antworten hinzu.",
+      "assessmentAnswerText": "Frage {question}, Antwort {answer}: Schreib die Antwort.",
+      "assessmentCorrect": "Frage {question}: Kreuze die richtige Antwort an."
+    },
+    "actions": {
+      "saveStage": "Teil speichern",
+      "saveDraft": "Entwurf speichern",
+      "discardDraft": "Entwurf verwerfen",
+      "removeStage": "Teil entfernen",
+      "reload": "Gespeicherte Fassung laden"
+    },
+    "status": {
+      "saved": "Gespeichert",
+      "draftSaved": "Entwurf gespeichert — Lernende sehen ihn noch nicht.",
+      "draftDiscarded": "Entwurf verworfen.",
+      "removed": "Entfernt — Lernende sehen diesen Teil nicht mehr."
+    },
+    "confirm": {
+      "remove": "Diese Übung entfernen? Lernende sehen sie dann nicht mehr, und ein Entwurf davon wird auch gelöscht.",
+      "discardLive": "Diesen Entwurf verwerfen? Du kehrst zu der Fassung zurück, die Lernende sehen.",
+      "discardNew": "Diesen Entwurf verwerfen? Alles, was du hier geschrieben hast, wird gelöscht.",
+      "reload": "Die gespeicherte Fassung dieses Teils laden? Deine ungespeicherten Änderungen hier werden ersetzt."
+    },
+    "conflict": "Jemand anderes hat diesen Teil gespeichert, seit du ihn geöffnet hast, deshalb wurde nichts gespeichert. Lade ihn neu, um die Änderungen zu sehen — deine Änderungen bleiben hier, bis du das tust.",
+    "errors": {
+      "forbidden": "Nur die Inhalts-Redaktion und Admins können Kurse ändern. Melde dich erneut an oder bitte die Administration deines Projekts um die Rolle Inhalts-Redaktion.",
+      "notCms": "Hier lassen sich nur Kurse bearbeiten, die auf der Plattform erstellt wurden.",
+      "mismatch": "Das passt nicht zu dieser Lektion. Lade die Seite neu und versuche es erneut.",
+      "tooLarge": "Das ist zu lang zum Speichern. Kürze einige Texte und versuche es erneut.",
+      "generic": "Das wurde nicht gespeichert. Prüfe deine Verbindung und versuche es erneut.",
+      "removeFailed": "Der Teil konnte nicht entfernt werden: Nur die Inhalts-Redaktion und Admins können Kurse ändern.",
+      "load": "Dieser Teil konnte nicht geladen werden. Lade die Seite neu, um es noch einmal zu versuchen."
+    },
+    "loading": "Wird geladen …",
+    "fields": {
+      "stageTitle": "Titel des Teils",
+      "prompt": "Ausgangssituation",
+      "instruction": "Anleitung",
+      "optionText": "Text der Option",
+      "feedback": "Rückmeldung bei dieser Wahl",
+      "setup": "Ausgangslage",
+      "firstQuestion": "Erste Frage",
+      "followupQuestion": "Folgefrage",
+      "choiceText": "Text der Auswahl",
+      "outcome": "Was danach passiert",
+      "followupText": "Text des Folgeschritts",
+      "followupOutcome": "Was nach dem Folgeschritt passiert",
+      "intro": "Einleitung",
+      "question": "Frage",
+      "answer": "Antwort {n}"
+    },
+    "placeholders": {
+      "simulationTitle": "z. B. Die Antwort üben",
+      "instruction": "z. B. Wähle die stärkste Antwort.",
+      "scenarioTitle": "z. B. Spiel es durch",
+      "assessmentTitle": "z. B. Schnellcheck"
+    },
+    "simulation": {
+      "optionsHint": "Optionen — markiere die eine beste Antwort mit dem Stern.",
+      "option": "Option {n}",
+      "best": "beste",
+      "markBest": "Option {n} als beste markieren",
+      "removeOption": "Option {n} entfernen",
+      "addOption": "Option hinzufügen"
+    },
+    "scenario": {
+      "choicesHint": "Erste Auswahlmöglichkeiten — jede kann Folgeschritte haben.",
+      "choice": "Auswahl {n}",
+      "removeChoice": "Auswahl {n} entfernen",
+      "followup": "Folgeschritt {choice}.{followup}",
+      "removeFollowup": "Folgeschritt {choice}.{followup} entfernen",
+      "addFollowup": "Folgeschritt hinzufügen",
+      "addChoice": "Erste Auswahl hinzufügen",
+      "quality": "Qualität",
+      "qualityLabel": "Qualität des Ergebnisses",
+      "qualities": {
+        "best": "beste",
+        "okay": "okay",
+        "poor": "schwach"
+      }
+    },
+    "assessment": {
+      "question": "Frage {n}",
+      "removeQuestion": "Frage {n} entfernen",
+      "answersHint": "Antworten — kreuze die richtige an.",
+      "isCorrect": "Antwort {n} ist richtig",
+      "removeAnswer": "Antwort {n} entfernen",
+      "addAnswer": "Antwort hinzufügen",
+      "addQuestion": "Frage hinzufügen"
+    },
+    "page": {
+      "draftBadge": "Entwurf gespeichert",
+      "navDraft": "Entwurf",
+      "readinessDraft": "Die Lektion „{stage}“ hat einen Entwurf, den Lernende noch nicht sehen."
+    }
   }
 }

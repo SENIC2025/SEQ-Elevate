@@ -1,23 +1,31 @@
 "use client";
 
 import * as React from "react";
+import { useTranslations } from "next-intl";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   getStructure,
   saveStructure,
+  saveStructureDraft,
+  discardStructureDraft,
   clearStructure,
+  type StructureState,
 } from "@/app/actions/structure";
-import type {
-  StoredStructure,
-  StoredSimulation,
-  StoredScenario,
-  StoredAssessment,
-  StoredScenarioChoice,
-  LocalizedText,
-  StructureStageKey,
+import {
+  validateStructure,
+  type StoredStructure,
+  type StoredSimulation,
+  type StoredScenario,
+  type StoredAssessment,
+  type StoredScenarioChoice,
+  type LocalizedText,
+  type StructureIssue,
+  type StructureStageKey,
 } from "@/lib/cms/structure";
+import { STRUCTURE_LIMITS } from "@/lib/cms/structure-sanitize";
+import type { CourseStatus } from "@/lib/cms/course-status";
 import type { Locale, OutcomeQuality } from "@/lib/cms/types";
 import {
   Puzzle,
@@ -30,13 +38,11 @@ import {
   Star,
   RotateCcw,
   RefreshCw,
+  FilePenLine,
+  ListChecks,
+  Undo2,
 } from "lucide-react";
 
-const KIND_LABEL: Record<StructureStageKey, string> = {
-  simulation: "Simulation",
-  scenario: "Scenario",
-  assessment: "Assessment",
-};
 const QUALITIES: OutcomeQuality[] = ["best", "okay", "poor"];
 
 const inputCls =
@@ -111,25 +117,44 @@ function useReportDirty(dirty: boolean, onDirtyChange?: (d: boolean) => void) {
 
 interface LoadedStructure {
   key: string;
-  draft: StoredStructure;
-  /** What's stored (or the empty template): unsaved edits = draft !== saved. */
+  /** What's on screen: the draft if there is one, else the saved stage. */
+  edit: StoredStructure;
+  /** What `edit` started from (or was last saved as): unsaved = edit !== saved. */
   saved: StoredStructure;
   /**
-   * What the server holds as far as this editor knows (null = nothing yet).
-   * Sent with a save, so the server can refuse it if someone else has saved
-   * the stage since (the draft holds every language — D33).
+   * What the server holds as far as this editor knows. Sent with every
+   * write, so the server can refuse it if someone else has saved the stage
+   * or its draft since (both hold every language — D33).
    */
-  stored: StoredStructure | null;
-  authored: boolean;
+  base: StructureState;
 }
 
-type Status = "idle" | "saving" | "saved" | "removed" | "error";
+type Status =
+  | "idle"
+  | "saving"
+  | "saved"
+  | "draftSaved"
+  | "draftDiscarded"
+  | "removed"
+  | "error";
+
+type WriteError =
+  | "forbidden"
+  | "bad-input"
+  | "kind-mismatch"
+  | "not-cms-course"
+  | "too-large";
 
 /**
  * Author one interactive stage (simulation / scenario / assessment) of a
  * CMS-created course, on the course page. The page gives the lesson and the
- * language being written; the draft holds every language at once, so a
+ * language being written; the editor holds every language at once, so a
  * language switch keeps unsaved work.
+ *
+ * Two ways to save: "Save draft" keeps unfinished work for editors only,
+ * whatever is still missing; "Save stage" saves it for learners once it is
+ * complete (on a published course it is live at once). What is still
+ * missing is listed as the author types, naming each field.
  *
  * It reads the stage fresh whenever it opens, rather than taking what the
  * page loaded: a colleague may have saved another language since.
@@ -138,60 +163,75 @@ export function StructureAuthor({
   courseSlug: slug,
   kind,
   locale,
+  courseStatus,
   regionLabel,
   embedded = false,
   onSaved,
+  onDraftChange,
   onCleared,
   onDirtyChange,
 }: {
   courseSlug: string;
   kind: StructureStageKey;
-  /** The language being written. The draft holds every language at once. */
+  /** The language being written. The editor holds every language at once. */
   locale: Locale;
+  /** Says whether "Save stage" goes live at once (published) or not. */
+  courseStatus?: CourseStatus;
   /** Heading and region name, e.g. "Interactive stage — Simulation". */
   regionLabel?: string;
   /** Inside a lesson on the course page: lighter frame. */
   embedded?: boolean;
   onSaved?: (structure: StoredStructure) => void;
+  /** The stored draft changed: saved (the draft as stored) or gone (null). */
+  onDraftChange?: (draft: StoredStructure | null) => void;
   onCleared?: () => void;
   onDirtyChange?: (dirty: boolean) => void;
 }) {
+  const t = useTranslations("exerciseEditor");
   const headingId = React.useId();
   const headingRef = React.useRef<HTMLHeadingElement>(null);
-  // The draft plus the (course, stage) it belongs to, as one unit. Deriving
+  const notReadyRef = React.useRef<HTMLParagraphElement>(null);
+  // The stage plus the (course, stage) it belongs to, as one unit. Deriving
   // `ready` from the key means Save waits until the stage has loaded.
   const [loaded, setLoaded] = React.useState<LoadedStructure | null>(null);
   const [loadFailed, setLoadFailed] = React.useState(false);
   const [status, setStatus] = React.useState<Status>("idle");
-  const setDraft = (next: StoredStructure) => {
-    setLoaded((l) => (l ? { ...l, draft: next } : l));
-    // "Removed" / "Saved" describe the stage before this edit.
-    setStatus((s) => (s === "removed" || s === "saved" ? "idle" : s));
-  };
-  const [issues, setIssues] = React.useState<string[]>([]);
-  const [clearError, setClearError] = React.useState("");
+  // Why the last "Save stage" was refused, as the server said it.
+  const [notReady, setNotReady] = React.useState<StructureIssue[]>([]);
+  const [error, setError] = React.useState("");
   // Someone else saved this stage after it was loaded here.
   const [conflict, setConflict] = React.useState(false);
   const [reloadKey, setReloadKey] = React.useState(0);
 
+  const setEdit = (next: StoredStructure) => {
+    setLoaded((l) => (l ? { ...l, edit: next } : l));
+    // These describe the stage before this edit.
+    setStatus((s) =>
+      s === "removed" || s === "saved" || s === "draftSaved" || s === "draftDiscarded"
+        ? "idle"
+        : s
+    );
+    // The reasons were for what was sent; the live list takes over.
+    setNotReady((n) => (n.length ? [] : n));
+  };
+
   React.useEffect(() => {
     let cancelled = false;
     getStructure(slug, kind).then(
-      (existing) => {
+      (state) => {
         if (cancelled) return;
-        const draft = existing ?? emptyStructure(kind);
-        setLoaded({
-          key: `${slug}:${kind}`,
-          draft,
-          saved: draft,
-          stored: existing,
-          authored: Boolean(existing),
-        });
+        if (!state) {
+          setLoadFailed(true);
+          return;
+        }
+        const edit = state.draft ?? state.structure ?? emptyStructure(kind);
+        setLoaded({ key: `${slug}:${kind}`, edit, saved: edit, base: state });
         setLoadFailed(false);
         setConflict(false);
-        setIssues([]);
-        // Keep "Removed" after the reload that follows a removal.
-        setStatus((s) => (s === "removed" ? s : "idle"));
+        setNotReady([]);
+        setError("");
+        // Keep "Removed" / "Draft discarded" after the reload that follows.
+        setStatus((s) => (s === "removed" || s === "draftDiscarded" ? s : "idle"));
       },
       () => {
         if (!cancelled) setLoadFailed(true);
@@ -205,100 +245,163 @@ export function StructureAuthor({
   // Until the load resolves, `loaded.key` doesn't match (or `loaded` is
   // null), so `ready` is false — no synchronous reset needed.
   const ready = loaded?.key === `${slug}:${kind}`;
-  const draft = ready ? loaded!.draft : null;
-  const authored = ready ? loaded!.authored : false;
-  const dirty = ready && loaded!.draft !== loaded!.saved;
+  const edit = ready ? loaded!.edit : null;
+  const authored = ready ? loaded!.base.structure !== null : false;
+  const hasDraft = ready ? loaded!.base.draft !== null : false;
+  const dirty = ready && loaded!.edit !== loaded!.saved;
   useReportDirty(dirty, onDirtyChange);
-  const kindLabel = KIND_LABEL[kind];
+
+  // What learners would still miss, as the author types (the same check the
+  // server runs before "Save stage").
+  const missing = React.useMemo(
+    () => (edit ? validateStructure(edit) : []),
+    [edit]
+  );
 
   React.useEffect(() => {
-    if (status !== "saved") return;
-    const id = setTimeout(() => setStatus("idle"), 2500);
+    if (status !== "saved" && status !== "draftSaved") return;
+    const id = setTimeout(() => setStatus("idle"), 4000);
     return () => clearTimeout(id);
   }, [status]);
 
-  async function onSave() {
-    if (!draft || !ready) return;
-    const savedKey = `${slug}:${kind}`;
-    setStatus("saving");
-    setClearError("");
-    setConflict(false);
-    const res = await saveStructure(slug, kind, draft, loaded!.stored);
-    if (res.ok) {
-      // The server stores exactly this draft, so keep it rather than reloading:
-      // a reload resets status to "idle" (the "Saved" confirmation flashed for
-      // ~25ms) and overwrites anything typed while it was in flight — which
-      // stays unsaved, since it's a newer draft than the one sent.
-      setLoaded((l) =>
-        l?.key === savedKey
-          ? { ...l, authored: true, saved: draft, stored: draft }
-          : l
-      );
-      setStatus("saved");
-      setIssues([]);
-      // The page re-reads itself (what learners see, warnings).
-      onSaved?.(draft);
-    } else if (res.error === "changed-elsewhere") {
+  // A refused "Save stage": take the reader to the reasons.
+  React.useEffect(() => {
+    if (notReady.length) notReadyRef.current?.focus();
+  }, [notReady]);
+
+  const issueText = (issue: StructureIssue) =>
+    t(`issues.${issue.code}`, issue.params ?? {});
+
+  function writeError(code: WriteError | "changed-elsewhere" | "generic") {
+    if (code === "changed-elsewhere") {
       // Nothing was written; the edits stay on screen.
-      setStatus("error");
-      setIssues([]);
       setConflict(true);
-    } else {
+      return;
+    }
+    setError(
+      code === "forbidden"
+        ? t("errors.forbidden")
+        : code === "not-cms-course"
+          ? t("errors.notCms")
+          : code === "kind-mismatch" || code === "bad-input"
+            ? t("errors.mismatch")
+            : code === "too-large"
+              ? t("errors.tooLarge")
+              : t("errors.generic")
+    );
+  }
+
+  function startWrite() {
+    setStatus("saving");
+    setError("");
+    setConflict(false);
+    setNotReady([]);
+  }
+
+  async function onSave() {
+    if (!edit || !ready) return;
+    const savedKey = `${slug}:${kind}`;
+    const sent = edit;
+    startWrite();
+    try {
+      const res = await saveStructure(slug, kind, sent, loaded!.base);
+      if (res.ok) {
+        // Keep what's on screen rather than reloading: a reload resets the
+        // status (the "Saved" confirmation would flash for ~25ms) and
+        // overwrites anything typed while it was in flight — which stays
+        // unsaved, since it's newer than what was sent. The server's copy
+        // (cleaned, blank languages dropped) is the base for the next write.
+        setLoaded((l) =>
+          l?.key === savedKey
+            ? { ...l, saved: sent, base: { structure: res.structure, draft: null } }
+            : l
+        );
+        setStatus("saved");
+        // The page re-reads itself (what learners see, warnings).
+        onSaved?.(res.structure);
+        return;
+      }
       setStatus("error");
-      setIssues(
-        res.error === "invalid" && res.issues
-          ? res.issues.map((i) => i.message)
-          : [
-              res.error === "forbidden"
-                ? "Editors and admins only."
-                : res.error === "not-cms-course"
-                  ? "Only courses created in the CMS can be authored here."
-                  : res.error === "kind-mismatch"
-                    ? "That structure doesn't match the stage."
-                    : "Something went wrong.",
-            ]
-      );
+      if (res.error === "invalid") setNotReady(res.issues);
+      else writeError(res.error);
+    } catch {
+      setStatus("error");
+      writeError("generic");
+    }
+  }
+
+  async function onSaveDraft() {
+    if (!edit || !ready) return;
+    const savedKey = `${slug}:${kind}`;
+    const sent = edit;
+    startWrite();
+    try {
+      const res = await saveStructureDraft(slug, kind, sent, loaded!.base);
+      if (res.ok) {
+        setLoaded((l) =>
+          l?.key === savedKey
+            ? { ...l, saved: sent, base: { ...l.base, draft: res.draft } }
+            : l
+        );
+        setStatus("draftSaved");
+        onDraftChange?.(res.draft);
+        return;
+      }
+      setStatus("error");
+      writeError(res.error);
+    } catch {
+      setStatus("error");
+      writeError("generic");
+    }
+  }
+
+  async function onDiscardDraft() {
+    if (!ready) return;
+    if (!window.confirm(authored ? t("confirm.discardLive") : t("confirm.discardNew"))) {
+      return;
+    }
+    // The button goes away with the draft: keep focus here, not on the page.
+    headingRef.current?.focus();
+    startWrite();
+    try {
+      const res = await discardStructureDraft(slug, kind, loaded!.base);
+      if (res.ok) {
+        setStatus("draftDiscarded");
+        setReloadKey((k) => k + 1);
+        onDraftChange?.(null);
+        return;
+      }
+      setStatus("error");
+      writeError(res.error);
+    } catch {
+      setStatus("error");
+      writeError("generic");
     }
   }
 
   function onReload() {
-    if (
-      dirty &&
-      !window.confirm(
-        "Load the saved version of this stage? Your unsaved edits here will be replaced."
-      )
-    ) {
-      return;
-    }
+    if (dirty && !window.confirm(t("confirm.reload"))) return;
     setReloadKey((k) => k + 1);
   }
 
   async function onClear() {
-    if (
-      !window.confirm(
-        `Remove this ${kindLabel.toLowerCase()}? Learners will no longer see it.`
-      )
-    ) {
-      return;
-    }
+    if (!window.confirm(t("confirm.remove"))) return;
     // "Remove stage" goes away once it's done (and so do the lesson's video
     // and documents above): keep focus here, not on the page.
     headingRef.current?.focus();
-    setStatus("saving");
-    setClearError("");
-    setConflict(false);
+    startWrite();
     const res = await clearStructure(slug, kind);
     if (!res.ok) {
       setStatus("error");
-      setClearError(
-        "Couldn't remove the stage: only editors and admins can change courses."
-      );
+      setError(t("errors.removeFailed"));
       return;
     }
     setStatus("removed");
     setReloadKey((k) => k + 1);
     onCleared?.();
   }
+
+  const busy = status === "saving";
 
   return (
     <Card className={embedded ? "shadow-none" : undefined}>
@@ -314,9 +417,25 @@ export function StructureAuthor({
             {regionLabel ?? "Interactive stage"}
           </h3>
           <Badge variant={authored ? "accent" : "muted"} className="text-[10px]">
-            {authored ? "Authored" : "Not added yet"}
+            {authored ? t("badge.added") : t("badge.notAdded")}
           </Badge>
+          {hasDraft ? <DraftBadge label={t("badge.draft")} /> : null}
         </div>
+
+        {hasDraft ? (
+          <div className="mb-3 rounded-lg border border-dashed border-[var(--warning)] bg-[var(--warning)]/10 p-3">
+            <p className="text-sm font-semibold flex items-start gap-1.5">
+              <FilePenLine
+                className="mt-0.5 h-4 w-4 flex-shrink-0 text-[var(--warning)]"
+                aria-hidden
+              />
+              {t("draft.title")}
+            </p>
+            <p className="mt-1 text-sm">
+              {authored ? t("draft.bodyLive") : t("draft.bodyNew")}
+            </p>
+          </div>
+        ) : null}
 
         {conflict ? (
           <div
@@ -328,11 +447,7 @@ export function StructureAuthor({
                 className="mt-0.5 h-4 w-4 flex-shrink-0 text-[var(--warning)]"
                 aria-hidden
               />
-              <span>
-                Someone else saved this stage since you opened it, so nothing
-                was saved. Reload it to see their changes — your edits are
-                still here until you do.
-              </span>
+              <span>{t("conflict")}</span>
             </p>
             <Button
               size="sm"
@@ -341,108 +456,170 @@ export function StructureAuthor({
               onClick={onReload}
             >
               <RefreshCw className="h-4 w-4" aria-hidden />
-              Reload the saved version
+              {t("actions.reload")}
             </Button>
           </div>
         ) : null}
 
-        {issues.length ? (
+        {notReady.length ? (
+          // Mounted fresh on each refusal, so it's announced.
           <div
+            key="not-ready"
             className="mb-3 rounded-lg border border-[var(--danger)] bg-[var(--danger)]/10 p-3"
             role="alert"
           >
-            <p className="text-sm font-medium text-[var(--danger)] flex items-center gap-1.5">
-              <AlertTriangle className="h-4 w-4" />
-              Not ready to save:
+            <p
+              ref={notReadyRef}
+              tabIndex={-1}
+              className="text-sm font-medium text-[var(--danger)] flex items-start gap-1.5"
+            >
+              <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" aria-hidden />
+              {t("missing.notReady")}
             </p>
-            <ul className="mt-1 ml-6 list-disc text-sm text-[var(--foreground)]">
-              {issues.map((m, i) => (
-                <li key={i}>{m}</li>
-              ))}
-            </ul>
+            <IssueList issues={notReady} text={issueText} />
+            <p className="mt-1 ml-6 text-xs text-[var(--muted-foreground)]">
+              {t("missing.oneLanguage")}
+            </p>
+          </div>
+        ) : edit && missing.length ? (
+          <div
+            key="missing"
+            className="mb-3 rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] p-3"
+          >
+            <p className="text-sm font-medium flex items-start gap-1.5">
+              <ListChecks
+                className="mt-0.5 h-4 w-4 flex-shrink-0 text-[var(--accent)]"
+                aria-hidden
+              />
+              {t("missing.title")}
+            </p>
+            <IssueList issues={missing} text={issueText} />
+            <p className="mt-1 ml-6 text-xs text-[var(--muted-foreground)]">
+              {t("missing.oneLanguage")}
+            </p>
           </div>
         ) : null}
 
-        {draft ? (
+        {edit ? (
           <>
-            {draft.kind === "simulation" ? (
-              <SimulationEditor
-                value={draft}
-                locale={locale}
-                onChange={setDraft}
-              />
-            ) : draft.kind === "scenario" ? (
-              <ScenarioEditor value={draft} locale={locale} onChange={setDraft} />
+            {edit.kind === "simulation" ? (
+              <SimulationEditor value={edit} locale={locale} onChange={setEdit} />
+            ) : edit.kind === "scenario" ? (
+              <ScenarioEditor value={edit} locale={locale} onChange={setEdit} />
             ) : (
-              <AssessmentEditor
-                value={draft}
-                locale={locale}
-                onChange={setDraft}
-              />
+              <AssessmentEditor value={edit} locale={locale} onChange={setEdit} />
             )}
           </>
         ) : loadFailed ? (
           <p className="text-sm text-[var(--danger)]" role="alert">
-            Couldn&rsquo;t load this stage. Reload the page to try again.
+            {t("errors.load")}
           </p>
         ) : (
-          <p className="text-sm text-[var(--muted-foreground)]">Loading…</p>
+          <p className="text-sm text-[var(--muted-foreground)]">{t("loading")}</p>
         )}
 
-        <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-[var(--border)] pt-3">
-          <Button
-            size="sm"
-            onClick={onSave}
-            disabled={status === "saving" || !ready}
-          >
-            {status === "saving" ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Save className="h-4 w-4" />
-            )}
-            Save stage
-          </Button>
-          {authored ? (
+        <div className="mt-4 border-t border-[var(--border)] pt-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <Button size="sm" onClick={onSave} disabled={busy || !ready}>
+              {busy ? (
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+              ) : (
+                <Save className="h-4 w-4" aria-hidden />
+              )}
+              {t("actions.saveStage")}
+            </Button>
             <Button
               size="sm"
               variant="outline"
-              disabled={status === "saving"}
-              onClick={onClear}
+              onClick={onSaveDraft}
+              disabled={busy || !ready}
             >
-              <RotateCcw className="h-4 w-4" />
-              Remove stage
+              <FilePenLine className="h-4 w-4" aria-hidden />
+              {t("actions.saveDraft")}
             </Button>
-          ) : null}
-          {/* Always mounted, so what it says next is announced. */}
-          <span
-            role="status"
-            aria-live="polite"
-            className="text-xs text-[var(--success)] inline-flex items-center gap-1"
-          >
-            {status === "saved" ? (
-              <>
-                <CheckCircle2 className="h-4 w-4" aria-hidden />
-                Saved
-              </>
-            ) : status === "removed" ? (
-              <>
-                <CheckCircle2 className="h-4 w-4" aria-hidden />
-                Removed — learners no longer see this stage.
-              </>
+            {hasDraft ? (
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={busy}
+                onClick={onDiscardDraft}
+              >
+                <Undo2 className="h-4 w-4" aria-hidden />
+                {t("actions.discardDraft")}
+              </Button>
             ) : null}
-          </span>
-          {clearError ? (
+            {authored ? (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={busy}
+                onClick={onClear}
+              >
+                <RotateCcw className="h-4 w-4" aria-hidden />
+                {t("actions.removeStage")}
+              </Button>
+            ) : null}
+            {/* Always mounted, so what it says next is announced. */}
             <span
-              role="alert"
-              className="text-xs text-[var(--danger)] inline-flex items-start gap-1"
+              role="status"
+              aria-live="polite"
+              className="text-xs text-[var(--success)] inline-flex items-start gap-1"
             >
-              <AlertTriangle className="h-4 w-4 flex-shrink-0" />
-              {clearError}
+              {status === "saved" ||
+              status === "draftSaved" ||
+              status === "draftDiscarded" ||
+              status === "removed" ? (
+                <>
+                  <CheckCircle2 className="h-4 w-4 flex-shrink-0" aria-hidden />
+                  {t(`status.${status}`)}
+                </>
+              ) : null}
             </span>
+          </div>
+          {error ? (
+            <p
+              role="alert"
+              className="mt-2 text-sm text-[var(--danger)] flex items-start gap-1"
+            >
+              <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" aria-hidden />
+              {error}
+            </p>
           ) : null}
+          <p className="mt-2 text-xs text-[var(--muted-foreground)]">
+            {courseStatus === "published" ? t("hint.live") : t("hint.notLive")}
+          </p>
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+/** "Draft" in words and a dashed outline — not colour alone. */
+export function DraftBadge({ label }: { label: string }) {
+  return (
+    <Badge
+      variant="muted"
+      className="border-dashed border-[var(--warning)] text-[10px] text-[var(--foreground)]"
+    >
+      <FilePenLine className="h-3 w-3" aria-hidden />
+      {label}
+    </Badge>
+  );
+}
+
+function IssueList({
+  issues,
+  text,
+}: {
+  issues: StructureIssue[];
+  text: (issue: StructureIssue) => string;
+}) {
+  return (
+    <ul className="mt-1 ml-6 list-disc text-sm text-[var(--foreground)] break-words">
+      {issues.map((issue, i) => (
+        <li key={i}>{text(issue)}</li>
+      ))}
+    </ul>
   );
 }
 
@@ -455,6 +632,7 @@ function LocField({
   onChange,
   textarea,
   placeholder,
+  maxLength = STRUCTURE_LIMITS.maxTextChars,
 }: {
   label: string;
   map: LocalizedText;
@@ -462,6 +640,8 @@ function LocField({
   onChange: (next: LocalizedText) => void;
   textarea?: boolean;
   placeholder?: string;
+  /** The server's limit (STRUCTURE_LIMITS): the box stops there. */
+  maxLength?: number;
 }) {
   const val = map[locale] ?? "";
   return (
@@ -472,6 +652,7 @@ function LocField({
           value={val}
           onChange={(e) => onChange(setLoc(map, locale, e.target.value))}
           placeholder={placeholder}
+          maxLength={maxLength}
           rows={2}
           className={inputCls}
         />
@@ -480,6 +661,7 @@ function LocField({
           value={val}
           onChange={(e) => onChange(setLoc(map, locale, e.target.value))}
           placeholder={placeholder}
+          maxLength={maxLength}
           className={inputCls}
         />
       )}
@@ -498,35 +680,37 @@ function SimulationEditor({
   locale: Locale;
   onChange: (s: StoredSimulation) => void;
 }) {
+  const t = useTranslations("exerciseEditor");
   const set = (patch: Partial<StoredSimulation>) =>
     onChange({ ...value, ...patch });
 
   return (
     <div className="space-y-3">
       <LocField
-        label="Stage title"
+        label={t("fields.stageTitle")}
         map={value.title ?? {}}
         locale={locale}
         onChange={(m) => set({ title: m })}
-        placeholder="e.g. Practise the response"
+        placeholder={t("placeholders.simulationTitle")}
+        maxLength={STRUCTURE_LIMITS.maxTitleChars}
       />
       <LocField
-        label="Prompt (the situation)"
+        label={t("fields.prompt")}
         map={value.prompt}
         locale={locale}
         onChange={(m) => set({ prompt: m })}
         textarea
       />
       <LocField
-        label="Instruction"
+        label={t("fields.instruction")}
         map={value.instruction}
         locale={locale}
         onChange={(m) => set({ instruction: m })}
-        placeholder="e.g. Choose the strongest response."
+        placeholder={t("placeholders.instruction")}
       />
 
       <p className="text-xs font-medium text-[var(--foreground)] pt-1">
-        Options — mark the one best response with the star.
+        {t("simulation.optionsHint")}
       </p>
       <ul className="space-y-2">
         {value.options.map((o, i) => (
@@ -546,7 +730,7 @@ function SimulationEditor({
                   })
                 }
                 aria-pressed={o.isBest}
-                aria-label={`Mark option ${i + 1} as best`}
+                aria-label={t("simulation.markBest", { n: i + 1 })}
                 className={`rounded-md p-1 ${
                   o.isBest
                     ? "text-[var(--accent)]"
@@ -559,8 +743,8 @@ function SimulationEditor({
                 />
               </button>
               <span className="text-[11px] text-[var(--muted-foreground)]">
-                Option {i + 1}
-                {o.isBest ? " · best" : ""}
+                {t("simulation.option", { n: i + 1 })}
+                {o.isBest ? ` · ${t("simulation.best")}` : ""}
               </span>
               {value.options.length > 2 ? (
                 <button
@@ -568,7 +752,7 @@ function SimulationEditor({
                   onClick={() =>
                     set({ options: value.options.filter((x) => x.id !== o.id) })
                   }
-                  aria-label={`Remove option ${i + 1}`}
+                  aria-label={t("simulation.removeOption", { n: i + 1 })}
                   className="ml-auto rounded-md p-1 text-[var(--muted-foreground)] hover:text-[var(--danger)]"
                 >
                   <Trash2 className="h-4 w-4" />
@@ -576,7 +760,7 @@ function SimulationEditor({
               ) : null}
             </div>
             <LocField
-              label="Option text"
+              label={t("fields.optionText")}
               map={o.text}
               locale={locale}
               onChange={(m) =>
@@ -588,7 +772,7 @@ function SimulationEditor({
               }
             />
             <LocField
-              label="Feedback when chosen"
+              label={t("fields.feedback")}
               map={o.feedback}
               locale={locale}
               onChange={(m) =>
@@ -602,21 +786,23 @@ function SimulationEditor({
           </li>
         ))}
       </ul>
-      <Button
-        size="sm"
-        variant="outline"
-        onClick={() =>
-          set({
-            options: [
-              ...value.options,
-              { id: newId("o"), isBest: false, text: {}, feedback: {} },
-            ],
-          })
-        }
-      >
-        <Plus className="h-4 w-4" />
-        Add option
-      </Button>
+      {value.options.length < STRUCTURE_LIMITS.maxOptions ? (
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() =>
+            set({
+              options: [
+                ...value.options,
+                { id: newId("o"), isBest: false, text: {}, feedback: {} },
+              ],
+            })
+          }
+        >
+          <Plus className="h-4 w-4" />
+          {t("simulation.addOption")}
+        </Button>
+      ) : null}
     </div>
   );
 }
@@ -630,18 +816,19 @@ function QualitySelect({
   value: OutcomeQuality;
   onChange: (q: OutcomeQuality) => void;
 }) {
+  const t = useTranslations("exerciseEditor.scenario");
   return (
     <label className="text-[11px] text-[var(--muted-foreground)] inline-flex items-center gap-1">
-      Quality
+      {t("quality")}
       <select
         value={value}
         onChange={(e) => onChange(e.target.value as OutcomeQuality)}
-        aria-label="Outcome quality"
+        aria-label={t("qualityLabel")}
         className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-1.5 py-1 text-xs"
       >
         {QUALITIES.map((q) => (
           <option key={q} value={q}>
-            {q}
+            {t(`qualities.${q}`)}
           </option>
         ))}
       </select>
@@ -658,6 +845,7 @@ function ScenarioEditor({
   locale: Locale;
   onChange: (s: StoredScenario) => void;
 }) {
+  const t = useTranslations("exerciseEditor");
   const set = (patch: Partial<StoredScenario>) => onChange({ ...value, ...patch });
   const setChoice = (id: string, patch: Partial<StoredScenarioChoice>) =>
     set({
@@ -667,34 +855,35 @@ function ScenarioEditor({
   return (
     <div className="space-y-3">
       <LocField
-        label="Stage title"
+        label={t("fields.stageTitle")}
         map={value.title ?? {}}
         locale={locale}
         onChange={(m) => set({ title: m })}
-        placeholder="e.g. Play it out"
+        placeholder={t("placeholders.scenarioTitle")}
+        maxLength={STRUCTURE_LIMITS.maxTitleChars}
       />
       <LocField
-        label="Setup"
+        label={t("fields.setup")}
         map={value.setup}
         locale={locale}
         onChange={(m) => set({ setup: m })}
         textarea
       />
       <LocField
-        label="First question"
+        label={t("fields.firstQuestion")}
         map={value.question}
         locale={locale}
         onChange={(m) => set({ question: m })}
       />
       <LocField
-        label="Follow-up question"
+        label={t("fields.followupQuestion")}
         map={value.followupQuestion}
         locale={locale}
         onChange={(m) => set({ followupQuestion: m })}
       />
 
       <p className="text-xs font-medium text-[var(--foreground)] pt-1">
-        First choices — each can have follow-up choices.
+        {t("scenario.choicesHint")}
       </p>
       <ul className="space-y-2">
         {value.choices.map((c, i) => (
@@ -702,9 +891,9 @@ function ScenarioEditor({
             key={c.id}
             className="rounded-lg border border-[var(--border)] p-3 space-y-2"
           >
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <span className="text-[11px] text-[var(--muted-foreground)]">
-                Choice {i + 1}
+                {t("scenario.choice", { n: i + 1 })}
               </span>
               <QualitySelect
                 value={c.quality}
@@ -716,7 +905,7 @@ function ScenarioEditor({
                   onClick={() =>
                     set({ choices: value.choices.filter((x) => x.id !== c.id) })
                   }
-                  aria-label={`Remove choice ${i + 1}`}
+                  aria-label={t("scenario.removeChoice", { n: i + 1 })}
                   className="ml-auto rounded-md p-1 text-[var(--muted-foreground)] hover:text-[var(--danger)]"
                 >
                   <Trash2 className="h-4 w-4" />
@@ -724,13 +913,13 @@ function ScenarioEditor({
               ) : null}
             </div>
             <LocField
-              label="Choice text"
+              label={t("fields.choiceText")}
               map={c.text}
               locale={locale}
               onChange={(m) => setChoice(c.id, { text: m })}
             />
             <LocField
-              label="Outcome shown"
+              label={t("fields.outcome")}
               map={c.outcome}
               locale={locale}
               onChange={(m) => setChoice(c.id, { outcome: m })}
@@ -739,98 +928,105 @@ function ScenarioEditor({
 
             {/* Follow-ups */}
             <div className="ml-3 border-l border-[var(--border)] pl-3 space-y-2">
-              {(c.followups ?? []).map((f, j) => (
-                <div key={f.id} className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <span className="text-[11px] text-[var(--muted-foreground)]">
-                      Follow-up {i + 1}.{j + 1}
-                    </span>
-                    <QualitySelect
-                      value={f.quality}
-                      onChange={(q) =>
+              {(c.followups ?? []).map((f, j) => {
+                const at = { choice: i + 1, followup: j + 1 };
+                return (
+                  <div key={f.id} className="space-y-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-[11px] text-[var(--muted-foreground)]">
+                        {t("scenario.followup", at)}
+                      </span>
+                      <QualitySelect
+                        value={f.quality}
+                        onChange={(q) =>
+                          setChoice(c.id, {
+                            followups: (c.followups ?? []).map((x) =>
+                              x.id === f.id ? { ...x, quality: q } : x
+                            ),
+                          })
+                        }
+                      />
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setChoice(c.id, {
+                            followups: (c.followups ?? []).filter(
+                              (x) => x.id !== f.id
+                            ),
+                          })
+                        }
+                        aria-label={t("scenario.removeFollowup", at)}
+                        className="ml-auto rounded-md p-1 text-[var(--muted-foreground)] hover:text-[var(--danger)]"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                    <LocField
+                      label={t("fields.followupText")}
+                      map={f.text}
+                      locale={locale}
+                      onChange={(m) =>
                         setChoice(c.id, {
                           followups: (c.followups ?? []).map((x) =>
-                            x.id === f.id ? { ...x, quality: q } : x
+                            x.id === f.id ? { ...x, text: m } : x
                           ),
                         })
                       }
                     />
-                    <button
-                      type="button"
-                      onClick={() =>
+                    <LocField
+                      label={t("fields.followupOutcome")}
+                      map={f.outcome}
+                      locale={locale}
+                      onChange={(m) =>
                         setChoice(c.id, {
-                          followups: (c.followups ?? []).filter(
-                            (x) => x.id !== f.id
+                          followups: (c.followups ?? []).map((x) =>
+                            x.id === f.id ? { ...x, outcome: m } : x
                           ),
                         })
                       }
-                      aria-label={`Remove follow-up ${i + 1}.${j + 1}`}
-                      className="ml-auto rounded-md p-1 text-[var(--muted-foreground)] hover:text-[var(--danger)]"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
+                      textarea
+                    />
                   </div>
-                  <LocField
-                    label="Follow-up text"
-                    map={f.text}
-                    locale={locale}
-                    onChange={(m) =>
-                      setChoice(c.id, {
-                        followups: (c.followups ?? []).map((x) =>
-                          x.id === f.id ? { ...x, text: m } : x
-                        ),
-                      })
-                    }
-                  />
-                  <LocField
-                    label="Follow-up outcome"
-                    map={f.outcome}
-                    locale={locale}
-                    onChange={(m) =>
-                      setChoice(c.id, {
-                        followups: (c.followups ?? []).map((x) =>
-                          x.id === f.id ? { ...x, outcome: m } : x
-                        ),
-                      })
-                    }
-                    textarea
-                  />
-                </div>
-              ))}
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() =>
-                  setChoice(c.id, {
-                    followups: [
-                      ...(c.followups ?? []),
-                      { id: newId("f"), quality: "okay", text: {}, outcome: {} },
-                    ],
-                  })
-                }
-              >
-                <Plus className="h-4 w-4" />
-                Add follow-up
-              </Button>
+                );
+              })}
+              {(c.followups ?? []).length < STRUCTURE_LIMITS.maxFollowups ? (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() =>
+                    setChoice(c.id, {
+                      followups: [
+                        ...(c.followups ?? []),
+                        { id: newId("f"), quality: "okay", text: {}, outcome: {} },
+                      ],
+                    })
+                  }
+                >
+                  <Plus className="h-4 w-4" />
+                  {t("scenario.addFollowup")}
+                </Button>
+              ) : null}
             </div>
           </li>
         ))}
       </ul>
-      <Button
-        size="sm"
-        variant="outline"
-        onClick={() =>
-          set({
-            choices: [
-              ...value.choices,
-              { id: newId("c"), quality: "okay", text: {}, outcome: {}, followups: [] },
-            ],
-          })
-        }
-      >
-        <Plus className="h-4 w-4" />
-        Add first choice
-      </Button>
+      {value.choices.length < STRUCTURE_LIMITS.maxChoices ? (
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() =>
+            set({
+              choices: [
+                ...value.choices,
+                { id: newId("c"), quality: "okay", text: {}, outcome: {}, followups: [] },
+              ],
+            })
+          }
+        >
+          <Plus className="h-4 w-4" />
+          {t("scenario.addChoice")}
+        </Button>
+      ) : null}
     </div>
   );
 }
@@ -846,6 +1042,7 @@ function AssessmentEditor({
   locale: Locale;
   onChange: (s: StoredAssessment) => void;
 }) {
+  const t = useTranslations("exerciseEditor");
   const set = (patch: Partial<StoredAssessment>) => onChange({ ...value, ...patch });
   // Radio group names from useId, not the question ids: a new question's id
   // is random, and would differ between the server and the browser.
@@ -854,14 +1051,15 @@ function AssessmentEditor({
   return (
     <div className="space-y-3">
       <LocField
-        label="Stage title"
+        label={t("fields.stageTitle")}
         map={value.title ?? {}}
         locale={locale}
         onChange={(m) => set({ title: m })}
-        placeholder="e.g. Quick check"
+        placeholder={t("placeholders.assessmentTitle")}
+        maxLength={STRUCTURE_LIMITS.maxTitleChars}
       />
       <LocField
-        label="Intro"
+        label={t("fields.intro")}
         map={value.intro}
         locale={locale}
         onChange={(m) => set({ intro: m })}
@@ -875,7 +1073,7 @@ function AssessmentEditor({
           >
             <div className="flex items-center gap-2">
               <span className="text-[11px] text-[var(--muted-foreground)]">
-                Question {i + 1}
+                {t("assessment.question", { n: i + 1 })}
               </span>
               {value.questions.length > 1 ? (
                 <button
@@ -885,7 +1083,7 @@ function AssessmentEditor({
                       questions: value.questions.filter((x) => x.id !== q.id),
                     })
                   }
-                  aria-label={`Remove question ${i + 1}`}
+                  aria-label={t("assessment.removeQuestion", { n: i + 1 })}
                   className="ml-auto rounded-md p-1 text-[var(--muted-foreground)] hover:text-[var(--danger)]"
                 >
                   <Trash2 className="h-4 w-4" />
@@ -893,7 +1091,7 @@ function AssessmentEditor({
               ) : null}
             </div>
             <LocField
-              label="Question"
+              label={t("fields.question")}
               map={q.question}
               locale={locale}
               onChange={(m) =>
@@ -905,7 +1103,7 @@ function AssessmentEditor({
               }
             />
             <p className="text-[11px] text-[var(--muted-foreground)]">
-              Answers — tick the correct one.
+              {t("assessment.answersHint")}
             </p>
             {q.options.map((a, j) => (
               <div key={a.id} className="flex items-start gap-2">
@@ -920,12 +1118,12 @@ function AssessmentEditor({
                       ),
                     })
                   }
-                  aria-label={`Answer ${j + 1} is correct`}
+                  aria-label={t("assessment.isCorrect", { n: j + 1 })}
                   className="mt-2.5"
                 />
-                <div className="flex-1">
+                <div className="flex-1 min-w-0">
                   <LocField
-                    label={`Answer ${j + 1}`}
+                    label={t("fields.answer", { n: j + 1 })}
                     map={a.text}
                     locale={locale}
                     onChange={(m) =>
@@ -959,7 +1157,7 @@ function AssessmentEditor({
                         ),
                       })
                     }
-                    aria-label={`Remove answer ${j + 1}`}
+                    aria-label={t("assessment.removeAnswer", { n: j + 1 })}
                     className="mt-1 rounded-md p-1 text-[var(--muted-foreground)] hover:text-[var(--danger)]"
                   >
                     <Trash2 className="h-4 w-4" />
@@ -967,48 +1165,52 @@ function AssessmentEditor({
                 ) : null}
               </div>
             ))}
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() =>
-                set({
-                  questions: value.questions.map((x) =>
-                    x.id === q.id
-                      ? { ...x, options: [...x.options, { id: newId("a"), text: {} }] }
-                      : x
-                  ),
-                })
-              }
-            >
-              <Plus className="h-4 w-4" />
-              Add answer
-            </Button>
+            {q.options.length < STRUCTURE_LIMITS.maxAnswers ? (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() =>
+                  set({
+                    questions: value.questions.map((x) =>
+                      x.id === q.id
+                        ? { ...x, options: [...x.options, { id: newId("a"), text: {} }] }
+                        : x
+                    ),
+                  })
+                }
+              >
+                <Plus className="h-4 w-4" />
+                {t("assessment.addAnswer")}
+              </Button>
+            ) : null}
           </li>
         ))}
       </ul>
-      <Button
-        size="sm"
-        variant="outline"
-        onClick={() =>
-          set({
-            questions: [
-              ...value.questions,
-              {
-                id: newId("q"),
-                correctOptionId: "",
-                question: {},
-                options: [
-                  { id: newId("a"), text: {} },
-                  { id: newId("a"), text: {} },
-                ],
-              },
-            ],
-          })
-        }
-      >
-        <Plus className="h-4 w-4" />
-        Add question
-      </Button>
+      {value.questions.length < STRUCTURE_LIMITS.maxQuestions ? (
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() =>
+            set({
+              questions: [
+                ...value.questions,
+                {
+                  id: newId("q"),
+                  correctOptionId: "",
+                  question: {},
+                  options: [
+                    { id: newId("a"), text: {} },
+                    { id: newId("a"), text: {} },
+                  ],
+                },
+              ],
+            })
+          }
+        >
+          <Plus className="h-4 w-4" />
+          {t("assessment.addQuestion")}
+        </Button>
+      ) : null}
     </div>
   );
 }

@@ -787,5 +787,136 @@
     "expiredHelp": "If it has expired, go to {site} and sign in with this email address.",
     "ignore": "If you weren't expecting this invitation, you can safely ignore this email.",
     "footer": "Created and Powered by SENIC · senic.world"
+  },
+  "exerciseEditor": {
+    "badge": {
+      "added": "Added",
+      "notAdded": "Not added yet",
+      "draft": "Draft"
+    },
+    "draft": {
+      "title": "Draft — learners don't see this yet",
+      "bodyLive": "Learners still see the last saved version of this activity. Use “Save stage” when your changes are ready.",
+      "bodyNew": "Learners don't see this activity yet. Use “Save stage” when it's ready."
+    },
+    "hint": {
+      "live": "This course is live: “Save stage” shows your changes to learners straight away. “Save draft” keeps unfinished work for editors only.",
+      "notLive": "“Save stage” makes it part of the course — learners see it once the course is published. “Save draft” keeps unfinished work for editors only."
+    },
+    "missing": {
+      "title": "Still missing before learners can use this:",
+      "notReady": "Not ready to save yet. Fill these in first — or use “Save draft” to keep your work for now:",
+      "oneLanguage": "Text in one language is enough."
+    },
+    "issues": {
+      "simOptionsTooFew": "Add at least two options.",
+      "simBestCount": "Mark exactly one option as the best response (the star).",
+      "simPrompt": "Write the prompt (the situation).",
+      "simOptionText": "Option {option}: write the option text.",
+      "scenarioChoicesTooFew": "Add at least two first choices.",
+      "scenarioSetup": "Write the setup.",
+      "scenarioQuestion": "Write the first question.",
+      "scenarioFollowupQuestion": "Write the follow-up question. Learners see it after picking a choice that has follow-ups.",
+      "scenarioChoiceText": "Choice {choice}: write the choice text.",
+      "scenarioChoiceOutcome": "Choice {choice}: write the outcome shown.",
+      "scenarioFollowupText": "Follow-up {choice}.{followup}: write the follow-up text.",
+      "scenarioFollowupOutcome": "Follow-up {choice}.{followup}: write the follow-up outcome.",
+      "assessmentNoQuestions": "Add at least one question.",
+      "assessmentQuestionText": "Question {question}: write the question.",
+      "assessmentAnswersTooFew": "Question {question}: add at least two answers.",
+      "assessmentAnswerText": "Question {question}, answer {answer}: write the answer.",
+      "assessmentCorrect": "Question {question}: tick the correct answer."
+    },
+    "actions": {
+      "saveStage": "Save stage",
+      "saveDraft": "Save draft",
+      "discardDraft": "Discard draft",
+      "removeStage": "Remove stage",
+      "reload": "Reload the saved version"
+    },
+    "status": {
+      "saved": "Saved",
+      "draftSaved": "Draft saved — learners don't see it yet.",
+      "draftDiscarded": "Draft discarded.",
+      "removed": "Removed — learners no longer see this stage."
+    },
+    "confirm": {
+      "remove": "Remove this activity? Learners will no longer see it, and any draft of it is deleted too.",
+      "discardLive": "Discard this draft? You go back to the version learners see.",
+      "discardNew": "Discard this draft? Everything you wrote here is deleted.",
+      "reload": "Load the saved version of this stage? Your unsaved edits here will be replaced."
+    },
+    "conflict": "Someone else saved this stage since you opened it, so nothing was saved. Reload it to see their changes — your edits are still here until you do.",
+    "errors": {
+      "forbidden": "Only editors and admins can change courses. Sign in again, or ask your project administrator for the Editor role.",
+      "notCms": "Only courses created on the platform can be edited here.",
+      "mismatch": "That doesn't match this lesson. Reload the page and try again.",
+      "tooLarge": "This is too long to save. Shorten some of the texts and try again.",
+      "generic": "That didn't save. Check your connection and try again.",
+      "removeFailed": "Couldn't remove the stage: only editors and admins can change courses.",
+      "load": "Couldn't load this stage. Reload the page to try again."
+    },
+    "loading": "Loading…",
+    "fields": {
+      "stageTitle": "Stage title",
+      "prompt": "Prompt (the situation)",
+      "instruction": "Instruction",
+      "optionText": "Option text",
+      "feedback": "Feedback when chosen",
+      "setup": "Setup",
+      "firstQuestion": "First question",
+      "followupQuestion": "Follow-up question",
+      "choiceText": "Choice text",
+      "outcome": "Outcome shown",
+      "followupText": "Follow-up text",
+      "followupOutcome": "Follow-up outcome",
+      "intro": "Intro",
+      "question": "Question",
+      "answer": "Answer {n}"
+    },
+    "placeholders": {
+      "simulationTitle": "e.g. Practise the response",
+      "instruction": "e.g. Choose the strongest response.",
+      "scenarioTitle": "e.g. Play it out",
+      "assessmentTitle": "e.g. Quick check"
+    },
+    "simulation": {
+      "optionsHint": "Options — mark the one best response with the star.",
+      "option": "Option {n}",
+      "best": "best",
+      "markBest": "Mark option {n} as best",
+      "removeOption": "Remove option {n}",
+      "addOption": "Add option"
+    },
+    "scenario": {
+      "choicesHint": "First choices — each can have follow-up choices.",
+      "choice": "Choice {n}",
+      "removeChoice": "Remove choice {n}",
+      "followup": "Follow-up {choice}.{followup}",
+      "removeFollowup": "Remove follow-up {choice}.{followup}",
+      "addFollowup": "Add follow-up",
+      "addChoice": "Add first choice",
+      "quality": "Quality",
+      "qualityLabel": "Outcome quality",
+      "qualities": {
+        "best": "best",
+        "okay": "okay",
+        "poor": "poor"
+      }
+    },
+    "assessment": {
+      "question": "Question {n}",
+      "removeQuestion": "Remove question {n}",
+      "answersHint": "Answers — tick the correct one.",
+      "isCorrect": "Answer {n} is correct",
+      "removeAnswer": "Remove answer {n}",
+      "addAnswer": "Add answer",
+      "addQuestion": "Add question"
+    },
+    "page": {
+      "draftBadge": "Draft saved",
+      "navDraft": "Draft",
+      "readinessDraft": "The “{stage}” lesson has a draft that learners don't see yet."
+    }
   }
 }
