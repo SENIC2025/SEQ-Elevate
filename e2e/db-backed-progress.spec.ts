@@ -6,7 +6,8 @@ import { PrismaPg } from "@prisma/adapter-pg";
 /**
  * Verifies that an AUTHENTICATED learner's progress persists to Postgres:
  * walking a course in the browser creates a CourseEnrollment (completed),
- * a UserBadge, and an auto-provisioned LEARNER Membership.
+ * a UserBadge, and an auto-provisioned LEARNER Membership (given to anyone
+ * who signs in with no role in the project).
  *
  * Requires a real database — gated on E2E_DB=1 (set locally; CI runs the
  * guest suite without a DB). Run: E2E_DB=1 pnpm test:e2e
@@ -2874,6 +2875,9 @@ describe("creating a course in the CMS (no code)", () => {
     await prisma.user.deleteMany({ where: { email: { in: allEmails } } });
     await prisma.lesson.deleteMany({ where: { courseSlug: SLUG } });
     await prisma.course.deleteMany({ where: { slug: SLUG } });
+    await prisma.badge.deleteMany({
+      where: { projectId: "seq-elevate", slug: { startsWith: `${SLUG}-complete` } },
+    });
 
     const editor = await prisma.user.create({
       data: { email: editorEmail, emailVerified: new Date() },
@@ -2914,6 +2918,10 @@ describe("creating a course in the CMS (no code)", () => {
   test.afterAll(async () => {
     await prisma.lesson.deleteMany({ where: { courseSlug: SLUG } });
     await prisma.course.deleteMany({ where: { slug: SLUG } });
+    // The course created here came with its badge (createCourse).
+    await prisma.badge.deleteMany({
+      where: { projectId: "seq-elevate", slug: { startsWith: `${SLUG}-complete` } },
+    });
     await prisma.auditLog.deleteMany({ where: { actorId: editorId } });
     await prisma.user.deleteMany({ where: { email: { in: allEmails } } });
   });
