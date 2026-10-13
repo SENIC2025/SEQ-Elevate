@@ -183,6 +183,8 @@ export function SectionRow({
       <div id={idOf("panel")} hidden={!open} className="mt-1 pl-2">
         {open && mode === "rename" ? (
           <RenameForm
+            // One language at a time: another language starts from its own name.
+            key={rename.lang}
             dirtyId={`section:${lesson.key}:label`}
             dirtyLabel={label}
             lang={rename.lang}

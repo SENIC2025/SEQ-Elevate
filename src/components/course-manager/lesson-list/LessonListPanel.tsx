@@ -284,7 +284,9 @@ export function LessonListPanel({
     const from = picker?.from ?? null;
     setPicker(null);
     setError(null);
-    focusEl(from === null ? openerId : elId(list[from].id, "addAfter"));
+    // Back to the button that opened it (the list may have changed meanwhile).
+    const row = from === null ? undefined : list[from];
+    focusEl(row ? elId(row.id, "addAfter") : openerId);
   }
 
   const rowStatus = (lesson: LessonOutline): RowStatus => {

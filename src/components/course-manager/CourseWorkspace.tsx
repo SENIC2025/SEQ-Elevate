@@ -10,7 +10,7 @@ import type {
   LessonOutline,
 } from "@/lib/cms/course-admin-types";
 import { isLegacySectionId } from "@/lib/cms/sections/contract";
-import type { Locale } from "@/lib/cms/types";
+import type { Locale, StageKey } from "@/lib/cms/types";
 import { DirtyProvider, useDirtyRegistry } from "./dirty-registry";
 import { CourseHeader, type TimeLabel } from "./CourseHeader";
 import { CourseCopyEditor } from "./CourseCopyEditor";
@@ -115,23 +115,25 @@ function Workspace({
   for (const l of state.lessons) {
     if (l.section) numbers.set(l.key, l.section.number);
   }
+  // A standard lesson's standard name: in the content language for a
+  // created course (as its lesson list names it), in the menu language for a
+  // built-in course (as in Release 0).
+  const standardName = (key: StageKey) => (sections ? names.standard[lang][key] : tStage(key));
   // The lesson's name in the content language: its own step name when the
   // lesson list has one, else the standard name. A Release 1 lesson always
   // has a section, so the standard names are only asked for standard keys.
   const lessonName = (lesson: LessonOutline) =>
     lesson.section?.name[lang]?.text ??
-    (isLegacySectionId(lesson.key) ? tStage(lesson.key) : lesson.key);
+    (isLegacySectionId(lesson.key) ? standardName(lesson.key) : lesson.key);
   const byKey = new Map(state.lessons.map((l) => [l.key, l]));
   /**
    * A lesson's name by id, also for one that is no longer on the page (a
-   * deleted standard lesson, named in the publishing blockers): in the
-   * content language for a created course.
+   * deleted standard lesson, named in the publishing blockers).
    */
   const nameById = (key: string) => {
     const lesson = byKey.get(key);
     if (lesson) return lessonName(lesson);
-    if (!isLegacySectionId(key)) return key;
-    return sections ? names.standard[lang][key] : tStage(key);
+    return isLegacySectionId(key) ? standardName(key) : key;
   };
   const lessonLabel = (key: string) => {
     const lesson = byKey.get(key);
