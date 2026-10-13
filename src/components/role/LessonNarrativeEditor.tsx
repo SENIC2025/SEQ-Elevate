@@ -13,7 +13,7 @@ import type {
   CourseKind,
   NarrativeInitial,
 } from "@/lib/cms/course-admin-types";
-import { saveFailureMessage } from "@/lib/author-feedback";
+import { lessonListRefusal, saveFailureMessage } from "@/lib/author-feedback";
 import { fetchStorageStatus } from "@/components/role/useBlobUpload";
 import { BlockList, withKeys } from "@/components/role/narrative/BlockList";
 import { inputCls } from "@/components/role/narrative/BlockEditor";
@@ -71,6 +71,21 @@ function introOf(blocks: NarrativeBlock[]): Intro {
 /** The intro as the one block a reflection lesson saves. */
 const introBlock = ({ text, rich }: Intro): NarrativeBlock =>
   rich ? { kind: "paragraph", text, rich } : { kind: "paragraph", text };
+
+/**
+ * Why a save or "Remove" was refused. A lesson of a created course's own
+ * that left the lesson list, changed kind, or sits in a list that can't be
+ * read (G6, G8) says to reload or ask an admin, since trying again can't
+ * work. "forbidden" covers both signed out and not an editor — ask which.
+ */
+async function refusalMessage(error: string): Promise<string> {
+  const listRefusal = lessonListRefusal(error);
+  if (listRefusal) return saveFailureMessage({ kind: "lesson-list", error: listRefusal });
+  return saveFailureMessage({
+    kind: "refused",
+    access: error === "forbidden" ? await fetchStorageStatus() : null,
+  });
+}
 
 /**
  * The teaching text of one lesson in one language, on the course page.
@@ -261,13 +276,7 @@ export function LessonNarrativeEditor({
         setStatus("error");
         return;
       }
-      // "forbidden" covers both signed out and not an editor — ask which.
-      setSaveError(
-        saveFailureMessage({
-          kind: "refused",
-          access: res.error === "forbidden" ? await fetchStorageStatus() : null,
-        })
-      );
+      setSaveError(await refusalMessage(res.error));
     } catch (error) {
       setSaveError(saveFailureMessage({ kind: "thrown", error }));
     }
@@ -336,12 +345,7 @@ export function LessonNarrativeEditor({
         setStatus("idle");
         return;
       }
-      setSaveError(
-        saveFailureMessage({
-          kind: "refused",
-          access: res.error === "forbidden" ? await fetchStorageStatus() : null,
-        })
-      );
+      setSaveError(await refusalMessage(res.error));
     } catch (error) {
       setSaveError(saveFailureMessage({ kind: "thrown", error }));
     }

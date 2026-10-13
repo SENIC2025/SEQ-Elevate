@@ -196,9 +196,45 @@ export function unexplainedUploadMessage(status: StorageStatus | null): string {
 
 /* --------------------------------- Saves -------------------------------- */
 
+/**
+ * Release 1's refusals for a lesson of a created course's own (G6, G8): it
+ * left the lesson list, its main content is now of another kind, or the
+ * list can't be read. Saving again can't succeed, so the message says to
+ * reload or to ask an admin, never to try again.
+ */
+export type LessonListRefusal = "not-a-section" | "kind-mismatch" | "outline-unreadable";
+
+const LESSON_LIST_REFUSALS: readonly string[] = [
+  "not-a-section",
+  "kind-mismatch",
+  "outline-unreadable",
+] satisfies LessonListRefusal[];
+
+/** The action's error as a lesson list refusal, or null for any other. */
+export function lessonListRefusal(error: string): LessonListRefusal | null {
+  return LESSON_LIST_REFUSALS.includes(error) ? (error as LessonListRefusal) : null;
+}
+
+/** Why, after "Couldn't save:" or "it wasn't added:". */
+const LESSON_LIST_REASON: Record<LessonListRefusal, string> = {
+  "not-a-section": "this lesson isn't in the course's lesson list any more",
+  "kind-mismatch": "this content doesn't match the lesson any more",
+  "outline-unreadable":
+    "this course's lesson list can't be read, so nothing can be changed until an admin repairs it",
+};
+
+/** What to do next, if anything: an admin's repair needs no reload. */
+const LESSON_LIST_NEXT: Record<LessonListRefusal, string | null> = {
+  "not-a-section": "reload the page to see the list as it is now",
+  "kind-mismatch": "reload the page to see the lesson as it is now",
+  "outline-unreadable": null,
+};
+
 export type SaveFailure =
   /** The action answered { ok: false, error: "forbidden" }. */
   | { kind: "refused"; access: StorageStatus | null }
+  /** The action refused a lesson of the course's own (see LessonListRefusal). */
+  | { kind: "lesson-list"; error: LessonListRefusal }
   /** The action call itself threw (connection lost, server error). */
   | { kind: "thrown"; error: unknown };
 
@@ -221,6 +257,13 @@ export function saveFailureMessage(failure: SaveFailure): string {
         : "the server ran into a problem"
     );
   }
+  if (failure.kind === "lesson-list") {
+    // The edits are still on the page, but a reload replaces them.
+    const next = LESSON_LIST_NEXT[failure.error];
+    return `Couldn't save: ${LESSON_LIST_REASON[failure.error]}.${
+      next ? ` Copy anything you want to keep, then ${next}.` : ""
+    }`;
+  }
   const { access } = failure;
   if (access && !access.signedIn) {
     return "You're not signed in any more, so this wasn't saved. Sign in again in a new tab, then press Save here — your changes are still on this page.";
@@ -240,6 +283,11 @@ export function attachFailureMessage(failure: SaveFailure): string {
     return isNetworkError(failure.error)
       ? "The file was uploaded, but adding it to the lesson was interrupted. Check your connection and try again."
       : "The file was uploaded, but adding it to the lesson didn't work: the server ran into a problem. Try again.";
+  }
+  if (failure.kind === "lesson-list") {
+    const next = LESSON_LIST_NEXT[failure.error];
+    const reason = `The file was uploaded, but it wasn't added: ${LESSON_LIST_REASON[failure.error]}.`;
+    return next ? `${reason} ${next[0].toUpperCase()}${next.slice(1)}.` : reason;
   }
   const { access } = failure;
   if (access && !access.signedIn) {

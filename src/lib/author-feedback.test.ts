@@ -7,6 +7,7 @@ import {
   formatTimeLeft,
   formatUploadProgress,
   isNetworkError,
+  lessonListRefusal,
   saveFailureMessage,
   secondsLeft,
   unexplainedUploadMessage,
@@ -234,5 +235,47 @@ describe("attachFailureMessage", () => {
         access: { ...READY, canUpload: false },
       })
     ).toMatch(/don't have permission to edit courses/);
+  });
+});
+
+/*
+ * Release 1: a lesson of a created course's own can leave the lesson list,
+ * change kind, or sit in a list that can't be read (G6, G8). Pressing Save
+ * again can't help then, so the editors say to reload or ask an admin
+ * instead of "try again" (addendum 5).
+ */
+describe("lesson list refusals", () => {
+  it("recognises the three codes, and nothing else", () => {
+    expect(lessonListRefusal("not-a-section")).toBe("not-a-section");
+    expect(lessonListRefusal("kind-mismatch")).toBe("kind-mismatch");
+    expect(lessonListRefusal("outline-unreadable")).toBe("outline-unreadable");
+    expect(lessonListRefusal("forbidden")).toBeNull();
+    expect(lessonListRefusal("changed-elsewhere")).toBeNull();
+  });
+
+  it("says to reload, or to ask an admin, never to try again", () => {
+    const save = (error: "not-a-section" | "kind-mismatch" | "outline-unreadable") =>
+      saveFailureMessage({ kind: "lesson-list", error });
+    expect(save("not-a-section")).toBe(
+      "Couldn't save: this lesson isn't in the course's lesson list any more. Copy anything you want to keep, then reload the page to see the list as it is now."
+    );
+    expect(save("kind-mismatch")).toBe(
+      "Couldn't save: this content doesn't match the lesson any more. Copy anything you want to keep, then reload the page to see the lesson as it is now."
+    );
+    expect(save("outline-unreadable")).toBe(
+      "Couldn't save: this course's lesson list can't be read, so nothing can be changed until an admin repairs it."
+    );
+    for (const error of ["not-a-section", "kind-mismatch", "outline-unreadable"] as const) {
+      expect(save(error)).not.toMatch(/try again/);
+    }
+  });
+
+  it("says the same for a document, which was uploaded all the same", () => {
+    expect(attachFailureMessage({ kind: "lesson-list", error: "not-a-section" })).toBe(
+      "The file was uploaded, but it wasn't added: this lesson isn't in the course's lesson list any more. Reload the page to see the list as it is now."
+    );
+    expect(attachFailureMessage({ kind: "lesson-list", error: "outline-unreadable" })).toBe(
+      "The file was uploaded, but it wasn't added: this course's lesson list can't be read, so nothing can be changed until an admin repairs it."
+    );
   });
 });
