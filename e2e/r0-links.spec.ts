@@ -13,10 +13,10 @@ import { PrismaPg } from "@prisma/adapter-pg";
  * Quick links (Release 0): web and email addresses typed in lesson text
  * work as links for learners — in rich paragraphs (bold and italic ones
  * too), their lists, plain text written before rich text, list blocks, key
- * messages and compare sides; in the player and on the course page. Only
- * https, http and mailto are ever links; they open in a new tab, say so to
- * screen readers, stay readable and focusable, and a long one wraps on a
- * 320 px phone. Nothing stored changes, and the editor keeps plain text.
+ * messages, compare sides and a quick check's intro; in the player and on
+ * the course page. Only https, http and mailto are ever links; they open
+ * in a new tab, say so to screen readers, stay readable and focusable, and
+ * a long one wraps on a 320 px phone. Nothing stored changes, and the editor keeps plain text.
  *
  * Requires a real database — gated on E2E_DB=1, like db-backed-progress.
  * Seeds its own published course under names unique to this run, and
@@ -41,6 +41,7 @@ const EDITOR = `e2e-r0-links-editor-${RUN}@example.com`;
 const EMAILS = [LEARNER, EDITOR];
 const SLUG = `e2e-r0-links-${RUN}`;
 const LESSON_TITLE = "E2E quick links lesson";
+const QUIZ_INTRO = "Stuck? Read https://example.org/quiz-help first.";
 
 const TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
 const NEW_TAB = "(opens in a new tab)";
@@ -254,7 +255,6 @@ async function expectLessonLinks(scope: Page | Locator) {
 }
 
 describe("Quick links in lesson text", () => {
-  let editorId: string;
   let learnerSession: string;
   let editorSession: string;
 
@@ -286,14 +286,44 @@ describe("Quick links in lesson text", () => {
         narrative: { en: { title: LESSON_TITLE, blocks: BLOCKS } },
       },
     });
+    // A quick check whose intro has an address: practice-lesson text
+    // that the course page shows editors through the same renderer.
+    await prisma.lesson.create({
+      data: {
+        projectId: PROJECT,
+        courseSlug: SLUG,
+        stageKey: "assessment",
+        structure: {
+          kind: "assessment",
+          title: { en: "Quick check" },
+          intro: { en: QUIZ_INTRO },
+          questions: [
+            {
+              id: "q1",
+              correctOptionId: "a",
+              question: { en: "Where do you look first?" },
+              options: [
+                { id: "a", text: { en: "The help page" } },
+                { id: "b", text: { en: "Nowhere" } },
+              ],
+            },
+          ],
+        },
+      },
+    });
     learnerSession = (await signedInUser(LEARNER, "LEARNER")).sessionToken;
-    const editor = await signedInUser(EDITOR, "CONTENT_EDITOR");
-    editorId = editor.userId;
-    editorSession = editor.sessionToken;
+    editorSession = (await signedInUser(EDITOR, "CONTENT_EDITOR")).sessionToken;
   });
 
   test.afterAll(async () => {
-    await prisma.auditLog.deleteMany({ where: { actorId: editorId } });
+    // Both users' audit rows: the editor's saves, and the learner's
+    // course opens and time on lessons. Filtered through the users' emails,
+    // a constant of this run, so the filter can never come out empty and
+    // match every row (an unset id would, if beforeAll failed early). Done
+    // before the users go: deleting a user keeps their rows, unowned.
+    await prisma.auditLog.deleteMany({
+      where: { actor: { is: { email: { in: EMAILS } } } },
+    });
     // Users first: their enrolments and sessions cascade away with them.
     await prisma.user.deleteMany({ where: { email: { in: EMAILS } } });
     await prisma.lesson.deleteMany({ where: { courseSlug: SLUG } });
@@ -423,6 +453,26 @@ describe("Quick links in lesson text", () => {
       timeout: 15000,
     });
     await expectLessonLinks(lesson);
+
+    // Practice-lesson text too: the quick check's intro is a link on the
+    // course page and, the same, in the player.
+    const quiz = page.locator("#lesson-assessment").filter({ visible: true });
+    await expect(linkNamed(quiz, "https://example.org/quiz-help")).toHaveAttribute(
+      "href",
+      "https://example.org/quiz-help"
+    );
+    await page.goto(`/en/learner/course/${SLUG}?preview=1&lesson=assessment`);
+    const player = main(page);
+    await expect(
+      player.getByRole("heading", { level: 2, name: "Quick check" })
+    ).toBeVisible({ timeout: 15000 });
+    await expect(
+      player.locator("p").filter({ hasText: "Stuck?", visible: true })
+    ).toHaveText(`Stuck? Read https://example.org/quiz-help ${NEW_TAB} first.`);
+    await expect(linkNamed(player, "https://example.org/quiz-help")).toHaveAttribute(
+      "href",
+      "https://example.org/quiz-help"
+    );
   });
 
   test("an author types an address; it's saved as plain text and works for learners", async ({
