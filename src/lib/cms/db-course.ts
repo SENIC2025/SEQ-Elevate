@@ -20,6 +20,7 @@ import "server-only";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { introFromBlocks } from "@/lib/rich-text/narrative";
+import { courseBadgeSlug } from "./course-badge";
 import {
   resolveStructure,
   pickText,
@@ -124,7 +125,8 @@ function toSummary(
   cluster: string,
   durationMinutes: number,
   status: string,
-  entry: CourseMetaEntry
+  entry: CourseMetaEntry,
+  badgeSlug: string
 ): CourseSummary {
   return {
     slug,
@@ -134,7 +136,20 @@ function toSummary(
     tagline: entry.tagline,
     durationMinutes,
     status: status === "draft" || status === "archived" ? status : "published",
+    // The dashboard names a badge from the course list; without these it
+    // showed a created course's badge as its slug.
+    badgeSlug,
+    badgeName: entry.title,
+    badgeMeaning: entry.tagline,
   };
+}
+
+/**
+ * The slug of a created course's badge: the Badge row it's linked to
+ * (course-badge.ts), else the one the player has always awarded for it.
+ */
+function badgeSlugOf(row: { slug: string; badge: { slug: string } | null }) {
+  return row.badge?.slug ?? courseBadgeSlug(row.slug);
 }
 
 /**
@@ -168,6 +183,7 @@ export async function listDbCourses(
     const rows = await prisma.course.findMany({
       // `meta` present = created in the CMS; DB NULL = bundled course.
       where: { projectId, NOT: { meta: { equals: Prisma.DbNull } } },
+      include: { badge: { select: { slug: true } } },
       orderBy: { createdAt: "asc" },
     });
     const out: CourseSummary[] = [];
@@ -175,7 +191,14 @@ export async function listDbCourses(
       const entry = pickMeta(r.meta as CourseMeta | null, locale);
       if (!entry) continue;
       out.push(
-        toSummary(r.slug, r.cluster, r.durationMinutes, r.status, entry)
+        toSummary(
+          r.slug,
+          r.cluster,
+          r.durationMinutes,
+          r.status,
+          entry,
+          badgeSlugOf(r)
+        )
       );
     }
     return out;
@@ -196,6 +219,7 @@ export async function getDbCourse(
   try {
     const row = await prisma.course.findFirst({
       where: { projectId, slug },
+      include: { badge: { select: { slug: true } } },
     });
     if (!row?.meta) return null;
     const entry = pickMeta(row.meta as CourseMeta | null, locale);
@@ -279,7 +303,7 @@ export async function getDbCourse(
       tagline: entry.tagline,
       durationMinutes: row.durationMinutes,
       badge: {
-        slug: `${slug}-complete`,
+        slug: badgeSlugOf(row),
         name: entry.title,
         meaning: entry.tagline,
       },

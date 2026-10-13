@@ -12,8 +12,9 @@
  *
  * What it removes:
  *   • The demo course `demo-speaking-up` — its Lesson rows (by courseSlug, which
- *     is a string key, not an FK, so a Course delete does NOT cascade to them)
- *     and the Course row itself.
+ *     is a string key, not an FK, so a Course delete does NOT cascade to them),
+ *     the Course row itself, and its Badge (which removes the badge from
+ *     everyone who earned it; a Course delete only unlinks a Badge).
  *   • The four one-click demo profile accounts (below). Deleting a User cascades
  *     to Membership / Session / Account / CourseEnrollment / CompCard / UserBadge
  *     etc.; AuditLog.actorId is SetNull, so the audit trail is anonymised, not lost.
@@ -76,7 +77,16 @@ async function main() {
   const demoCourse = await prisma.course.count({
     where: { projectId: PROJECT, slug: DEMO_COURSE_SLUG },
   });
-  console.log(`  demo course '${DEMO_COURSE_SLUG}': ${demoCourse} course row, ${demoLessons} lesson rows`);
+  const demoBadgeIds = (
+    await prisma.course.findMany({
+      where: { projectId: PROJECT, slug: DEMO_COURSE_SLUG, badgeId: { not: null } },
+      select: { badgeId: true },
+    })
+  ).map((c) => c.badgeId);
+  console.log(
+    `  demo course '${DEMO_COURSE_SLUG}': ${demoCourse} course row, ${demoLessons} lesson rows, ` +
+      `${demoBadgeIds.length} badge`
+  );
 
   // 2) Demo profile users (cascade removes their data; audit anonymised).
   const demoUsers = await prisma.user.findMany({
@@ -113,6 +123,9 @@ async function main() {
     await tx.course.deleteMany({
       where: { projectId: PROJECT, slug: DEMO_COURSE_SLUG },
     });
+    if (demoBadgeIds.length) {
+      await tx.badge.deleteMany({ where: { id: { in: demoBadgeIds } } });
+    }
     const ids = [...demoUsers, ...otherUsers].map((u) => u.id);
     if (ids.length) {
       await tx.user.deleteMany({ where: { id: { in: ids } } });

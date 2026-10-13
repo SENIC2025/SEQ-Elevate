@@ -14,10 +14,12 @@ const membership = {
 };
 vi.mock("@/lib/auth-helpers", () => ({ getCurrentUser, getProjectMemberships }));
 vi.mock("@/lib/admin-bootstrap", () => ({ isBootstrapAdmin }));
-vi.mock("@/lib/prisma", () => ({ prisma: { membership } }));
+const badge = { findUnique: vi.fn() };
+const userBadge = { upsert: vi.fn() };
+vi.mock("@/lib/prisma", () => ({ prisma: { membership, badge, userBadge } }));
 vi.mock("@/lib/cms", () => ({ getCourse: vi.fn() }));
 
-const { ensureLearnerMembership } = await import("./learner");
+const { ensureLearnerMembership, awardBadgeAction } = await import("./learner");
 
 const USER = { id: "u1", email: "person@example.org" };
 const roles = (...r: string[]) =>
@@ -85,5 +87,35 @@ describe("ensureLearnerMembership", () => {
     getCurrentUser.mockResolvedValue(null);
     await expect(ensureLearnerMembership()).rejects.toThrow();
     expect(wroteMembership()).toBe(false);
+  });
+});
+
+describe("awardBadgeAction", () => {
+  afterEach(() => vi.clearAllMocks());
+
+  it("fails, rather than answering as if saved, when the badge doesn't exist", async () => {
+    getCurrentUser.mockResolvedValue(USER);
+    badge.findUnique.mockResolvedValue(null);
+    await expect(awardBadgeAction("no-such-badge", "u1")).rejects.toThrow();
+    expect(userBadge.upsert).not.toHaveBeenCalled();
+  });
+
+  it("saves the badge for the learner", async () => {
+    getCurrentUser.mockResolvedValue(USER);
+    badge.findUnique.mockResolvedValue({ id: "b1", slug: "x-complete" });
+    userBadge.upsert.mockResolvedValue({});
+    await expect(awardBadgeAction("x-complete", "u1")).resolves.toBeUndefined();
+    expect(userBadge.upsert).toHaveBeenCalledWith({
+      where: { userId_badgeId: { userId: "u1", badgeId: "b1" } },
+      create: { userId: "u1", badgeId: "b1" },
+      update: {},
+    });
+  });
+
+  it("drops an award meant for another account, without failing", async () => {
+    getCurrentUser.mockResolvedValue(USER);
+    await expect(awardBadgeAction("x-complete", "someone-else")).resolves.toBeUndefined();
+    expect(badge.findUnique).not.toHaveBeenCalled();
+    expect(userBadge.upsert).not.toHaveBeenCalled();
   });
 });

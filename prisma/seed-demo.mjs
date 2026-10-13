@@ -524,7 +524,7 @@ async function main() {
     return;
   }
 
-  await prisma.course.upsert({
+  const course = await prisma.course.upsert({
     where: { projectId_slug: { projectId: PROJECT, slug: SLUG } },
     create: {
       projectId: PROJECT,
@@ -538,6 +538,26 @@ async function main() {
     },
     update: { status: "published", meta: META },
   });
+
+  // Its badge, as createCourse makes one for every created course
+  // (src/lib/cms/course-badge.ts): without a Badge row the badge a learner
+  // earns here wouldn't be saved. A course the badges migration already
+  // linked keeps its badge, renamed to the current English title.
+  const badgeCopy = { name: META.en.title, meaning: META.en.tagline };
+  if (course.badgeId) {
+    await prisma.badge.update({ where: { id: course.badgeId }, data: badgeCopy });
+  } else {
+    const badgeSlug = `${SLUG}-complete`;
+    const badge = await prisma.badge.upsert({
+      where: { projectId_slug: { projectId: PROJECT, slug: badgeSlug } },
+      create: { projectId: PROJECT, slug: badgeSlug, ...badgeCopy, iconRef: "award" },
+      update: badgeCopy,
+    });
+    await prisma.course.update({
+      where: { id: course.id },
+      data: { badgeId: badge.id },
+    });
+  }
 
   await upsertLesson("context", { narrative: NARRATIVE.context });
   await upsertLesson("concept", { narrative: NARRATIVE.concept });

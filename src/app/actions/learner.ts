@@ -267,7 +267,11 @@ export async function saveCompCard(input: CompCardInput, forUser: string) {
 
 /**
  * Award a badge to the current user (idempotent); they must be `forUser`
- * (isLearner).
+ * (isLearner). A badge with no Badge row fails rather than answering as if
+ * it were saved: the store and the guest migration take an answer as
+ * "saved" and stop trying, and the learner would lose the badge on the next
+ * reload without anyone knowing (C9). Every course's badge has a row: the
+ * seed makes the bundled ones, createCourse and its migration the others.
  */
 export async function awardBadgeAction(slug: string, forUser: string) {
   const user = await requireLearner();
@@ -275,7 +279,7 @@ export async function awardBadgeAction(slug: string, forUser: string) {
   const badge = await prisma.badge.findUnique({
     where: { projectId_slug: { projectId: PROJECT, slug } },
   });
-  if (!badge) return;
+  if (!badge) throw new Error(`No badge "${slug}" in the project`);
   await prisma.userBadge.upsert({
     where: { userId_badgeId: { userId: user.id, badgeId: badge.id } },
     create: { userId: user.id, badgeId: badge.id },
