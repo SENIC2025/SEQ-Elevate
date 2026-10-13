@@ -39,7 +39,7 @@ const TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
 
 const HINT = {
   simulation: "Choose an answer to continue.",
-  scenario: "Choose what you would do to continue.",
+  scenario: "To continue, choose what you would do.",
   scenarioFollowup: "Answer the follow-up question to continue.",
   assessment: "Answer every question, then select “Check answers” to continue.",
 };
@@ -259,6 +259,32 @@ test.describe("R0 player — as a guest", () => {
 test.describe("R0 player — each step opens at its top, on a phone", () => {
   test.use({ viewport: { width: 375, height: 667 } });
 
+  /** What the page asked window.scrollTo for: the `behavior` of each call. */
+  type ScrollSpy = Window & { __scrollBehaviors: string[] };
+
+  test.beforeEach(async ({ page }) => {
+    // Records how the player scrolls to the top, so a test can tell an
+    // instant jump from a smooth scroll: both end at scrollY 0, and a
+    // smooth scroll ends well inside a poll's timeout.
+    await page.addInitScript(() => {
+      const w = window as unknown as ScrollSpy;
+      w.__scrollBehaviors = [];
+      const scrollTo = window.scrollTo.bind(window);
+      window.scrollTo = ((...args: unknown[]) => {
+        const opts = args[0];
+        w.__scrollBehaviors.push(
+          typeof opts === "object" && opts !== null
+            ? ((opts as ScrollToOptions).behavior ?? "auto")
+            : "auto"
+        );
+        (scrollTo as (...a: unknown[]) => void)(...args);
+      }) as typeof window.scrollTo;
+    });
+  });
+
+  const scrollBehaviors = (page: Page) =>
+    page.evaluate(() => (window as unknown as ScrollSpy).__scrollBehaviors);
+
   async function continueFromTheBottom(page: Page) {
     await page.goto(`/en/learner/course/${BUILT_IN}`);
     await expect(
@@ -267,7 +293,12 @@ test.describe("R0 player — each step opens at its top, on a phone", () => {
     // The first step is taller than the screen: Continue is at its bottom.
     await cont(page).scrollIntoViewIfNeeded();
     expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+    // Only the scroll that opens the next step counts.
+    await page.evaluate(() => {
+      (window as unknown as ScrollSpy).__scrollBehaviors = [];
+    });
     await next(page, /speaking up without making it worse/i);
+    await expect.poll(async () => (await scrollBehaviors(page)).length).toBeGreaterThan(0);
   }
 
   async function expectNewStepAtTop(page: Page) {
@@ -291,12 +322,16 @@ test.describe("R0 player — each step opens at its top, on a phone", () => {
     page,
   }) => {
     await continueFromTheBottom(page);
+    expect(await scrollBehaviors(page)).toEqual(["smooth"]);
     await expectNewStepAtTop(page);
   });
 
   test("with reduced motion it jumps there at once", async ({ page }) => {
     await page.emulateMedia({ reducedMotion: "reduce" });
     await continueFromTheBottom(page);
+    expect(await scrollBehaviors(page)).toEqual(["auto"]);
+    // An instant jump is done by the time the step has opened: no waiting.
+    expect(await page.evaluate(() => window.scrollY)).toBe(0);
     await expectNewStepAtTop(page);
   });
 });
