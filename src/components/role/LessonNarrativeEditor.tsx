@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useTranslations } from "next-intl";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -20,6 +21,9 @@ import { inputCls } from "@/components/role/narrative/BlockEditor";
 import { stripKey } from "@/components/role/narrative/block-ops";
 import { LazyRichTextEditor } from "@/components/rich-text/LazyRichTextEditor";
 import type { RichText } from "@/lib/rich-text/types";
+import type { VersionResult } from "@/lib/cms/sections/contract";
+import { blocksHaveText } from "@/lib/cms/text-fallback";
+import { markContentLang } from "@/components/course-manager/blocks/content-lang";
 import {
   PenSquare,
   Save,
@@ -32,7 +36,9 @@ import {
 } from "lucide-react";
 
 // Authoring-tool copy stays English (like the other tools), so language
-// names are English too.
+// names are English too — except for a text in a lesson's added content
+// (fields "blocks"), which sits among the course page's translated content
+// list and so takes its words from it (lessonBlocks.textEditor).
 const LANGUAGE: Record<Locale, string> = {
   en: "English",
   de: "German",
@@ -88,6 +94,19 @@ async function refusalMessage(error: string): Promise<string> {
 }
 
 /**
+ * Where a text in the lesson's extra content is saved (savePartText, bound
+ * to the lesson and the content by the page), and the words for the
+ * refusals only it has. Its saves are per language and live at once, like
+ * the lesson's own text; there is no title, subtitle or "Remove" — saving
+ * it empty removes the language.
+ */
+export interface NarrativeTarget {
+  save(blocks: NarrativeBlock[], base: string | null): Promise<VersionResult>;
+  /** Why a save was refused, for any error but "invalid" and "changed-elsewhere". */
+  refusal(res: { error: string; count?: number }): string;
+}
+
+/**
  * The teaching text of one lesson in one language, on the course page.
  *
  * The page chooses the course, lesson and language, and hands in where to
@@ -105,6 +124,9 @@ async function refusalMessage(error: string): Promise<string> {
  * Each save (and "Remove") sends back the fingerprint of the text it started
  * from. If a colleague saved this language since, the server refuses, and the
  * editor offers to load their version instead of overwriting it unseen.
+ *
+ * With a `target` and fields "blocks" it edits a text in the lesson's extra
+ * content (Release 1): just its blocks, saved through the target.
  */
 export function LessonNarrativeEditor({
   courseSlug,
@@ -115,6 +137,10 @@ export function LessonNarrativeEditor({
   courseKind,
   mode = "narrative",
   prompts = [],
+  promptsNote,
+  target,
+  fields = "all",
+  heading: givenHeading,
   embedded = false,
   onSaved,
   onDirtyChange,
@@ -136,6 +162,17 @@ export function LessonNarrativeEditor({
   mode?: "narrative" | "reflection";
   /** Reflection only: the fixed questions learners answer (shown read-only). */
   prompts?: string[];
+  /**
+   * Reflection only: shown instead of the fixed questions — the lesson has
+   * its own reflection questions as extra content.
+   */
+  promptsNote?: string;
+  /** Save somewhere else than the lesson's own text (extra content). */
+  target?: NarrativeTarget;
+  /** "blocks": only the content blocks (no title, subtitle or "Remove"). */
+  fields?: "all" | "blocks";
+  /** The heading instead of "Lesson text", in the menu language. */
+  heading?: string;
   /** On the course page: no card of its own. */
   embedded?: boolean;
   onSaved?: (value: NarrativeInitial) => void;
@@ -151,8 +188,16 @@ export function LessonNarrativeEditor({
 }) {
   const ids = React.useId();
   const headingRef = React.useRef<HTMLHeadingElement>(null);
-  const lang = LANGUAGE[locale];
+  const blocksRef = React.useRef<HTMLDivElement>(null);
   const reflection = mode === "reflection";
+  const blocksOnly = fields === "blocks";
+  const tBlocks = useTranslations("lessonBlocks");
+  const tLanguage = useTranslations("courseManager.languageName");
+  // In the menu language for added content, English otherwise (see LANGUAGE).
+  const languageName = (l: Locale) => (blocksOnly ? tLanguage(l) : LANGUAGE[l]);
+  const lang = LANGUAGE[locale];
+  // The language as the heading and the translated words name it.
+  const shownLang = languageName(locale);
 
   const [title, setTitle] = React.useState(initial.title);
   const [subtitle, setSubtitle] = React.useState(initial.subtitle);
@@ -213,6 +258,19 @@ export function LessonNarrativeEditor({
     onDirtyChange?.(dirty);
   }, [dirty, onDirtyChange]);
 
+  // The block boxes carry the language of what is in them (WCAG 3.1.2); the
+  // block list's own controls keep the page's. Until a save, a text not
+  // written in this language shows (and is) another language's text.
+  const contentLang = fallbackFrom ?? locale;
+  React.useEffect(() => {
+    const root = blocksRef.current;
+    if (!root) return;
+    markContentLang(root, contentLang);
+    const watch = new MutationObserver(() => markContentLang(root, contentLang));
+    watch.observe(root, { childList: true, subtree: true });
+    return () => watch.disconnect();
+  }, [contentLang]);
+
   function edited() {
     setEdits((n) => n + 1);
     if (
@@ -223,6 +281,10 @@ export function LessonNarrativeEditor({
       setStatus("idle");
     }
   }
+
+  const invalidText = blocksOnly
+    ? tBlocks("textEditor.invalid")
+    : "Not saved — see the problems above.";
 
   async function handleSave() {
     const at = edits;
@@ -235,6 +297,10 @@ export function LessonNarrativeEditor({
       : { title, subtitle, blocks: blocks.map(stripKey) };
     setStatus("saving");
     setSaveIssues([]);
+    if (target) {
+      await saveToTarget(target, at, text.blocks);
+      return;
+    }
     try {
       const res = await saveLessonNarrative(
         courseSlug,
@@ -272,11 +338,50 @@ export function LessonNarrativeEditor({
       if (res.error === "invalid") {
         // Nothing was written: say which blocks to fix.
         setSaveIssues(res.issues);
-        setSaveError("Not saved — see the problems above.");
+        setSaveError(invalidText);
         setStatus("error");
         return;
       }
       setSaveError(await refusalMessage(res.error));
+    } catch (error) {
+      setSaveError(saveFailureMessage({ kind: "thrown", error }));
+    }
+    setStatus("error");
+  }
+
+  async function saveToTarget(to: NarrativeTarget, at: number, sent: NarrativeBlock[]) {
+    try {
+      const res = await to.save(sent, baseline.version);
+      if (res.ok) {
+        const saved: NarrativeInitial = {
+          title: "",
+          subtitle: "",
+          blocks: sent,
+          hasOverride: blocksHaveText(sent),
+          version: res.version,
+        };
+        setCleanAt(at);
+        setBaseline(saved);
+        setHasOverride(saved.hasOverride);
+        setFallbackFrom(undefined);
+        setConflict(false);
+        setResetKey((k) => k + 1);
+        setStatus("saved");
+        onSaved?.(saved);
+        return;
+      }
+      if (res.error === "changed-elsewhere") {
+        setConflict(true);
+        setStatus("idle");
+        return;
+      }
+      if (res.error === "invalid") {
+        setSaveIssues((res as { issues: string[] }).issues);
+        setSaveError(invalidText);
+        setStatus("error");
+        return;
+      }
+      setSaveError(to.refusal(res as { error: string; count?: number }));
     } catch (error) {
       setSaveError(saveFailureMessage({ kind: "thrown", error }));
     }
@@ -354,9 +459,17 @@ export function LessonNarrativeEditor({
 
   const busy =
     status === "saving" || status === "reverting" || status === "reloading";
-  const heading = reflection ? "Reflection text" : "Lesson text";
+  const heading = givenHeading ?? (reflection ? "Reflection text" : "Lesson text");
 
-  const badge = hasOverride ? (
+  const badge = blocksOnly ? (
+    <Badge variant={hasOverride ? "accent" : "muted"} className="text-[10px]">
+      {hasOverride
+        ? tBlocks("langState.written", { language: shownLang })
+        : fallbackFrom
+          ? tBlocks("langState.missing", { language: shownLang })
+          : tBlocks("textEditor.notWritten")}
+    </Badge>
+  ) : hasOverride ? (
     <Badge variant="accent" className="text-[10px]">
       Customised
     </Badge>
@@ -385,12 +498,14 @@ export function LessonNarrativeEditor({
             tabIndex={-1}
             className="font-semibold"
           >
-            {heading} ({lang})
+            {heading} ({shownLang})
           </h3>
           <p className="text-xs text-[var(--muted-foreground)]">
-            {reflection
-              ? "The title and introduction learners read before they reflect."
-              : "The title and teaching text learners read in this lesson."}
+            {blocksOnly
+              ? tBlocks("textEditor.description")
+              : reflection
+                ? "The title and introduction learners read before they reflect."
+                : "The title and teaching text learners read in this lesson."}
           </p>
         </div>
         {badge}
@@ -398,83 +513,98 @@ export function LessonNarrativeEditor({
 
       {fallbackFrom ? (
         <p className="mb-3 rounded-md bg-[var(--surface-muted)] px-3 py-2 text-xs text-[var(--muted-foreground)]">
-          Not written in {lang} yet — showing the {LANGUAGE[fallbackFrom]} text,
-          which is what learners see. Saving creates the {lang} version.
+          {blocksOnly ? (
+            tBlocks("textEditor.fallback", {
+              language: shownLang,
+              from: languageName(fallbackFrom),
+            })
+          ) : (
+            <>
+              Not written in {lang} yet — showing the {LANGUAGE[fallbackFrom]} text,
+              which is what learners see. Saving creates the {lang} version.
+            </>
+          )}
         </p>
       ) : null}
 
-      <div className={reflection ? "space-y-3" : "grid gap-3 sm:grid-cols-2"}>
-        <div>
-          <label
-            htmlFor={`${ids}-title`}
-            className="mb-1 block text-xs font-medium text-[var(--muted-foreground)]"
-          >
-            Lesson title
-          </label>
-          <input
-            id={`${ids}-title`}
-            value={title}
-            maxLength={200}
-            onChange={(e) => {
-              setTitle(e.target.value);
-              edited();
-            }}
-            className={inputCls}
-          />
-        </div>
-        {reflection ? (
-          <div>
-            {/* Names the editor (aria-labelledby): a <label> can't point at
-                an editable <div>. */}
-            <p
-              id={`${ids}-intro`}
-              className="mb-1 text-xs font-medium text-[var(--muted-foreground)]"
-            >
-              Introduction
-            </p>
-            <LazyRichTextEditor
-              key={introRev}
-              rich={intro.rich}
-              text={intro.text}
-              variant="reflection-intro"
-              labelledBy={`${ids}-intro`}
-              onChange={(rich, text) => {
-                setIntro({ text, rich });
-                edited();
-              }}
-            />
-          </div>
-        ) : (
+      {blocksOnly ? null : (
+        <div className={reflection ? "space-y-3" : "grid gap-3 sm:grid-cols-2"}>
           <div>
             <label
-              htmlFor={`${ids}-subtitle`}
+              htmlFor={`${ids}-title`}
               className="mb-1 block text-xs font-medium text-[var(--muted-foreground)]"
             >
-              Lesson subtitle (optional)
+              Lesson title
             </label>
             <input
-              id={`${ids}-subtitle`}
-              value={subtitle}
+              id={`${ids}-title`}
+              value={title}
               maxLength={200}
-              aria-describedby={`${ids}-subtitle-hint`}
               onChange={(e) => {
-                setSubtitle(e.target.value);
+                setTitle(e.target.value);
                 edited();
               }}
               className={inputCls}
             />
-            <p
-              id={`${ids}-subtitle-hint`}
-              className="mt-1 text-xs text-[var(--muted-foreground)]"
-            >
-              A short line shown in small capitals above the title.
-            </p>
           </div>
-        )}
-      </div>
+          {reflection ? (
+            <div>
+              {/* Names the editor (aria-labelledby): a <label> can't point at
+                  an editable <div>. */}
+              <p
+                id={`${ids}-intro`}
+                className="mb-1 text-xs font-medium text-[var(--muted-foreground)]"
+              >
+                Introduction
+              </p>
+              <LazyRichTextEditor
+                key={introRev}
+                rich={intro.rich}
+                text={intro.text}
+                variant="reflection-intro"
+                labelledBy={`${ids}-intro`}
+                onChange={(rich, text) => {
+                  setIntro({ text, rich });
+                  edited();
+                }}
+              />
+            </div>
+          ) : (
+            <div>
+              <label
+                htmlFor={`${ids}-subtitle`}
+                className="mb-1 block text-xs font-medium text-[var(--muted-foreground)]"
+              >
+                Lesson subtitle (optional)
+              </label>
+              <input
+                id={`${ids}-subtitle`}
+                value={subtitle}
+                maxLength={200}
+                aria-describedby={`${ids}-subtitle-hint`}
+                onChange={(e) => {
+                  setSubtitle(e.target.value);
+                  edited();
+                }}
+                className={inputCls}
+              />
+              <p
+                id={`${ids}-subtitle-hint`}
+                className="mt-1 text-xs text-[var(--muted-foreground)]"
+              >
+                A short line shown in small capitals above the title.
+              </p>
+            </div>
+          )}
+        </div>
+      )}
 
       {reflection ? (
-        prompts.length ? (
+        promptsNote ? (
+          <p className="mt-4 rounded-md bg-[var(--surface-muted)] px-3 py-2 text-sm">
+            {promptsNote}
+          </p>
+        ) : prompts.length ? (
           <div className="mt-4">
             <p className="text-sm font-semibold">
               Questions learners answer privately
@@ -490,7 +620,7 @@ export function LessonNarrativeEditor({
           </div>
         ) : null
       ) : (
-        <div className="mt-4">
+        <div ref={blocksRef} className={blocksOnly ? "" : "mt-4"}>
           <p className="mb-2 text-sm font-semibold">Content blocks</p>
           <BlockList
             blocks={blocks}
@@ -570,7 +700,7 @@ export function LessonNarrativeEditor({
             Discard changes
           </Button>
         ) : null}
-        {hasOverride ? (
+        {hasOverride && !blocksOnly ? (
           <Button
             variant="ghost"
             size="sm"

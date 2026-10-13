@@ -1143,7 +1143,7 @@
     "remove": "Remove",
     "removeConfirm": "Remove this content? It is removed in all languages.",
     "notInLearnerView": "Learners get the added content from Release 2. Preview as learner shows it now.",
-    "liveLocked": "This course is live: learners get added content from Release 2.",
+    "liveLocked": "This course is live, so you can't add content to this lesson yet. Lessons that already have added content can take more; learners get it from Release 2.",
     "ownQuestionsNote": "This lesson has its own reflection questions below, instead of the standard ones.",
     "draft": "Draft",
     "notReady": "Not ready ({count})",
@@ -1151,7 +1151,40 @@
       "written": "Written in {language}",
       "missing": "Not written in {language} yet"
     },
-    "tooLarge": "This content is too large to save. Shorten some of its texts."
+    "tooLarge": "This content is too large to save. Shorten some of its texts.",
+    "addContentAfter": "Add content after content {n}: {type}",
+    "picker": "Choose what to add:",
+    "typeHints": {
+      "text": "Text with lists, tips and quotes, written per language.",
+      "practice": "A situation with a few responses, one marked best.",
+      "scenario": "A situation with choices, outcomes and follow-ups.",
+      "quiz": "Questions with one correct answer each.",
+      "reflection": "Questions learners answer in their own words.",
+      "rating": "Statements learners rate from 1 to 5."
+    },
+    "added": "{type} added.",
+    "moved": "Moved to position {n} of {total}.",
+    "removed": "Content removed.",
+    "changedElsewhere": "Someone else changed this lesson's content since you opened it, so nothing was changed. The lesson now shows their version.",
+    "tooMany": "A lesson can hold at most {max} pieces of content, its main content included.",
+    "unreadable": "This lesson's added content can't be read, so it can't be changed until an admin repairs it.",
+    "partHint": "“Save stage” makes this content ready: learners get it from Release 2, and Preview as learner shows it now. “Save draft” keeps unfinished work for editors only.",
+    "notShown": "Not shown yet — only a draft so far, or not ready.",
+    "scale": "1 = {min} · 5 = {max}",
+    "noText": "No text written yet.",
+    "courseUnreadable": "Something in this course's lessons can't be read, so content can't be added, moved or removed until an admin repairs it.",
+    "moveUpNamed": "Move up content {n}: {type}",
+    "moveDownNamed": "Move down content {n}: {type}",
+    "removeNamed": "Remove content {n}: {type}",
+    "saveContent": "Save stage",
+    "maxPrompts": "At most {max} questions.",
+    "maxStatements": "At most {max} statements.",
+    "textEditor": {
+      "description": "Text learners read here, between the lesson's other content.",
+      "notWritten": "Not written yet",
+      "fallback": "Not written in {language} yet — showing the {from} text, which is what learners see. Saving creates the {language} version.",
+      "invalid": "Not saved — see the problems above."
+    }
   },
   "accounts": {
     "facilitatorNotSaved": "This wasn't saved. Notes and validations can only be added for learners in this project. Reload the page and try again.",

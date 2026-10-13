@@ -1143,7 +1143,7 @@
     "remove": "Entfernen",
     "removeConfirm": "Diesen Inhalt entfernen? Er wird in allen Sprachen entfernt.",
     "notInLearnerView": "Lernende bekommen den hinzugefügten Inhalt ab Release 2. Die Vorschau als Lernende:r zeigt ihn schon jetzt.",
-    "liveLocked": "Dieser Kurs ist live: Hinzugefügten Inhalt bekommen Lernende ab Release 2.",
+    "liveLocked": "Dieser Kurs ist live, daher kannst du dieser Lektion noch keinen Inhalt hinzufügen. Lektionen, die schon hinzugefügten Inhalt haben, können weiteren bekommen; Lernende bekommen ihn ab Release 2.",
     "ownQuestionsNote": "Diese Lektion hat unten eigene Reflexionsfragen statt der Standardfragen.",
     "draft": "Entwurf",
     "notReady": "Nicht fertig ({count})",
@@ -1151,7 +1151,40 @@
       "written": "Auf {language} geschrieben",
       "missing": "Auf {language} noch nicht geschrieben"
     },
-    "tooLarge": "Dieser Inhalt ist zu groß zum Speichern. Kürze einige seiner Texte."
+    "tooLarge": "Dieser Inhalt ist zu groß zum Speichern. Kürze einige seiner Texte.",
+    "addContentAfter": "Inhalt hinzufügen nach Inhalt {n}: {type}",
+    "picker": "Wähle, was du hinzufügen möchtest:",
+    "typeHints": {
+      "text": "Text mit Listen, Tipps und Zitaten, je Sprache geschrieben.",
+      "practice": "Eine Situation mit einigen Antworten, eine davon als beste markiert.",
+      "scenario": "Eine Situation mit Auswahlmöglichkeiten, Folgen und Anschlussfragen.",
+      "quiz": "Fragen mit jeweils einer richtigen Antwort.",
+      "reflection": "Fragen, die Lernende in eigenen Worten beantworten.",
+      "rating": "Aussagen, die Lernende von 1 bis 5 bewerten."
+    },
+    "added": "{type} hinzugefügt.",
+    "moved": "An Position {n} von {total} verschoben.",
+    "removed": "Inhalt entfernt.",
+    "changedElsewhere": "Jemand anderes hat den Inhalt dieser Lektion geändert, seit du sie geöffnet hast. Deshalb wurde nichts geändert. Die Lektion zeigt jetzt die neue Fassung.",
+    "tooMany": "Eine Lektion kann höchstens {max} Inhalte haben, ihren Hauptinhalt eingeschlossen.",
+    "unreadable": "Der hinzugefügte Inhalt dieser Lektion kann nicht gelesen werden. Er kann erst geändert werden, wenn eine Administratorin oder ein Administrator ihn repariert.",
+    "partHint": "„Inhalt speichern“ macht diesen Inhalt fertig: Lernende bekommen ihn ab Release 2, die Vorschau als Lernende:r zeigt ihn schon jetzt. „Entwurf speichern“ hebt Unfertiges nur für Bearbeitende auf.",
+    "notShown": "Noch nicht sichtbar — bisher nur ein Entwurf oder noch nicht fertig.",
+    "scale": "1 = {min} · 5 = {max}",
+    "noText": "Noch kein Text geschrieben.",
+    "courseUnreadable": "Etwas in den Lektionen dieses Kurses kann nicht gelesen werden. Deshalb kann kein Inhalt hinzugefügt, verschoben oder entfernt werden, bis eine Administratorin oder ein Administrator es repariert.",
+    "moveUpNamed": "Nach oben – Inhalt {n}: {type}",
+    "moveDownNamed": "Nach unten – Inhalt {n}: {type}",
+    "removeNamed": "Entfernen – Inhalt {n}: {type}",
+    "saveContent": "Inhalt speichern",
+    "maxPrompts": "Höchstens {max} Fragen.",
+    "maxStatements": "Höchstens {max} Aussagen.",
+    "textEditor": {
+      "description": "Text, den Lernende hier lesen, zwischen den anderen Inhalten der Lektion.",
+      "notWritten": "Noch nicht geschrieben",
+      "fallback": "Auf {language} noch nicht geschrieben — hier steht der Text auf {from}, den Lernende jetzt sehen. Beim Speichern entsteht die Fassung auf {language}.",
+      "invalid": "Nicht gespeichert — sieh dir die Probleme oben an."
+    }
   },
   "accounts": {
     "facilitatorNotSaved": "Das wurde nicht gespeichert. Notizen und Bestätigungen kannst du nur für Lernende in diesem Projekt anlegen. Lade die Seite neu und versuch es noch einmal.",

@@ -12,7 +12,11 @@ import {
 } from "@/app/actions/lesson";
 import type { LessonDocumentRef } from "@/lib/cms/types";
 import { DOCUMENT_UPLOAD, acceptAttribute, formatSize } from "@/lib/uploads";
-import { attachFailureMessage, isNetworkError } from "@/lib/author-feedback";
+import {
+  attachFailureMessage,
+  isNetworkError,
+  lessonListRefusal,
+} from "@/lib/author-feedback";
 import { cn } from "@/lib/utils";
 import {
   fetchStorageStatus,
@@ -163,6 +167,17 @@ export function LessonDocumentManager({
       if (res.ok) {
         setAttach({ phase: "done", name: doc.name });
         refresh();
+        return;
+      }
+      // A lesson of the course's own that left the lesson list, or a list
+      // that can't be read: trying again can't work (Release 1).
+      const listRefusal = lessonListRefusal(res.error);
+      if (listRefusal) {
+        setAttach({
+          phase: "failed",
+          message: attachFailureMessage({ kind: "lesson-list", error: listRefusal }),
+          retry: null,
+        });
         return;
       }
       // "forbidden" covers both signed out and not an editor — ask which.
