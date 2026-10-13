@@ -800,7 +800,10 @@
       "confirm": "Lektion löschen",
       "keep": "Behalten",
       "deleted": "„{name}“ gelöscht.",
-      "blockedLearners": "In diesem Kurs {count, plural, one {ist # lernende Person} other {sind # Lernende}} eingeschrieben, deshalb lässt sich diese Lektion nicht löschen."
+      "blockedLearners": "In diesem Kurs {count, plural, one {ist # lernende Person} other {sind # Lernende}} eingeschrieben, deshalb lässt sich diese Lektion nicht löschen.",
+      "removes": "Damit wird gelöscht:",
+      "nothing": "Darin ist noch nichts geschrieben.",
+      "changed": "Diese Lektion oder die Lektionsliste hat sich geändert, seit du sie geöffnet hast, deshalb wurde nichts gelöscht. Prüfe, was jetzt entfernt würde, und versuche es dann noch einmal."
     },
     "picker": {
       "open": "Lektion hinzufügen",
@@ -820,7 +823,13 @@
       "reflectionRatingHint": "Fragen zum Nachdenken und Aussagen zum Bewerten von 1 bis 5.",
       "restore": "Wieder hinzufügen: {name} (leer)",
       "restoreHint": "Die gelöschte Standardlektion, ohne ihren alten Inhalt.",
-      "close": "Schließen"
+      "close": "Schließen",
+      "choose": "Wähle, was du hinzufügen möchtest:",
+      "whereAuto": "An ihrer üblichen Stelle",
+      "whereStart": "Am Anfang",
+      "whereAfter": "Nach {label}",
+      "add": "Diese Lektion hinzufügen",
+      "chooseFirst": "Wähle zuerst, was du hinzufügen möchtest."
     },
     "where": "Wo",
     "many": "Dieser Kurs hat mehr als {count} Lektionen. Prüfe, ob Lernende alle brauchen.",
@@ -837,14 +846,34 @@
         "customSection": "„{name}“ ist eine neue Lektion",
         "hiddenSection": "„{name}“ ist ausgeblendet",
         "removedSection": "„{name}“ wurde gelöscht",
-        "reordered": "Die Lektionen sind neu angeordnet",
+        "reordered": "Die Lektionen sind neu angeordnet. Üblich ist: {order}",
         "extraParts": "„{name}“ hat zusätzlichen Inhalt",
         "unreadable": "Die Lektionsliste lässt sich nicht lesen"
-      }
+      },
+      "partDraft": "„{name}“ hat Inhalt mit einem Entwurf, den Lernende noch nicht sehen."
     },
     "labelsLater": "Lernende sehen deine Lektionsnamen ab Release 2.",
     "laterNote": "Lernende sehen diesen Namen ab Release 2; bis dahin sehen sie „{standard}“.",
-    "fullTemplate": "Mit der vollständigen Vorlage beginnen (alle sieben Standardlektionen)"
+    "fullTemplate": "Mit der vollständigen Vorlage beginnen (alle sieben Standardlektionen)",
+    "added": "„{name}“ hinzugefügt.",
+    "hiddenDone": "„{name}“ ist ausgeblendet.",
+    "shownDone": "„{name}“ ist wieder eingeblendet.",
+    "notNumbered": "Ohne Nummer: Lernende würden sie nicht sehen",
+    "status": {
+      "live": "Lernende bekommen diese Lektion",
+      "later": "Lernende bekommen diese Lektion ab Release 2",
+      "empty": "Noch kein Inhalt"
+    },
+    "errors": {
+      "generic": "Das hat nicht geklappt. Prüfe deine Verbindung und versuche es erneut.",
+      "forbidden": "Dein Konto kann gerade keine Kurse ändern. Melde dich erneut an oder bitte die Administration deines Projekts um die Rolle Inhalts-Redaktion.",
+      "unknownCourse": "Diesen Kurs gibt es nicht mehr. Geh zurück zu „Alle Kurse“.",
+      "liveLocked": "Dieser Kurs ist live, deshalb muss diese Änderung warten: Solche Änderungen bekommen Lernende ab Release 2. Es wurde nichts geändert.",
+      "notASection": "Diese Lektion steht nicht mehr in der Lektionsliste. Die Liste zeigt jetzt den aktuellen Stand.",
+      "unreadable": "Die Lektionsliste dieses Kurses lässt sich nicht lesen, deshalb kann sie nicht geändert werden, bis ein Admin sie repariert."
+    },
+    "rowNonStandard": "Damit lässt sich der Kurs erst ab Release 2 veröffentlichen: {actions}. Die Vorschau funktioniert schon jetzt.",
+    "nowLater": "Der Kurs lässt sich jetzt erst ab Release 2 veröffentlichen: siehe „Veröffentlichung“."
   },
   "lesson": {
     "resourcesTitle": "Materialien",

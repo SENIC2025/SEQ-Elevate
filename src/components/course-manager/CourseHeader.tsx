@@ -16,6 +16,7 @@ import {
   Archive,
   ChevronLeft,
   ExternalLink,
+  Info,
   PenLine,
   Radio,
 } from "lucide-react";
@@ -91,7 +92,8 @@ export function PreviewLink({
  * The top of the course page: back to all courses, the title in the content
  * language, whether learners can see the course (and so whether saves are
  * live — Q2, D33), the content-language switch, the learner preview and the
- * publishing controls.
+ * publishing controls. On a live course whose lessons have names of their
+ * own, a note says learners see them from Release 2 (D58).
  */
 export function CourseHeader({
   slug,
@@ -104,8 +106,12 @@ export function CourseHeader({
   languages,
   lang,
   previewLesson,
+  labelsLater = false,
+  lessonName,
+  usualOrder,
   onLangChange,
   onStatusChange,
+  onRefresh,
 }: {
   slug: string;
   kind: CourseKind;
@@ -118,9 +124,18 @@ export function CourseHeader({
   lang: Locale;
   /** Start the preview at this lesson (the first one open), if any. */
   previewLesson?: string;
+  /** The lessons have names of their own, which learners see from Release 2. */
+  labelsLater?: boolean;
+  /** A lesson's name in the content language (created courses). */
+  lessonName?: (id: string) => string;
+  /** The standard lessons' names in their usual order (created courses). */
+  usualOrder?: readonly string[];
   onLangChange: (next: Locale) => void;
   onStatusChange: (next: CourseStatus) => void;
+  /** Re-read the page from the server. */
+  onRefresh?: () => void;
 }) {
+  const tList = useTranslations("lessonList");
   const t = useTranslations("courseManager");
   const NoteIcon = NOTE_ICON[status];
   const note =
@@ -166,6 +181,13 @@ export function CourseHeader({
             <NoteIcon className="mt-0.5 h-4 w-4 flex-shrink-0" aria-hidden />
             {note}
           </p>
+          {/* Before publishing, the readiness list says this. */}
+          {labelsLater && status === "published" ? (
+            <p className="mt-2 flex items-start gap-2 px-3 text-sm text-[var(--muted-foreground)]">
+              <Info className="mt-0.5 h-4 w-4 flex-shrink-0 text-[var(--accent)]" aria-hidden />
+              {tList("labelsLater")}
+            </p>
+          ) : null}
 
           <div className="mt-4">
             <ContentLanguageSwitch
@@ -193,6 +215,10 @@ export function CourseHeader({
             enrolled={enrolled}
             readiness={readiness}
             onStatusChange={onStatusChange}
+            lessonName={lessonName}
+            nameLang={lessonName ? lang : undefined}
+            usualOrder={usualOrder}
+            onRefresh={onRefresh}
           />
         </div>
       </div>

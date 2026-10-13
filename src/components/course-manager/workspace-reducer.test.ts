@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import type {
   CourseOutline,
   LessonOutline,
@@ -7,7 +7,13 @@ import type {
 import { mainKindOf, type SectionsMeta, type SectionView } from "@/lib/cms/sections/contract";
 import type { StageKey } from "@/lib/cms/types";
 import type { StoredStructure } from "@/lib/cms/structure";
-import { initWorkspace, workspaceReducer, type WorkspaceState } from "./workspace-reducer";
+import {
+  initWorkspace,
+  lessonContentCallbacks,
+  workspaceReducer,
+  type WorkspaceAction,
+  type WorkspaceState,
+} from "./workspace-reducer";
 
 /* -------------------------------- fixtures -------------------------------- */
 
@@ -358,5 +364,112 @@ describe("outlineReplaced (a structural action's result)", () => {
     );
     const next = workspaceReducer(state, { type: "outlineReplaced", outline: after });
     expect(next.lessons[1].draft).toEqual(after.lessons[1].draft);
+  });
+});
+
+describe("the course's status", () => {
+  it("starts from the outline and follows the page's own change", () => {
+    const state = initWorkspace(outline([lesson("context")]));
+    expect(state.status).toBe("draft");
+    expect(workspaceReducer(state, { type: "statusChanged", status: "published" }).status).toBe(
+      "published"
+    );
+  });
+
+  it("follows a refreshed page, so a course a colleague published is predicted as live", () => {
+    // The stale-page case: opened as a draft, published elsewhere since.
+    const first = outline([lesson("context")]);
+    const state = initWorkspace(first);
+    const published = outline([lesson("context")], { status: "published" });
+    expect(workspaceReducer(state, { type: "outline", outline: published }).status).toBe(
+      "published"
+    );
+    const replaced = workspaceReducer(state, { type: "outlineReplaced", outline: published });
+    expect(replaced.status).toBe("published");
+  });
+});
+
+describe("renamed (a step name saved in one language)", () => {
+  const listed = () =>
+    lesson("concept", { section: sectionView("concept", "concept") });
+
+  it("takes the new name, its base and the name it goes by, in that language only", () => {
+    const state = initWorkspace(outline([listed()]));
+    const next = workspaceReducer(state, {
+      type: "renamed",
+      key: "concept",
+      lang: "de",
+      label: "Die Idee",
+      version: "lv-2",
+      name: { text: "Die Idee", source: "own" },
+    });
+    const section = next.lessons[0].section!;
+    expect(section.label).toEqual({ de: "Die Idee" });
+    expect(section.labelVersion).toEqual({ en: null, de: "lv-2", el: null });
+    expect(section.name.de).toEqual({ text: "Die Idee", source: "own" });
+    expect(section.name.en).toEqual(state.lessons[0].section!.name.en);
+  });
+
+  it("removes the language's name when it was cleared", () => {
+    const named = lesson("concept", {
+      section: { ...sectionView("concept", "concept"), label: { en: "Mine", de: "Meins" } },
+    });
+    const state = initWorkspace(outline([named]));
+    const next = workspaceReducer(state, {
+      type: "renamed",
+      key: "concept",
+      lang: "en",
+      label: "",
+      version: null,
+      name: { text: "Skill concept", source: "standard" },
+    });
+    expect(next.lessons[0].section!.label).toEqual({ de: "Meins" });
+    expect(next.lessons[0].section!.name.en.text).toBe("Skill concept");
+  });
+
+  it("leaves a lesson outside the list alone", () => {
+    const state = initWorkspace(outline([lesson("context")]));
+    const next = workspaceReducer(state, {
+      type: "renamed",
+      key: "context",
+      lang: "en",
+      label: "X",
+      version: "v",
+      name: { text: "X", source: "own" },
+    });
+    expect(next.lessons[0]).toBe(state.lessons[0]);
+  });
+});
+
+describe("a lesson's content callbacks", () => {
+  it("take each change in and re-read the page, a document added or removed included", () => {
+    const actions: WorkspaceAction[] = [];
+    const refresh = vi.fn();
+    const cb = lessonContentCallbacks("concept", "de", (a) => actions.push(a), refresh);
+    const doc = { id: "d1", title: "Handout" } as never;
+
+    // A document changes the lesson's content base and what Delete removes:
+    // without the re-read, Delete would list old documents and be refused.
+    cb.onDocumentsChanged([doc]);
+    expect(actions).toEqual([{ type: "documentsChanged", key: "concept", documents: [doc] }]);
+    expect(refresh).toHaveBeenCalledTimes(1);
+
+    cb.onVideoSaved(null);
+    cb.onStructureCleared();
+    cb.onStructureDraftChanged(null);
+    cb.onStructureSaved({ kind: "simulation" } as never);
+    cb.onReread("v1");
+    cb.onNarrativeSaved(text("v2"));
+    expect(actions.map((a) => a.type)).toEqual([
+      "documentsChanged",
+      "videoSaved",
+      "structureCleared",
+      "draftChanged",
+      "structureSaved",
+      "reread",
+      "narrativeSaved",
+    ]);
+    expect(actions.at(-1)).toMatchObject({ key: "concept", lang: "de" });
+    expect(refresh).toHaveBeenCalledTimes(7);
   });
 });

@@ -28,9 +28,11 @@ import {
   type NarrativeInitial,
   type ReadinessIssue,
 } from "@/lib/cms/course-admin-types";
-import type { SectionsMeta } from "@/lib/cms/sections/contract";
+import type { CourseStatus } from "@/lib/cms/course-status";
+import type { LabelSource, SectionsMeta } from "@/lib/cms/sections/contract";
 import type { StoredStructure } from "@/lib/cms/structure";
 import type { LessonDocumentRef, Locale, VideoContent } from "@/lib/cms/types";
+import type { LessonSectionProps } from "./lesson-section-props";
 
 export interface WorkspaceState {
   /**
@@ -45,6 +47,13 @@ export interface WorkspaceState {
   languages: Record<Locale, LanguageCoverage>;
   /** Learners enrolled (D53). */
   enrolled: number;
+  /**
+   * Draft, published or archived: what the publishing controls show, and
+   * what the lesson list predicts a published course's refusals from. Set by
+   * the page's own status change, and by every outline the server sends (a
+   * colleague may have published the course since the page opened).
+   */
+  status: CourseStatus;
   /** Per "lesson:language": bumped when its text was re-read (see "reread"). */
   revs: Record<string, number>;
   /**
@@ -67,6 +76,21 @@ export type WorkspaceAction =
   | { type: "outline"; outline: CourseOutline }
   /** A structural action returned the whole outline after it committed. */
   | { type: "outlineReplaced"; outline: CourseOutline }
+  /** The page changed the course's status (PublishControls). */
+  | { type: "statusChanged"; status: CourseStatus }
+  /**
+   * A lesson's step name in one language was saved (renameSection): its new
+   * base, and the name it now goes by there. The refresh that follows brings
+   * the server's own view.
+   */
+  | {
+      type: "renamed";
+      key: string;
+      lang: Locale;
+      label: string;
+      version: string | null;
+      name: { text: string; source: LabelSource };
+    }
   | { type: "opened"; key: string }
   | { type: "closed"; key: string }
   | { type: "narrativeSaved"; key: string; lang: Locale; value: NarrativeInitial }
@@ -76,6 +100,49 @@ export type WorkspaceAction =
   | { type: "structureCleared"; key: string }
   | { type: "videoSaved"; key: string; video: VideoContent | null }
   | { type: "documentsChanged"; key: string; documents: LessonDocumentRef[] };
+
+/** The content callbacks the page gives each lesson (LessonSectionProps). */
+export type LessonContentCallbacks = Pick<
+  LessonSectionProps,
+  | "onNarrativeSaved"
+  | "onReread"
+  | "onStructureSaved"
+  | "onStructureDraftChanged"
+  | "onStructureCleared"
+  | "onVideoSaved"
+  | "onDocumentsChanged"
+>;
+
+/**
+ * One lesson's content callbacks: each takes the editor's news into the
+ * page at once, then re-reads the page. The re-read is what brings the
+ * lesson's server-built facts up to date — its content base
+ * (`contentVersion`, which deleteSection checks and which counts its
+ * documents), what Delete would remove (`deleteSummary`), the publishing
+ * warnings and the read views — so every change of content, a document
+ * added or removed included, asks for it.
+ */
+export function lessonContentCallbacks(
+  key: string,
+  lang: Locale,
+  dispatch: (action: WorkspaceAction) => void,
+  refresh: () => void
+): LessonContentCallbacks {
+  const then = (action: WorkspaceAction) => {
+    dispatch(action);
+    refresh();
+  };
+  return {
+    onNarrativeSaved: (value) => then({ type: "narrativeSaved", key, lang, value }),
+    onReread: (stale) => then({ type: "reread", key, lang, stale }),
+    onStructureSaved: (structure) => then({ type: "structureSaved", key, structure }),
+    // The publishing warnings list lessons with a draft.
+    onStructureDraftChanged: (draft) => then({ type: "draftChanged", key, draft }),
+    onStructureCleared: () => then({ type: "structureCleared", key }),
+    onVideoSaved: (video) => then({ type: "videoSaved", key, video }),
+    onDocumentsChanged: (documents) => then({ type: "documentsChanged", key, documents }),
+  };
+}
 
 /** The revs / pending key of one lesson's text in one language. */
 export const pair = (key: string, lang: Locale) => `${key}:${lang}`;
@@ -90,6 +157,7 @@ export function initWorkspace(outline: CourseOutline, initialLesson?: string): W
     readiness: outline.readiness,
     languages: outline.languages,
     enrolled: outline.enrolled,
+    status: outline.status,
     revs: {},
     pending: {},
     open: new Set(initialLesson ? [initialLesson] : []),
@@ -114,6 +182,24 @@ export function workspaceReducer(state: WorkspaceState, action: WorkspaceAction)
       return takeServerOutline(state, action.outline);
     case "outlineReplaced":
       return replaceOutline(state, action.outline);
+    case "statusChanged":
+      return { ...state, status: action.status };
+    case "renamed":
+      return patchLesson(state, action.key, (l) => {
+        if (!l.section) return l;
+        const label = { ...l.section.label };
+        if (action.label) label[action.lang] = action.label;
+        else delete label[action.lang];
+        return {
+          ...l,
+          section: {
+            ...l.section,
+            label,
+            labelVersion: { ...l.section.labelVersion, [action.lang]: action.version },
+            name: { ...l.section.name, [action.lang]: action.name },
+          },
+        };
+      });
     case "opened":
       return { ...state, open: new Set(state.open).add(action.key) };
     case "closed": {
@@ -197,6 +283,7 @@ function courseFacts(outline: CourseOutline) {
     readiness: outline.readiness,
     languages: outline.languages,
     enrolled: outline.enrolled,
+    status: outline.status,
   };
 }
 
