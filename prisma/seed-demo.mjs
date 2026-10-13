@@ -20,6 +20,7 @@
 
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
+import { hasEditorLessons } from "./seed-demo-guard.mjs";
 
 const url = process.env.DATABASE_URL;
 const PROJECT = "seq-elevate";
@@ -521,6 +522,14 @@ async function main() {
   const project = await prisma.project.findUnique({ where: { id: PROJECT } });
   if (!project) {
     console.log("[seed-demo] project not found — skipping");
+    return;
+  }
+
+  // G7: an editor has made this course their own in the flexible editor.
+  // Republishing it would go past the publish guard, and the lesson upserts
+  // below would undo their work, so the course is left entirely as it is.
+  if (await hasEditorLessons(prisma, PROJECT, SLUG)) {
+    console.log("[seed-demo] course has editor lessons — left as is");
     return;
   }
 
