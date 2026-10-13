@@ -118,6 +118,25 @@ describe("migrateGuest", () => {
     expect(console.error).toHaveBeenCalled();
   });
 
+  it("doesn't try again an award the server refused, and doesn't count it as awarded", async () => {
+    // A badge with no Badge row on the server: no try can succeed, so it
+    // isn't tried again for 15 s while the learner waits for their data.
+    const tries = { badge: 0 };
+    const { writes: base } = writes();
+    const w: GuestWrites = {
+      ...base,
+      awardBadge: async () => {
+        tries.badge++;
+        return { ok: false, reason: "no-badge" };
+      },
+    };
+    const moved = await migrateGuest(guest, nothingSaved, w, retry);
+
+    expect(tries.badge).toBe(1);
+    expect(moved.badges).toEqual(["voice-without-edges"]); // still shown
+    expect(moved.awarded).toEqual([]); // not counted as saved
+  });
+
   it("hands the store the guest's course when its save never gets through", async () => {
     const { writes: w, server } = writes({ course: 100 });
     const moved = await migrateGuest(guest, nothingSaved, w, retry);

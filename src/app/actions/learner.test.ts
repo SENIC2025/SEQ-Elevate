@@ -93,10 +93,15 @@ describe("ensureLearnerMembership", () => {
 describe("awardBadgeAction", () => {
   afterEach(() => vi.clearAllMocks());
 
-  it("fails, rather than answering as if saved, when the badge doesn't exist", async () => {
+  // Not thrown: the store and the guest migration try a thrown award again
+  // for 15 s, as if the connection had dropped, and this one can't succeed.
+  it("answers no-badge, rather than as if saved or with an error worth retrying, when the badge doesn't exist", async () => {
     getCurrentUser.mockResolvedValue(USER);
     badge.findUnique.mockResolvedValue(null);
-    await expect(awardBadgeAction("no-such-badge", "u1")).rejects.toThrow();
+    await expect(awardBadgeAction("no-such-badge", "u1")).resolves.toEqual({
+      ok: false,
+      reason: "no-badge",
+    });
     expect(userBadge.upsert).not.toHaveBeenCalled();
   });
 
@@ -104,7 +109,7 @@ describe("awardBadgeAction", () => {
     getCurrentUser.mockResolvedValue(USER);
     badge.findUnique.mockResolvedValue({ id: "b1", slug: "x-complete" });
     userBadge.upsert.mockResolvedValue({});
-    await expect(awardBadgeAction("x-complete", "u1")).resolves.toBeUndefined();
+    await expect(awardBadgeAction("x-complete", "u1")).resolves.toEqual({ ok: true });
     expect(userBadge.upsert).toHaveBeenCalledWith({
       where: { userId_badgeId: { userId: "u1", badgeId: "b1" } },
       create: { userId: "u1", badgeId: "b1" },
@@ -112,9 +117,12 @@ describe("awardBadgeAction", () => {
     });
   });
 
-  it("drops an award meant for another account, without failing", async () => {
+  it("refuses an award meant for another account, without throwing", async () => {
     getCurrentUser.mockResolvedValue(USER);
-    await expect(awardBadgeAction("x-complete", "someone-else")).resolves.toBeUndefined();
+    await expect(awardBadgeAction("x-complete", "someone-else")).resolves.toEqual({
+      ok: false,
+      reason: "other-account",
+    });
     expect(badge.findUnique).not.toHaveBeenCalled();
     expect(userBadge.upsert).not.toHaveBeenCalled();
   });

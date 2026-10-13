@@ -12,6 +12,7 @@ import { isBootstrapAdmin } from "@/lib/admin-bootstrap";
 import { needsLearnerMembership } from "@/lib/learner-membership";
 import { ensureProjectRoles } from "@/lib/role-grants";
 import { prisma } from "@/lib/prisma";
+import type { BadgeAwardResult } from "@/lib/badge-award";
 import { getCourse } from "@/lib/cms";
 import type { Locale } from "@/lib/cms/types";
 import type { StageKey, PrivacyChoice } from "@prisma/client";
@@ -267,22 +268,27 @@ export async function saveCompCard(input: CompCardInput, forUser: string) {
 
 /**
  * Award a badge to the current user (idempotent); they must be `forUser`
- * (isLearner). A badge with no Badge row fails rather than answering as if
- * it were saved: the store and the guest migration take an answer as
- * "saved" and stop trying, and the learner would lose the badge on the next
- * reload without anyone knowing (C9). Every course's badge has a row: the
- * seed makes the bundled ones, createCourse and its migration the others.
+ * (isLearner). A badge with no Badge row is refused rather than answered as
+ * if it were saved: the learner would lose the badge on the next reload
+ * without anyone knowing (C9). It is answered, not thrown, because a thrown
+ * award is tried again as if the connection had dropped, and this one can
+ * never succeed (badge-award.ts). Every course's badge has a row: the seed
+ * makes the bundled ones, createCourse and its migration the others.
  */
-export async function awardBadgeAction(slug: string, forUser: string) {
+export async function awardBadgeAction(
+  slug: string,
+  forUser: string
+): Promise<BadgeAwardResult> {
   const user = await requireLearner();
-  if (!isLearner(user, forUser)) return;
+  if (!isLearner(user, forUser)) return { ok: false, reason: "other-account" };
   const badge = await prisma.badge.findUnique({
     where: { projectId_slug: { projectId: PROJECT, slug } },
   });
-  if (!badge) throw new Error(`No badge "${slug}" in the project`);
+  if (!badge) return { ok: false, reason: "no-badge" };
   await prisma.userBadge.upsert({
     where: { userId_badgeId: { userId: user.id, badgeId: badge.id } },
     create: { userId: user.id, badgeId: badge.id },
     update: {},
   });
+  return { ok: true };
 }
