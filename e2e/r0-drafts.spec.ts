@@ -136,7 +136,14 @@ describe("Release 0 — exercise drafts", () => {
   });
 
   test.afterAll(async () => {
-    if (editorId) await prisma.auditLog.deleteMany({ where: { actorId: editorId } });
+    // Both users' audit rows: the editor's saves, and the learner's course
+    // opens and time on lessons from the player. Filtered through the users'
+    // emails, a constant of this run, so the filter can never come out empty
+    // and match every row (an unset id would, if beforeAll failed early).
+    // Done before the users go: deleting a user keeps their rows, unowned.
+    await prisma.auditLog.deleteMany({
+      where: { actor: { is: { email: { in: EMAILS } } } },
+    });
     // Users first: their enrolments cascade away with them.
     await prisma.user.deleteMany({ where: { email: { in: EMAILS } } });
     await prisma.lesson.deleteMany({ where: { projectId: PROJECT, courseSlug: SLUG } });
