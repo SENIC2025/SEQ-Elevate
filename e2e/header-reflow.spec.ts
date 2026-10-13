@@ -3,12 +3,13 @@ import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 
 /**
- * Signed-in pages fit a 320px phone (WCAG 1.4.10 Reflow) in every language:
- * a learner's, and a staff member's with the workspace menu. A long address
- * used to push a learner's page 2px sideways and a staff header 7–10px; a
+ * Pages fit a 320px phone (WCAG 1.4.10 Reflow) in every language: the home
+ * page for a guest, a learner's pages, and a staff member's with the
+ * workspace menu. A long address pushed a learner's page 2px sideways and a
+ * staff header 7-10px; the guest home page's header 21px in German; a
  * learner with progress pushed "Support learners" 44px in German (its "open"
- * button couldn't wrap), and a visually hidden table heading escaped the
- * people table's scroll box and widened "Manage people" by 364px.
+ * button couldn't wrap); and visually hidden, positioned text escaped the
+ * scroll boxes of the people table (364px) and the course step bar (105px).
  *
  * Requires a real database — gated on E2E_DB=1, like db-backed-progress.
  * Everything it creates is unique to this run and removed afterwards.
@@ -67,7 +68,7 @@ async function signIn(context: BrowserContext, sessionToken: string) {
   ]);
 }
 
-describe("signed-in pages on a 320px phone", () => {
+describe("pages on a 320px phone", () => {
   test.use({ viewport: { width: 320, height: 640 } });
 
   let learnerSession: string;
@@ -105,6 +106,8 @@ describe("signed-in pages on a 320px phone", () => {
 
   for (const [who, path] of [
     ["learner", "/learner"],
+    // Seven steps in the step bar, which scrolls on its own.
+    ["learner", "/learner/course/workplace-conflict"],
     ["staff", "/facilitator"],
     ["staff", "/admin"],
     ["staff", "/admin/people"],
@@ -171,5 +174,24 @@ describe("signed-in pages on a 320px phone", () => {
     await expect(steps.getByRole("button", { name: /Schnellcheck/ })).toBeVisible();
     await page.waitForLoadState("networkidle");
     await page.goto("about:blank");
+  });
+
+  test("the home page doesn't scroll sideways for a guest, in English, German and Greek", async ({
+    page,
+    context,
+  }) => {
+    await context.clearCookies();
+    for (const locale of ["en", "de", "el"]) {
+      await page.goto(`/${locale}`);
+      await expect(page.getByRole("heading", { level: 1 })).toBeVisible({
+        timeout: 15000,
+      });
+      const overflow = await page.evaluate(
+        () =>
+          document.documentElement.scrollWidth -
+          document.documentElement.clientWidth
+      );
+      expect(overflow, `${locale}: no horizontal scrolling`).toBeLessThanOrEqual(0);
+    }
   });
 });

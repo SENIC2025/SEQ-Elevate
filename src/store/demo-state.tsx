@@ -735,7 +735,9 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
     // Opening a course doesn't enroll anyone: nothing done, nothing saved.
     if (snap === courseScheduled.current || !hasCourseProgress(snap)) return;
     // This change finishes the course: it's sent at once, not after the
-    // pause, so a learner who leaves on "Course complete" keeps it.
+    // pause, so a learner who leaves on "Course complete" keeps it. (Next
+    // runs server actions one at a time, so it can still wait behind one
+    // already on its way, such as the last step's time; usually a moment.)
     const prev = courseScheduled.current;
     const finishedNow =
       !!snap.completedAt &&
@@ -826,7 +828,9 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
   // ---- Unmounting: send what's still waiting now ----
   // A tab that's hidden (another app, another tab) or closed sends what's
   // waiting now: the pause before a save would otherwise outlive the page.
-  // Only what was already scheduled, under the rules above, is sent.
+  // Only what was already scheduled, under the rules above, is sent. A
+  // closing page can still drop it if another server action is ahead of it
+  // in Next's queue: this narrows the gap, it doesn't close it.
   React.useEffect(() => {
     const sendWaiting = () => {
       courseSave.flush();

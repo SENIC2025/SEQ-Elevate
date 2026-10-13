@@ -49,12 +49,15 @@ export function LandingPage() {
   return (
     <div className="flex-1 flex flex-col">
       <header className="border-b border-[var(--border)] bg-[var(--surface)]/90 backdrop-blur">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
+        {/* Fits a 320px phone in every language (WCAG 1.4.10): below 360px
+            the product name is left to screen readers (the logo stays), and
+            the sides and gaps tighten. */}
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-1.5 px-3 py-3 min-[360px]:gap-2 min-[360px]:px-4">
           <div className="flex items-center gap-2 font-semibold tracking-tight">
             <BrandLogo variant="mark" width={21} className="shrink-0" />
-            <span>{tCommon("appName")}</span>
+            <span className="sr-only min-[360px]:not-sr-only">{tCommon("appName")}</span>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 min-[360px]:gap-2">
             <Link
               href="/signin"
               className="flex items-center gap-1.5 rounded-full bg-[var(--accent)] px-3.5 py-1.5 text-sm font-medium text-white hover:bg-[var(--accent-hover)]"

@@ -29,7 +29,12 @@ export function StageBreadcrumb({
   const currentIndex = stages.indexOf(current);
 
   return (
-    <nav aria-label={tCourse("stepsNav")} className="w-full overflow-x-auto">
+    // relative: on a phone the step names are visually hidden, and
+    // positioned; without it they escape this scroll box and widen the page.
+    <nav
+      aria-label={tCourse("stepsNav")}
+      className="relative w-full overflow-x-auto"
+    >
       <ol className="flex items-center gap-1 min-w-max">
         {stages.map((stage, i) => {
           const isCurrent = stage === current;
