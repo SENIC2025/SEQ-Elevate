@@ -417,4 +417,27 @@ describe("Release 0 — exercise drafts", () => {
     expect(quiz?.questions?.[0]?.question).toEqual({ de: "Was ist eine Ich-Botschaft?" });
     expect(row?.structureDraft).toBeNull();
   });
+
+  test("in German the editor names the lesson as the course page does", async ({
+    page,
+    context,
+  }) => {
+    await useSession(context, editorSession);
+    await page.goto(`/de/content/courses/${SLUG}?lesson=assessment`);
+    // Heading and region name in the menu language, with the page's own
+    // name for this lesson — not "Interactive stage — Assessment".
+    const panel = page
+      .locator("#lesson-assessment")
+      .filter({ visible: true })
+      .getByRole("region", { name: "Interaktive Lektion — Schnellcheck" });
+    await expect(panel.getByRole("textbox", { name: /^einleitung$/i })).toBeVisible({
+      timeout: 15000,
+    });
+    // The lesson is a "Lektion" throughout, never a "Teil" or an "Übung".
+    await expect(panel.getByRole("textbox", { name: /^titel der lektion$/i })).toBeVisible();
+    await expect(panel.getByRole("button", { name: /^lektion speichern$/i })).toBeVisible();
+    await expect(panel.getByRole("button", { name: /^lektion entfernen$/i })).toBeVisible();
+    await expect(panel.getByText(/\bTeil\b|Übung/)).toHaveCount(0);
+  });
 });
+

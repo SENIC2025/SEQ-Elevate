@@ -867,6 +867,12 @@
       "load": "Diese Lektion konnte nicht geladen werden. Lade die Seite neu, um es noch einmal zu versuchen."
     },
     "loading": "Wird geladen …",
+    "region": {
+      "fallback": "Interaktive Lektion",
+      "simulation": "Interaktive Lektion — Geführte Übung",
+      "scenario": "Interaktive Lektion — Anwendung",
+      "assessment": "Interaktive Lektion — Schnellcheck"
+    },
     "fields": {
       "stageTitle": "Titel der Lektion",
       "prompt": "Ausgangssituation",

@@ -867,6 +867,12 @@
       "load": "Couldn't load this stage. Reload the page to try again."
     },
     "loading": "Loading…",
+    "region": {
+      "fallback": "Interactive stage",
+      "simulation": "Interactive stage — Simulation",
+      "scenario": "Interactive stage — Scenario",
+      "assessment": "Interactive stage — Assessment"
+    },
     "fields": {
       "stageTitle": "Stage title",
       "prompt": "Prompt (the situation)",

@@ -1,4 +1,6 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import en from "@/messages/en.json";
 import de from "@/messages/de.json";
 import el from "@/messages/el.json";
@@ -44,5 +46,29 @@ describe("exercise editor wording", () => {
   it("English keeps the button names the end-to-end tests look for", () => {
     expect(en.exerciseEditor.actions.saveStage).toBe("Save stage");
     expect(en.exerciseEditor.actions.removeStage).toBe("Remove stage");
+  });
+
+  it("names the editor's region in the menu language, with the page's lesson names", () => {
+    const kinds = ["simulation", "scenario", "assessment"] as const;
+    // End-to-end specs find the region by these English names.
+    expect(kinds.map((k) => en.exerciseEditor.region[k])).toEqual([
+      "Interactive stage — Simulation",
+      "Interactive stage — Scenario",
+      "Interactive stage — Assessment",
+    ]);
+    for (const messages of [de, el]) {
+      for (const kind of kinds) {
+        expect(messages.exerciseEditor.region[kind]).toBe(
+          `${messages.exerciseEditor.region.fallback} — ${messages.course.stageLabel[kind]}`
+        );
+      }
+    }
+  });
+
+  it("takes the region name from the messages, not from English in the code", () => {
+    const source = (file: string) =>
+      readFileSync(join(__dirname, "..", "components", file), "utf8");
+    expect(source("course-manager/LessonSection.tsx")).not.toMatch(/Interactive stage/);
+    expect(source("role/StructureAuthor.tsx")).not.toMatch(/"Interactive stage"/);
   });
 });

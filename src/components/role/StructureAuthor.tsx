@@ -196,7 +196,7 @@ export function StructureAuthor({
   locale: Locale;
   /** Says whether "Save stage" goes live at once (published) or not. */
   courseStatus?: CourseStatus;
-  /** Heading and region name, e.g. "Interactive stage — Simulation". */
+  /** Heading and region name, in the menu language (exerciseEditor.region). */
   regionLabel?: string;
   /** Inside a lesson on the course page: lighter frame. */
   embedded?: boolean;
@@ -460,7 +460,7 @@ export function StructureAuthor({
             className="text-sm font-semibold flex items-center gap-1.5"
           >
             <Puzzle className="h-4 w-4 text-[var(--accent)]" aria-hidden />
-            {regionLabel ?? "Interactive stage"}
+            {regionLabel ?? t("region.fallback")}
           </h3>
           <Badge variant={authored ? "accent" : "muted"} className="text-[10px]">
             {authored ? t("badge.added") : t("badge.notAdded")}
