@@ -233,8 +233,35 @@ describe("discardStructureDraft", () => {
 describe("clearStructure", () => {
   it("removes the stage and its draft", async () => {
     db.lesson = { structure: complete, structureDraft: unfinished };
-    await clearStructure(SLUG, "scenario");
+    const res = await clearStructure(SLUG, "scenario", {
+      structure: complete,
+      draft: unfinished,
+    });
+    expect(res).toEqual({ ok: true });
     expect(db.lesson).toEqual({ structure: null, structureDraft: null });
+    expect(db.audit.map((a) => a.action)).toEqual(["structure.cleared"]);
+  });
+
+  it("doesn't delete a draft a colleague saved since the page opened", async () => {
+    // The page opened on the live stage with no draft; a colleague has
+    // since saved an unfinished rewrite as a draft.
+    db.lesson = { structure: complete, structureDraft: unfinished };
+    const res = await clearStructure(SLUG, "scenario", {
+      structure: complete,
+      draft: null,
+    });
+    expect(res).toEqual({ ok: false, error: "changed-elsewhere" });
+    expect(db.lesson).toEqual({ structure: complete, structureDraft: unfinished });
+    expect(db.audit).toEqual([]);
+  });
+
+  it("refuses a request without the version it started from", async () => {
+    db.lesson = { structure: complete, structureDraft: unfinished };
+    expect(await clearStructure(SLUG, "scenario", undefined as never)).toEqual({
+      ok: false,
+      error: "bad-input",
+    });
+    expect(db.lesson).toEqual({ structure: complete, structureDraft: unfinished });
   });
 });
 

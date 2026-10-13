@@ -199,8 +199,9 @@ export function StructureAuthor({
   // Why the last "Save stage" was refused, as the server said it.
   const [notReady, setNotReady] = React.useState<StructureIssue[]>([]);
   const [error, setError] = React.useState("");
-  // Someone else saved this stage after it was loaded here.
-  const [conflict, setConflict] = React.useState(false);
+  // Someone else saved this stage after it was loaded here, found by a
+  // refused save or a refused "Remove stage".
+  const [conflict, setConflict] = React.useState<"save" | "remove" | null>(null);
   const [reloadKey, setReloadKey] = React.useState(0);
 
   const setEdit = (next: StoredStructure) => {
@@ -227,7 +228,7 @@ export function StructureAuthor({
         const edit = state.draft ?? state.structure ?? emptyStructure(kind);
         setLoaded({ key: `${slug}:${kind}`, edit, saved: edit, base: state });
         setLoadFailed(false);
-        setConflict(false);
+        setConflict(null);
         setNotReady([]);
         setError("");
         // Keep "Removed" / "Draft discarded" after the reload that follows.
@@ -275,7 +276,7 @@ export function StructureAuthor({
   function writeError(code: WriteError | "changed-elsewhere" | "generic") {
     if (code === "changed-elsewhere") {
       // Nothing was written; the edits stay on screen.
-      setConflict(true);
+      setConflict("save");
       return;
     }
     setError(
@@ -294,7 +295,7 @@ export function StructureAuthor({
   function startWrite() {
     setStatus("saving");
     setError("");
-    setConflict(false);
+    setConflict(null);
     setNotReady([]);
   }
 
@@ -385,13 +386,24 @@ export function StructureAuthor({
   }
 
   async function onClear() {
+    if (!ready) return;
     if (!window.confirm(t("confirm.remove"))) return;
     // "Remove stage" goes away once it's done (and so do the lesson's video
     // and documents above): keep focus here, not on the page.
     headingRef.current?.focus();
     startWrite();
-    const res = await clearStructure(slug, kind);
-    if (!res.ok) {
+    try {
+      // With the version this page shows, so a draft a colleague saved since
+      // isn't deleted unseen: the server refuses, and the conflict banner
+      // offers to reload it.
+      const res = await clearStructure(slug, kind, loaded!.base);
+      if (!res.ok) {
+        setStatus("error");
+        if (res.error === "changed-elsewhere") setConflict("remove");
+        else setError(t("errors.removeFailed"));
+        return;
+      }
+    } catch {
       setStatus("error");
       setError(t("errors.removeFailed"));
       return;
@@ -447,7 +459,9 @@ export function StructureAuthor({
                 className="mt-0.5 h-4 w-4 flex-shrink-0 text-[var(--warning)]"
                 aria-hidden
               />
-              <span>{t("conflict")}</span>
+              <span>
+                {conflict === "remove" ? t("conflictRemove") : t("conflict")}
+              </span>
             </p>
             <Button
               size="sm"

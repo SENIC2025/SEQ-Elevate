@@ -847,6 +847,7 @@
       "reload": "Load the saved version of this stage? Your unsaved edits here will be replaced."
     },
     "conflict": "Someone else saved this stage since you opened it, so nothing was saved. Reload it to see their changes — your edits are still here until you do.",
+    "conflictRemove": "Someone else saved this stage since you opened it, so nothing was removed. Reload it to see their changes before you decide.",
     "errors": {
       "forbidden": "Only editors and admins can change courses. Sign in again, or ask your project administrator for the Editor role.",
       "notCms": "Only courses created on the platform can be edited here.",

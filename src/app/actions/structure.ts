@@ -320,17 +320,35 @@ export async function discardStructureDraft(
 /**
  * Remove a stage's structure — the interactive stage disappears from the
  * course — and any draft of it, so nothing of it is left behind.
+ *
+ * Refused like a save ("changed-elsewhere") when the structure or draft
+ * changed since the editor opened the stage: a draft a colleague saved in
+ * the meantime was never shown on this page, and removing the stage must
+ * not delete it unseen.
  */
 export async function clearStructure(
   courseSlug: string,
-  stageKey: StructureStageKey
+  stageKey: StructureStageKey,
+  base: StructureState
 ) {
   const editor = await requireEditor();
-  if (!editor) return { ok: false as const, error: "forbidden" };
-  await prisma.lesson.updateMany({
-    where: { projectId: PROJECT, courseSlug, stageKey },
-    data: { structure: Prisma.DbNull, structureDraft: Prisma.DbNull },
+  if (!editor) return { ok: false as const, error: "forbidden" as const };
+  if (!validTarget(courseSlug, stageKey) || !isBase(base)) {
+    return { ok: false as const, error: "bad-input" as const };
+  }
+  try {
+    await writeIfUnchanged(courseSlug, stageKey, base, {
+      structure: Prisma.DbNull,
+      structureDraft: Prisma.DbNull,
+    });
+  } catch (error) {
+    if (error instanceof ChangedElsewhere) {
+      return { ok: false as const, error: "changed-elsewhere" as const };
+    }
+    throw error;
+  }
+  await audit(editor.id, "structure.cleared", courseSlug, stageKey, {
+    draftCleared: base.draft !== null,
   });
-  await audit(editor.id, "structure.cleared", courseSlug, stageKey);
   return { ok: true as const };
 }

@@ -294,6 +294,42 @@ describe("Release 0 — exercise drafts", () => {
     expect((row?.structure as { setup?: { en?: string } }).setup?.en).toBe(LIVE_SETUP);
   });
 
+  test("removing a stage doesn't delete a draft a colleague saved meanwhile", async ({
+    page,
+    context,
+  }) => {
+    await useSession(context, editorSession);
+    const panel = await openScenario(page);
+    await expect(panel.getByLabel(/^setup$/i)).toHaveValue(LIVE_SETUP);
+    await expect(panel.getByText(/^draft — learners don't see this yet$/i)).toHaveCount(0);
+
+    // A colleague saves a draft after this page opened, so it isn't shown here.
+    const live = (await prisma.lesson.findUnique({ where: lessonWhere("scenario") }))
+      ?.structure as Record<string, unknown>;
+    await prisma.lesson.update({
+      where: lessonWhere("scenario"),
+      data: { structureDraft: { ...live, setup: { en: "E2E colleague's draft" } } },
+    });
+
+    page.once("dialog", (dialog) => void dialog.accept());
+    await panel.getByRole("button", { name: /^remove stage$/i }).click();
+    await expect(panel.getByRole("alert")).toContainText(/so nothing was removed/i, {
+      timeout: 15000,
+    });
+    const row = await prisma.lesson.findUnique({ where: lessonWhere("scenario") });
+    expect((row?.structureDraft as { setup?: { en?: string } } | null)?.setup?.en).toBe(
+      "E2E colleague's draft"
+    );
+    expect((row?.structure as { setup?: { en?: string } } | null)?.setup?.en).toBe(LIVE_SETUP);
+
+    // Reloading shows the colleague's draft, clearly marked.
+    await panel.getByRole("button", { name: /^reload the saved version$/i }).click();
+    await expect(panel.getByLabel(/^setup$/i)).toHaveValue("E2E colleague's draft", {
+      timeout: 15000,
+    });
+    await expect(panel.getByText(/^draft — learners don't see this yet$/i)).toBeVisible();
+  });
+
   test("a field cleared in English saves when German has the text", async ({
     page,
     context,

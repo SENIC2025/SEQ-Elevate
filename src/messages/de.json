@@ -847,6 +847,7 @@
       "reload": "Die gespeicherte Fassung dieses Teils laden? Deine ungespeicherten Änderungen hier werden ersetzt."
     },
     "conflict": "Jemand anderes hat diesen Teil gespeichert, seit du ihn geöffnet hast, deshalb wurde nichts gespeichert. Lade ihn neu, um die Änderungen zu sehen — deine Änderungen bleiben hier, bis du das tust.",
+    "conflictRemove": "Jemand anderes hat diesen Teil gespeichert, seit du ihn geöffnet hast, deshalb wurde nichts entfernt. Lade ihn neu und sieh dir die Änderungen an, bevor du entscheidest.",
     "errors": {
       "forbidden": "Nur die Inhalts-Redaktion und Admins können Kurse ändern. Melde dich erneut an oder bitte die Administration deines Projekts um die Rolle Inhalts-Redaktion.",
       "notCms": "Hier lassen sich nur Kurse bearbeiten, die auf der Plattform erstellt wurden.",
