@@ -27,6 +27,7 @@ import { CompletionStage } from "./CompletionStage";
 import { InteractiveVideoPlayer } from "./InteractiveVideoPlayer";
 import { LessonDocuments } from "./LessonDocuments";
 import { useStageTimer } from "./useStageTimer";
+import { openStepAtTop } from "./step-focus";
 import type { CourseContent, CourseStage, Locale } from "@/lib/cms/types";
 import { ChevronLeft, Pencil } from "lucide-react";
 
@@ -112,8 +113,10 @@ export function CoursePlayer({
 
   const resumeFromProgress = state.course.stagesCompleted.length;
 
-  // Focus management: when the stage changes, move focus to the new stage
-  // so screen-reader users hear the new content (WCAG 2.4.3 Focus Order).
+  // When the stage changes (Continue, Back, the step bar), the new stage
+  // opens at its top, and focus moves to it so screen-reader users hear the
+  // new content (WCAG 2.4.3 Focus Order) — without the focus scrolling the
+  // page, which would cut the scroll short (see step-focus.ts).
   const stageRef = useRef<HTMLDivElement>(null);
   const firstRender = useRef(true);
   useEffect(() => {
@@ -121,7 +124,7 @@ export function CoursePlayer({
       firstRender.current = false;
       return;
     }
-    stageRef.current?.focus();
+    openStepAtTop(stageRef.current, window);
   }, [current]);
 
   // Record which course is being played, so Comp Card / facilitator views
@@ -176,8 +179,6 @@ export function CoursePlayer({
     } else {
       setCurrent(orderedKeys[idx + 1]);
     }
-    if (typeof window !== "undefined")
-      window.scrollTo({ top: 0, behavior: "smooth" });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [current, dispatch]);
 
@@ -189,15 +190,11 @@ export function CoursePlayer({
     const idx = orderedKeys.indexOf(current);
     if (idx === 0) return;
     setCurrent(orderedKeys[idx - 1]);
-    if (typeof window !== "undefined")
-      window.scrollTo({ top: 0, behavior: "smooth" });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [current]);
 
   const jumpTo = useCallback((stage: Stage) => {
     setCurrent(stage);
-    if (typeof window !== "undefined")
-      window.scrollTo({ top: 0, behavior: "smooth" });
   }, []);
 
   const breadcrumbCurrent: Stage =

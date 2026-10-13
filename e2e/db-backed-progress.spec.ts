@@ -3727,7 +3727,8 @@ describe("statistics dashboard — live data from real events", () => {
           stagesCompleted: completed
             ? [...STAGE_KEYS]
             : STAGE_KEYS.slice(0, i + 1),
-          assessment: i >= 3 ? { q1: "a", q2: "b", q3: "c" } : {},
+          assessment:
+            i >= 3 ? { answers: { q1: "a", q2: "b", q3: "c" }, checked: true } : {},
           completedAt: completed ? new Date() : null,
         },
       });

@@ -13,6 +13,11 @@
  * Pure (no React, no server): DemoStateProvider in demo-state.tsx applies it.
  */
 
+import {
+  hasAssessmentProgress,
+  mergeAssessment,
+  readAssessment,
+} from "@/lib/assessment-progress";
 import type { CompCardData, CourseProgress, DemoState } from "./demo-state";
 
 /** An answer counts once it has more than whitespace in it. */
@@ -20,7 +25,7 @@ const answered = (text: string) => text.trim() !== "";
 
 /** Has the learner done anything in this course yet? */
 export function hasCourseProgress(course: CourseProgress): boolean {
-  const { reflection: r, assessment: a } = course;
+  const { reflection: r } = course;
   return (
     course.stagesCompleted.length > 0 ||
     course.simulation !== null ||
@@ -28,9 +33,7 @@ export function hasCourseProgress(course: CourseProgress): boolean {
     answered(r.p1) ||
     answered(r.p2) ||
     answered(r.p3) ||
-    a.q1 !== null ||
-    a.q2 !== null ||
-    a.q3 !== null ||
+    hasAssessmentProgress(course.assessment) ||
     course.completedAt !== null
   );
 }
@@ -40,7 +43,10 @@ export function hasCourseProgress(course: CourseProgress): boolean {
  * different courseSlug there is nothing to merge and `local` comes back.
  *
  * - stages: the saved ones in their order, then any new local ones;
- * - simulation, assessment answers: the local choice, else the saved one;
+ * - simulation, quick-check answers (by question id): the local choice,
+ *   else the saved one; a check from either side holds unless a local
+ *   answer differs from the saved one, which opens the quiz again (see
+ *   assessment-progress.ts);
  * - scenario: the local path if one was started (root and follow-up belong
  *   together), else the saved path;
  * - reflection: each local answer that isn't empty, else the saved one;
@@ -68,11 +74,7 @@ export function mergeCourseProgress(
       p2: text(local.reflection.p2, saved.reflection.p2),
       p3: text(local.reflection.p3, saved.reflection.p3),
     },
-    assessment: {
-      q1: local.assessment.q1 ?? saved.assessment.q1,
-      q2: local.assessment.q2 ?? saved.assessment.q2,
-      q3: local.assessment.q3 ?? saved.assessment.q3,
-    },
+    assessment: mergeAssessment(local.assessment, saved.assessment),
     completedAt: saved.completedAt ?? local.completedAt,
   };
 }
@@ -176,5 +178,30 @@ export function guestStateAfterHydrate(
       stored.compCard,
       blank.compCard
     ),
+  };
+}
+
+/**
+ * A copy of the store read back from this browser's guest store (`raw`,
+ * parsed JSON), with what it lacks taken from the empty store (`blank`).
+ * The guest store may hold a copy written by an older page: one from before
+ * quick-check answers were kept holds three empty slots, which are read as
+ * a quick check not yet answered (assessment-progress.ts). Anything that
+ * isn't a stored copy at all is the empty store.
+ */
+export function storedGuestState(raw: unknown, blank: DemoState): DemoState {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return blank;
+  const stored = raw as Partial<DemoState>;
+  const course = (stored.course ?? {}) as Partial<CourseProgress>;
+  return {
+    ...blank,
+    ...stored,
+    badges: Array.isArray(stored.badges) ? stored.badges : blank.badges,
+    course: {
+      ...blank.course,
+      ...course,
+      assessment: readAssessment(course.assessment),
+    },
+    compCard: { ...blank.compCard, ...stored.compCard },
   };
 }

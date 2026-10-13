@@ -32,7 +32,7 @@ const course: CourseProgress = {
   simulation: null,
   scenario: { root: null, followup: null, rootLabel: null, followupLabel: null },
   reflection: { p1: "", p2: "", p3: "" },
-  assessment: { q1: null, q2: null, q3: null },
+  assessment: { answers: {}, checked: false },
   completedAt: null,
 };
 
@@ -90,6 +90,23 @@ describe("migrateGuest", () => {
       course,
       wrote: true,
     });
+  });
+
+  it("moves the guest's quick-check answers, and whether they were checked, with the course", async () => {
+    const answered: CourseProgress = {
+      ...course,
+      stagesCompleted: [...course.stagesCompleted, "assessment"],
+      assessment: { answers: { qk3f: "a1x", q9zz: "a4x" }, checked: true },
+    };
+    const { writes: w, server } = writes();
+    const moved = await migrateGuest(
+      { ...guest, course: answered },
+      nothingSaved,
+      w,
+      retry
+    );
+    expect(server.course?.assessment).toEqual(answered.assessment);
+    expect(moved.course?.assessment).toEqual(answered.assessment);
   });
 
   it("tries a write that finds no session again, and gets it through", async () => {

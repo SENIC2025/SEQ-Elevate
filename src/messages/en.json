@@ -492,6 +492,12 @@
     "preview": "<b>Preview.</b> Nothing you do here is saved.",
     "backToEditing": "Back to editing"
   },
+  "continueHint": {
+    "simulation": "Choose an answer to continue.",
+    "scenario": "To continue, choose what you would do.",
+    "scenarioFollowup": "Answer the follow-up question to continue.",
+    "assessment": "Answer every question, then select “{button}” to continue."
+  },
   "video": {
     "regionLabel": "Lesson video",
     "interactiveBadge": "{count, plural, one {# question} other {# questions}}",
