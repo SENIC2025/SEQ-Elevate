@@ -239,6 +239,28 @@ async function savedAssessment(userId: string, slug: string) {
   return e?.assessment ?? null;
 }
 
+/**
+ * Continue from the checked quick check to "Course complete", and wait until
+ * the completion is saved: the course's last save waits out a short pause
+ * (~0.7 s) and is lost if the page is left before it goes.
+ */
+async function finishCourse(page: Page, userId: string, slug: string) {
+  await cont(page).click();
+  await expect(page.getByRole("heading", { name: /course complete/i })).toBeVisible();
+  await expect
+    .poll(
+      async () => {
+        const course = await prisma.course.findFirst({ where: { projectId: PROJECT, slug } });
+        const e = await prisma.courseEnrollment.findFirst({
+          where: { userId, courseId: course!.id },
+        });
+        return !!e?.completedAt && e.stagesCompleted.includes("ASSESSMENT");
+      },
+      { timeout: 15_000 }
+    )
+    .toBe(true);
+}
+
 test.describe("R0 player — as a guest", () => {
   test("practice steps say what Continue waits for; a checked quick check comes back locked, and can be tried again", async ({
     page,
@@ -436,10 +458,7 @@ dbDescribe("R0 player — quick-check answers are saved to the account", () => {
       .poll(() => savedAssessment(userId, BUILT_IN), { timeout: 15_000 })
       .toEqual({ answers: { q1: "a", q2: "b", q3: "b" }, checked: true });
 
-    await cont(page).click();
-    await expect(
-      page.getByRole("heading", { name: /course complete/i })
-    ).toBeVisible();
+    await finishCourse(page, userId, BUILT_IN);
 
     await expectCheckedOnReturn(
       page,
@@ -528,15 +547,16 @@ dbDescribe("R0 player — quick-check answers are saved to the account", () => {
 
     // The narrative steps are always there: four of them to the quick check.
     await page.goto(`/en/learner/course/${SLUG}`);
+    const step = page.locator("[aria-current=step]");
+    // Retried until hydration has caught up, never past step 2 (see next()).
     await expect(async () => {
+      if ((await step.textContent())?.trim().startsWith("1")) await cont(page).click();
+      await expect(step).toContainText("2", { timeout: 5000 });
+    }).toPass({ timeout: 20_000 });
+    for (const n of ["3", "4", "5"]) {
       await cont(page).click();
-      await expect(page.locator("[aria-current=step]")).toContainText("2", {
-        timeout: 2000,
-      });
-    }).toPass({ timeout: 15_000 });
-    await cont(page).click();
-    await cont(page).click();
-    await cont(page).click();
+      await expect(step).toContainText(n);
+    }
 
     const chosen = [
       "First: right",
@@ -568,10 +588,7 @@ dbDescribe("R0 player — quick-check answers are saved to the account", () => {
         checked: true,
       });
 
-    await cont(page).click();
-    await expect(
-      page.getByRole("heading", { name: /course complete/i })
-    ).toBeVisible();
+    await finishCourse(page, userId, SLUG);
     await expectCheckedOnReturn(
       page,
       `/en/learner/course/${SLUG}`,

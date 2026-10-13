@@ -234,7 +234,11 @@ describe("Release 0 — exercise drafts", () => {
       ).toBeVisible();
       await expect(nav.getByRole("button", { name: /^add an applied scenario/i })).toHaveCount(0);
       await expect(
-        page.getByText("The “Applied scenario” lesson has a draft that learners don't see yet.")
+        page
+          .getByText("The “Applied scenario” lesson has a draft that learners don't see yet.")
+          // The readiness list is on the page twice (side panel and the
+          // narrow-screen copy); one shows at a time.
+          .filter({ visible: true })
       ).toBeVisible();
     } finally {
       await prisma.course.updateMany({
