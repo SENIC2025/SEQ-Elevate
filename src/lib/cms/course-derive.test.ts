@@ -17,7 +17,13 @@ import type {
   NarrativeInitial,
 } from "./course-admin-types";
 import type { Locale, StageKey } from "./types";
-import { mainKindOf } from "./sections/contract";
+import {
+  mainKindOf,
+  type NewOnlyReason,
+  type PartView,
+  type SectionsMeta,
+} from "./sections/contract";
+import { resolveOutline } from "./sections/outline";
 
 const sim = (text: Partial<Record<Locale, string>>): StoredStructure => ({
   kind: "simulation",
@@ -405,5 +411,130 @@ describe("offersAdd", () => {
 
   it("never offers to add a lesson learners already have", () => {
     expect(offersAdd(lesson("scenario", {}, { structure: scenario }))).toBe(false);
+  });
+});
+
+/* ---------------------- Release 1: lesson list and content ---------------------- */
+
+const meta = (over: Partial<SectionsMeta> = {}): SectionsMeta => {
+  const resolved = resolveOutline("cms", null, []);
+  return {
+    version: "v",
+    resolved,
+    reasons: [],
+    freeKeys: ["simulation", "scenario", "assessment"],
+    hasLabels: false,
+    max: 15,
+    warnAbove: 12,
+    ...over,
+  };
+};
+
+const question = (id: `p-${string}`, draft: boolean): PartView => ({
+  id,
+  type: "quiz",
+  data: null,
+  draft: draft ? { kind: "assessment", intro: {}, questions: [] } : null,
+  versions: { data: null, draft: draft ? "d" : null },
+  itemVersion: "i",
+  issues: [],
+});
+
+describe("publishReadiness with the lesson list", () => {
+  const base = () => outline([lesson("concept", { en: 1, de: 1, el: 1 })]);
+
+  it("says nothing new about a standard course", () => {
+    expect(publishReadiness({ ...base(), sections: meta() })).toEqual(publishReadiness(base()));
+    expect(publishReadiness({ ...base(), sections: null })).toEqual(publishReadiness(base()));
+  });
+
+  it("puts one blocker per reason first, naming the lesson", () => {
+    const reasons: NewOnlyReason[] = [
+      { code: "custom-section", sectionId: "s-abcdefgh" },
+      { code: "reordered" },
+    ];
+    const issues = publishReadiness({ ...base(), sections: meta({ reasons }) });
+    expect(issues.slice(0, 2)).toEqual([
+      { level: "blocker", code: "needs-release-2", reason: reasons[0], stage: "s-abcdefgh" },
+      { level: "blocker", code: "needs-release-2", reason: reasons[1] },
+    ]);
+    expect(issues.slice(2)).toEqual(publishReadiness(base()));
+  });
+
+  it("names each piece of extra content with a draft learners don't see", () => {
+    const issues = publishReadiness({
+      ...outline([
+        lesson("concept", { en: 1, de: 1, el: 1 }, {
+          parts: {
+            order: "o",
+            items: [{ id: "main", type: "main" }, question("p-aaaaaaaa", true), question("p-bbbbbbbb", false)],
+          },
+        }),
+      ]),
+      sections: meta(),
+    });
+    expect(issues).toContainEqual({ level: "warning", code: "part-draft", stage: "concept", part: "p-aaaaaaaa" });
+    expect(issues.filter((i) => i.code === "part-draft")).toHaveLength(1);
+  });
+
+  it("notes that learners get the step names from Release 2", () => {
+    expect(publishReadiness({ ...base(), sections: meta({ hasLabels: true }) })).toContainEqual({
+      level: "info",
+      code: "labels-later",
+    });
+  });
+
+  it("warns above 12 visible lessons", () => {
+    const sections = (n: number, hidden = 0) =>
+      Array.from({ length: n }, (_, i) => ({
+        id: `s-${String(i).padStart(8, "0")}` as const,
+        template: "text" as const,
+        custom: true,
+        ...(i < hidden ? { hidden: true as const } : {}),
+      }));
+    const many = (n: number, hidden = 0) =>
+      publishReadiness({
+        ...base(),
+        sections: meta({ resolved: { sections: sections(n, hidden), removed: [], materialised: true } }),
+      }).filter((i) => i.code === "sections-many");
+    expect(many(12)).toEqual([]);
+    expect(many(13)).toEqual([{ level: "warning", code: "sections-many", count: 13 }]);
+    expect(many(14, 2)).toEqual([]);
+  });
+});
+
+describe("coverage of a lesson of the course's own", () => {
+  it("reads its main content by its kind", () => {
+    const quiz = { stageKey: "s-abcdefgh", mainKind: "assessment" as const, structure: sim({ en: "Hi" }) };
+    expect(lessonCoveredIn("cms", "s-abcdefgh", quiz, "en")).toBe(true);
+    expect(lessonCoveredIn("cms", "s-abcdefgh", quiz, "de")).toBe(false);
+    const text = { stageKey: "s-abcdefgh", mainKind: "narrative" as const, narrative: narrative("de") };
+    expect(lessonCoveredIn("cms", "s-abcdefgh", text, "de")).toBe(true);
+    expect(lessonCoveredIn("cms", "s-abcdefgh", text, "en")).toBe(false);
+    // Unwritten text is missing, not the reflection's localised defaults.
+    expect(lessonCoveredIn("cms", "s-abcdefgh", { stageKey: "s-abcdefgh", mainKind: "narrative" }, "en")).toBe(false);
+  });
+
+  it("counts it with the standard lessons", () => {
+    const lessons: LessonFacts[] = [
+      { stageKey: "context", narrative: narrative("en") },
+      { stageKey: "s-abcdefgh", mainKind: "simulation", structure: sim({ en: "a", de: "b" }) },
+    ];
+    expect(languageCoverage("cms", { en: { title: "X" } }, lessons, ["context", "s-abcdefgh"]).de).toEqual({
+      state: "partial",
+      covered: 1,
+      total: 2,
+    });
+  });
+
+  it("keeps today's rule for a standard lesson, whatever kind it is given", () => {
+    for (const key of ["context", "reflection", "scenario"] as const) {
+      for (const locale of ["en", "de"] as const) {
+        const row = { stageKey: key, narrative: narrative("en"), structure: sim({ en: "a" }) };
+        expect(lessonCoveredIn("cms", key, { ...row, mainKind: mainKindOf({ id: key, template: key }) }, locale)).toBe(
+          lessonCoveredIn("cms", key, row, locale)
+        );
+      }
+    }
   });
 });

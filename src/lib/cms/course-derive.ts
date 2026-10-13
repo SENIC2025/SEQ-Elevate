@@ -19,21 +19,29 @@ import {
   type StoredScenarioChoice,
   type StoredStructure,
 } from "./structure";
-import type {
-  CourseKind,
-  CourseOutline,
-  LanguageCoverage,
-  LessonOutline,
-  ReadinessIssue,
+import {
+  isStageKey,
+  type CourseKind,
+  type CourseOutline,
+  type LanguageCoverage,
+  type LessonOutline,
+  type ReadinessIssue,
 } from "./course-admin-types";
 import type { Locale, StageKey } from "./types";
 import { blockHasText, metaHasText, narrativeHasText } from "./text-fallback";
+import type { MainKind } from "./sections/contract";
 
 const LOCALES: readonly Locale[] = ["en", "de", "el"];
 
 /** The subset of a Lesson row these rules read. */
 export interface LessonFacts {
   stageKey: string;
+  /**
+   * What the lesson's main content is (its section's mainKindOf). Needed for
+   * a lesson of the course's own ("s-…"), whose key doesn't say; a standard
+   * lesson's is its key's, which is also the default.
+   */
+  mainKind?: MainKind;
   narrative?: unknown;
   structure?: unknown;
   updatedAt?: Date | string | null;
@@ -42,6 +50,12 @@ export interface LessonFacts {
 
 const isInteractive = (key: string): boolean =>
   (STRUCTURE_STAGE_KEYS as readonly string[]).includes(key);
+
+/** A standard lesson's main content, by its key (sections/contract mainKindOf). */
+function keyKind(key: string): MainKind {
+  if (isInteractive(key)) return key as MainKind;
+  return key === "reflection" ? "reflection" : "narrative";
+}
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -109,12 +123,15 @@ type LessonState = "authored" | "default" | "missing";
  */
 function lessonState(
   kind: CourseKind,
-  key: StageKey,
+  key: string,
   lesson: LessonFacts | undefined,
   locale: Locale
 ): LessonState {
   if (kind === "bundled") return "authored";
-  if (isInteractive(key)) {
+  // A standard lesson's key decides, as before; a lesson of the course's own
+  // is read by its main content's kind.
+  const main = isStageKey(key) ? keyKind(key) : (lesson?.mainKind ?? "narrative");
+  if (isInteractive(main)) {
     const s = asRecord(lesson?.structure);
     return s && structureHasLocale(s as unknown as StoredStructure, locale)
       ? "authored"
@@ -128,14 +145,14 @@ function lessonState(
   // language (db-course.ts DEFAULTS), so it reads fine in each of them.
   const written =
     narrative && Object.values(narrative).some(narrativeHasText);
-  if (key === "reflection" && !written) return "default";
+  if (main === "reflection" && !written) return "default";
   return "missing";
 }
 
 /** Do learners get this lesson in `locale`, rather than another language? */
 export function lessonCoveredIn(
   kind: CourseKind,
-  key: StageKey,
+  key: string,
   lesson: LessonFacts | undefined,
   locale: Locale
 ): boolean {
@@ -156,7 +173,7 @@ export function languageCoverage(
   kind: CourseKind,
   meta: unknown,
   lessons: LessonFacts[],
-  presentKeys: readonly StageKey[]
+  presentKeys: readonly string[]
 ): Record<Locale, LanguageCoverage> {
   const byStage = new Map(lessons.map((l) => [l.stageKey, l]));
   const copy = asRecord(meta);
@@ -211,10 +228,14 @@ export function offersAdd(lesson: Pick<LessonOutline, "addable" | "draft">): boo
 }
 
 /**
- * Things worth knowing before publishing. Warnings only — publishing is never
- * blocked, since a course half-translated today is still useful in the
- * language it is written in (learners get fallbacks).
+ * Things worth knowing before publishing. Warnings and info never block
+ * publishing, since a course half-translated today is still useful in the
+ * language it is written in (learners get fallbacks). Blockers do (D57):
+ * one per way the lesson list differs from what learners get, and they come
+ * first.
  *
+ * - needs-release-2:     (blocker) one per reason of sections.reasons
+ *                        (sections/guard.ts), naming the lesson if it is one;
  * - copy-missing:        a CMS course has no title/subtitle in a language;
  * - lesson-empty:        a CMS narrative lesson has no blocks in any language;
  * - lesson-untranslated: lessons with text in some language but not this one
@@ -222,13 +243,33 @@ export function offersAdd(lesson: Pick<LessonOutline, "addable" | "draft">): boo
  * - lesson-draft:        an interactive lesson has an unfinished draft that
  *                        learners don't see (whether or not they see an
  *                        earlier version of the lesson);
- * - no-interactive:      a CMS course has no simulation/scenario/quick check.
+ * - part-draft:          a lesson's extra content has a draft that isn't
+ *                        saved for learners (or the preview);
+ * - sections-many:       more than 12 lessons learners would see — fine,
+ *                        but long for one sitting;
+ * - no-interactive:      a CMS course has no simulation/scenario/quick check;
+ * - labels-later:        (info) step names were written, which learners see
+ *                        from Release 2 (D58).
+ *
+ * Without the lesson list (`sections` absent or null: a built-in course, or
+ * a loader before Release 1) the issues are exactly Release 0's.
  */
 export function publishReadiness(
-  outline: Pick<CourseOutline, "kind" | "copy" | "lessons">
+  outline: Pick<CourseOutline, "kind" | "copy" | "lessons"> &
+    Partial<Pick<CourseOutline, "sections">>
 ): ReadinessIssue[] {
   if (outline.kind !== "cms") return [];
   const issues: ReadinessIssue[] = [];
+  const sections = outline.sections ?? null;
+
+  for (const reason of sections?.reasons ?? []) {
+    issues.push({
+      level: "blocker",
+      code: "needs-release-2",
+      reason,
+      ...(reason.sectionId ? { stage: reason.sectionId } : {}),
+    });
+  }
 
   for (const locale of LOCALES) {
     if (outline.copy[locale]?.source === "fallback") {
@@ -277,8 +318,24 @@ export function publishReadiness(
     }
   }
 
+  for (const l of outline.lessons) {
+    for (const p of l.parts?.items ?? []) {
+      if (p.type !== "main" && p.type !== "text" && p.draft) {
+        issues.push({ level: "warning", code: "part-draft", stage: l.key, part: p.id });
+      }
+    }
+  }
+
+  if (sections) {
+    const visible = sections.resolved.sections.filter((s) => !s.hidden).length;
+    if (visible > sections.warnAbove) {
+      issues.push({ level: "warning", code: "sections-many", count: visible });
+    }
+  }
+
   if (!present.some((l) => l.body === "interactive")) {
     issues.push({ level: "info", code: "no-interactive" });
   }
+  if (sections?.hasLabels) issues.push({ level: "info", code: "labels-later" });
   return issues;
 }
