@@ -228,6 +228,30 @@ const FIELD_ISSUES: ReadonlySet<StructureIssueCode> = new Set<StructureIssueCode
 const PLACES = ["option", "choice", "followup", "question", "answer"] as const;
 
 /**
+ * Every text box in the editor, by the code that names it: the reasons'
+ * codes for the boxes a reason can be about, plus the boxes that may stay
+ * blank — which no reason names, but a size limit can (sanitizeStructure).
+ */
+export const STRUCTURE_FIELD_CODES = [
+  "stageTitle",
+  "simPrompt",
+  "simInstruction",
+  "simOptionText",
+  "simOptionFeedback",
+  "scenarioSetup",
+  "scenarioQuestion",
+  "scenarioFollowupQuestion",
+  "scenarioChoiceText",
+  "scenarioChoiceOutcome",
+  "scenarioFollowupText",
+  "scenarioFollowupOutcome",
+  "assessmentIntro",
+  "assessmentQuestionText",
+  "assessmentAnswerText",
+] as const;
+export type StructureFieldCode = (typeof STRUCTURE_FIELD_CODES)[number];
+
+/**
  * A key for one text box in the editor: the reason's code plus where it is.
  * The editor gives each box the key of the reason that would name it, so a
  * refused save can mark exactly those boxes as invalid and each reason can
@@ -235,7 +259,7 @@ const PLACES = ["option", "choice", "followup", "question", "answer"] as const;
  * part of an element id.
  */
 export function fieldKey(
-  code: StructureIssueCode,
+  code: StructureIssueCode | StructureFieldCode,
   params: StructureIssue["params"] = {}
 ): string {
   return [code, ...PLACES.flatMap((p) => (params[p] ? [`${p}${params[p]}`] : []))].join(

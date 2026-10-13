@@ -10,7 +10,8 @@ import { PrismaPg } from "@prisma/adapter-pg";
  * course page marks the draft, and so do the warnings before publishing.
  * "Save stage" still refuses an exercise learners would get stuck in, and
  * says exactly which choice and field is missing. A field whose English was
- * cleared no longer blocks a save when another language has text.
+ * cleared no longer blocks a save when another language has text. A stage
+ * saved before the size limits existed, and over them, still saves.
  *
  * Requires a real database — gated on E2E_DB=1, like db-backed-progress.
  * Everything it creates is unique to this run and removed afterwards.
@@ -136,7 +137,14 @@ describe("Release 0 — exercise drafts", () => {
   });
 
   test.afterAll(async () => {
-    if (editorId) await prisma.auditLog.deleteMany({ where: { actorId: editorId } });
+    // Both users' audit rows: the editor's saves, and the learner's course
+    // opens and time on lessons from the player. Filtered through the users'
+    // emails, a constant of this run, so the filter can never come out empty
+    // and match every row (an unset id would, if beforeAll failed early).
+    // Done before the users go: deleting a user keeps their rows, unowned.
+    await prisma.auditLog.deleteMany({
+      where: { actor: { is: { email: { in: EMAILS } } } },
+    });
     // Users first: their enrolments cascade away with them.
     await prisma.user.deleteMany({ where: { email: { in: EMAILS } } });
     await prisma.lesson.deleteMany({ where: { projectId: PROJECT, courseSlug: SLUG } });
@@ -410,4 +418,90 @@ describe("Release 0 — exercise drafts", () => {
     expect(quiz?.questions?.[0]?.question).toEqual({ de: "Was ist eine Ich-Botschaft?" });
     expect(row?.structureDraft).toBeNull();
   });
+
+  test("a stage saved before the size limits still saves after a small fix", async ({
+    page,
+    context,
+  }) => {
+    // Written before Release 0 had limits: a German prompt over 2,000
+    // characters, and eleven options where the editor now offers ten.
+    const longPrompt = "Eine lange Ausgangssituation. ".repeat(80).trim();
+    expect(longPrompt.length).toBeGreaterThan(2_000);
+    const options = Array.from({ length: 11 }, (_, i) => ({
+      id: `o${i + 1}`,
+      isBest: i === 0,
+      text: { en: i === 0 ? "Say it calmy" : `Option ${i + 1}` },
+      feedback: {},
+    }));
+    await prisma.lesson.create({
+      data: {
+        projectId: PROJECT,
+        courseSlug: SLUG,
+        stageKey: "simulation",
+        structure: {
+          kind: "simulation",
+          prompt: { en: "A colleague takes your idea.", de: longPrompt },
+          instruction: {},
+          options,
+        } as Prisma.InputJsonValue,
+      },
+    });
+
+    await useSession(context, editorSession);
+    await page.goto(`/en/content/courses/${SLUG}?lesson=simulation`);
+    const panel = page
+      .locator("#lesson-simulation")
+      .filter({ visible: true })
+      .getByRole("region", { name: /^interactive stage — simulation$/i });
+    const option1 = panel.getByRole("textbox", { name: /^option 1 option text$/i });
+    await expect(option1).toHaveValue("Say it calmy", { timeout: 15000 });
+
+    // Fixing a typo in English saves: what was already over a limit stays.
+    await option1.fill("Say it calmly");
+    await panel.getByRole("button", { name: /^save stage$/i }).click();
+    await expect(panel.getByText(/^saved$/i)).toBeVisible({ timeout: 15000 });
+    await expect(panel.getByRole("alert")).toHaveCount(0);
+    const row = await prisma.lesson.findUnique({ where: lessonWhere("simulation") });
+    const saved = row?.structure as {
+      prompt?: { de?: string };
+      options?: { text?: { en?: string } }[];
+    } | null;
+    expect(saved?.options?.[0]?.text?.en).toBe("Say it calmly");
+    expect(saved?.options).toHaveLength(11);
+    expect(saved?.prompt?.de, "the long German text is kept as it was").toBe(longPrompt);
+
+    // A draft of it saves too.
+    await panel.getByRole("textbox", { name: /^option 2 option text$/i }).fill("Option two");
+    await panel.getByRole("button", { name: /^save draft$/i }).click();
+    await expect(panel.getByText(/^draft saved — learners don't see it yet\.$/i)).toBeVisible({
+      timeout: 15000,
+    });
+    const drafted = await prisma.lesson.findUnique({ where: lessonWhere("simulation") });
+    expect((drafted?.structureDraft as { prompt?: { de?: string } } | null)?.prompt?.de).toBe(
+      longPrompt
+    );
+  });
+
+  test("in German the editor names the lesson as the course page does", async ({
+    page,
+    context,
+  }) => {
+    await useSession(context, editorSession);
+    await page.goto(`/de/content/courses/${SLUG}?lesson=assessment`);
+    // Heading and region name in the menu language, with the page's own
+    // name for this lesson — not "Interactive stage — Assessment".
+    const panel = page
+      .locator("#lesson-assessment")
+      .filter({ visible: true })
+      .getByRole("region", { name: "Interaktive Lektion — Schnellcheck" });
+    await expect(panel.getByRole("textbox", { name: /^einleitung$/i })).toBeVisible({
+      timeout: 15000,
+    });
+    // The lesson is a "Lektion" throughout, never a "Teil" or an "Übung".
+    await expect(panel.getByRole("textbox", { name: /^titel der lektion$/i })).toBeVisible();
+    await expect(panel.getByRole("button", { name: /^lektion speichern$/i })).toBeVisible();
+    await expect(panel.getByRole("button", { name: /^lektion entfernen$/i })).toBeVisible();
+    await expect(panel.getByText(/\bTeil\b|Übung/)).toHaveCount(0);
+  });
 });
+

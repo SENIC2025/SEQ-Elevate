@@ -1,6 +1,11 @@
 import { describe, it, expect } from "vitest";
 import { sanitizeStructure, STRUCTURE_LIMITS } from "./structure-sanitize";
-import type { StoredScenario, StoredSimulation } from "./structure";
+import type {
+  StoredAssessment,
+  StoredAssessmentQuestion,
+  StoredScenario,
+  StoredSimulation,
+} from "./structure";
 
 const scenario: StoredScenario = {
   kind: "scenario",
@@ -119,20 +124,40 @@ describe("sanitizeStructure", () => {
     expect(sanitizeStructure(twice, "scenario")).toEqual({ ok: false, error: "bad-input" });
   });
 
-  it("refuses text over the limit instead of cutting it short", () => {
+  it("refuses text over the limit instead of cutting it short, saying which box and language", () => {
     const long = "x".repeat(STRUCTURE_LIMITS.maxTextChars + 1);
     expect(sanitizeStructure({ ...scenario, setup: { en: long } }, "scenario")).toEqual({
       ok: false,
       error: "too-large",
+      at: { limit: "text", field: "scenarioSetup", locale: "en", max: STRUCTURE_LIMITS.maxTextChars },
     });
     const longTitle = "x".repeat(STRUCTURE_LIMITS.maxTitleChars + 1);
     expect(sanitizeStructure({ ...scenario, title: { de: longTitle } }, "scenario")).toEqual({
       ok: false,
       error: "too-large",
+      at: { limit: "text", field: "stageTitle", locale: "de", max: STRUCTURE_LIMITS.maxTitleChars },
+    });
+    // A box inside a list is named by its place, as the editor numbers it.
+    const followup = { ...scenario.choices[0].followups![0], outcome: { el: long } };
+    expect(
+      sanitizeStructure(
+        { ...scenario, choices: [scenario.choices[1], { ...scenario.choices[0], followups: [followup] }] },
+        "scenario"
+      )
+    ).toEqual({
+      ok: false,
+      error: "too-large",
+      at: {
+        limit: "text",
+        field: "scenarioFollowupOutcome",
+        params: { choice: 2, followup: 1 },
+        locale: "el",
+        max: STRUCTURE_LIMITS.maxTextChars,
+      },
     });
   });
 
-  it("refuses more choices than the editor offers", () => {
+  it("refuses more choices than the editor offers, saying which list", () => {
     const many = {
       ...scenario,
       choices: Array.from({ length: STRUCTURE_LIMITS.maxChoices + 1 }, (_, i) => ({
@@ -140,7 +165,16 @@ describe("sanitizeStructure", () => {
         id: `c${i}`,
       })),
     };
-    expect(sanitizeStructure(many, "scenario")).toEqual({ ok: false, error: "too-large" });
+    expect(sanitizeStructure(many, "scenario")).toEqual({
+      ok: false,
+      error: "too-large",
+      at: {
+        limit: "list",
+        list: "scenarioChoices",
+        max: STRUCTURE_LIMITS.maxChoices,
+        count: STRUCTURE_LIMITS.maxChoices + 1,
+      },
+    });
   });
 
   it("rebuilds an assessment, keeping an unticked correct answer for a draft", () => {
@@ -162,3 +196,204 @@ describe("sanitizeStructure", () => {
     expect(sanitizeStructure(quiz, "assessment")).toEqual({ ok: true, structure: quiz });
   });
 });
+
+/*
+ * Stages saved before Release 0 had no limits. One already over a limit must
+ * stay editable — an editor fixing a typo in it must be able to save — so
+ * what the row already holds is allowed; only growth past a limit is not.
+ */
+describe("sanitizeStructure with what is already stored", () => {
+  const TEXT = STRUCTURE_LIMITS.maxTextChars;
+  const longDe = "Lang. ".repeat(400).trim(); // 2,399 characters
+  const legacy: StoredScenario = {
+    ...scenario,
+    setup: { en: "A teammate snaps at you.", de: longDe },
+    choices: [
+      scenario.choices[0],
+      { ...scenario.choices[1], outcome: { en: "y".repeat(TEXT + 300) } },
+    ],
+  };
+
+  it("saves an over-long text that is stored already, when another box is edited", () => {
+    const typoFixed = {
+      ...legacy,
+      choices: [{ ...legacy.choices[0], text: { en: "Talk to them privately" } }, legacy.choices[1]],
+    };
+    expect(sanitizeStructure(typoFixed, "scenario")).toMatchObject({ ok: false, error: "too-large" });
+    expect(sanitizeStructure(typoFixed, "scenario", [legacy, null])).toEqual({
+      ok: true,
+      structure: typoFixed,
+    });
+  });
+
+  it("saves it shortened, even while it is still over the limit", () => {
+    const shorter = { ...legacy, setup: { ...legacy.setup, de: longDe.slice(0, TEXT + 100) } };
+    expect(sanitizeStructure(shorter, "scenario", [legacy])).toMatchObject({ ok: true });
+  });
+
+  it("refuses it grown past what is stored, naming the box and language", () => {
+    const longer = { ...legacy, setup: { ...legacy.setup, de: `${longDe} Mehr.` } };
+    expect(sanitizeStructure(longer, "scenario", [legacy])).toEqual({
+      ok: false,
+      error: "too-large",
+      at: { limit: "text", field: "scenarioSetup", locale: "de", max: TEXT },
+    });
+  });
+
+  it("allows it per box and language: not in another box or another language", () => {
+    // The long German setup doesn't make room for a long English one…
+    const english = { ...legacy, setup: { en: longDe, de: longDe } };
+    expect(sanitizeStructure(english, "scenario", [legacy])).toMatchObject({
+      ok: false,
+      at: { field: "scenarioSetup", locale: "en" },
+    });
+    // …nor for a long text in another box.
+    const moved = { ...legacy, question: { de: longDe } };
+    expect(sanitizeStructure(moved, "scenario", [legacy])).toMatchObject({
+      ok: false,
+      at: { field: "scenarioQuestion", locale: "de" },
+    });
+  });
+
+  it("follows an item by its id, wherever it moved in its list", () => {
+    const reordered = { ...legacy, choices: [legacy.choices[1], legacy.choices[0]] };
+    expect(sanitizeStructure(reordered, "scenario", [legacy])).toMatchObject({ ok: true });
+    // A new choice (a new id) gets no room from the stored one's text.
+    const copied = {
+      ...legacy,
+      choices: [...legacy.choices, { ...legacy.choices[1], id: "c9" }],
+    };
+    expect(sanitizeStructure(copied, "scenario", [legacy])).toEqual({
+      ok: false,
+      error: "too-large",
+      at: {
+        limit: "text",
+        field: "scenarioChoiceOutcome",
+        params: { choice: 3 },
+        locale: "en",
+        max: TEXT,
+      },
+    });
+  });
+
+  it("counts the draft as stored too", () => {
+    expect(sanitizeStructure(legacy, "scenario", [null, legacy])).toMatchObject({ ok: true });
+    expect(sanitizeStructure(legacy, "scenario", [scenario, legacy])).toMatchObject({ ok: true });
+  });
+
+  it("ignores stored data of another kind, or none at all", () => {
+    const sim: StoredSimulation = {
+      kind: "simulation",
+      prompt: { de: longDe },
+      instruction: {},
+      options: [],
+    };
+    expect(sanitizeStructure(legacy, "scenario", [sim, "x", 42])).toMatchObject({
+      ok: false,
+      error: "too-large",
+    });
+  });
+
+  const question = (i: number, answers = 2): StoredAssessmentQuestion => ({
+    id: `q${i}`,
+    correctOptionId: "a0",
+    question: { en: `Question ${i}` },
+    options: Array.from({ length: answers }, (_, j) => ({ id: `a${j}`, text: { en: `A${j}` } })),
+  });
+  const quiz = (questions: StoredAssessmentQuestion[]): StoredAssessment => ({
+    kind: "assessment",
+    intro: { en: "Intro" },
+    questions,
+  });
+
+  it("keeps a stored list over its count, and allows it shorter, but not longer", () => {
+    const max = STRUCTURE_LIMITS.maxQuestions;
+    const stored = quiz(Array.from({ length: max + 2 }, (_, i) => question(i)));
+    expect(sanitizeStructure(stored, "assessment")).toEqual({
+      ok: false,
+      error: "too-large",
+      at: { limit: "list", list: "assessmentQuestions", max, count: max + 2 },
+    });
+    expect(sanitizeStructure(stored, "assessment", [stored])).toMatchObject({ ok: true });
+    const fewer = quiz(stored.questions.slice(1));
+    expect(sanitizeStructure(fewer, "assessment", [stored])).toMatchObject({ ok: true });
+    const more = quiz([...stored.questions, question(99)]);
+    expect(sanitizeStructure(more, "assessment", [stored])).toEqual({
+      ok: false,
+      error: "too-large",
+      at: { limit: "list", list: "assessmentQuestions", max, count: max + 3 },
+    });
+  });
+
+  it("counts a nested list against the same item's stored list", () => {
+    const max = STRUCTURE_LIMITS.maxAnswers;
+    const stored = quiz([question(1), question(2, max + 1)]);
+    expect(sanitizeStructure(stored, "assessment", [stored])).toMatchObject({ ok: true });
+    // The long list belongs to question q2; q1 doesn't get its room.
+    const grown = quiz([question(1, max + 1), question(2, max + 1)]);
+    expect(sanitizeStructure(grown, "assessment", [stored])).toEqual({
+      ok: false,
+      error: "too-large",
+      at: {
+        limit: "list",
+        list: "assessmentAnswers",
+        params: { question: 1 },
+        max,
+        count: max + 1,
+      },
+    });
+  });
+
+  it("names follow-ups by their choice", () => {
+    const max = STRUCTURE_LIMITS.maxFollowups;
+    const followups = Array.from({ length: max + 1 }, (_, i) => ({
+      ...scenario.choices[0].followups![0],
+      id: `f${i}`,
+    }));
+    const many = { ...scenario, choices: [scenario.choices[1], { ...scenario.choices[0], followups }] };
+    expect(sanitizeStructure(many, "scenario")).toEqual({
+      ok: false,
+      error: "too-large",
+      at: {
+        limit: "list",
+        list: "scenarioFollowups",
+        params: { choice: 2 },
+        max,
+        count: max + 1,
+      },
+    });
+    expect(sanitizeStructure(many, "scenario", [many])).toMatchObject({ ok: true });
+  });
+
+  it("measures the whole stage against what is stored, so an unchanged one passes", () => {
+    // Thirty questions of long text in three languages: over 200,000
+    // characters as JSON, as only a stage from before the limits can be.
+    const long = (i: number) => ({
+      en: `${i}`.padEnd(3_000, "e"),
+      de: `${i}`.padEnd(3_000, "d"),
+      el: `${i}`.padEnd(3_000, "l"),
+    });
+    const big = (n: number) => ({ ...question(n), question: long(n) });
+    const stored = quiz(Array.from({ length: 30 }, (_, i) => big(i)));
+    expect(JSON.stringify(stored).length).toBeGreaterThan(STRUCTURE_LIMITS.maxJsonChars);
+    expect(sanitizeStructure(stored, "assessment", [stored])).toMatchObject({ ok: true });
+
+    // Swapping a question for a new one, every box within its own limit,
+    // still makes the whole stage larger than it was.
+    const full = (n: number) => ({
+      ...question(n, STRUCTURE_LIMITS.maxAnswers),
+      question: { en: "q".repeat(TEXT), de: "q".repeat(TEXT), el: "q".repeat(TEXT) },
+      options: Array.from({ length: STRUCTURE_LIMITS.maxAnswers }, (_, j) => ({
+        id: `a${j}`,
+        text: { en: "a".repeat(TEXT), de: "a".repeat(TEXT), el: "a".repeat(TEXT) },
+      })),
+    });
+    const swapped = quiz([...stored.questions.slice(1), full(99)]);
+    expect(sanitizeStructure(swapped, "assessment", [stored])).toEqual({
+      ok: false,
+      error: "too-large",
+      at: { limit: "total", max: STRUCTURE_LIMITS.maxJsonChars },
+    });
+  });
+});
+

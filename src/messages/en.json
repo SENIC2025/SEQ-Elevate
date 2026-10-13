@@ -861,12 +861,47 @@
       "forbidden": "Only editors and admins can change courses. Sign in again, or ask your project administrator for the Editor role.",
       "notCms": "Only courses created on the platform can be edited here.",
       "mismatch": "That doesn't match this lesson. Reload the page and try again.",
-      "tooLarge": "This is too long to save. Shorten some of the texts and try again.",
       "generic": "That didn't save. Check your connection and try again.",
       "removeFailed": "Couldn't remove the stage: only editors and admins can change courses.",
       "load": "Couldn't load this stage. Reload the page to try again."
     },
     "loading": "Loading…",
+    "limits": {
+      "title": "This is over a size limit, so nothing was saved:",
+      "text": "{box} ({language}): shorten it to {max, number} characters or fewer.",
+      "otherLanguage": "This text is in {language}: switch the content language to {language} to see it.",
+      "total": "This stage is too large to save as a whole (over {max, number} characters). Shorten some of its texts.",
+      "boxes": {
+        "stageTitle": "Stage title",
+        "simPrompt": "Prompt (the situation)",
+        "simInstruction": "Instruction",
+        "simOptionText": "Option {option}, option text",
+        "simOptionFeedback": "Option {option}, feedback when chosen",
+        "scenarioSetup": "Setup",
+        "scenarioQuestion": "First question",
+        "scenarioFollowupQuestion": "Follow-up question",
+        "scenarioChoiceText": "Choice {choice}, choice text",
+        "scenarioChoiceOutcome": "Choice {choice}, outcome shown",
+        "scenarioFollowupText": "Follow-up {choice}.{followup}, follow-up text",
+        "scenarioFollowupOutcome": "Follow-up {choice}.{followup}, follow-up outcome",
+        "assessmentIntro": "Intro",
+        "assessmentQuestionText": "Question {question}",
+        "assessmentAnswerText": "Question {question}, answer {answer}"
+      },
+      "lists": {
+        "simOptions": "Options: there are {count}, and at most {max} can be saved. Remove some.",
+        "scenarioChoices": "First choices: there are {count}, and at most {max} can be saved. Remove some.",
+        "scenarioFollowups": "Choice {choice}, follow-ups: there are {count}, and at most {max} can be saved. Remove some.",
+        "assessmentQuestions": "Questions: there are {count}, and at most {max} can be saved. Remove some.",
+        "assessmentAnswers": "Question {question}, answers: there are {count}, and at most {max} can be saved. Remove some."
+      }
+    },
+    "region": {
+      "fallback": "Interactive stage",
+      "simulation": "Interactive stage — Simulation",
+      "scenario": "Interactive stage — Scenario",
+      "assessment": "Interactive stage — Assessment"
+    },
     "fields": {
       "stageTitle": "Stage title",
       "prompt": "Prompt (the situation)",

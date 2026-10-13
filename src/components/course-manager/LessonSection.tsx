@@ -22,14 +22,6 @@ import { BuiltInNotice } from "./BuiltInNotice";
 import { PreviewLink } from "./CourseHeader";
 import { Check, FileText, PenLine, Plus, Video } from "lucide-react";
 
-// The interactive stage names StructureAuthor uses (its KINDS) — its region
-// is labelled with them, e.g. "Interactive stage — Simulation".
-const KIND_LABEL: Record<StructureStageKey, string> = {
-  simulation: "Simulation",
-  scenario: "Scenario",
-  assessment: "Assessment",
-};
-
 /**
  * One lesson on the course page. Closed, it shows what learners see
  * (LessonReadView). Opened ("Edit lesson"), it shows the lesson's editors in
@@ -84,6 +76,9 @@ export function LessonSection({
 }) {
   const t = useTranslations("courseManager");
   const tDraft = useTranslations("exerciseEditor.page");
+  // The exercise editor's heading, which also names its region for screen
+  // readers: in the menu language, like everything under it.
+  const tRegion = useTranslations("exerciseEditor.region");
   const { key } = lesson;
   const headingId = `lesson-${key}-h`;
   const panelId = `lesson-${key}-panel`;
@@ -147,7 +142,7 @@ export function LessonSection({
             kind={stageKind}
             locale={lang}
             courseStatus={status}
-            regionLabel={`Interactive stage — ${KIND_LABEL[stageKind]}`}
+            regionLabel={tRegion(stageKind)}
             embedded
             onSaved={onStructureSaved}
             onDraftChange={onStructureDraftChanged}

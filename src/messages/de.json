@@ -805,12 +805,12 @@
     },
     "draft": {
       "title": "Entwurf — Lernende sehen das noch nicht",
-      "bodyLive": "Lernende sehen weiter die zuletzt gespeicherte Fassung dieser Übung. Nutze „Teil speichern“, wenn deine Änderungen fertig sind.",
-      "bodyNew": "Lernende sehen diese Übung noch nicht. Nutze „Teil speichern“, wenn sie fertig ist."
+      "bodyLive": "Lernende sehen weiter die zuletzt gespeicherte Fassung dieser Lektion. Nutze „Lektion speichern“, wenn deine Änderungen fertig sind.",
+      "bodyNew": "Lernende sehen diese Lektion noch nicht. Nutze „Lektion speichern“, wenn sie fertig ist."
     },
     "hint": {
-      "live": "Dieser Kurs ist live: Mit „Teil speichern“ sehen Lernende deine Änderungen sofort. „Entwurf speichern“ hebt Unfertiges nur für die Redaktion auf.",
-      "notLive": "Mit „Teil speichern“ gehört er zum Kurs — Lernende sehen ihn, sobald der Kurs veröffentlicht ist. „Entwurf speichern“ hebt Unfertiges nur für die Redaktion auf."
+      "live": "Dieser Kurs ist live: Mit „Lektion speichern“ sehen Lernende deine Änderungen sofort. „Entwurf speichern“ hebt Unfertiges nur für die Redaktion auf.",
+      "notLive": "Mit „Lektion speichern“ gehört sie zum Kurs — Lernende sehen sie, sobald der Kurs veröffentlicht ist. „Entwurf speichern“ hebt Unfertiges nur für die Redaktion auf."
     },
     "missing": {
       "title": "Das fehlt noch, bevor Lernende das nutzen können:",
@@ -837,38 +837,73 @@
       "assessmentCorrect": "Frage {question}: Kreuze die richtige Antwort an."
     },
     "actions": {
-      "saveStage": "Teil speichern",
+      "saveStage": "Lektion speichern",
       "saveDraft": "Entwurf speichern",
       "discardDraft": "Entwurf verwerfen",
-      "removeStage": "Teil entfernen",
+      "removeStage": "Lektion entfernen",
       "reload": "Gespeicherte Fassung laden"
     },
     "status": {
       "saved": "Gespeichert",
       "draftSaved": "Entwurf gespeichert — Lernende sehen ihn noch nicht.",
       "draftDiscarded": "Entwurf verworfen.",
-      "removed": "Entfernt — Lernende sehen diesen Teil nicht mehr."
+      "removed": "Entfernt — Lernende sehen diese Lektion nicht mehr."
     },
     "confirm": {
-      "remove": "Diese Übung entfernen? Lernende sehen sie dann nicht mehr, und ein Entwurf davon wird auch gelöscht.",
+      "remove": "Diese Lektion entfernen? Lernende sehen sie dann nicht mehr, und ein Entwurf davon wird auch gelöscht.",
       "discardLive": "Diesen Entwurf verwerfen? Du kehrst zu der Fassung zurück, die Lernende sehen.",
       "discardNew": "Diesen Entwurf verwerfen? Alles, was du hier geschrieben hast, wird gelöscht.",
-      "reload": "Die gespeicherte Fassung dieses Teils laden? Deine ungespeicherten Änderungen hier werden ersetzt."
+      "reload": "Die gespeicherte Fassung dieser Lektion laden? Deine ungespeicherten Änderungen hier werden ersetzt."
     },
-    "conflict": "Jemand anderes hat diesen Teil gespeichert, seit du ihn geöffnet hast, deshalb wurde nichts gespeichert. Lade ihn neu, um die Änderungen zu sehen — deine Änderungen bleiben hier, bis du das tust.",
-    "conflictRemove": "Jemand anderes hat diesen Teil gespeichert, seit du ihn geöffnet hast, deshalb wurde nichts entfernt. Lade ihn neu und sieh dir die Änderungen an, bevor du entscheidest.",
+    "conflict": "Jemand anderes hat diese Lektion gespeichert, seit du sie geöffnet hast, deshalb wurde nichts gespeichert. Lade sie neu, um die Änderungen zu sehen — deine Änderungen bleiben hier, bis du das tust.",
+    "conflictRemove": "Jemand anderes hat diese Lektion gespeichert, seit du sie geöffnet hast, deshalb wurde nichts entfernt. Lade sie neu und sieh dir die Änderungen an, bevor du entscheidest.",
     "errors": {
       "forbidden": "Nur die Inhalts-Redaktion und Admins können Kurse ändern. Melde dich erneut an oder bitte die Administration deines Projekts um die Rolle Inhalts-Redaktion.",
       "notCms": "Hier lassen sich nur Kurse bearbeiten, die auf der Plattform erstellt wurden.",
       "mismatch": "Das passt nicht zu dieser Lektion. Lade die Seite neu und versuche es erneut.",
-      "tooLarge": "Das ist zu lang zum Speichern. Kürze einige Texte und versuche es erneut.",
       "generic": "Das wurde nicht gespeichert. Prüfe deine Verbindung und versuche es erneut.",
-      "removeFailed": "Der Teil konnte nicht entfernt werden: Nur die Inhalts-Redaktion und Admins können Kurse ändern.",
-      "load": "Dieser Teil konnte nicht geladen werden. Lade die Seite neu, um es noch einmal zu versuchen."
+      "removeFailed": "Die Lektion konnte nicht entfernt werden: Nur die Inhalts-Redaktion und Admins können Kurse ändern.",
+      "load": "Diese Lektion konnte nicht geladen werden. Lade die Seite neu, um es noch einmal zu versuchen."
     },
     "loading": "Wird geladen …",
+    "limits": {
+      "title": "Das ist über einer Größengrenze, deshalb wurde nichts gespeichert:",
+      "text": "{box} ({language}): Kürze den Text auf höchstens {max, number} Zeichen.",
+      "otherLanguage": "Dieser Text ist auf {language}: Stelle die Inhaltssprache auf {language} um, um ihn zu sehen.",
+      "total": "Diese Lektion ist als Ganzes zu groß zum Speichern (über {max, number} Zeichen). Kürze einige ihrer Texte.",
+      "boxes": {
+        "stageTitle": "Titel der Lektion",
+        "simPrompt": "Ausgangssituation",
+        "simInstruction": "Anleitung",
+        "simOptionText": "Option {option}, Text der Option",
+        "simOptionFeedback": "Option {option}, Rückmeldung bei dieser Wahl",
+        "scenarioSetup": "Ausgangslage",
+        "scenarioQuestion": "Erste Frage",
+        "scenarioFollowupQuestion": "Folgefrage",
+        "scenarioChoiceText": "Auswahl {choice}, Text der Auswahl",
+        "scenarioChoiceOutcome": "Auswahl {choice}, was danach passiert",
+        "scenarioFollowupText": "Folgeschritt {choice}.{followup}, Text des Folgeschritts",
+        "scenarioFollowupOutcome": "Folgeschritt {choice}.{followup}, was nach dem Folgeschritt passiert",
+        "assessmentIntro": "Einleitung",
+        "assessmentQuestionText": "Frage {question}",
+        "assessmentAnswerText": "Frage {question}, Antwort {answer}"
+      },
+      "lists": {
+        "simOptions": "Optionen: Es sind {count}, gespeichert werden können höchstens {max}. Entferne einige.",
+        "scenarioChoices": "Erste Auswahlmöglichkeiten: Es sind {count}, gespeichert werden können höchstens {max}. Entferne einige.",
+        "scenarioFollowups": "Auswahl {choice}, Folgeschritte: Es sind {count}, gespeichert werden können höchstens {max}. Entferne einige.",
+        "assessmentQuestions": "Fragen: Es sind {count}, gespeichert werden können höchstens {max}. Entferne einige.",
+        "assessmentAnswers": "Frage {question}, Antworten: Es sind {count}, gespeichert werden können höchstens {max}. Entferne einige."
+      }
+    },
+    "region": {
+      "fallback": "Interaktive Lektion",
+      "simulation": "Interaktive Lektion — Geführte Übung",
+      "scenario": "Interaktive Lektion — Anwendung",
+      "assessment": "Interaktive Lektion — Schnellcheck"
+    },
     "fields": {
-      "stageTitle": "Titel des Teils",
+      "stageTitle": "Titel der Lektion",
       "prompt": "Ausgangssituation",
       "instruction": "Anleitung",
       "optionText": "Text der Option",

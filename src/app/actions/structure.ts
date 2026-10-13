@@ -110,16 +110,25 @@ const validTarget = (courseSlug: unknown, stageKey: unknown) =>
  * What may be stored for this stage: the structure rebuilt by
  * sanitizeStructure (D36's rule: never pass client JSON through), or why not.
  * Also checks that the course is one created here.
+ *
+ * Whatever is already over a size limit in `base` may stay, so a stage
+ * saved before the limits existed can still be edited. Taking that from the
+ * request is safe: every write goes through writeIfUnchanged, which writes
+ * nothing unless `base` is exactly what the row holds.
  */
 async function storable(
   courseSlug: string,
   stageKey: StructureStageKey,
-  input: unknown
+  input: unknown,
+  base: StructureState
 ) {
   if (isObject(input) && (input as { kind?: unknown }).kind !== KIND_FOR_STAGE[stageKey]) {
     return { ok: false as const, error: "kind-mismatch" as const };
   }
-  const clean = sanitizeStructure(input, KIND_FOR_STAGE[stageKey]);
+  const clean = sanitizeStructure(input, KIND_FOR_STAGE[stageKey], [
+    base.structure,
+    base.draft,
+  ]);
   if (!clean.ok) return clean;
   if (!(await isCmsCourse(courseSlug))) {
     return { ok: false as const, error: "not-cms-course" as const };
@@ -215,7 +224,7 @@ export async function saveStructure(
   if (!validTarget(courseSlug, stageKey) || !isObject(structure) || !isBase(base)) {
     return { ok: false as const, error: "bad-input" as const };
   }
-  const clean = await storable(courseSlug, stageKey, structure);
+  const clean = await storable(courseSlug, stageKey, structure, base);
   if (!clean.ok) return clean;
 
   const issues = validateStructure(clean.structure);
@@ -261,7 +270,7 @@ export async function saveStructureDraft(
   if (!validTarget(courseSlug, stageKey) || !isObject(draft) || !isBase(base)) {
     return { ok: false as const, error: "bad-input" as const };
   }
-  const clean = await storable(courseSlug, stageKey, draft);
+  const clean = await storable(courseSlug, stageKey, draft, base);
   if (!clean.ok) return clean;
 
   try {
