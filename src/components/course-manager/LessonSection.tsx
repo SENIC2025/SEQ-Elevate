@@ -14,6 +14,7 @@ import { LessonReadView } from "./LessonReadView";
 import { BuiltInNotice } from "./BuiltInNotice";
 import { PreviewLink } from "./CourseHeader";
 import type { LessonSectionProps } from "./lesson-section-props";
+import { PartList } from "./blocks/PartList";
 import { Check, FileText, PenLine, Plus, Video } from "lucide-react";
 
 /**
@@ -21,12 +22,17 @@ import { Check, FileText, PenLine, Plus, Video } from "lucide-react";
  * (LessonReadView). Opened ("Edit lesson"), it shows the lesson's editors in
  * the order learners meet the content: video, documents, then the lesson
  * itself (CoursePlayer's order). Editors mount only while open — each upload
- * tool checks storage when it mounts, and a course has up to seven lessons.
+ * tool checks storage when it mounts, and a course has up to fifteen lessons.
+ *
+ * A lesson of a created course's lesson list (Release 1) shows its content
+ * as a list (PartList): the main content in today's editor, with the same
+ * names and ids, and any content added around it, each with its own editor.
+ * A lesson of the course's own is edited by its id, with the editor its
+ * template gives (mainKind).
  */
 export function LessonSection(props: LessonSectionProps) {
   // Every prop of the contract arrives (CourseWorkspace passes them all);
-  // `enrolled`, `reasons` and `onOutline` are for the content controls that
-  // come with extra content.
+  // `enrolled` is for the lesson list's own hints.
   const {
     lesson,
     label,
@@ -46,18 +52,33 @@ export function LessonSection(props: LessonSectionProps) {
     onStructureCleared,
     onVideoSaved,
     onDocumentsChanged,
+    reasons,
+    onOutline,
   } = props;
   const t = useTranslations("courseManager");
   const tDraft = useTranslations("exerciseEditor.page");
   // The exercise editor's heading, which also names its region for screen
   // readers: in the menu language, like everything under it.
   const tRegion = useTranslations("exerciseEditor.region");
+  const tBlocks = useTranslations("lessonBlocks");
   const { key } = lesson;
   const headingId = `lesson-${key}-h`;
   const panelId = `lesson-${key}-panel`;
   const stage = lesson.byLang[lang].stage;
   const narrative = lesson.byLang[lang].narrative;
+  const sectioned = lesson.byLang[lang].sectioned;
   const interactive = lesson.body === "interactive";
+  // The lesson has its own reflection questions as added content: the
+  // standard ones it would show are replaced by them.
+  const ownQuestions =
+    lesson.parts?.items.some((item) => item.type === "reflection") ?? false;
+  // A lesson of the course's own has no learner stage: its preview's title,
+  // when it has one besides its name.
+  const subtitle =
+    stage?.title ??
+    (sectioned && sectioned.title !== lesson.section?.name[lang]?.text
+      ? sectioned.title
+      : undefined);
 
   // A lesson that so far exists only as a draft is edited, not added.
   const toggle = offersAdd(lesson) ? (
@@ -144,6 +165,7 @@ export function LessonSection(props: LessonSectionProps) {
             courseKind={kind}
             mode={lesson.body === "reflection" ? "reflection" : "narrative"}
             prompts={stage?.reflection?.prompts.map((p) => p.label)}
+            promptsNote={ownQuestions ? tBlocks("ownQuestionsNote") : undefined}
             embedded
             onSaved={onNarrativeSaved}
             onDirtyChange={report}
@@ -155,6 +177,25 @@ export function LessonSection(props: LessonSectionProps) {
   } else {
     body = <LessonReadView lesson={lesson} stage={stage} bodyOnly />;
   }
+
+  // A lesson of the course's list: its content as a list, the main content
+  // first among equals.
+  const content =
+    lesson.section && lesson.editable.body ? (
+      <PartList
+        lesson={lesson}
+        label={label}
+        slug={slug}
+        kind={kind}
+        status={status}
+        lang={lang}
+        reasons={reasons}
+        main={body}
+        onOutline={onOutline}
+      />
+    ) : (
+      body
+    );
 
   return (
     <section
@@ -177,9 +218,9 @@ export function LessonSection(props: LessonSectionProps) {
             <Badge variant="muted" className="mt-1 text-[10px]">
               {t("page.notAddedYet")}
             </Badge>
-          ) : stage?.title ? (
+          ) : subtitle ? (
             <p className="mt-0.5 break-words text-sm text-[var(--muted-foreground)]">
-              {stage.title}
+              {subtitle}
             </p>
           ) : null}
           {lesson.draft ? (
@@ -251,10 +292,10 @@ export function LessonSection(props: LessonSectionProps) {
                 onChange={onDocumentsChanged}
               />
             ) : null}
-            {body}
+            {content}
           </div>
         ) : (
-          <LessonReadView lesson={lesson} stage={stage} />
+          <LessonReadView lesson={lesson} stage={stage} sectioned={sectioned} lang={lang} />
         )}
       </div>
     </section>
