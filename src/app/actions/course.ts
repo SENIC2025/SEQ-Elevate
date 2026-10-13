@@ -33,6 +33,13 @@ import {
 } from "@/lib/cms/ensure-course-badge";
 import { slugify } from "@/lib/slug";
 import type { Locale } from "@/lib/cms/types";
+import {
+  LEGACY_ORDER,
+  type NewOnlyReason,
+  type PublishRefused,
+} from "@/lib/cms/sections/contract";
+import { newOnlyReasons } from "@/lib/cms/sections/guard";
+import { resolveOutline, toStoredOutline } from "@/lib/cms/sections/outline";
 
 const PROJECT = "seq-elevate";
 
@@ -69,6 +76,21 @@ async function audit(
   });
 }
 
+/** The full template's lesson list: every standard lesson, in the standard order. */
+const FULL_TEMPLATE = toStoredOutline({
+  sections: LEGACY_ORDER.map((id) => ({ id, template: id, custom: false })),
+  removed: [],
+  materialised: true,
+}) as unknown as Prisma.InputJsonValue;
+
+/** Thrown in setCourseStatus's transaction to refuse publishing (G1): nothing is written. */
+class GuardRefused extends Error {
+  constructor(readonly reasons: NewOnlyReason[]) {
+    super("needs-release-2");
+    this.name = "GuardRefused";
+  }
+}
+
 /**
  * Create a brand-new course from the CMS — no code, no deploy.
  *
@@ -84,9 +106,29 @@ export async function createCourse(input: {
   clusterLabel: string;
   durationMinutes: number;
   locale: Locale;
+  /**
+   * "full" starts from the full template: a stored lesson list with all
+   * seven standard lessons, the three exercises still to write. It is the
+   * standard layout, so the course publishes as any other (D56).
+   */
+  layout?: "standard" | "full";
 }) {
   const editor = await requireEditor();
   if (!editor) return { ok: false as const, error: "forbidden" };
+  // A server action's arguments come straight from the client.
+  if (
+    typeof input !== "object" ||
+    input === null ||
+    typeof input.title !== "string" ||
+    typeof input.tagline !== "string" ||
+    typeof input.cluster !== "string" ||
+    typeof input.clusterLabel !== "string" ||
+    typeof input.durationMinutes !== "number" ||
+    (input.layout !== undefined && input.layout !== "standard" && input.layout !== "full")
+  ) {
+    return { ok: false as const, error: "bad-input" };
+  }
+  if (!isContentLocale(input.locale)) return { ok: false as const, error: "bad-locale" };
 
   const title = input.title.trim().slice(0, 120);
   if (!title) return { ok: false as const, error: "title-required" };
@@ -124,12 +166,41 @@ export async function createCourse(input: {
             clusterLabel: input.clusterLabel.trim().slice(0, 60) || "Skill",
           },
         },
+        ...(input.layout === "full" ? { outline: FULL_TEMPLATE } : {}),
       },
     });
   });
 
   await audit(editor.id, "course.created", slug, { status: "draft" });
   return { ok: true as const, slug };
+}
+
+/**
+ * G1 (D57): may this course be published? A created course only while its
+ * lesson list is what learners get — no lesson of its own, none hidden or
+ * deleted, the standard order, no extra content, nothing unreadable
+ * (newOnlyReasons). Learners only ever get the Release 0 view of a course
+ * until Release 2, so publishing anything else would show them less than
+ * the editor built. Step names are no reason: learners keep the standard
+ * names. Built-in courses are never checked (G2).
+ *
+ * Runs first in the publishing transaction, under the Course row lock, so
+ * a lesson-list change (which takes the same lock) can't slip in between
+ * the check and the publish. Throws GuardRefused, which rolls back.
+ */
+async function guardPublish(tx: Prisma.TransactionClient, courseId: string, slug: string) {
+  await tx.$queryRaw`SELECT id FROM "Course" WHERE "id" = ${courseId} FOR UPDATE`;
+  const course = await tx.course.findUnique({
+    where: { id: courseId },
+    select: { meta: true, outline: true },
+  });
+  if (!course?.meta) return;
+  const lessons = await tx.lesson.findMany({
+    where: { projectId: PROJECT, courseSlug: slug },
+    select: { stageKey: true, narrative: true, structure: true, structureDraft: true, parts: true },
+  });
+  const reasons = newOnlyReasons("cms", resolveOutline("cms", course.outline ?? null, lessons), lessons);
+  if (reasons.length) throw new GuardRefused(reasons);
 }
 
 /**
@@ -141,6 +212,11 @@ export async function createCourse(input: {
  * Publishing a created course that has no badge (one the old code made while
  * a deploy was building) gives it one in the same transaction, so learners
  * never take a course whose badge can't be saved (ensure-course-badge.ts).
+ *
+ * Publishing a created course is refused with "needs-release-2" and the
+ * reasons while learners couldn't get it as built (G1, guardPublish) —
+ * also from published or archived to published. Nothing is written then,
+ * and the refusal is audited.
  */
 export async function setCourseStatus(slug: string, status: CourseStatus) {
   const editor = await requireEditor();
@@ -160,20 +236,36 @@ export async function setCourseStatus(slug: string, status: CourseStatus) {
   });
 
   if (existing) {
-    await prisma.$transaction(async (tx) => {
-      if (status === "published") await ensureCourseBadge(tx, existing.id);
-      await tx.course.update({
-        where: { id: existing.id },
-        data: {
-          status,
-          // Stamp first publication only — re-publishing keeps the original
-          // date, so "published since" stays meaningful.
-          ...(status === "published" && !existing.publishedAt
-            ? { publishedAt: new Date() }
-            : {}),
-        },
+    try {
+      await prisma.$transaction(async (tx) => {
+        if (status === "published") {
+          await guardPublish(tx, existing.id, slug);
+          await ensureCourseBadge(tx, existing.id);
+        }
+        await tx.course.update({
+          where: { id: existing.id },
+          data: {
+            status,
+            // Stamp first publication only — re-publishing keeps the original
+            // date, so "published since" stays meaningful.
+            ...(status === "published" && !existing.publishedAt
+              ? { publishedAt: new Date() }
+              : {}),
+          },
+        });
       });
-    });
+    } catch (error) {
+      if (!(error instanceof GuardRefused)) throw error;
+      await audit(editor.id, "course.publish_refused", slug, {
+        reasons: error.reasons as unknown as Prisma.InputJsonValue,
+      });
+      const refused: PublishRefused = {
+        ok: false,
+        error: "needs-release-2",
+        reasons: error.reasons,
+      };
+      return refused;
+    }
   } else {
     await prisma.course.create({
       data: {

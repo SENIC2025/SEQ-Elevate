@@ -10,6 +10,7 @@ const prisma = {
   course: { create: vi.fn(), update: vi.fn(), findFirst: vi.fn(), findUnique: vi.fn() },
   badge: { create: vi.fn(), update: vi.fn(), findMany: vi.fn() },
   courseEnrollment: { findMany: vi.fn() },
+  lesson: { findMany: vi.fn(async (): Promise<unknown[]> => []) },
   userBadge: { createMany: vi.fn() },
   auditLog: { create: vi.fn() },
   $queryRaw: vi.fn(),
@@ -296,5 +297,180 @@ describe("setCourseStatus on a created course without a badge", () => {
     });
     await setCourseStatus("speaking-up", "published");
     expect(prisma.badge.create).not.toHaveBeenCalled();
+  });
+});
+
+/*
+ * Release 1's publish guard (G1, D57): a created course whose lesson list
+ * learners couldn't get as built — a lesson of its own, a hidden or deleted
+ * standard lesson, a new order, extra content — isn't published. Checked
+ * under the Course row lock, before anything is written; refused with the
+ * reasons, and audited.
+ */
+describe("setCourseStatus: the publish guard", () => {
+  afterEach(() => vi.clearAllMocks());
+
+  const META = { en: { title: "Speaking up", tagline: "Say it", clusterLabel: "Communication" } };
+
+  function createdCourse(outline: unknown, lessons: unknown[] = [], meta: unknown = META) {
+    signedInEditor();
+    listCourses.mockResolvedValue([
+      { slug: "speaking-up", cluster: "communicationEi", durationMinutes: 15, status: "draft" },
+    ]);
+    prisma.$queryRaw.mockResolvedValue([]);
+    prisma.course.findFirst.mockResolvedValue({ id: "course-1", publishedAt: null });
+    prisma.course.findUnique.mockResolvedValue({
+      id: "course-1",
+      projectId: "seq-elevate",
+      slug: "speaking-up",
+      meta,
+      outline,
+      badgeId: "badge-1",
+    });
+    prisma.course.update.mockResolvedValue({});
+    prisma.lesson.findMany.mockResolvedValue(lessons);
+  }
+
+  const lockSql = () =>
+    prisma.$queryRaw.mock.calls.map((c) => (c[0] as TemplateStringsArray).join("?"));
+
+  it("refuses a course with a lesson of its own: nothing written, no badge, audited", async () => {
+    createdCourse({
+      v: 1,
+      sections: ["context", "concept", "behaviour", "reflection"]
+        .map((id) => ({ id, template: id }))
+        .concat([{ id: "s-abcdefgh", template: "text" }]),
+    });
+    prisma.course.findUnique.mockResolvedValueOnce({
+      id: "course-1",
+      projectId: "seq-elevate",
+      slug: "speaking-up",
+      meta: META,
+      outline: {
+        v: 1,
+        sections: [{ id: "s-abcdefgh", template: "text" }],
+      },
+      badgeId: null,
+    });
+    const res = await setCourseStatus("speaking-up", "published");
+    expect(res).toEqual({
+      ok: false,
+      error: "needs-release-2",
+      reasons: [{ code: "custom-section", sectionId: "s-abcdefgh" }],
+    });
+    // The lock comes first, then the read of the list and the lessons.
+    expect(lockSql()[0]).toBe('SELECT id FROM "Course" WHERE "id" = ? FOR UPDATE');
+    expect(prisma.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
+      prisma.lesson.findMany.mock.invocationCallOrder[0]
+    );
+    expect(prisma.lesson.findMany.mock.calls[0]).toEqual([
+      {
+        where: { projectId: "seq-elevate", courseSlug: "speaking-up" },
+        select: { stageKey: true, narrative: true, structure: true, structureDraft: true, parts: true },
+      },
+    ]);
+    expect(prisma.course.update).not.toHaveBeenCalled();
+    expect(prisma.badge.create).not.toHaveBeenCalled();
+    expect(prisma.auditLog.create).toHaveBeenCalledTimes(1);
+    expect(prisma.auditLog.create.mock.calls[0][0].data).toMatchObject({
+      action: "course.publish_refused",
+      entity: "Course",
+      entityId: "speaking-up",
+      metadata: { reasons: [{ code: "custom-section", sectionId: "s-abcdefgh" }] },
+    });
+  });
+
+  it("refuses extra content and a list that can't be read", async () => {
+    createdCourse(null, [
+      {
+        stageKey: "concept",
+        parts: { v: 1, items: [{ id: "main", type: "main" }, { id: "p-12345678", type: "text", blocks: {} }] },
+      },
+    ]);
+    expect(await setCourseStatus("speaking-up", "published")).toMatchObject({
+      error: "needs-release-2",
+      reasons: [{ code: "extra-parts", sectionId: "concept" }],
+    });
+    createdCourse("not a list");
+    expect(await setCourseStatus("speaking-up", "published")).toMatchObject({
+      error: "needs-release-2",
+      reasons: [{ code: "unreadable" }],
+    });
+  });
+
+  it("publishes a standard course, and a standard course with step names", async () => {
+    createdCourse(null);
+    expect(await setCourseStatus("speaking-up", "published")).toEqual({ ok: true, status: "published" });
+    createdCourse({
+      v: 1,
+      sections: ["context", "concept", "behaviour", "reflection"].map((id) => ({
+        id,
+        template: id,
+        label: { en: `My ${id}`, de: `Mein ${id}` },
+      })),
+    });
+    expect(await setCourseStatus("speaking-up", "published")).toEqual({ ok: true, status: "published" });
+    expect(prisma.course.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: "published" }) })
+    );
+  });
+
+  it("never checks a move to draft or archive, or a built-in course", async () => {
+    createdCourse({ v: 1, sections: [{ id: "s-abcdefgh", template: "text" }] });
+    expect(await setCourseStatus("speaking-up", "draft")).toEqual({ ok: true, status: "draft" });
+    expect(await setCourseStatus("speaking-up", "archived")).toEqual({ ok: true, status: "archived" });
+    expect(prisma.lesson.findMany).not.toHaveBeenCalled();
+    createdCourse({ v: 1, sections: [{ id: "s-abcdefgh", template: "text" }] }, [], null);
+    expect(await setCourseStatus("speaking-up", "published")).toEqual({ ok: true, status: "published" });
+    expect(prisma.lesson.findMany).not.toHaveBeenCalled();
+  });
+});
+
+describe("createCourse: arguments and layout", () => {
+  afterEach(() => vi.clearAllMocks());
+
+  function fresh() {
+    signedInEditor();
+    listCourses.mockResolvedValue([]);
+    prisma.badge.findMany.mockResolvedValue([]);
+    prisma.badge.create.mockResolvedValue({ id: "badge-1" });
+    prisma.course.create.mockResolvedValue({ id: "course-1" });
+  }
+
+  it("refuses a language the platform doesn't have, and arguments no form sends", async () => {
+    fresh();
+    expect(await createCourse({ ...NEW_COURSE, locale: "fr" as never })).toEqual({
+      ok: false,
+      error: "bad-locale",
+    });
+    expect(await createCourse({ ...NEW_COURSE, title: 5 as never })).toEqual({
+      ok: false,
+      error: "bad-input",
+    });
+    expect(await createCourse({ ...NEW_COURSE, layout: "everything" as never })).toEqual({
+      ok: false,
+      error: "bad-input",
+    });
+    expect(prisma.course.create).not.toHaveBeenCalled();
+  });
+
+  it("starts from today's layout, with no stored list", async () => {
+    fresh();
+    await createCourse(NEW_COURSE);
+    expect(prisma.course.create.mock.calls[0][0].data.outline).toBeUndefined();
+  });
+
+  it("starts from the full template: all seven standard lessons, still standard", async () => {
+    fresh();
+    await expect(createCourse({ ...NEW_COURSE, layout: "full" })).resolves.toEqual({
+      ok: true,
+      slug: "speaking-up",
+    });
+    expect(prisma.course.create.mock.calls[0][0].data.outline).toEqual({
+      v: 1,
+      sections: ["context", "concept", "behaviour", "simulation", "scenario", "reflection", "assessment"].map(
+        (id) => ({ id, template: id })
+      ),
+    });
   });
 });
