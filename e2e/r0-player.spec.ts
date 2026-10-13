@@ -486,6 +486,12 @@ dbDescribe("R0 player — quick-check answers are saved to the account", () => {
       "Fourth: right",
     ];
     await expect(page.getByText(HINT.assessment)).toBeVisible();
+    // Each answer is named by its text alone: the letter beside it is A, B…
+    // by position, hidden from screen readers, never the editor's id.
+    await expect(
+      page.getByRole("button", { name: "First: right", exact: true })
+    ).toBeVisible();
+    await expect(page.getByText(/^ax\d$/i)).toHaveCount(0);
     for (const text of chosen) await option(page, text).click();
     await page.getByRole("button", { name: /check answers/i }).click();
     await expect(page.getByText("You got 3 out of 4 right.")).toBeVisible();

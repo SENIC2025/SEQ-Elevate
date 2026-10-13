@@ -79,7 +79,7 @@ export function AssessmentStage({
                 {q.question}
               </p>
               <div className="space-y-1.5">
-                {q.options.map((opt) => {
+                {q.options.map((opt, i) => {
                   const isSelected = answers[q.id] === opt.id;
                   const isCorrect = opt.id === q.correctOptionId;
                   const showResult = checked && isSelected;
@@ -127,7 +127,12 @@ export function AssessmentStage({
                           <XCircle className="h-5 w-5 mt-0.5 text-[var(--warning)] flex-shrink-0" />
                         )
                       ) : (
+                        // A, B, C… by position: the option's id is internal
+                        // (the course editor makes ids like "a0k3f"). Hidden
+                        // from screen readers, so the button's name is the
+                        // answer itself.
                         <span
+                          aria-hidden="true"
                           className={cn(
                             "mt-0.5 h-5 w-5 rounded-full border flex items-center justify-center flex-shrink-0 text-[10px] font-semibold uppercase",
                             isSelected
@@ -135,7 +140,7 @@ export function AssessmentStage({
                               : "border-[var(--border)] text-[var(--muted-foreground)]"
                           )}
                         >
-                          {opt.id}
+                          {String.fromCharCode(65 + i)}
                         </span>
                       )}
                       <span>{opt.text}</span>

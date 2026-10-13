@@ -70,10 +70,16 @@ function render(progress: AssessmentProgress): string {
   );
 }
 
-/** Each button: its text, whether it's pressed, and whether it's disabled. */
+/**
+ * Each button: its name (its text, without what's hidden from screen
+ * readers), whether it's pressed, and whether it's disabled.
+ */
 function buttons(html: string) {
   return [...html.matchAll(/<button([^>]*)>(.*?)<\/button>/g)].map((m) => ({
-    label: m[2].replace(/<[^>]+>/g, "").trim(),
+    label: m[2]
+      .replace(/<span aria-hidden="true"[^>]*>[^<]*<\/span>/g, "")
+      .replace(/<[^>]+>/g, "")
+      .trim(),
     pressed: /aria-pressed="true"/.test(m[1]),
     disabled: / disabled=""/.test(m[1]),
   }));
@@ -86,8 +92,8 @@ describe("AssessmentStage", () => {
 
   it("shows the answers the learner chose earlier, keyed by question id", () => {
     const got = buttons(render({ answers: { qk3f: "a2x" }, checked: false }));
-    expect(got.find((b) => b.label.endsWith("Wrong one"))?.pressed).toBe(true);
-    expect(got.find((b) => b.label.endsWith("Right one"))?.pressed).toBe(false);
+    expect(got.find((b) => b.label === "Wrong one")?.pressed).toBe(true);
+    expect(got.find((b) => b.label === "Right one")?.pressed).toBe(false);
     // One question still open: "Check answers" waits for it.
     expect(got.find((b) => b.label === "Check answers")?.disabled).toBe(true);
   });
@@ -110,7 +116,7 @@ describe("AssessmentStage", () => {
     // Checked before the editor added a question: the new one is open.
     const got = buttons(render({ answers: { qk3f: "a1x" }, checked: true }));
     expect(got.some((b) => b.label === "Continue")).toBe(false);
-    expect(got.find((b) => b.label.endsWith("Also right"))?.disabled).toBe(false);
+    expect(got.find((b) => b.label === "Also right")?.disabled).toBe(false);
   });
 
   it("ignores a saved answer that is no longer one of the question's options", () => {
@@ -118,6 +124,19 @@ describe("AssessmentStage", () => {
       render({ answers: { qk3f: "gone", q9zz: "a4x" }, checked: false })
     );
     expect(got.find((b) => b.label === "Check answers")?.disabled).toBe(true);
+  });
+
+  it("letters the options A, B, … by position, hidden from screen readers, never by their ids", () => {
+    // The editor's answer ids ("a1x") are internal: neither seen nor read.
+    const html = render({ answers: {}, checked: false });
+    const letters = [
+      ...html.matchAll(/<span aria-hidden="true" class="[^"]*rounded-full[^"]*">([^<]*)<\/span>/g),
+    ].map((m) => m[1]);
+    expect(letters).toEqual(["A", "B", "A", "B"]);
+    expect(html).not.toMatch(/>a[1-4]x</);
+    // The button's name is the answer itself.
+    const names = buttons(html).map((b) => b.label);
+    expect(names.slice(0, 4)).toEqual(["Right one", "Wrong one", "Also wrong", "Also right"]);
   });
 
   it("says what's needed to continue until the answers are checked, as plain text", () => {
