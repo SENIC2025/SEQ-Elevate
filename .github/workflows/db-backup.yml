@@ -3,25 +3,32 @@ name: DB backup (daily, 30-day retention)
 # Fulfils the maintenance-package commitment: automated database backups, daily,
 # retained 30 days, to an S3-compatible EU object store (Contract Item 2 §7).
 #
-# Design:
-#   • pg_dump (custom/compressed format) of the Neon Postgres database.
-#   • Uploaded to an S3-compatible, EU-region bucket you control (Hetzner Object
-#     Storage / Cloudflare R2 EU / Scaleway / AWS eu-central-1 — anything with an
-#     S3 API). The bucket is PRIVATE and encrypted at rest.
-#   • A prune step deletes dumps older than 30 days, so retention is enforced by
-#     the workflow regardless of bucket lifecycle config.
+# Each run (steps in scripts/db-backup.sh, tested by db-backup-selftest.yml):
+#   • pg_dump (custom, compressed) of the Neon database with the client matching
+#     the server's major version, as a READ-ONLY role — a role that can change
+#     the database (e.g. the owner's) is refused;
+#   • verified before upload: size, table count, every data block readable
+#     (optionally a full test restore into a throwaway local PostgreSQL);
+#   • optionally encrypted on the runner with age (public key only in GitHub);
+#   • uploaded to a PRIVATE EU bucket, read back and compared by SHA-256;
+#   • dumps older than 30 days pruned, always keeping the newest 7.
 #
-# Required repo secrets (Settings → Secrets and variables → Actions). None are in
-# this file — set them in GitHub:
-#   BACKUP_DATABASE_URL   Neon DIRECT (non-pooler) connection string
-#   BACKUP_S3_BUCKET      bucket name
-#   BACKUP_S3_ENDPOINT    S3 endpoint URL (e.g. https://<region>.your-objectstorage.com)
-#   BACKUP_S3_REGION      region (e.g. eu-central-1 / eu-central)
-#   AWS_ACCESS_KEY_ID     bucket access key
-#   AWS_SECRET_ACCESS_KEY bucket secret key
+# Repo SECRETS (Settings → Secrets and variables → Actions → Secrets):
+#   BACKUP_DATABASE_URL   Neon DIRECT (no "-pooler") string of the read-only role
+#   BACKUP_S3_BUCKET      bucket name only
+#   BACKUP_S3_ENDPOINT    e.g. https://s3.fr-par.scw.cloud (Scaleway Paris)
+#   BACKUP_S3_REGION      matching the endpoint, e.g. fr-par
+#   AWS_ACCESS_KEY_ID     the bucket key's access key
+#   AWS_SECRET_ACCESS_KEY the bucket key's secret key
+#   BACKUP_HEALTHCHECK_URL (optional) a dead-man's-switch ping URL
+# Repo VARIABLES (… → Variables), all optional:
+#   BACKUP_AGE_RECIPIENT  age public key(s): encrypt every dump to them
+#   BACKUP_TEST_RESTORE   "true": also restore each dump into a throwaway database
+#   BACKUP_MIN_DUMP_BYTES, BACKUP_MIN_TABLES  sanity floors (10240, 20)
 #
-# Restore + full notes: BACKUP.md. Until the secrets are set the job is a
-# visible no-op (it never silently fails).
+# With NONE of the six secrets set, a run is a visible no-op (a warning and a
+# run summary). With only SOME set, it fails and names the missing ones.
+# Setup, restore and notes: BACKUP.md.
 
 on:
   schedule:
@@ -33,73 +40,127 @@ concurrency:
   group: db-backup
   cancel-in-progress: false
 
+permissions:
+  contents: read
+
 jobs:
   backup:
-    name: Dump → S3-compatible EU bucket → prune > 30 days
-    runs-on: ubuntu-latest
+    name: Dump → verify → (encrypt) → EU bucket → prune > 30 days
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
     env:
       PREFIX: db
-      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-      AWS_DEFAULT_REGION: ${{ secrets.BACKUP_S3_REGION }}
-      BUCKET: ${{ secrets.BACKUP_S3_BUCKET }}
-      ENDPOINT: ${{ secrets.BACKUP_S3_ENDPOINT }}
-      DATABASE_URL: ${{ secrets.BACKUP_DATABASE_URL }}
+      KEEP_MIN: "7"
+      RETENTION_DAYS: "30"
+      PGCONNECT_TIMEOUT: "30"
+      AWS_REQUEST_CHECKSUM_CALCULATION: WHEN_REQUIRED
+      AWS_RESPONSE_CHECKSUM_VALIDATION: WHEN_REQUIRED
+      AWS_EC2_METADATA_DISABLED: "true"
+      AWS_PAGER: ""
     steps:
       - name: Check configuration
         id: cfg
+        env:
+          HAS_BACKUP_DATABASE_URL: ${{ secrets.BACKUP_DATABASE_URL != '' }}
+          HAS_BACKUP_S3_BUCKET: ${{ secrets.BACKUP_S3_BUCKET != '' }}
+          HAS_BACKUP_S3_ENDPOINT: ${{ secrets.BACKUP_S3_ENDPOINT != '' }}
+          HAS_BACKUP_S3_REGION: ${{ secrets.BACKUP_S3_REGION != '' }}
+          HAS_AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID != '' }}
+          HAS_AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY != '' }}
         run: |
-          if [ -z "$DATABASE_URL" ] || [ -z "$BUCKET" ] || [ -z "$ENDPOINT" ]; then
-            echo "::warning::Backup secrets not configured yet — set BACKUP_DATABASE_URL, BACKUP_S3_BUCKET, BACKUP_S3_ENDPOINT (and AWS keys). Skipping."
+          set -euo pipefail
+          present=0; missing=""
+          for name in BACKUP_DATABASE_URL BACKUP_S3_BUCKET BACKUP_S3_ENDPOINT BACKUP_S3_REGION AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY; do
+            flag="HAS_${name}"
+            if [ "${!flag}" = "true" ]; then present=$((present + 1)); else missing="$missing $name"; fi
+          done
+          if [ "$present" -eq 0 ]; then
+            echo "::warning::NO BACKUP TAKEN - the six backup secrets are not set yet. Skipping (see BACKUP.md)."
+            echo "### NO BACKUP TAKEN - backup secrets not configured yet" >> "$GITHUB_STEP_SUMMARY"
             echo "ready=false" >> "$GITHUB_OUTPUT"
+          elif [ -n "$missing" ]; then
+            echo "::error::NO BACKUP TAKEN - only $present of 6 backup secrets are set. Missing:$missing"
+            exit 1
           else
             echo "ready=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Install PostgreSQL 17 client
+      - name: Check out the backup script
         if: steps.cfg.outputs.ready == 'true'
-        run: |
-          set -euo pipefail
-          sudo sh -c 'echo "deb https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
-          curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/postgresql.gpg
-          sudo apt-get update
-          sudo apt-get install -y postgresql-client-17
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts
+
+      - name: Validate settings, refuse a writable role, install the matching pg_dump
+        if: steps.cfg.outputs.ready == 'true'
+        env:
+          DATABASE_URL: ${{ secrets.BACKUP_DATABASE_URL }}
+          BUCKET: ${{ secrets.BACKUP_S3_BUCKET }}
+          ENDPOINT: ${{ secrets.BACKUP_S3_ENDPOINT }}
+          REGION: ${{ secrets.BACKUP_S3_REGION }}
+        run: scripts/db-backup.sh validate
 
       - name: Dump database
         if: steps.cfg.outputs.ready == 'true'
-        run: |
-          set -euo pipefail
-          TS="$(date -u +%Y-%m-%d-%H%M%S)"
-          FILE="seq-elevate-db-${TS}.dump"
-          echo "FILE=${FILE}" >> "$GITHUB_ENV"
-          # Custom format is compressed; --no-owner/--no-privileges make the dump
-          # portable to restore into any role.
-          pg_dump "$DATABASE_URL" --format=custom --no-owner --no-privileges --file="$FILE"
-          ls -lh "$FILE"
+        env:
+          DATABASE_URL: ${{ secrets.BACKUP_DATABASE_URL }}
+        run: scripts/db-backup.sh dump
 
-      - name: Upload to S3-compatible EU bucket
+      - name: Verify dump (integrity)
         if: steps.cfg.outputs.ready == 'true'
-        run: |
-          set -euo pipefail
-          aws s3 cp "$FILE" "s3://${BUCKET}/${PREFIX}/${FILE}" \
-            --endpoint-url "$ENDPOINT"
-          echo "Uploaded s3://${BUCKET}/${PREFIX}/${FILE}"
+        env:
+          MIN_DUMP_BYTES: ${{ vars.BACKUP_MIN_DUMP_BYTES || '10240' }}
+          MIN_TABLES: ${{ vars.BACKUP_MIN_TABLES || '20' }}
+        run: scripts/db-backup.sh verify
 
-      - name: Prune backups older than 30 days
+      - name: Test restore into a throwaway local PostgreSQL (optional)
+        if: steps.cfg.outputs.ready == 'true' && vars.BACKUP_TEST_RESTORE == 'true'
+        run: scripts/db-backup.sh test-restore
+
+      - name: Install age (only when BACKUP_AGE_RECIPIENT is set)
+        if: steps.cfg.outputs.ready == 'true' && vars.BACKUP_AGE_RECIPIENT != ''
+        run: scripts/db-backup.sh install-age
+
+      - name: Encrypt with age, or warn that client-side encryption is off
         if: steps.cfg.outputs.ready == 'true'
+        env:
+          AGE_RECIPIENTS: ${{ vars.BACKUP_AGE_RECIPIENT }}
+        run: scripts/db-backup.sh encrypt
+
+      - name: Upload to the EU bucket, then download and compare
+        if: steps.cfg.outputs.ready == 'true'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ${{ secrets.BACKUP_S3_REGION }}
+          BUCKET: ${{ secrets.BACKUP_S3_BUCKET }}
+          ENDPOINT: ${{ secrets.BACKUP_S3_ENDPOINT }}
+        run: scripts/db-backup.sh upload
+
+      - name: Prune dumps older than 30 days (always keep the newest 7)
+        if: steps.cfg.outputs.ready == 'true'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ${{ secrets.BACKUP_S3_REGION }}
+          BUCKET: ${{ secrets.BACKUP_S3_BUCKET }}
+          ENDPOINT: ${{ secrets.BACKUP_S3_ENDPOINT }}
+        run: scripts/db-backup.sh prune
+
+      - name: Heartbeat to the dead-man's switch (success)
+        if: success() && steps.cfg.outputs.ready == 'true'
+        env:
+          HC_URL: ${{ secrets.BACKUP_HEALTHCHECK_URL }}
         run: |
-          set -euo pipefail
-          CUTOFF="$(date -u -d '30 days ago' +%Y-%m-%dT%H:%M:%SZ)"
-          echo "Deleting objects last modified on or before ${CUTOFF}"
-          OLD="$(aws s3api list-objects-v2 \
-            --bucket "$BUCKET" --prefix "${PREFIX}/" \
-            --endpoint-url "$ENDPOINT" \
-            --query "Contents[?LastModified<=\`${CUTOFF}\`].Key" --output text)"
-          if [ -n "$OLD" ] && [ "$OLD" != "None" ]; then
-            for key in $OLD; do
-              echo "  pruning $key"
-              aws s3api delete-object --bucket "$BUCKET" --key "$key" --endpoint-url "$ENDPOINT"
-            done
-          else
-            echo "  nothing to prune"
-          fi
+          [ -z "$HC_URL" ] || curl -fsS -m 10 --retry 5 -o /dev/null "$HC_URL" || echo "::warning::Heartbeat ping failed"
+
+      - name: Heartbeat to the dead-man's switch (failure)
+        if: failure()
+        env:
+          HC_URL: ${{ secrets.BACKUP_HEALTHCHECK_URL }}
+        run: |
+          [ -z "$HC_URL" ] || curl -fsS -m 10 --retry 5 -o /dev/null "${HC_URL%/}/fail" || echo "::warning::Heartbeat ping failed"

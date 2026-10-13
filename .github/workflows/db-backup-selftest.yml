@@ -1,0 +1,209 @@
+name: DB backup self-test
+
+# Runs scripts/db-backup.sh end to end on the same runner image as the nightly
+# backup, against a throwaway PostgreSQL (16 and 17) and a throwaway S3 store —
+# no secrets, no production data. Proves: the matching pg_dump is used, the
+# read-only role SQL (scripts/db-backup-role.sql) is enough for pg_dump, a
+# writable role and a pooled Neon string are refused, sign-in tokens are left
+# out, the dump verifies and test-restores, age encryption round-trips into a
+# real restore, the stored copy matches, and pruning keeps the newest.
+
+on:
+  push:
+    paths:
+      - scripts/db-backup.sh
+      - scripts/db-backup-role.sql
+      - .github/workflows/db-backup.yml
+      - .github/workflows/db-backup-selftest.yml
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  selftest:
+    name: Self-test (PostgreSQL ${{ matrix.pg }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        pg: ["16", "17"]
+    services:
+      postgres:
+        image: postgres:${{ matrix.pg }}
+        env:
+          POSTGRES_USER: app_owner
+          POSTGRES_PASSWORD: selftest-owner
+          POSTGRES_DB: appdb
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U app_owner -d appdb"
+          --health-interval 2s --health-timeout 5s --health-retries 30
+    defaults:
+      run:
+        shell: bash
+    env:
+      PREFIX: db
+      KEEP_MIN: "7"
+      RETENTION_DAYS: "30"
+      PGCONNECT_TIMEOUT: "30"
+      AWS_REQUEST_CHECKSUM_CALCULATION: WHEN_REQUIRED
+      AWS_RESPONSE_CHECKSUM_VALIDATION: WHEN_REQUIRED
+      AWS_EC2_METADATA_DISABLED: "true"
+      AWS_PAGER: ""
+      AWS_ACCESS_KEY_ID: selftest
+      AWS_SECRET_ACCESS_KEY: selftest-secret
+      AWS_DEFAULT_REGION: us-east-1
+      BUCKET: seq-backup-selftest
+      ENDPOINT: http://localhost:9000
+      REGION: us-east-1
+      OWNER_URL: postgresql://app_owner:selftest-owner@localhost:5432/appdb?sslmode=disable
+      DATABASE_URL: postgresql://backup_reader:selftest-reader@localhost:5432/appdb?sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Start a throwaway S3 store
+        run: |
+          set -euo pipefail
+          docker run -d --name s3 -p 9000:9000 \
+            -e MINIO_ROOT_USER="$AWS_ACCESS_KEY_ID" -e MINIO_ROOT_PASSWORD="$AWS_SECRET_ACCESS_KEY" \
+            minio/minio:RELEASE.2025-04-22T22-12-26Z server /data
+          for i in $(seq 60); do curl -fsS http://localhost:9000/minio/health/live && break; sleep 1; done
+          # Only the local store needs path-style addresses; real providers use the default.
+          aws configure set default.s3.addressing_style path
+          aws s3api create-bucket --endpoint-url "$ENDPOINT" --bucket "$BUCKET" > /dev/null
+
+      - name: Seed an app-like database and the read-only role
+        run: |
+          set -euo pipefail
+          psql "$OWNER_URL" -X -v ON_ERROR_STOP=1 -q <<'SQL'
+          CREATE TABLE "_prisma_migrations" (id text PRIMARY KEY, migration_name text NOT NULL);
+          INSERT INTO "_prisma_migrations" VALUES ('m1', '20260101000000_init'), ('m2', '20261014120000_course_outline_lesson_parts');
+          CREATE TABLE "User" (id serial PRIMARY KEY, email text UNIQUE NOT NULL);
+          INSERT INTO "User" (email) SELECT 'learner' || g || '@example.com' FROM generate_series(1, 500) g;
+          CREATE TABLE "Session" ("sessionToken" text PRIMARY KEY, "userId" int REFERENCES "User"(id));
+          INSERT INTO "Session" VALUES ('live-session-token-1', 1);
+          CREATE TABLE "VerificationToken" (identifier text, token text UNIQUE);
+          INSERT INTO "VerificationToken" VALUES ('learner1@example.com', 'live-magic-link-token');
+          CREATE TABLE "Lesson" (id serial PRIMARY KEY, narrative jsonb, parts jsonb);
+          INSERT INTO "Lesson" (narrative) SELECT jsonb_build_object('en', jsonb_build_object('title', 'Lesson ' || g, 'body', repeat('Text ', 200))) FROM generate_series(1, 200) g;
+          DO $$ BEGIN
+            FOR i IN 1..18 LOOP
+              EXECUTE format('CREATE TABLE %I (id serial PRIMARY KEY, v text)', 'Model' || i);
+              EXECUTE format('INSERT INTO %I (v) VALUES (%L)', 'Model' || i, 'row');
+            END LOOP;
+          END $$;
+          SQL
+          # The role exactly as BACKUP.md has the owner create it on Neon.
+          sed -e "s/PASTE_PASSWORD_HERE/selftest-reader/" -e "s/DB_NAME/appdb/" -e "s/OWNER_ROLE/app_owner/" \
+            scripts/db-backup-role.sql | psql "$OWNER_URL" -X -v ON_ERROR_STOP=1
+          # A table the app adds later is readable through the default privileges.
+          psql "$OWNER_URL" -X -v ON_ERROR_STOP=1 -qc 'CREATE TABLE "AddedLater" (id int); INSERT INTO "AddedLater" VALUES (1);'
+          [ "$(psql "$DATABASE_URL" -XAtqc 'SELECT count(*) FROM "AddedLater"')" = 1 ]
+          # The role really can't write.
+          if psql "$DATABASE_URL" -X -qc 'INSERT INTO "User" (email) VALUES ($$x@example.com$$)' 2>/dev/null; then
+            echo "::error::backup_reader could write"; exit 1
+          fi
+
+      - name: Refuses the owner's (writable) credentials
+        run: |
+          set -euo pipefail
+          if DATABASE_URL="$OWNER_URL" scripts/db-backup.sh validate > out.txt 2>&1; then
+            cat out.txt; echo "::error::validate accepted a writable role"; exit 1
+          fi
+          grep -q "role that can change the database" out.txt
+
+      - name: Refuses Neon's pooled connection string
+        run: |
+          set -euo pipefail
+          if DATABASE_URL="postgresql://backup_reader:x@ep-test-123-pooler.eu-central-1.aws.neon.tech/neondb?sslmode=require" \
+               scripts/db-backup.sh validate > out.txt 2>&1; then
+            cat out.txt; echo "::error::validate accepted a pooled string"; exit 1
+          fi
+          grep -q "POOLED" out.txt
+
+      - name: Validate (read-only role) and install the matching pg_dump
+        run: |
+          set -euo pipefail
+          scripts/db-backup.sh validate
+          [ "$(grep '^PG_MAJOR=' "$GITHUB_ENV" | tail -1)" = "PG_MAJOR=${{ matrix.pg }}" ]
+
+      - name: Dump, verify and test-restore
+        run: |
+          set -euo pipefail
+          scripts/db-backup.sh dump
+          FILE="$(grep '^FILE=' "$GITHUB_ENV" | tail -1 | cut -d= -f2)"
+          PG_MAJOR="$(grep '^PG_MAJOR=' "$GITHUB_ENV" | tail -1 | cut -d= -f2)"
+          export FILE PG_MAJOR
+          # The dump was made by the matching pg_dump, and left the tokens out.
+          "/usr/lib/postgresql/$PG_MAJOR/bin/pg_restore" --list "$FILE" > toc.txt
+          grep -q "TABLE DATA public User " toc.txt || { echo "::error::User data missing"; exit 1; }
+          if grep -qE "TABLE DATA public (Session|VerificationToken) " toc.txt; then
+            echo "::error::sign-in token rows are in the dump"; exit 1
+          fi
+          scripts/db-backup.sh verify
+          scripts/db-backup.sh test-restore
+
+      - name: Encrypt with age, upload, read back
+        run: |
+          set -euo pipefail
+          scripts/db-backup.sh install-age
+          age-keygen -o "$RUNNER_TEMP/key.txt" 2> /dev/null
+          AGE_RECIPIENTS="$(age-keygen -y "$RUNNER_TEMP/key.txt")" scripts/db-backup.sh encrypt
+          FILE="$(grep '^FILE=' "$GITHUB_ENV" | tail -1 | cut -d= -f2)" \
+          ENCRYPTION="$(grep '^ENCRYPTION=' "$GITHUB_ENV" | tail -1 | cut -d= -f2)" \
+            scripts/db-backup.sh upload
+
+      - name: Restore the encrypted copy from the bucket, as BACKUP.md says
+        run: |
+          set -euo pipefail
+          KEY="$(aws s3api list-objects-v2 --endpoint-url "$ENDPOINT" --bucket "$BUCKET" --prefix db/ --query 'Contents[0].Key' --output text)"
+          case "$KEY" in *.dump.age) ;; *) echo "::error::expected an encrypted object, got $KEY"; exit 1;; esac
+          aws s3api get-object --endpoint-url "$ENDPOINT" --bucket "$BUCKET" --key "$KEY" restore.dump.age > meta.json
+          [ "$(jq -r '.Metadata.encryption' meta.json)" = age ]
+          [ "$(jq -r '.Metadata.sha256' meta.json)" = "$(sha256sum restore.dump.age | cut -d' ' -f1)" ]
+          age -d -i "$RUNNER_TEMP/key.txt" -o restore.dump restore.dump.age
+          psql "$OWNER_URL" -X -qc 'CREATE DATABASE restored'
+          "/usr/lib/postgresql/$PG_MAJOR/bin/pg_restore" --exit-on-error --no-owner --no-privileges \
+            --dbname "${OWNER_URL/appdb/restored}" restore.dump
+          for t in User Lesson _prisma_migrations Model18 AddedLater; do
+            a="$(psql "$OWNER_URL" -XAtqc "SELECT count(*) FROM \"$t\"")"
+            b="$(psql "${OWNER_URL/appdb/restored}" -XAtqc "SELECT count(*) FROM \"$t\"")"
+            [ "$a" = "$b" ] || { echo "::error::$t: $a rows in the source, $b restored"; exit 1; }
+          done
+          [ "$(psql "${OWNER_URL/appdb/restored}" -XAtqc 'SELECT count(*) FROM "Session"')" = 0 ]
+          [ "$(psql "${OWNER_URL/appdb/restored}" -XAtqc 'SELECT count(*) FROM "VerificationToken"')" = 0 ]
+          echo "Restored from the bucket: row counts match, sign-in tokens absent."
+
+      - name: Without a recipient, uploads plain and warns
+        run: |
+          set -euo pipefail
+          sleep 2
+          scripts/db-backup.sh dump
+          export FILE="$(grep '^FILE=' "$GITHUB_ENV" | tail -1 | cut -d= -f2)"
+          AGE_RECIPIENTS="" scripts/db-backup.sh encrypt | tee out.txt
+          [ "$(grep '^ENCRYPTION=' "$GITHUB_ENV" | tail -1)" = "ENCRYPTION=none" ]
+          case "$FILE" in *.age) exit 1;; esac
+          ENCRYPTION=none scripts/db-backup.sh upload
+
+      - name: Prune keeps the newest, deletes the rest
+        run: |
+          set -euo pipefail
+          sleep 2
+          scripts/db-backup.sh dump
+          export FILE="$(grep '^FILE=' "$GITHUB_ENV" | tail -1 | cut -d= -f2)"
+          ENCRYPTION=none scripts/db-backup.sh upload
+          count() { aws s3api list-objects-v2 --endpoint-url "$ENDPOINT" --bucket "$BUCKET" --prefix db/ --query 'length(Contents)' --output text; }
+          [ "$(count)" = 3 ]
+          # Nothing is older than 30 days: nothing goes.
+          scripts/db-backup.sh prune
+          [ "$(count)" = 3 ]
+          # Everything is "old", but the newest KEEP_MIN stay.
+          KEEP_MIN=1 RETENTION_DAYS=0 scripts/db-backup.sh prune
+          [ "$(count)" = 1 ]
+          LEFT="$(aws s3api list-objects-v2 --endpoint-url "$ENDPOINT" --bucket "$BUCKET" --prefix db/ --query 'Contents[0].Key' --output text)"
+          [ "$LEFT" = "db/$FILE" ] || { echo "::error::kept $LEFT, expected the newest db/$FILE"; exit 1; }
+          echo "Prune kept only the newest: $LEFT"
