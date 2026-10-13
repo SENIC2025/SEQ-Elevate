@@ -7,7 +7,10 @@
  * project. Stage keys map to the StageKey enum; the client uses lowercase.
  */
 
-import { getCurrentUser } from "@/lib/auth-helpers";
+import { getCurrentUser, getProjectMemberships } from "@/lib/auth-helpers";
+import { isBootstrapAdmin } from "@/lib/admin-bootstrap";
+import { needsLearnerMembership } from "@/lib/learner-membership";
+import { ensureProjectRoles } from "@/lib/role-grants";
 import { prisma } from "@/lib/prisma";
 import { getCourse } from "@/lib/cms";
 import type { Locale } from "@/lib/cms/types";
@@ -80,16 +83,25 @@ function isLearner(
   return user.id === forUser || (user.email !== null && user.email === forUser);
 }
 
-/** Auto-provision a LEARNER membership on first use. */
+/**
+ * Give someone who signed in by themselves a place in the project: a
+ * LEARNER membership, but only when they hold no role in it at all (see
+ * needsLearnerMembership). Staff stay staff, and nothing they hold is
+ * removed. The roles are read through getProjectMemberships, which grants
+ * an ADMIN_EMAILS address its roles first. A failed read fails the call,
+ * so the store tries again rather than guessing that there are none.
+ */
 export async function ensureLearnerMembership() {
   const user = await requireLearner();
-  const existing = await prisma.membership.findFirst({
-    where: { userId: user.id, projectId: PROJECT, role: "LEARNER" },
-  });
-  if (!existing) {
-    await prisma.membership.create({
-      data: { userId: user.id, projectId: PROJECT, role: "LEARNER" },
-    });
+  const roles = (await getProjectMemberships(PROJECT)).map((m) => m.role);
+  if (
+    needsLearnerMembership(roles, {
+      bootstrapAdmin: isBootstrapAdmin(user.email),
+    })
+  ) {
+    // Two tabs loading at once can both get here; the upsert (and its
+    // unique-constraint guard) makes the second one a no-op.
+    await ensureProjectRoles(user.id, PROJECT, ["LEARNER"]);
   }
   return true;
 }
