@@ -202,9 +202,12 @@ describe("Release 0 — progress per course and cleared translations", () => {
     await prisma.auditLog.deleteMany({
       where: { actorId: { in: users.map((u) => u.id) } },
     });
-    // Users first: their memberships, sessions and enrolments cascade away.
+    // Users first: their memberships, sessions and enrolments cascade away,
+    // and deleting the course takes any other enrolment in it. No delete
+    // here filters by courseId: if beforeAll failed before the course was
+    // created it is undefined, and Prisma would drop the filter and delete
+    // every enrolment in the database.
     await prisma.user.deleteMany({ where: { email: { in: EMAILS } } });
-    await prisma.courseEnrollment.deleteMany({ where: { courseId } });
     await prisma.lesson.deleteMany({ where: { courseSlug: SLUG } });
     await prisma.course.deleteMany({ where: { slug: SLUG } });
   });
