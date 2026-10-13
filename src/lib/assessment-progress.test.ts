@@ -3,12 +3,14 @@ import {
   MAX_ASSESSMENT_ANSWERS,
   MAX_ASSESSMENT_ID_LENGTH,
   answerQuestion,
+  assessmentToSave,
   checkedQuiz,
   emptyAssessment,
   hasAssessmentProgress,
   mergeAssessment,
   parseAssessmentInput,
   readAssessment,
+  retakeQuiz,
   scoreAssessment,
 } from "./assessment-progress";
 import type { AssessmentQuestion } from "./cms/types";
@@ -32,6 +34,37 @@ describe("answerQuestion", () => {
     const checked = { answers: { q1: "a" }, checked: true };
     expect(answerQuestion(checked, "q2", "b")).toEqual({
       answers: { q1: "a", q2: "b" },
+      checked: false,
+    });
+  });
+});
+
+describe("retakeQuiz", () => {
+  it("clears the answers and the check, marked as tried again on this page", () => {
+    expect(retakeQuiz()).toEqual({ answers: {}, checked: false, retaken: true });
+  });
+
+  it("stays marked as tried again while the learner answers and checks again", () => {
+    const one = answerQuestion(retakeQuiz(), "qk3f", "a1x");
+    expect(one).toEqual({ answers: { qk3f: "a1x" }, checked: false, retaken: true });
+  });
+});
+
+describe("assessmentToSave", () => {
+  it("saves the answers and the check, never the mark of a retake", () => {
+    expect(
+      assessmentToSave({ answers: { q1: "a" }, checked: true, retaken: true })
+    ).toEqual({ answers: { q1: "a" }, checked: true });
+    expect(assessmentToSave({ answers: {}, checked: false })).toEqual({
+      answers: {},
+      checked: false,
+    });
+  });
+
+  it("sends a quiz just tried again as an empty quick check, which the server takes", () => {
+    // Saved over the old check: the facilitator no longer sees its score.
+    expect(parseAssessmentInput(assessmentToSave(retakeQuiz()))).toEqual({
+      answers: {},
       checked: false,
     });
   });
@@ -103,6 +136,35 @@ describe("mergeAssessment", () => {
         { answers: { a: "saved", b: "saved" }, checked: true }
       )
     ).toEqual({ answers: { a: "saved", b: "local" }, checked: false });
+  });
+});
+
+describe("mergeAssessment after the learner tried the quiz again", () => {
+  const saved = { answers: { a: "x", b: "y" }, checked: true };
+
+  it("doesn't bring the saved check back over a retake made while it loaded", () => {
+    expect(mergeAssessment(retakeQuiz(), saved)).toEqual({
+      answers: {},
+      checked: false,
+      retaken: true,
+    });
+  });
+
+  it("keeps only the answers chosen since, even where they match the saved ones", () => {
+    const again = answerQuestion(retakeQuiz(), "a", "x");
+    expect(mergeAssessment(again, saved)).toEqual({
+      answers: { a: "x" },
+      checked: false,
+      retaken: true,
+    });
+  });
+
+  it("keeps the new check", () => {
+    const rechecked = {
+      ...answerQuestion(answerQuestion(retakeQuiz(), "a", "z"), "b", "y"),
+      checked: true,
+    };
+    expect(mergeAssessment(rechecked, saved)).toEqual(rechecked);
   });
 });
 

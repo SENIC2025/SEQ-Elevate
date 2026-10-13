@@ -8,6 +8,8 @@
  * the learner pressed "Check answers": the answers are then locked and the
  * score shown, so a learner who comes back finds them as they left them,
  * and the facilitator and statistics views score only what was checked.
+ * "Try again" clears both (retakeQuiz), and that is saved too: the latest
+ * check is the one that counts.
  *
  * Before this shape, the store kept three slots ({ q1, q2, q3 }) that were
  * never filled, and that's what every enrollment saved until now holds.
@@ -27,6 +29,12 @@ export type AssessmentProgress = {
   answers: Record<string, string>;
   /** "Check answers" was pressed: the answers are locked. */
   checked: boolean;
+  /**
+   * Only in the learner store, never saved (assessmentToSave): the learner
+   * chose "Try again" on this page, so these answers replace the saved
+   * ones when they arrive (mergeAssessment).
+   */
+  retaken?: true;
 };
 
 /** More answers than any quiz is meant to have; ids are a few characters. */
@@ -112,14 +120,39 @@ export function parseAssessmentInput(raw: unknown): AssessmentProgress | null {
  * `a` once the learner chose `optionId` for `questionId`. A quick check
  * that was checked is open again: the score no longer matches the
  * answers, so they're checked again. (The player locks a checked quiz, so
- * this only happens once its questions have changed: see checkedQuiz.)
+ * this only happens once its questions have changed: see checkedQuiz.) A
+ * quiz tried again stays marked so: these are still the answers since.
  */
 export function answerQuestion(
   a: AssessmentProgress,
   questionId: string,
   optionId: string
 ): AssessmentProgress {
-  return { answers: { ...a.answers, [questionId]: optionId }, checked: false };
+  return {
+    ...a,
+    answers: { ...a.answers, [questionId]: optionId },
+    checked: false,
+  };
+}
+
+/**
+ * A checked quick check once the learner chose "Try again": no answers and
+ * no check, so they answer and check it again. Saved like any change, so
+ * the old score is gone from the facilitator and statistics views until
+ * the new check. Marked `retaken`: if the saved progress hasn't arrived
+ * yet, the saved check mustn't come back over it (mergeAssessment).
+ */
+export function retakeQuiz(): AssessmentProgress {
+  return { answers: {}, checked: false, retaken: true };
+}
+
+/**
+ * What a save sends: the answers and the check. The `retaken` mark only
+ * steers merging on this page, and the server refuses a quick check with
+ * anything else in it (parseAssessmentInput).
+ */
+export function assessmentToSave(a: AssessmentProgress): AssessmentProgress {
+  return { answers: a.answers, checked: a.checked };
 }
 
 /**
@@ -153,11 +186,17 @@ export function hasAssessmentProgress(a: AssessmentProgress): boolean {
  * answerQuestion: the saved check scored other answers, so only a local
  * check counts — otherwise the player would lock answers nobody checked,
  * and the facilitator and statistics views would score them.
+ *
+ * A quiz the learner tried again on this page (retakeQuiz) is theirs
+ * alone: they set the saved answers and check aside, so neither comes
+ * back — not even where an answer chosen since matches a saved one, which
+ * would otherwise bring the old check back with it.
  */
 export function mergeAssessment(
   local: AssessmentProgress,
   saved: AssessmentProgress
 ): AssessmentProgress {
+  if (local.retaken) return { ...local, answers: { ...local.answers } };
   const changedLocally = Object.entries(local.answers).some(
     ([id, answer]) => saved.answers[id] !== answer
   );

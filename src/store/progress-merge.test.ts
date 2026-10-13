@@ -73,6 +73,9 @@ describe("hasCourseProgress", () => {
       // A quiz made in the course editor: its questions have their own ids.
       { assessment: { answers: { qk3f: "a1x" }, checked: false } },
       { completedAt: "2026-09-29T10:00:00.000Z" },
+      // A quick check tried again: its empty answers replace the saved
+      // check, so they must be saved.
+      { assessment: { answers: {}, checked: false, retaken: true } },
     ];
     for (const step of steps) expect(hasCourseProgress(progress(step))).toBe(true);
   });
@@ -163,6 +166,23 @@ describe("mergeCourseProgress", () => {
       answers: { q1: "b", q2: "a", q3: "a" },
       checked: false,
     });
+  });
+
+  it("doesn't lock a saved checked quiz again that the learner tried again while it loaded", () => {
+    const saved = progress({
+      stagesCompleted: ["context"],
+      assessment: { answers: { q1: "a", q2: "a", q3: "a" }, checked: true },
+    });
+    const local = progress({
+      assessment: { answers: { q1: "a" }, checked: false, retaken: true },
+    });
+    const merged = courseAfterLoad(local, SLUG, saved);
+    expect(merged?.assessment).toEqual({
+      answers: { q1: "a" },
+      checked: false,
+      retaken: true,
+    });
+    expect(merged?.stagesCompleted).toEqual(["context"]);
   });
 
   it("keeps the saved simulation when none was made locally", () => {
