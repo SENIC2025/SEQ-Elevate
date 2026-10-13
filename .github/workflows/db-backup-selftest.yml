@@ -134,9 +134,9 @@ jobs:
         run: |
           set -euo pipefail
           scripts/db-backup.sh dump
+          # PG_MAJOR came from the validate step; FILE is in this step's $GITHUB_ENV.
           FILE="$(grep '^FILE=' "$GITHUB_ENV" | tail -1 | cut -d= -f2)"
-          PG_MAJOR="$(grep '^PG_MAJOR=' "$GITHUB_ENV" | tail -1 | cut -d= -f2)"
-          export FILE PG_MAJOR
+          export FILE
           # The dump was made by the matching pg_dump, and left the tokens out.
           "/usr/lib/postgresql/$PG_MAJOR/bin/pg_restore" --list "$FILE" > toc.txt
           grep -q "TABLE DATA public User " toc.txt || { echo "::error::User data missing"; exit 1; }
