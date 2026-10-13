@@ -28,7 +28,8 @@ import {
   type NarrativeInitial,
   type ReadinessIssue,
 } from "@/lib/cms/course-admin-types";
-import type { SectionsMeta } from "@/lib/cms/sections/contract";
+import type { CourseStatus } from "@/lib/cms/course-status";
+import type { LabelSource, SectionsMeta } from "@/lib/cms/sections/contract";
 import type { StoredStructure } from "@/lib/cms/structure";
 import type { LessonDocumentRef, Locale, VideoContent } from "@/lib/cms/types";
 
@@ -45,6 +46,13 @@ export interface WorkspaceState {
   languages: Record<Locale, LanguageCoverage>;
   /** Learners enrolled (D53). */
   enrolled: number;
+  /**
+   * Draft, published or archived: what the publishing controls show, and
+   * what the lesson list predicts a published course's refusals from. Set by
+   * the page's own status change, and by every outline the server sends (a
+   * colleague may have published the course since the page opened).
+   */
+  status: CourseStatus;
   /** Per "lesson:language": bumped when its text was re-read (see "reread"). */
   revs: Record<string, number>;
   /**
@@ -67,6 +75,21 @@ export type WorkspaceAction =
   | { type: "outline"; outline: CourseOutline }
   /** A structural action returned the whole outline after it committed. */
   | { type: "outlineReplaced"; outline: CourseOutline }
+  /** The page changed the course's status (PublishControls). */
+  | { type: "statusChanged"; status: CourseStatus }
+  /**
+   * A lesson's step name in one language was saved (renameSection): its new
+   * base, and the name it now goes by there. The refresh that follows brings
+   * the server's own view.
+   */
+  | {
+      type: "renamed";
+      key: string;
+      lang: Locale;
+      label: string;
+      version: string | null;
+      name: { text: string; source: LabelSource };
+    }
   | { type: "opened"; key: string }
   | { type: "closed"; key: string }
   | { type: "narrativeSaved"; key: string; lang: Locale; value: NarrativeInitial }
@@ -90,6 +113,7 @@ export function initWorkspace(outline: CourseOutline, initialLesson?: string): W
     readiness: outline.readiness,
     languages: outline.languages,
     enrolled: outline.enrolled,
+    status: outline.status,
     revs: {},
     pending: {},
     open: new Set(initialLesson ? [initialLesson] : []),
@@ -114,6 +138,24 @@ export function workspaceReducer(state: WorkspaceState, action: WorkspaceAction)
       return takeServerOutline(state, action.outline);
     case "outlineReplaced":
       return replaceOutline(state, action.outline);
+    case "statusChanged":
+      return { ...state, status: action.status };
+    case "renamed":
+      return patchLesson(state, action.key, (l) => {
+        if (!l.section) return l;
+        const label = { ...l.section.label };
+        if (action.label) label[action.lang] = action.label;
+        else delete label[action.lang];
+        return {
+          ...l,
+          section: {
+            ...l.section,
+            label,
+            labelVersion: { ...l.section.labelVersion, [action.lang]: action.version },
+            name: { ...l.section.name, [action.lang]: action.name },
+          },
+        };
+      });
     case "opened":
       return { ...state, open: new Set(state.open).add(action.key) };
     case "closed": {
@@ -197,6 +239,7 @@ function courseFacts(outline: CourseOutline) {
     readiness: outline.readiness,
     languages: outline.languages,
     enrolled: outline.enrolled,
+    status: outline.status,
   };
 }
 

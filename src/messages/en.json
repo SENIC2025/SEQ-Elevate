@@ -795,7 +795,9 @@
       "confirm": "Delete lesson",
       "keep": "Keep it",
       "deleted": "“{name}” deleted.",
-      "blockedLearners": "{count, plural, one {# learner is} other {# learners are}} enrolled in this course, so this lesson can't be deleted."
+      "blockedLearners": "{count, plural, one {# learner is} other {# learners are}} enrolled in this course, so this lesson can't be deleted.",
+      "removes": "This removes:",
+      "nothing": "Nothing is written in it yet."
     },
     "picker": {
       "open": "Add lesson",
@@ -815,7 +817,12 @@
       "reflectionRatingHint": "Questions to think about, and statements to rate from 1 to 5.",
       "restore": "Add back: {name} (empty)",
       "restoreHint": "The standard lesson you deleted, without its old content.",
-      "close": "Close"
+      "close": "Close",
+      "choose": "Choose what to add:",
+      "whereAuto": "Its usual place",
+      "whereStart": "At the start",
+      "whereAfter": "After {label}",
+      "add": "Add this lesson"
     },
     "where": "Where",
     "many": "This course has more than {count} lessons. Check that learners need them all.",
@@ -835,11 +842,29 @@
         "reordered": "The lessons are in a new order",
         "extraParts": "“{name}” has added content",
         "unreadable": "The lesson list can't be read"
-      }
+      },
+      "partDraft": "“{name}” has content with a draft that learners don't see yet."
     },
     "labelsLater": "Learners see your lesson names from Release 2.",
     "laterNote": "Learners see this name from Release 2; until then they see “{standard}”.",
-    "fullTemplate": "Start from the full template (all seven standard lessons)"
+    "fullTemplate": "Start from the full template (all seven standard lessons)",
+    "added": "“{name}” added.",
+    "hiddenDone": "“{name}” is hidden.",
+    "shownDone": "“{name}” is shown again.",
+    "notNumbered": "Not numbered: learners wouldn't see it",
+    "status": {
+      "live": "Learners get this lesson",
+      "later": "Learners get this lesson from Release 2",
+      "empty": "No content yet"
+    },
+    "errors": {
+      "generic": "That didn't work. Check your connection and try again.",
+      "forbidden": "Your account can't change courses right now. Sign in again, or ask your project administrator for the Editor role.",
+      "unknownCourse": "This course no longer exists. Go back to All courses.",
+      "liveLocked": "This course is live, so this change has to wait: learners get changes like this from Release 2. Nothing was changed.",
+      "notASection": "This lesson isn't in the lesson list any more. The list now shows it as it is.",
+      "unreadable": "This course's lesson list can't be read, so it can't be changed until an admin repairs it."
+    }
   },
   "lesson": {
     "resourcesTitle": "Resources",
