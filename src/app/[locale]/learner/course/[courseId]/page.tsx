@@ -7,9 +7,12 @@ import { getCourseStatus } from "@/lib/cms/course-overlay";
 import { isStageKey } from "@/lib/cms/course-admin-types";
 import { getViewerRoles } from "@/lib/server-queries";
 import { canEditContent } from "@/lib/permissions";
-import type { Locale } from "@/lib/cms/types";
+import type { CourseContent, Locale } from "@/lib/cms/types";
+import { getPreviewCourse } from "@/lib/cms/preview-course";
+import { isSectionId, isSectionedCourse } from "@/lib/cms/sections/contract";
 import { routing } from "@/i18n/routing";
 import { CoursePlayer } from "@/components/course/CoursePlayer";
+import { SectionedPreviewPlayer } from "@/components/course/sectioned/SectionedPreviewPlayer";
 import { PreviewStateProvider } from "@/store/demo-state";
 
 /**
@@ -31,6 +34,17 @@ const loadCourse = cache(async (courseId: string, loc: Locale) => {
   const isDraft = status !== null && status !== "published";
   return { course, isDraft, canEdit: canEditContent(roles) };
 });
+
+/**
+ * What an editor's preview shows (Release 1, D56): the course just loaded
+ * — the learner view itself — unless it's a draft built with lessons or
+ * content learners don't get until Release 2; then the editor's layout,
+ * for the sectioned preview player. Only ever called for an editor's
+ * preview: learners never reach it. Fails open to the learner view.
+ */
+const loadPreview = cache((courseId: string, loc: Locale, learner: CourseContent) =>
+  getPreviewCourse("seq-elevate", courseId, loc, learner)
+);
 
 function asLocale(locale: string): Locale {
   return (["en", "de", "el"].includes(locale) ? locale : "en") as Locale;
@@ -68,6 +82,12 @@ export async function generateMetadata({
  * learners always start at the beginning and keep the step-by-step order.
  * A preview opened from the course page also says which menu language the
  * editor works in (`?ui=`), so its links back to editing use that one.
+ *
+ * Release 1: an editor's preview of a draft built with the course's own
+ * lessons or extra content (which learners don't get until Release 2)
+ * plays in the sectioned preview player instead, from any lesson of its
+ * own (`?lesson=s-…`). Everything else — every learner, every standard
+ * course — gets the player exactly as before.
  */
 export default async function Page({
   params,
@@ -99,6 +119,25 @@ export default async function Page({
     preview && (routing.locales as readonly string[]).includes(ui ?? "")
       ? (ui as Locale)
       : undefined;
+
+  if (preview && canEdit) {
+    const shown = await loadPreview(courseId, asLocale(locale), course);
+    if (isSectionedCourse(shown)) {
+      const initialSection =
+        isSectionId(lesson) && shown.stages.some((s) => s.key === lesson) ? lesson : undefined;
+      return (
+        <PreviewStateProvider>
+          <SectionedPreviewPlayer
+            course={shown}
+            draftPreview={isDraft}
+            canEdit
+            initialSection={initialSection}
+            editLocale={editLocale}
+          />
+        </PreviewStateProvider>
+      );
+    }
+  }
 
   const player = (
     <CoursePlayer
