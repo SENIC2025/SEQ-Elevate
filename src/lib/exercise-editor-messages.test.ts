@@ -282,13 +282,16 @@ describe("Release 1 stream namespaces", () => {
 
   it("keeps the new content's German and Greek free of the words the editor avoids", () => {
     // Content is "Inhalt" / "περιεχόμενο", never a "Teil" / "μέρος" of a lesson.
+    // Nor is a new practice question an "Übung": next to the standard
+    // "Geführte Übung" it would read as that lesson. "Praxisfrage" is for
+    // partner review.
     const lessonName = de.course.stageLabel.simulation;
-    const german = [de.lessonBlocks, de.lessonList, de.sectionPreview]
+    const german = [de.lessonBlocks, de.lessonList, de.sectionPreview, de.course.sectionTemplate]
       .flatMap(strings)
       .map((s) => s.split(lessonName).join(""))
-      .filter((s) => /\bTeil(s|e)?\b/.test(s));
+      .filter((s) => /\bTeil(s|e)?\b|Übung/.test(s));
     expect(german).toEqual([]);
-    const greek = [el.lessonBlocks, el.lessonList, el.sectionPreview]
+    const greek = [el.lessonBlocks, el.lessonList, el.sectionPreview, el.course.sectionTemplate]
       .flatMap(strings)
       .filter((s) => /μέρο|δραστηριότητ/i.test(s));
     expect(greek).toEqual([]);

@@ -468,7 +468,7 @@
     "sectionTemplate": {
       "blank": "Leere Lektion",
       "text": "Textlektion",
-      "practice": "Übungsfrage",
+      "practice": "Praxisfrage",
       "scenario": "Verzweigtes Szenario",
       "quiz": "Schnellcheck",
       "reflectionRating": "Reflexion und Selbsteinschätzung"
@@ -513,7 +513,7 @@
     "editLesson": "Diese Lektion bearbeiten",
     "partHeading": {
       "text": "Text",
-      "practice": "Übungsfrage",
+      "practice": "Praxisfrage",
       "scenario": "Verzweigtes Szenario",
       "quiz": "Schnellcheck",
       "reflection": "Reflexionsfragen",
@@ -805,7 +805,7 @@
       "blankHint": "Eine leere Lektion: Du wählst danach ihren Inhalt.",
       "text": "Text",
       "textHint": "Text zum Lesen, mit Absätzen und Listen.",
-      "practice": "Übungsfrage",
+      "practice": "Praxisfrage",
       "practiceHint": "Eine Situation und mehrere Antworten, eine davon die beste.",
       "scenario": "Verzweigtes Szenario",
       "scenarioHint": "Eine Situation, in der jede Wahl zu einer eigenen Folge führt.",
@@ -1125,7 +1125,7 @@
     "addContent": "Inhalt hinzufügen",
     "types": {
       "text": "Text",
-      "practice": "Übungsfrage",
+      "practice": "Praxisfrage",
       "scenario": "Verzweigtes Szenario",
       "quiz": "Schnellcheck",
       "reflection": "Reflexionsfragen",
