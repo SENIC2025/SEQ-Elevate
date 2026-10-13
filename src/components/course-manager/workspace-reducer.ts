@@ -141,14 +141,15 @@ export function workspaceReducer(state: WorkspaceState, action: WorkspaceAction)
       };
     case "structureSaved":
       // A new interactive lesson now exists for learners — and can take a
-      // video and documents like any other. The save cleared any draft.
+      // video and documents like any other. The save cleared any draft. A
+      // lesson of a created course's list already is one (see `listed`).
       return patchLesson(state, action.key, (l) => ({
         ...l,
         structure: action.structure,
         draft: null,
-        present: true,
-        addable: false,
-        editable: { ...l.editable, media: true },
+        ...(listed(l)
+          ? {}
+          : { present: true, addable: false, editable: { ...l.editable, media: true } }),
       }));
     case "draftChanged":
       // Learners see no change: only the lesson's "Draft" mark.
@@ -157,13 +158,16 @@ export function workspaceReducer(state: WorkspaceState, action: WorkspaceAction)
         draft: action.draft,
       }));
     case "structureCleared":
+      // Outside a created course's list the lesson goes back to "Add …". A
+      // lesson of the list stays in it with its video and documents: only
+      // its exercise is gone (see `listed`).
       return patchLesson(state, action.key, (l) => ({
         ...l,
         structure: null,
         draft: null,
-        present: false,
-        addable: true,
-        editable: { ...l.editable, media: false },
+        ...(listed(l)
+          ? {}
+          : { present: false, addable: true, editable: { ...l.editable, media: false } }),
       }));
     case "videoSaved":
       return patchLesson(state, action.key, (l) => ({
@@ -177,6 +181,14 @@ export function workspaceReducer(state: WorkspaceState, action: WorkspaceAction)
       }));
   }
 }
+
+/**
+ * A lesson of a created course's lesson list. The server lists it as a
+ * lesson (present, not addable, with media) whatever its content, so saving
+ * or removing its exercise doesn't change that. Release 0's rows and the
+ * "Add …" slots outside the list have no section.
+ */
+const listed = (l: LessonOutline) => l.section !== null;
 
 /** The course facts that belong to the same snapshot as the lessons. */
 function courseFacts(outline: CourseOutline) {
@@ -211,7 +223,10 @@ function takeServerOutline(state: WorkspaceState, outline: CourseOutline): Works
  * text an editor saved is kept — unless it is waiting for a re-read, which
  * is what the refresh was for. It never adds, removes or reorders lessons
  * (D39). The server's own view of each lesson in the list (its section,
- * content and bases) is taken too, so each base matches what is shown.
+ * content and bases, and that it is a lesson with media) is taken too, so
+ * each base matches what is shown. A row without a section keeps the page's
+ * present, addable and editable, as in Release 0: a refresh that raced a
+ * save or a removal must not flip it back.
  */
 function takeRefreshedOutline(state: WorkspaceState, outline: CourseOutline): WorkspaceState {
   const fresh = new Map(outline.lessons.map((l) => [l.key, l]));
@@ -229,6 +244,7 @@ function takeRefreshedOutline(state: WorkspaceState, outline: CourseOutline): Wo
       parts: f.parts,
       contentVersion: f.contentVersion,
       live: f.live,
+      ...(listed(f) ? { present: f.present, addable: f.addable, editable: f.editable } : {}),
     };
   });
 

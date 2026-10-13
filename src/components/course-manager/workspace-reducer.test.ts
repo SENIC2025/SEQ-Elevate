@@ -4,7 +4,7 @@ import type {
   LessonOutline,
   NarrativeInitial,
 } from "@/lib/cms/course-admin-types";
-import { mainKindOf, type SectionsMeta } from "@/lib/cms/sections/contract";
+import { mainKindOf, type SectionsMeta, type SectionView } from "@/lib/cms/sections/contract";
 import type { StageKey } from "@/lib/cms/types";
 import type { StoredStructure } from "@/lib/cms/structure";
 import { initWorkspace, workspaceReducer, type WorkspaceState } from "./workspace-reducer";
@@ -73,6 +73,23 @@ function outline(lessons: LessonOutline[], over: Partial<CourseOutline> = {}): C
     readiness: [],
     sections: meta("base-1"),
     ...over,
+  };
+}
+
+/** The view of a lesson in a created course's list (course-admin sectionRow). */
+function sectionView(id: SectionView["id"], template: SectionView["template"]): SectionView {
+  const name = { text: "N", source: "standard" as const };
+  return {
+    id,
+    template,
+    custom: id.startsWith("s-"),
+    hidden: false,
+    recovered: false,
+    label: {},
+    labelVersion: { en: null, de: null, el: null },
+    name: { en: name, de: name, el: name },
+    number: 2,
+    deleteSummary: { languages: [], textBlocks: 0, questionBlocks: 0, video: false, documents: 0 },
   };
 }
 
@@ -147,6 +164,38 @@ describe("content actions keep today's behaviour", () => {
     });
   });
 
+  /*
+   * A lesson of a created course's list (it has a `section`) stays a lesson
+   * when its exercise is removed or saved: the server lists it whatever its
+   * content, with its video and documents (course-admin sectionRow). Only a
+   * slot outside the list flips between "Add …" and a lesson, as before.
+   */
+  it("a lesson of the list stays a lesson, with media, when its exercise is removed", () => {
+    const listed = lesson("s-abcdefgh", {
+      body: "interactive",
+      mainKind: "simulation",
+      structure: sim,
+      section: sectionView("s-abcdefgh", "practice"),
+      contentVersion: "c1",
+    });
+    let state = initWorkspace(outline([lesson("context"), listed]));
+    state = workspaceReducer(state, { type: "structureCleared", key: "s-abcdefgh" });
+    expect(state.lessons[1]).toMatchObject({
+      structure: null,
+      draft: null,
+      present: true,
+      addable: false,
+      editable: { body: true, media: true },
+    });
+    state = workspaceReducer(state, { type: "structureSaved", key: "s-abcdefgh", structure: sim });
+    expect(state.lessons[1]).toMatchObject({
+      structure: sim,
+      present: true,
+      addable: false,
+      editable: { body: true, media: true },
+    });
+  });
+
   it("opens and closes lessons", () => {
     let state = initWorkspace(o);
     state = workspaceReducer(state, { type: "opened", key: "context" });
@@ -201,6 +250,43 @@ describe("a refreshed page (the server-rendered outline)", () => {
     const raced = outline([lesson("context")]); // still v1
     const next = workspaceReducer(state, { type: "outline", outline: raced });
     expect(next.lessons[0].byLang.en.narrative).toBe(saved);
+  });
+
+  it("with the same lesson list, takes the server's view of whether a listed lesson is one", () => {
+    // A standard exercise in a stored lesson list: listed whatever its content.
+    const section = sectionView("simulation", "simulation");
+    const listed = (over: Partial<LessonOutline> = {}) =>
+      lesson("simulation", { body: "interactive", mainKind: "simulation", section, ...over });
+    const first = outline([lesson("context"), listed({ structure: sim })]);
+    // A row the page wrongly holds as an "Add …" slot (as Release 0's clear
+    // left it): the refresh with the same list puts it right.
+    const state: WorkspaceState = {
+      ...initWorkspace(first),
+      lessons: [
+        first.lessons[0],
+        listed({ present: false, addable: true, editable: { body: true, media: false } }),
+      ],
+    };
+    const refreshed = outline([lesson("context"), listed()]);
+    const next = workspaceReducer(state, { type: "outline", outline: refreshed });
+    expect(next.lessons[1]).toMatchObject({
+      present: true,
+      addable: false,
+      editable: { body: true, media: true },
+    });
+  });
+
+  it("with the same lesson list, leaves a slot outside the list as the page has it", () => {
+    const slot = () => lesson("simulation", { body: "interactive", mainKind: "simulation" });
+    const first = outline([lesson("context"), slot()]);
+    const state = workspaceReducer(initWorkspace(first), {
+      type: "structureCleared",
+      key: "simulation",
+    });
+    // A refresh that raced the removal still says present: the page's view stays.
+    const raced = outline([lesson("context"), slot()]);
+    const next = workspaceReducer(state, { type: "outline", outline: raced });
+    expect(next.lessons[1]).toMatchObject({ present: false, addable: true });
   });
 
   it("with a colleague's new lesson list, shows the new rows with their new base", () => {
