@@ -102,6 +102,11 @@ model Lesson {
   // still be blank). Only the course page reads it — learners only ever get
   // `structure` (db-course.ts). A save for learners clears it.
   structureDraft Json?
+  // Release 1 (D56). The lesson's extra content around its main content:
+  // { v: 1, items: [{ id: "main", type: "main" } | extra parts] }. Null = main
+  // content only. The main content stays in narrative / structure /
+  // structureDraft. Learners don't read it before Release 2.
+  parts      Json?
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
@@ -320,6 +325,11 @@ model Course {
   // lives in `meta`, whose presence is what marks a course as CMS-created).
   // Applied on read by src/lib/cms/course-overlay.ts.
   copyOverride    Json?
+  // Release 1 (D56). The lesson list of a course created here:
+  // { v: 1, sections: [{ id, template, hidden?, label? }], removed?: NarrativeKey[] }.
+  // Null = today's standard layout, derived from the lessons
+  // (src/lib/cms/sections/outline.ts). Learners don't read it before Release 2.
+  outline         Json?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
