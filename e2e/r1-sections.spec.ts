@@ -215,10 +215,14 @@ describe("Release 1 — the lesson list", () => {
     await openCourse(page);
 
     const picker = await openPicker(page);
-    // The first kind takes focus; Escape would close it.
-    await expect(picker.getByRole("button", { name: /^blank$/i })).toBeFocused();
-    await picker.getByRole("button", { name: /^text$/i }).click();
-    await expect(picker.getByRole("button", { name: /^text$/i })).toHaveAttribute("aria-pressed", "true");
+    // One choice of several: radio buttons. The first takes focus; Escape would close it.
+    await expect(picker.getByRole("radio", { name: /^blank$/i })).toBeFocused();
+    // Nothing chosen yet: "Add this lesson" says so.
+    await expect(picker.getByRole("button", { name: /^add this lesson$/i })).toHaveAccessibleDescription(
+      "Choose what to add first."
+    );
+    await picker.getByRole("radio", { name: /^text$/i }).check();
+    await expect(picker.getByRole("radio", { name: /^text$/i })).toBeChecked();
     // Said before anything is added: the course is then one for Release 2.
     await expect(picker.getByText(/can be published from release 2/i)).toBeVisible();
     await expect(picker.getByRole("combobox", { name: /^where/i })).toHaveValue("5");
@@ -287,9 +291,11 @@ describe("Release 1 — the lesson list", () => {
 
     const actions = await openActions(page, "1. Context");
     await actions.getByRole("button", { name: /^move down$/i }).click();
-    await expect(announcements(page)).toHaveText("“Context” moved to position 2 of 6.", {
-      timeout: 15000,
-    });
+    // A new order makes it a course for Release 2: said with the move.
+    await expect(announcements(page)).toHaveText(
+      "“Context” moved to position 2 of 6. The course can now be published only from Release 2: see Publishing.",
+      { timeout: 15000 }
+    );
     await expect(page.locator(":focus")).toHaveAccessibleName("Move down");
     expect((await ids()).slice(0, 2)).toEqual(["concept", "context"]);
     // Now out of the standard order: publishing says so.
@@ -314,18 +320,23 @@ describe("Release 1 — the lesson list", () => {
 
     const actions = await openActions(page, "2. Skill concept");
     const hide = actions.getByRole("button", { name: /^hide$/i });
-    await expect(hide).toHaveAttribute("aria-pressed", "false");
+    // Said before it is pressed: hiding makes it a course for Release 2.
+    await expect(hide).toHaveAccessibleDescription(/can be published only from release 2/i);
     await hide.click();
-    await expect(announcements(page)).toHaveText("“Skill concept” is hidden.", { timeout: 15000 });
+    await expect(announcements(page)).toHaveText(
+      "“Skill concept” is hidden. The course can now be published only from Release 2: see Publishing.",
+      { timeout: 15000 }
+    );
     await expect.poll(async () => (await storedOutline())?.sections[1]).toMatchObject({
       id: "concept",
       hidden: true,
     });
     // Unnumbered while hidden: learners of Release 2 wouldn't see it.
     const shown = await openActions(page, "Skill concept");
-    await expect(lessonList(page).getByText(/^hidden$/i)).toBeVisible();
-    await expect(shown.getByRole("button", { name: /^hide$/i })).toHaveAttribute("aria-pressed", "true");
-    await shown.getByRole("button", { name: /^hide$/i }).click();
+    // "Hidden" is in the lesson's link, and its button now says Show.
+    await expect(lessonList(page).getByRole("link", { name: /^skill concept\s*hidden$/i })).toBeVisible();
+    await expect(shown.getByRole("button", { name: /^hide$/i })).toHaveCount(0);
+    await shown.getByRole("button", { name: /^show$/i }).click();
     await expect(announcements(page)).toHaveText("“Skill concept” is shown again.", { timeout: 15000 });
     await expect
       .poll(async () => (await storedOutline())?.sections[1]?.hidden)
@@ -386,7 +397,7 @@ describe("Release 1 — the lesson list", () => {
 
     await again.getByRole("button", { name: /^delete$/i }).click();
     await confirm.getByRole("button", { name: /^delete lesson$/i }).click();
-    await expect(announcements(page)).toHaveText("“Behaviour model” deleted.", { timeout: 15000 });
+    await expect(announcements(page)).toHaveText(/^“Behaviour model” deleted\./, { timeout: 15000 });
     // Focus goes to the next lesson's link.
     await expect(page.locator(":focus")).toHaveAttribute("href", "#lesson-simulation");
     await expect.poll(ids).not.toContain("behaviour");
@@ -397,7 +408,7 @@ describe("Release 1 — the lesson list", () => {
 
     // It can come back, empty.
     const picker = await openPicker(page);
-    await expect(picker.getByRole("button", { name: "Add back: Behaviour model (empty)" })).toBeVisible();
+    await expect(picker.getByRole("radio", { name: "Add back: Behaviour model (empty)" })).toBeVisible();
     await picker.getByRole("button", { name: /^close$/i }).click();
   });
 
@@ -477,7 +488,8 @@ describe("Release 1 — the lesson list", () => {
     await openActions(page, "2. Skill concept");
     await noHorizontalScroll(page);
 
-    await page.setViewportSize({ width: 375, height: 812 });
+    // 320 CSS px: WCAG 1.4.10's narrowest width (spec 11.3).
+    await page.setViewportSize({ width: 320, height: 720 });
     await page.goto(`/en/content/courses/${SLUG}`);
     // A disclosure above the lessons on a phone.
     const toggle = page.getByRole("button", { name: /^lessons \(\d+\)$/i });
@@ -485,8 +497,21 @@ describe("Release 1 — the lesson list", () => {
       if ((await toggle.getAttribute("aria-expanded")) !== "true") await toggle.click();
       await expect(toggle).toHaveAttribute("aria-expanded", "true", { timeout: 2000 });
     }).toPass({ timeout: 15000 });
-    await openActions(page, "2. Skill concept");
+    const actions = await openActions(page, "2. Skill concept");
     await noHorizontalScroll(page);
+    // The rename box…
+    await actions.getByRole("button", { name: /^rename$/i }).click();
+    const nameBox = lessonList(page).getByRole("textbox", { name: /^lesson name in english$/i });
+    await expect(nameBox).toBeFocused();
+    await noHorizontalScroll(page);
+    await nameBox.press("Escape");
+    // …the delete confirmation…
+    await actions.getByRole("button", { name: /^delete$/i }).click();
+    const confirm = lessonList(page).getByRole("group", { name: "Delete “Skill concept” in all languages?" });
+    await expect(confirm.getByRole("heading")).toBeFocused();
+    await noHorizontalScroll(page);
+    await confirm.getByRole("button", { name: /^keep it$/i }).click();
+    // …and the picker.
     await openPicker(page);
     await noHorizontalScroll(page);
   });

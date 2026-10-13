@@ -299,7 +299,10 @@ describe("Release 1 — the publish guard", () => {
     await expect(publish).toHaveAttribute("aria-disabled", "true");
     await expect(publish).toHaveAccessibleDescription(/can't publish yet/i);
     await openActions(page, "1. Skill concept"); // hydrated
-    await publish.click();
+    // Pressed as a keyboard user would: Playwright's click waits for an
+    // enabled element, and an aria-disabled one never is.
+    await publish.focus();
+    await page.keyboard.press("Enter");
     await expect(page.locator(":focus")).toContainText("Can't publish yet");
     expect(await statusOf(FLEX)).toBe("draft");
 
@@ -369,7 +372,7 @@ describe("Release 1 — the publish guard", () => {
 
     // Show the hidden one.
     const hidden = await openActions(page, "Behaviour model");
-    await hidden.getByRole("button", { name: /^hide$/i }).click();
+    await hidden.getByRole("button", { name: /^show$/i }).click();
     await expect(region.getByText("“Behaviour model” is hidden")).toHaveCount(0, { timeout: 15000 });
 
     // The scenario back before the reflection.
@@ -382,6 +385,12 @@ describe("Release 1 — the publish guard", () => {
     await expect(region.getByText(/^published$/i)).toBeVisible({ timeout: 15000 });
     expect(await statusOf(STALE)).toBe("published");
   });
+
+  // Spec 13.2 item 3 also removes added content through the UI. That control
+  // is Stream E's PartList ("Remove"), which isn't on this branch: at
+  // integration, seed extra content on STALE, remove it here, and check that
+  // "“…” has added content" goes and Publish works. Kept visible until then.
+  test.fixme("undoing added content through the lesson's content list makes it publishable", async () => {});
 
   test("a live course refuses a reorder from a page that didn't know it was live", async ({
     page,
