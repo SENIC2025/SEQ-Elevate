@@ -511,6 +511,11 @@
     "ratingOption": "{n} of 5",
     "ratingScale": "1 = {min} · 5 = {max}",
     "editLesson": "Edit this lesson",
+    "quizResult": {
+      "yoursCorrect": "(your answer, correct)",
+      "yoursWrong": "(your answer, not correct)",
+      "correct": "(the correct answer)"
+    },
     "partHeading": {
       "text": "Text",
       "practice": "Practice question",

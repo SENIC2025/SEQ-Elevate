@@ -10,23 +10,33 @@ import { cn } from "@/lib/utils";
  * reached but not skip ahead; an editor's preview (`allReachable`) can jump
  * anywhere. `stages` is the steps this course actually has — a course without
  * the interactive steps shows only its own, numbered 1..n.
+ *
+ * Generic over the step key, so the editor's sectioned preview (Release 1)
+ * can list a course's own lessons with their step names (`labelOf`). The
+ * defaults are the learner player's: the standard steps, named by
+ * course.stageLabel — CoursePlayer passes Stage keys and gets exactly the
+ * markup it always had.
  */
-export function StageBreadcrumb({
+export function StageBreadcrumb<K extends string = Stage>({
   current,
   completed,
   onJump,
-  stages = STAGES,
+  stages = STAGES as readonly string[] as readonly K[],
+  labelOf,
   allReachable = false,
 }: {
-  current: Stage;
+  current: K;
   completed: string[];
-  onJump?: (stage: Stage) => void;
-  stages?: readonly Stage[];
+  onJump?: (stage: K) => void;
+  stages?: readonly K[];
+  /** The step's name. Default: its standard name (course.stageLabel). */
+  labelOf?: (stage: K) => string;
   allReachable?: boolean;
 }) {
   const t = useTranslations("course.stageLabel");
   const tCourse = useTranslations("course");
   const currentIndex = stages.indexOf(current);
+  const nameOf = labelOf ?? ((stage: K) => t(stage as string as Stage));
 
   return (
     // relative: on a phone the step names are visually hidden, and
@@ -87,7 +97,7 @@ export function StageBreadcrumb({
                 </span>
                 {/* Hidden on a phone but still the button's name: a
                     finished step shows only a tick. */}
-                <span className="sr-only sm:not-sr-only">{t(stage)}</span>
+                <span className="sr-only sm:not-sr-only">{nameOf(stage)}</span>
               </button>
               {i < stages.length - 1 ? (
                 <span

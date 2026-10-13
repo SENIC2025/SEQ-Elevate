@@ -511,6 +511,11 @@
     "ratingOption": "{n} από 5",
     "ratingScale": "1 = {min} · 5 = {max}",
     "editLesson": "Επεξεργασία αυτής της ενότητας",
+    "quizResult": {
+      "yoursCorrect": "(η απάντησή σου, σωστή)",
+      "yoursWrong": "(η απάντησή σου, λάθος)",
+      "correct": "(η σωστή απάντηση)"
+    },
     "partHeading": {
       "text": "Κείμενο",
       "practice": "Ερώτηση εξάσκησης",

@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { createElement, type FC, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { createHash } from "node:crypto";
 import { NextIntlClientProvider } from "next-intl";
 import en from "@/messages/en.json";
 import de from "@/messages/de.json";
@@ -26,6 +27,21 @@ function render(
     )
   );
 }
+
+/** The step bar with keys of the caller's own (the sectioned preview's lessons). */
+function renderOwn<K extends string>(
+  props: Parameters<typeof StageBreadcrumb<K>>[0]
+): string {
+  return renderToStaticMarkup(
+    createElement(
+      IntlProvider,
+      { locale: "en", messages: en },
+      createElement(StageBreadcrumb<K>, props)
+    )
+  );
+}
+
+const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
 
 /** Each step button: its label, and whether it can be pressed. */
 function steps(html: string) {
@@ -108,5 +124,58 @@ describe("StageBreadcrumb", () => {
     expect(current).toBeTruthy();
     expect(current).not.toContain("text-white");
     expect(current).toContain("text-[var(--primary-foreground)]");
+  });
+
+  // Release 1 made the step bar generic for the editor's sectioned preview.
+  // The learner player (frozen) uses the defaults: their markup must be
+  // byte for byte what it was. Hashes recorded from the Release 0 file.
+  it("renders the learner player's step bar exactly as before (default markup pinned)", () => {
+    const standard = render({ current: "concept", completed: ["context"] });
+    expect(standard).toHaveLength(3958);
+    expect(sha256(standard)).toBe(
+      "ce467f58548dfa6841c65ce94200d6c6c8ed4d41fc2db21193b4f7705c85baef"
+    );
+    const own = render({
+      current: "reflection",
+      completed: ["context"],
+      stages: CMS_STAGES,
+      allReachable: true,
+    });
+    expect(own).toHaveLength(2402);
+    expect(sha256(own)).toBe(
+      "bd8df428777ea72525c12f9098400060f02cff0e5e156d58240736d3970e36be"
+    );
+  });
+
+  it("takes keys of a course's own and names each step with labelOf", () => {
+    const names: Record<string, string> = {
+      "s-abcd1234": "Warm-up",
+      concept: "The idea",
+      scenario: "Try it",
+    };
+    const got = steps(
+      renderOwn({
+        current: "concept",
+        completed: ["s-abcd1234"],
+        stages: ["s-abcd1234", "concept", "scenario"],
+        labelOf: (k) => names[k],
+        allReachable: true,
+      })
+    );
+    expect(got.map((s) => s.label)).toEqual(["Warm-up", "2The idea", "3Try it"]);
+    expect(got.map((s) => s.current)).toEqual([false, true, false]);
+    expect(got.every((s) => !s.disabled)).toBe(true);
+  });
+
+  it("never looks up a standard name for a key of the course's own", () => {
+    // A custom id given to the default namer would print the raw message key.
+    const html = renderOwn({
+      current: "s-abcd1234",
+      completed: [],
+      stages: ["s-abcd1234"],
+      labelOf: () => "Warm-up",
+    });
+    expect(html).toContain('<span class="sr-only sm:not-sr-only">Warm-up</span>');
+    expect(html).not.toContain("stageLabel");
   });
 });
