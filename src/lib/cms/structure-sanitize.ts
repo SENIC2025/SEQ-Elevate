@@ -109,17 +109,43 @@ const ID = /^[A-Za-z0-9_-]+$/;
 type Rec = Record<string, unknown>;
 type Places = StructureIssue["params"];
 
+/*
+ * The helpers below are shared with the flexible editor's own question kinds
+ * (sections/part-kinds.ts: reflection questions and the 1–5 self-assessment),
+ * so those follow exactly the same rules. Their boxes and lists have names of
+ * their own, so here a breach names any box or list; each caller narrows it
+ * back to the names it uses.
+ */
+
+/** Where a sanitizer refused: any box or list name, places counted from 1. */
+export type SanitizeBreach =
+  | {
+      limit: "text";
+      field: string;
+      params?: Partial<Record<string, number>>;
+      locale: Locale;
+      max: number;
+    }
+  | {
+      limit: "list";
+      list: string;
+      params?: Partial<Record<string, number>>;
+      max: number;
+      count: number;
+    }
+  | { limit: "total"; max: number };
+
 /** Thrown inside the walk, turned into the result at the top. */
-class Refused extends Error {
-  constructor(readonly at?: StructureLimitBreach) {
+export class Refused extends Error {
+  constructor(readonly at?: SanitizeBreach) {
     super(at ? "too-large" : "bad-input");
   }
 }
 
-const isRecord = (value: unknown): value is Rec =>
+export const isRecord = (value: unknown): value is Rec =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-function record(value: unknown): Rec {
+export function record(value: unknown): Rec {
   if (!isRecord(value)) throw new Refused();
   return value;
 }
@@ -129,26 +155,26 @@ function record(value: unknown): Rec {
  * draft), as far as they have it. Read defensively — it is only ever used to
  * allow more, never trusted as a shape.
  */
-type Stored = Rec[];
+export type Stored = Rec[];
 
 /** The same field of each stored node. */
-const storedField = (stored: Stored, key: string): unknown[] =>
+export const storedField = (stored: Stored, key: string): unknown[] =>
   stored.map((node) => node[key]);
 
 /** The same list of each stored node. */
-const storedLists = (stored: Stored, key: string): unknown[][] =>
+export const storedLists = (stored: Stored, key: string): unknown[][] =>
   stored.flatMap((node) => (Array.isArray(node[key]) ? [node[key] as unknown[]] : []));
 
 /** The stored items with this id, in each stored list. */
-const storedItems = (lists: unknown[][], id: string): Stored =>
+export const storedItems = (lists: unknown[][], id: string): Stored =>
   lists.flatMap((items) => items.filter((item): item is Rec => isRecord(item) && item.id === id));
 
 /** A list, at most `max` long — or as long as the same list stored. */
-function list(
+export function list<L extends string = StructureListCode>(
   value: unknown,
   max: number,
   stored: unknown[][],
-  where: { list: StructureListCode; params?: Places }
+  where: { list: L; params?: Partial<Record<string, number>> }
 ): unknown[] {
   if (!Array.isArray(value)) throw new Refused();
   const allowed = Math.max(max, ...stored.map((items) => items.length));
@@ -159,7 +185,7 @@ function list(
 }
 
 /** Ids for one list: short tokens, none repeated. */
-function idsIn(items: Rec[]): string[] {
+export function idsIn(items: Rec[]): string[] {
   const ids = items.map((item) => {
     const id = item.id;
     if (
@@ -176,9 +202,9 @@ function idsIn(items: Rec[]): string[] {
 }
 
 /** One text box: which it is, and the same box in what is stored. */
-interface Box {
-  field: StructureFieldCode;
-  params?: Places;
+export interface Box<F extends string = StructureFieldCode> {
+  field: F;
+  params?: Partial<Record<string, number>>;
   stored: unknown[];
 }
 
@@ -188,7 +214,12 @@ interface Box {
  * before it is cleaned: whatever cleaning would remove, reading it is wasted
  * work.
  */
-function text(value: unknown, max: number, box: Box, oneLine = false): LocalizedText {
+export function text<F extends string = StructureFieldCode>(
+  value: unknown,
+  max: number,
+  box: Box<F>,
+  oneLine = false
+): LocalizedText {
   if (value === undefined || value === null) return {};
   const t = record(value);
   const out: LocalizedText = {};
@@ -408,8 +439,9 @@ export function sanitizeStructure(
     return { ok: true, structure };
   } catch (error) {
     if (error instanceof Refused) {
+      // Only this file's boxes and lists can be named here.
       return error.at
-        ? { ok: false, error: "too-large", at: error.at }
+        ? { ok: false, error: "too-large", at: error.at as StructureLimitBreach }
         : { ok: false, error: "bad-input" };
     }
     throw error;

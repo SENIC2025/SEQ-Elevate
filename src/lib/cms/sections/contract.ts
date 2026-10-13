@@ -31,6 +31,7 @@ import type {
   StoredAssessment,
   StoredScenario,
   StoredSimulation,
+  StructureFieldCode,
   StructureIssue,
   StructureIssueCode,
 } from "@/lib/cms/structure";
@@ -674,8 +675,13 @@ export type SanitizeExercise = (
 /** Legacy kinds → validateStructure. Reflection: ≥1 prompt, each with text. Rating: ≥1
  *  statement, each with text, both end labels with text. */
 export type ValidateExercise = (v: ExerciseValue) => PartIssue[];
-/** Like structure.ts fieldKey, plus the places prompt / statement. */
-export type PartFieldKey = (code: PartIssueCode | PartFieldCode, params?: PartPlaces) => string;
+/** Like structure.ts fieldKey, plus the places prompt / statement. Release 0's boxes
+ *  (StructureFieldCode, e.g. stageTitle) keep their fieldKey, so a size refusal of any
+ *  box can point to it. */
+export type PartFieldKey = (
+  code: PartIssueCode | PartFieldCode | StructureFieldCode,
+  params?: PartPlaces
+) => string;
 export type PartIssueField = (issue: PartIssue) => string | null;
 
 /** resolve.ts — one lesson for the sectioned preview; null when it has nothing to show. */

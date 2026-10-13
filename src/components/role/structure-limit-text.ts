@@ -2,10 +2,15 @@
  * What the exercise editor says when a save is refused for size
  * (sanitizeStructure's "too-large"), and which box it points to. Pure, so
  * the wording is tested against the real message files.
+ *
+ * The flexible editor's own question kinds (sanitizeExercise: reflection
+ * questions, the 1–5 self-assessment) are refused the same way, so a
+ * refusal names any box or list of either; a Release 0 box keeps exactly
+ * the key it had (partFieldKey).
  */
 
-import { fieldKey } from "@/lib/cms/structure";
-import type { StructureLimitBreach } from "@/lib/cms/structure-sanitize";
+import { partFieldKey } from "@/lib/cms/sections/part-kinds";
+import type { PartLimitBreach } from "@/lib/cms/sections/contract";
 import type { Locale } from "@/lib/cms/types";
 
 /** next-intl's `t` for the exerciseEditor messages. */
@@ -17,7 +22,7 @@ type Translate = (key: string, values?: Record<string, string | number>) => stri
  * how long it is and the limit; or the whole stage.
  */
 export function limitText(
-  at: StructureLimitBreach,
+  at: PartLimitBreach,
   t: Translate,
   languageName: (locale: Locale) => string
 ): string {
@@ -36,8 +41,9 @@ export function limitText(
 
 /**
  * The text box a refusal is about, by the key the editor gives that box
- * (fieldKey) — or null when it is about a list or the whole stage.
+ * (partFieldKey, which is fieldKey for a Release 0 box) — or null when it is
+ * about a list or the whole stage.
  */
-export function limitField(at: StructureLimitBreach): string | null {
-  return at.limit === "text" ? fieldKey(at.field, at.params) : null;
+export function limitField(at: PartLimitBreach): string | null {
+  return at.limit === "text" ? partFieldKey(at.field, at.params) : null;
 }

@@ -11,6 +11,9 @@ import {
   type StructureLimitBreach,
 } from "@/lib/cms/structure-sanitize";
 import type { Locale } from "@/lib/cms/types";
+import { partFieldKey } from "@/lib/cms/sections/part-kinds";
+import { sanitizeExercise } from "@/lib/cms/sections/part-kinds";
+import type { PartFieldCode, PartLimitBreach, PartListCode } from "@/lib/cms/sections/contract";
 import { limitField, limitText } from "./structure-limit-text";
 
 /**
@@ -21,7 +24,7 @@ import { limitField, limitText } from "./structure-limit-text";
 
 const FILES = { en, de, el } as const;
 
-function say(menu: Locale, at: StructureLimitBreach) {
+function say(menu: Locale, at: PartLimitBreach) {
   const messages = FILES[menu];
   const t = createTranslator({ locale: menu, messages, namespace: "exerciseEditor" });
   const lang = createTranslator({
@@ -114,6 +117,80 @@ describe("limitField", () => {
     );
     expect(!res.ok && res.error === "too-large" && limitField(res.at)).toBe(
       fieldKey("simOptionFeedback", { option: 2 })
+    );
+  });
+});
+
+/*
+ * The flexible editor's own question kinds (reflection questions, the 1–5
+ * self-assessment) are refused for size with the same sentences, naming
+ * their own boxes and lists.
+ */
+const NEW_BOXES: PartFieldCode[] = [
+  "partTitle",
+  "partIntro",
+  "reflectionPromptLabel",
+  "reflectionPromptPlaceholder",
+  "ratingMinLabel",
+  "ratingMaxLabel",
+  "ratingStatementText",
+];
+const NEW_LISTS: PartListCode[] = ["reflectionPrompts", "ratingStatements"];
+
+describe("limitText for reflection questions and the self-assessment", () => {
+  it("names the question, its language and the limit", () => {
+    const at: PartLimitBreach = {
+      limit: "text",
+      field: "reflectionPromptLabel",
+      params: { prompt: 3 },
+      locale: "de",
+      max: 300,
+    };
+    expect(say("en", at)).toBe("Question 3 (German): shorten it to 300 characters or fewer.");
+  });
+
+  it("names a list, how long it is and the limit", () => {
+    expect(say("en", { limit: "list", list: "ratingStatements", max: 12, count: 13 })).toBe(
+      "Statements: there are 13, and at most 12 can be saved. Remove some."
+    );
+  });
+
+  it("has words for every new box and list, in every language", () => {
+    for (const menu of ["en", "de", "el"] as const) {
+      for (const field of NEW_BOXES) {
+        const text = say(menu, {
+          limit: "text",
+          field,
+          params: { prompt: 2, statement: 4 },
+          locale: "el",
+          max: 60,
+        });
+        expect(text, `${menu} ${field}`).not.toMatch(/exerciseEditor|limits\.|\{/);
+        if (field === "reflectionPromptLabel") expect(text).toMatch(/2/);
+        if (field === "ratingStatementText") expect(text).toMatch(/4/);
+      }
+      for (const list of NEW_LISTS) {
+        const text = say(menu, { limit: "list", list, max: 10, count: 11 });
+        expect(text, `${menu} ${list}`).not.toMatch(/exerciseEditor|limits\.|\{/);
+      }
+    }
+  });
+
+  it("points to the box the server names", () => {
+    const res = sanitizeExercise(
+      {
+        kind: "rating",
+        minLabel: {},
+        maxLabel: {},
+        statements: [
+          { id: "s1", text: {} },
+          { id: "s2", text: { en: "x".repeat(301) } },
+        ],
+      },
+      "rating"
+    );
+    expect(!res.ok && res.error === "too-large" && limitField(res.at)).toBe(
+      partFieldKey("ratingStatementText", { statement: 2 })
     );
   });
 });
