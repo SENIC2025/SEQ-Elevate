@@ -6,13 +6,14 @@
  * data export and the admin audit shows. So the writer must be a FACILITATOR
  * or ADMIN of the project (the same people who see the facilitator
  * workspace, getProjectLearners), and the person written about must be a
- * learner of the same project: someone who is only staff, or who isn't in
- * the project at all, is refused. Nobody writes about themselves: staff
- * who opened a learner page before Release 0 still hold the LEARNER role
- * that page used to give everyone, so the role check alone would let them
- * validate their own competence (the action compares the ids). Organisation
- * and cohort aren't checked yet; nothing else scopes staff by them either
- * (D25).
+ * learner of the same project (isProjectLearner): someone who isn't in the
+ * project at all is refused, and so is anyone holding a staff role there.
+ * Staff who opened a learner page before Release 0 still hold the LEARNER
+ * role that page used to give everyone, so the LEARNER role alone would let
+ * one colleague write on another's record. Nobody writes about themselves
+ * either: a writer is staff, so the rule above already refuses that, and
+ * the action compares the ids as well. Organisation and cohort aren't
+ * checked yet; nothing else scopes staff by them either (D25).
  *
  * What is written is checked here too, as a server action is a public
  * endpoint: text of a sensible length, and a cluster that exists.
@@ -22,6 +23,7 @@
 
 import type { Role } from "@prisma/client";
 import { SKILL_CLUSTERS, type SkillCluster } from "@/data/course";
+import { isProjectLearner } from "@/lib/learner-scope";
 
 /** Roles that may record observations and validations in a project. */
 export const FACILITATOR_WRITE_ROLES: readonly Role[] = ["FACILITATOR", "ADMIN"];
@@ -36,7 +38,7 @@ export function canRecordForLearner(
 ): boolean {
   return (
     writerRoles.some((r) => FACILITATOR_WRITE_ROLES.includes(r)) &&
-    learnerRoles.includes("LEARNER")
+    isProjectLearner(learnerRoles)
   );
 }
 

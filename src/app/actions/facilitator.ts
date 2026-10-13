@@ -3,8 +3,8 @@
 /**
  * Facilitator actions — record an observation and validate a competence
  * against a learner. RBAC-gated: only a FACILITATOR/ADMIN of the project may
- * write, only about a LEARNER of the project, and never about themselves
- * (canRecordForLearner). Both create rows the learner's record + admin
+ * write, only about a learner of the project (a LEARNER who holds no staff
+ * role there), and never about themselves (canRecordForLearner). Both create rows the learner's record + admin
  * audit can read, so what they hold is checked too, and anything else is
  * refused with { ok: false } rather than an error.
  */

@@ -2,8 +2,9 @@ import { describe, it, expect, afterEach, vi } from "vitest";
 
 // A facilitator's note or validation lands on another person's record, so
 // both writes must check who is writing (FACILITATOR or ADMIN of the
-// project) and about whom (a LEARNER of the project), and refuse anything
-// else, including when either can't be checked.
+// project) and about whom (a learner of the project: LEARNER and no staff
+// role there), and refuse anything else, including when either can't be
+// checked.
 const getCurrentUser = vi.fn();
 const getProjectMemberships = vi.fn();
 const hasRole = vi.fn();
@@ -74,6 +75,17 @@ describe.each(both)("%s", (_name, call) => {
     await expect(call()).resolves.toEqual({ ok: false });
     expect(wroteAnything()).toBe(false);
   });
+
+  // Before Release 0 every signed-in page gave its visitor the LEARNER role,
+  // and those rows were left in place, so a colleague can still hold one.
+  it.each([["FACILITATOR"], ["ADMIN"], ["CONTENT_EDITOR"]])(
+    "refuses staff (%s) who still hold an old LEARNER role",
+    async (staffRole) => {
+      given(["FACILITATOR"], ["LEARNER", staffRole]);
+      await expect(call()).resolves.toEqual({ ok: false });
+      expect(wroteAnything()).toBe(false);
+    }
+  );
 
   it.each([[["LEARNER"]], [["CONTENT_EDITOR"]], [[]]])(
     "refuses a writer holding %j",
