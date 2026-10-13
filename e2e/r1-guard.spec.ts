@@ -44,7 +44,9 @@ const STALE = `e2e-r1-guard-stale-${RUN}`;
 const NAMED = `e2e-r1-guard-named-${RUN}`;
 /** Seeded non-standard and published (an old tab, a rollback). */
 const BYPASS = `e2e-r1-guard-bypass-${RUN}`;
-const SLUGS = [FLEX, STALE, NAMED, BYPASS];
+/** A standard draft whose only reason is content added to a lesson. */
+const EXTRA = `e2e-r1-guard-extra-${RUN}`;
+const SLUGS = [FLEX, STALE, NAMED, BYPASS, EXTRA];
 const CUSTOM = "s-guard001";
 const OWN_TEXT = "E2E guard: a lesson of the course's own.";
 
@@ -239,6 +241,16 @@ describe("Release 1 — the publish guard", () => {
     });
     await seedCourse(STALE, { scenario: true, custom: true });
     await seedCourse(NAMED, { scenario: true });
+    await seedCourse(EXTRA, {
+      scenario: true,
+      conceptParts: {
+        v: 1,
+        items: [
+          { id: "main", type: "main" },
+          { id: "p-guard002", type: "text", blocks: { en: [para("E2E extra text to remove.")] } },
+        ],
+      },
+    });
     await seedCourse(BYPASS, {
       status: "published",
       custom: true,
@@ -386,11 +398,37 @@ describe("Release 1 — the publish guard", () => {
     expect(await statusOf(STALE)).toBe("published");
   });
 
-  // Spec 13.2 item 3 also removes added content through the UI. That control
-  // is Stream E's PartList ("Remove"), which isn't on this branch: at
-  // integration, seed extra content on STALE, remove it here, and check that
-  // "“…” has added content" goes and Publish works. Kept visible until then.
-  test.fixme("undoing added content through the lesson's content list makes it publishable", async () => {});
+  test("undoing added content through the lesson's content list makes it publishable", async ({
+    page,
+    context,
+  }) => {
+    await useSession(context, editorSession);
+    await page.goto(`/en/content/courses/${EXTRA}?lesson=concept`);
+    const lesson = page.locator("#lesson-concept").filter({ visible: true });
+    await expect(lesson.getByRole("button", { name: /^done$/i })).toBeVisible({ timeout: 15000 });
+    const region = publishing(page);
+    const publish = region.getByRole("button", { name: /^publish$/i });
+    await expect(region.getByText("“Skill concept” has added content")).toBeVisible();
+    await expect(publish).toHaveAttribute("aria-disabled", "true");
+
+    // Remove the added text (in every language, once confirmed).
+    const text = lesson.getByRole("group", { name: /^content 2 of 2: text$/i });
+    page.once("dialog", (dialog) => void dialog.accept());
+    await text.getByRole("button", { name: /^remove content 2: text$/i }).click();
+    await expect(region.getByText("“Skill concept” has added content")).toHaveCount(0, {
+      timeout: 15000,
+    });
+    const concept = await prisma.lesson.findUniqueOrThrow({
+      where: { projectId_courseSlug_stageKey: { projectId: PROJECT, courseSlug: EXTRA, stageKey: "concept" } },
+      select: { parts: true },
+    });
+    expect(concept.parts, "only the main content is left, stored as nothing").toBeNull();
+
+    await expect(publish).not.toHaveAttribute("aria-disabled", "true");
+    await publish.click();
+    await expect(region.getByText(/^published$/i)).toBeVisible({ timeout: 15000 });
+    expect(await statusOf(EXTRA)).toBe("published");
+  });
 
   test("a live course refuses a reorder from a page that didn't know it was live", async ({
     page,
@@ -487,18 +525,15 @@ describe("Release 1 — the publish guard", () => {
       await expect(step).toContainText("2", { timeout: 5000 });
     }).toPass({ timeout: 20_000 });
     const course = await prisma.course.findFirstOrThrow({ where: { projectId: PROJECT, slug: BYPASS } });
-    await expect
-      .poll(
-        async () =>
-          (
-            await prisma.courseEnrollment.findUnique({
-              where: { userId_courseId: { userId: learner.userId, courseId: course.id } },
-              select: { stagesCompleted: true },
-            })
-          )?.stagesCompleted ?? [],
-        { timeout: 15000 }
-      )
-      .toEqual(["context"]);
+    // Saved as Release 0's stage keys (stored in upper case: CONTEXT, …).
+    const completed = async () => {
+      const enrolment = await prisma.courseEnrollment.findUnique({
+        where: { userId_courseId: { userId: learner.userId, courseId: course.id } },
+        select: { stagesCompleted: true },
+      });
+      return (enrolment?.stagesCompleted ?? []).map((k) => k.toLowerCase());
+    };
+    await expect.poll(completed, { timeout: 15000 }).toEqual(["context"]);
 
     // The editor is told what learners don't get yet.
     await useSession(context, editorSession);

@@ -614,8 +614,8 @@ describe("Release 1 — a flexible course previews with every kind of content", 
 
     // A lesson of the course's own, not the first: it opens there.
     await page.goto(`/en/learner/course/${SLUG}?preview=1&lesson=${CUSTOM2}`);
-    await expect(current).toHaveAccessibleName(/wrap-up$/i, { timeout: 15000 });
-    await expect(counter(page)).toHaveText("6 / 6 · Wrap-up");
+    await expect(current).toHaveAccessibleName("6 Wrap-up", { timeout: 15000 });
+    // (The "n / N · name" counter is hidden on a phone, as in the learner player.)
     await expect(page.getByRole("main").getByRole("heading", { level: 2 })).toHaveText("Bringing it together");
     await expect(page.getByRole("link", { name: /^edit this lesson$/i })).toHaveAttribute(
       "href",
