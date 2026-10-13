@@ -3,7 +3,14 @@ import { createElement, Fragment, type FC, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { NextIntlClientProvider } from "next-intl";
 import en from "@/messages/en.json";
-import type { ExerciseValue, StoredRating, StoredReflection } from "@/lib/cms/sections/contract";
+import de from "@/messages/de.json";
+import el from "@/messages/el.json";
+import {
+  PART_LIMITS,
+  type ExerciseValue,
+  type StoredRating,
+  type StoredReflection,
+} from "@/lib/cms/sections/contract";
 import { emptyExercise } from "@/lib/cms/sections/part-kinds";
 
 // The editor's actions are server actions; nothing is called while rendering.
@@ -19,10 +26,11 @@ const IntlProvider = NextIntlClientProvider as FC<{
   children?: ReactNode;
 }>;
 
-const render = (...children: ReactNode[]) =>
+const renderIn = (messages: typeof en, ...children: ReactNode[]) =>
   renderToStaticMarkup(
-    createElement(IntlProvider, { locale: "en", messages: en, timeZone: "UTC" }, createElement(Fragment, null, ...children))
+    createElement(IntlProvider, { locale: "en", messages, timeZone: "UTC" }, createElement(Fragment, null, ...children))
   );
+const render = (...children: ReactNode[]) => renderIn(en, ...children);
 
 const fields = (value: ExerciseValue, key: string) =>
   createElement(ExerciseFields, { key, value, locale: "de", onChange: () => {} });
@@ -98,6 +106,24 @@ describe("reflection questions", () => {
     expect(html).toContain("Add question");
   });
 
+  it("keeps Add question at the limit, aria-disabled with the reason, rather than dropping it", () => {
+    const prompts = Array.from({ length: PART_LIMITS.reflectionPrompts }, (_, i) => ({
+      id: `p${i}`,
+      label: { de: `Frage ${i}` },
+    }));
+    const full = render(fields({ ...reflection, prompts }, "a"));
+    const add = full.match(/<button[^>]*>(?:(?!<\/button>).)*Add question<\/button>/)?.[0];
+    expect(add).toBeDefined();
+    expect(add).toContain('aria-disabled="true"');
+    const note = /aria-describedby="([^"]+)"/.exec(add!)![1];
+    expect(full).toMatch(new RegExp(`id="${note}"[^>]*>[^<]*${PART_LIMITS.reflectionPrompts}`));
+    expect(html).not.toMatch(/<button[^>]*aria-disabled="true"[^>]*>(?:(?!<\/button>).)*Add question/);
+  });
+
+  it("lets focus land on a question's caption after another goes", () => {
+    expect(html).toMatch(/<span[^>]*tabindex="-1"[^>]*>Question 2<\/span>/);
+  });
+
   it("keeps one question: no Remove while it is the only one", () => {
     const one = render(fields({ ...reflection, prompts: [reflection.prompts[0]] }, "a"));
     expect(one).not.toContain("Remove question 1");
@@ -115,6 +141,17 @@ describe("self-assessment", () => {
     expect(html).toContain('aria-label="Remove statement 1"');
     expect(html).toContain("Add statement");
     expect(html).toContain("Learners rate each statement from 1 to 5.");
+  });
+
+  it("keeps Add statement at the limit, aria-disabled with the reason", () => {
+    const statements = Array.from({ length: PART_LIMITS.ratingStatements }, (_, i) => ({
+      id: `s${i}`,
+      text: { de: `Aussage ${i}` },
+    }));
+    const full = render(fields({ ...rating, statements }, "a"));
+    const add = full.match(/<button[^>]*>(?:(?!<\/button>).)*Add statement<\/button>/)?.[0];
+    expect(add).toContain('aria-disabled="true"');
+    expect(full).toContain(`At most ${PART_LIMITS.ratingStatements} statements`);
   });
 });
 
@@ -145,6 +182,25 @@ describe("StructureAuthor as a lesson's added content", () => {
     // Whether it is "added" is the content list's business, and there is no "Remove stage".
     expect(html).not.toContain(en.exerciseEditor.badge.notAdded);
     expect(html).not.toContain("Remove stage");
+  });
+
+  it("saves just this content, and says so: never 'Save lesson' in German or Greek", () => {
+    const props = {
+      courseSlug: "c",
+      target,
+      locale: "en" as const,
+      courseStatus: "draft" as const,
+      regionLabel: "Selbsteinschätzung (1–5) · 2 von 3",
+    };
+    const german = renderIn(de as unknown as typeof en, createElement(StructureAuthor, props));
+    expect(german).toContain(">Inhalt speichern<");
+    expect(german).not.toContain("Lektion speichern");
+    const greek = renderIn(el as unknown as typeof en, createElement(StructureAuthor, props));
+    expect(greek).toContain(">Αποθήκευση περιεχομένου<");
+    expect(greek).not.toContain("Αποθήκευση ενότητας");
+    // English keeps today's name, which the e2e tests press.
+    const english = render(createElement(StructureAuthor, props));
+    expect(english).toContain(">Save stage<");
   });
 
   it("keeps the main content's words for a lesson's own exercise", () => {

@@ -1,14 +1,11 @@
 "use client";
 
-import * as React from "react";
 import { useTranslations } from "next-intl";
-import { Plus } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { PART_LIMITS, type StoredRating } from "@/lib/cms/sections/contract";
 import { partFieldKey } from "@/lib/cms/sections/part-kinds";
 import type { Locale } from "@/lib/cms/types";
 import { LocField, newId } from "./fields";
-import { ItemControls, useListMoves } from "./ItemControls";
+import { AddItemButton, ItemControls, useListMoves } from "./ItemControls";
 
 /**
  * A 1–5 self-assessment (extra content): an optional title and intro, what
@@ -25,9 +22,12 @@ export function RatingEditor({
   onChange: (next: StoredRating) => void;
 }) {
   const t = useTranslations("exerciseEditor");
-  const captions = React.useId();
+  const tBlocks = useTranslations("lessonBlocks");
   const set = (patch: Partial<StoredRating>) => onChange({ ...value, ...patch });
-  const { move, buttonId } = useListMoves(value.statements, (statements) => set({ statements }));
+  const { move, remove, add, buttonId, captionId, limitId } = useListMoves(
+    value.statements,
+    (statements) => set({ statements })
+  );
 
   return (
     <div className="space-y-3">
@@ -75,13 +75,13 @@ export function RatingEditor({
       </p>
       <ol className="space-y-2">
         {value.statements.map((s, i) => {
-          const caption = `${captions}-statement-${i}`;
+          const caption = captionId(s.id);
           const n = i + 1;
           return (
             <li key={s.id} className="rounded-lg border border-[var(--border)] p-3">
               <div role="group" aria-labelledby={caption} className="space-y-2">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span id={caption} className="text-[11px] text-[var(--muted-foreground)]">
+                  <span id={caption} tabIndex={-1} className="text-[11px] text-[var(--muted-foreground)]">
                     {t("rating.statement", { n })}
                   </span>
                   <ItemControls
@@ -96,9 +96,7 @@ export function RatingEditor({
                     }}
                     canRemove={value.statements.length > 1}
                     onMove={(dir) => move(i, dir)}
-                    onRemove={() =>
-                      set({ statements: value.statements.filter((x) => x.id !== s.id) })
-                    }
+                    onRemove={() => remove(i)}
                   />
                 </div>
                 <LocField
@@ -121,18 +119,13 @@ export function RatingEditor({
           );
         })}
       </ol>
-      {value.statements.length < PART_LIMITS.ratingStatements ? (
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() =>
-            set({ statements: [...value.statements, { id: newId("s"), text: {} }] })
-          }
-        >
-          <Plus className="h-4 w-4" aria-hidden />
-          {t("rating.addStatement")}
-        </Button>
-      ) : null}
+      <AddItemButton
+        label={t("rating.addStatement")}
+        full={value.statements.length >= PART_LIMITS.ratingStatements}
+        limitId={limitId}
+        limitNote={tBlocks("maxStatements", { max: PART_LIMITS.ratingStatements })}
+        onAdd={() => add({ id: newId("s"), text: {} })}
+      />
     </div>
   );
 }

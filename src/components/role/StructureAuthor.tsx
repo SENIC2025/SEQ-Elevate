@@ -661,7 +661,8 @@ export function StructureAuthor({
               ) : (
                 <Save className="h-4 w-4" aria-hidden />
               )}
-              {t("actions.saveStage")}
+              {/* Added content saves just itself: never "Save lesson" (de, el). */}
+              {part ? tBlocks("saveContent") : t("actions.saveStage")}
             </Button>
             <Button
               size="sm"

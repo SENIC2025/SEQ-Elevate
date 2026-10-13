@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { focusAfterMove, moveItem } from "./item-list";
+import { focusAfterItemRemove, focusAfterMove, moveItem } from "./item-list";
 
 describe("moveItem", () => {
   const list = ["a", "b", "c"];
@@ -26,5 +26,19 @@ describe("focusAfterMove", () => {
   it("takes the other button once the item reached the end it moved to", () => {
     expect(focusAfterMove(1, -1, 4)).toBe("down");
     expect(focusAfterMove(2, 1, 4)).toBe("up");
+  });
+});
+
+describe("focusAfterItemRemove", () => {
+  const list = [{ id: "a" }, { id: "b" }, { id: "c" }];
+  it("goes to the item that took the removed one's place", () => {
+    expect(focusAfterItemRemove(list, 0)).toBe("b");
+    expect(focusAfterItemRemove(list, 1)).toBe("c");
+  });
+  it("goes to the one before when the last was removed", () => {
+    expect(focusAfterItemRemove(list, 2)).toBe("b");
+  });
+  it("has nowhere to go when nothing is left", () => {
+    expect(focusAfterItemRemove([{ id: "a" }], 0)).toBeNull();
   });
 });

@@ -1,14 +1,11 @@
 "use client";
 
-import * as React from "react";
 import { useTranslations } from "next-intl";
-import { Plus } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { PART_LIMITS, type StoredReflection } from "@/lib/cms/sections/contract";
 import { partFieldKey } from "@/lib/cms/sections/part-kinds";
 import type { Locale } from "@/lib/cms/types";
 import { LocField, newId } from "./fields";
-import { ItemControls, useListMoves } from "./ItemControls";
+import { AddItemButton, ItemControls, useListMoves } from "./ItemControls";
 
 type Prompt = StoredReflection["prompts"][number];
 
@@ -29,11 +26,13 @@ export function ReflectionPromptsEditor({
   onChange: (next: StoredReflection) => void;
 }) {
   const t = useTranslations("exerciseEditor");
-  const captions = React.useId();
+  const tBlocks = useTranslations("lessonBlocks");
   const set = (patch: Partial<StoredReflection>) => onChange({ ...value, ...patch });
   const setPrompt = (id: string, patch: Partial<Prompt>) =>
     set({ prompts: value.prompts.map((p) => (p.id === id ? { ...p, ...patch } : p)) });
-  const { move, buttonId } = useListMoves(value.prompts, (prompts) => set({ prompts }));
+  const { move, remove, add, buttonId, captionId, limitId } = useListMoves(value.prompts, (prompts) =>
+    set({ prompts })
+  );
 
   return (
     <div className="space-y-3">
@@ -62,13 +61,13 @@ export function ReflectionPromptsEditor({
       <p className="text-xs text-[var(--muted-foreground)]">{t("reflection.standardNote")}</p>
       <ol className="space-y-2">
         {value.prompts.map((p, i) => {
-          const caption = `${captions}-prompt-${i}`;
+          const caption = captionId(p.id);
           const n = i + 1;
           return (
             <li key={p.id} className="rounded-lg border border-[var(--border)] p-3">
               <div role="group" aria-labelledby={caption} className="space-y-2">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span id={caption} className="text-[11px] text-[var(--muted-foreground)]">
+                  <span id={caption} tabIndex={-1} className="text-[11px] text-[var(--muted-foreground)]">
                     {t("reflection.prompt", { n })}
                   </span>
                   <ItemControls
@@ -83,7 +82,7 @@ export function ReflectionPromptsEditor({
                     }}
                     canRemove={value.prompts.length > 1}
                     onMove={(dir) => move(i, dir)}
-                    onRemove={() => set({ prompts: value.prompts.filter((x) => x.id !== p.id) })}
+                    onRemove={() => remove(i)}
                   />
                 </div>
                 <LocField
@@ -109,16 +108,13 @@ export function ReflectionPromptsEditor({
           );
         })}
       </ol>
-      {value.prompts.length < PART_LIMITS.reflectionPrompts ? (
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() => set({ prompts: [...value.prompts, { id: newId("q"), label: {} }] })}
-        >
-          <Plus className="h-4 w-4" aria-hidden />
-          {t("reflection.addPrompt")}
-        </Button>
-      ) : null}
+      <AddItemButton
+        label={t("reflection.addPrompt")}
+        full={value.prompts.length >= PART_LIMITS.reflectionPrompts}
+        limitId={limitId}
+        limitNote={tBlocks("maxPrompts", { max: PART_LIMITS.reflectionPrompts })}
+        onAdd={() => add({ id: newId("q"), label: {} })}
+      />
     </div>
   );
 }

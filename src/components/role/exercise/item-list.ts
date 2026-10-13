@@ -28,3 +28,17 @@ export function focusAfterMove(
   if (dir === -1) return at === 0 ? "down" : "up";
   return at === length - 1 ? "up" : "down";
 }
+
+/**
+ * Where focus goes after item `index` was removed (WCAG 2.4.3): the item
+ * that took its place, else the one before it — by id, as the list was.
+ * Null when nothing is left.
+ */
+export function focusAfterItemRemove(
+  list: readonly { id: string }[],
+  index: number
+): string | null {
+  const rest = list.filter((_, i) => i !== index);
+  if (!rest.length) return null;
+  return rest[Math.min(Math.max(index, 0), rest.length - 1)].id;
+}
