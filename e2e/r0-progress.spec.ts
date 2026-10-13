@@ -218,16 +218,16 @@ describe("Release 0 — progress per course and cleared translations", () => {
   }) => {
     await useSession(context, editor.sessionToken);
     await page.goto(`/en/content/courses/${SLUG}`);
-    await expect(page.getByText(/^before you publish$/i)).toBeVisible({
+    // The readiness list is on the page twice (the side panel and the
+    // narrow-screen copy); only one of them shows at a time.
+    const shown = (text: RegExp) =>
+      page.getByText(text).filter({ visible: true });
+    await expect(shown(/^before you publish$/i)).toBeVisible({
       timeout: 15000,
     });
-    await expect(
-      page.getByText(/no german title and subtitle yet/i)
-    ).toBeVisible();
+    await expect(shown(/no german title and subtitle yet/i)).toBeVisible();
     // Context, concept, behaviour and the practice: all blank in German.
-    await expect(
-      page.getByText(/4 lessons have no german text yet/i)
-    ).toBeVisible();
+    await expect(shown(/4 lessons have no german text yet/i)).toBeVisible();
   });
 
   test("German learners get the English text where German was cleared", async ({
