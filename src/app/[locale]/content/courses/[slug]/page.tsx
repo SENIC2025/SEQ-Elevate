@@ -8,7 +8,8 @@ import type { TimeLabel } from "@/components/course-manager/CourseHeader";
 import { editedAgo, editedAt } from "@/components/course-manager/edited-time";
 import { viewerCanEditContent } from "@/lib/editor-gate";
 import { getCourseOutline } from "@/lib/cms/course-admin";
-import { isContentLocale, isStageKey } from "@/lib/cms/course-admin-types";
+import { isContentLocale } from "@/lib/cms/course-admin-types";
+import { isSectionId } from "@/lib/cms/sections/contract";
 import type { Locale } from "@/lib/cms/types";
 
 // Reads the viewer's roles and live course data — never prerender.
@@ -42,8 +43,9 @@ export async function generateMetadata({
  * language, every lesson with its editors, preview and publishing.
  *
  * ?lang=en|de|el picks the content language (default: the page's language);
- * ?lesson=<stage> opens that lesson and scrolls to it. Anything else in
- * either is ignored.
+ * ?lesson=<lesson id> (a stage key, or "s-…" for a lesson of a created
+ * course's own, while it is in the course) opens that lesson and scrolls to
+ * it. Anything else in either is ignored.
  */
 export default async function Page({
   params,
@@ -78,7 +80,7 @@ export default async function Page({
       outline={outline}
       initialLang={isContentLocale(lang) ? lang : loc}
       initialLesson={
-        isStageKey(lesson) && outline.lessons.some((l) => l.key === lesson)
+        isSectionId(lesson) && outline.lessons.some((l) => l.key === lesson)
           ? lesson
           : undefined
       }
