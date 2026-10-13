@@ -1,8 +1,9 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { FilePenLine, Plus } from "lucide-react";
+import { FilePenLine, PenLine, Plus } from "lucide-react";
 import type { LessonOutline } from "@/lib/cms/course-admin-types";
+import { offersAdd } from "@/lib/cms/course-derive";
 import type { Locale, StageKey } from "@/lib/cms/types";
 
 /**
@@ -10,8 +11,9 @@ import type { Locale, StageKey } from "@/lib/cms/types";
  * in the content language — plus, on a created course, "Add guided practice
  * / an applied scenario / a quick check" for the practice lessons it doesn't
  * have yet (named as learners will see them in the list). A lesson with an
- * unsaved-for-learners draft says "Draft" in words. Sticks beside the
- * lessons on wide screens.
+ * unsaved-for-learners draft says "Draft" in words; one that so far exists
+ * only as a draft is named, not offered as "Add …" again (as in its
+ * section). Sticks beside the lessons on wide screens.
  */
 export function LessonNav({
   lessons,
@@ -46,6 +48,8 @@ export function LessonNav({
         {lessons.map((lesson) => {
           if (lesson.addable) {
             const key = lesson.key as "simulation" | "scenario" | "assessment";
+            // Learners don't have it yet, so there is no section to jump to
+            // that is open: the button opens it, whether to add or to edit.
             return (
               <li key={lesson.key}>
                 <button
@@ -53,9 +57,18 @@ export function LessonNav({
                   onClick={() => onAdd(lesson.key)}
                   className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-[var(--accent)]/40 px-3 py-1.5 text-left text-[var(--accent)] hover:bg-[var(--surface-muted)] lg:w-full lg:rounded-md lg:border-0 lg:px-2"
                 >
-                  <Plus className="h-3.5 w-3.5 flex-shrink-0" aria-hidden />
-                  {t(`addStage.${key}`)}
-                  {lesson.draft ? draftMark : null}
+                  {offersAdd(lesson) ? (
+                    <>
+                      <Plus className="h-3.5 w-3.5 flex-shrink-0" aria-hidden />
+                      {t(`addStage.${key}`)}
+                    </>
+                  ) : (
+                    <>
+                      <PenLine className="h-3.5 w-3.5 flex-shrink-0" aria-hidden />
+                      <span className="font-medium">{lessonLabel(lesson.key)}</span>
+                      {draftMark}
+                    </>
+                  )}
                 </button>
               </li>
             );

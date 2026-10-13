@@ -23,6 +23,7 @@ import type {
   CourseKind,
   CourseOutline,
   LanguageCoverage,
+  LessonOutline,
   ReadinessIssue,
 } from "./course-admin-types";
 import type { Locale, StageKey } from "./types";
@@ -193,6 +194,16 @@ export function lastEdited(
   }
   const valid = stamps.filter((t) => Number.isFinite(t));
   return valid.length ? new Date(Math.max(...valid)).toISOString() : null;
+}
+
+/**
+ * Should the course page offer "Add …" for this lesson? Only while nothing
+ * of it is written: a practice lesson that so far exists only as a draft is
+ * already being worked on, so the lesson list and the lesson itself offer
+ * to edit it (with a "Draft" mark) rather than to add something new.
+ */
+export function offersAdd(lesson: Pick<LessonOutline, "addable" | "draft">): boolean {
+  return lesson.addable && !lesson.draft;
 }
 
 /**

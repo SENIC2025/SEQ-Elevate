@@ -6,6 +6,7 @@ import {
   languageCoverage,
   lastEdited,
   publishReadiness,
+  offersAdd,
   type LessonFacts,
 } from "./course-derive";
 import type { StoredStructure } from "./structure";
@@ -360,5 +361,23 @@ describe("publishReadiness", () => {
       ])
     );
     expect(issues).toEqual([{ level: "info", code: "no-interactive" }]);
+  });
+});
+
+describe("offersAdd", () => {
+  const scenario = sim({ en: "a" });
+
+  it("offers to add a practice lesson that isn't written yet", () => {
+    expect(offersAdd(lesson("scenario", {}, { present: false, addable: true }))).toBe(true);
+  });
+
+  it("offers to edit, not add, a lesson that so far exists only as a draft", () => {
+    expect(
+      offersAdd(lesson("scenario", {}, { present: false, addable: true, draft: scenario }))
+    ).toBe(false);
+  });
+
+  it("never offers to add a lesson learners already have", () => {
+    expect(offersAdd(lesson("scenario", {}, { structure: scenario }))).toBe(false);
   });
 });

@@ -15,6 +15,7 @@ import type {
 } from "@/lib/cms/course-admin-types";
 import type { LessonDocumentRef, Locale, VideoContent } from "@/lib/cms/types";
 import type { StoredStructure, StructureStageKey } from "@/lib/cms/structure";
+import { offersAdd } from "@/lib/cms/course-derive";
 import { DirtyScope } from "./dirty-registry";
 import { LessonReadView } from "./LessonReadView";
 import { BuiltInNotice } from "./BuiltInNotice";
@@ -91,7 +92,7 @@ export function LessonSection({
   const interactive = lesson.body === "interactive";
 
   // A lesson that so far exists only as a draft is edited, not added.
-  const toggle = lesson.addable && !lesson.draft ? (
+  const toggle = offersAdd(lesson) ? (
     <Button
       size="sm"
       variant={open ? "outline" : "primary"}

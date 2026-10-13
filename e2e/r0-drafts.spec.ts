@@ -199,9 +199,13 @@ describe("Release 0 — exercise drafts", () => {
       await expect(
         page.locator("#lesson-scenario").filter({ visible: true }).getByText(/^draft saved$/i)
       ).toBeVisible();
+      // The lesson list names the drafted lesson to edit, not "Add …" again.
+      const nav = page.getByRole("navigation", { name: /^lessons$/i });
+      await expect(nav.getByText(/^draft$/i)).toBeVisible();
       await expect(
-        page.getByRole("navigation", { name: /^lessons$/i }).getByText(/^draft$/i)
+        nav.getByRole("button", { name: /^applied scenario\s*draft$/i })
       ).toBeVisible();
+      await expect(nav.getByRole("button", { name: /^add an applied scenario/i })).toHaveCount(0);
       await expect(
         page.getByText("The “Applied scenario” lesson has a draft that learners don't see yet.")
       ).toBeVisible();
