@@ -16,6 +16,7 @@ import { prisma } from "@/lib/prisma";
 import { getCourse } from "@/lib/cms";
 import { readAssessment, scoreAssessment } from "@/lib/assessment-progress";
 import { STAGES } from "@/data/course";
+import { courseProgress, nextStage } from "@/lib/course-progress";
 import type { Locale } from "@/lib/cms/types";
 import {
   STAGE_LABELS,
@@ -95,7 +96,19 @@ export async function buildRealAnalytics(
         (a, b) => b.updatedAt.getTime() - a.updatedAt.getTime()
       )[0];
       const completed = !!recent.completedAt;
-      const reached = completed ? 7 : recent.stagesCompleted.length;
+      // Counted against the course's own lessons (a course created in the
+      // CMS can have four, not seven); a course that no longer resolves
+      // counts as the full seven.
+      const ownKeys = contentBySlug
+        .get(recent.course.slug)
+        ?.stages.map((s) => s.key);
+      const progress = courseProgress(
+        ownKeys,
+        recent.stagesCompleted,
+        completed
+      );
+      // Where they are, on the seven-step funnel: the course's next lesson.
+      const next = nextStage(ownKeys, recent.stagesCompleted, completed);
       const secondsByStage = timeByUser.get(u.id) ?? new Array(7).fill(0);
       const secondsTotal = secondsByStage.reduce((a, b) => a + b, 0);
       const lastMs = Math.max(
@@ -123,9 +136,9 @@ export async function buildRealAnalytics(
         id: u.id,
         name: u.name ?? u.email ?? "Learner",
         cohort: m.cohort?.name ?? "—",
-        currentStageIndex: completed ? 7 : Math.min(reached, 6),
+        currentStageIndex: next === "complete" ? 7 : STAGES.indexOf(next),
         completed,
-        progressPct: Math.round((Math.min(reached, 7) / 7) * 100),
+        progressPct: progress.pct,
         secondsByStage,
         secondsTotal,
         lastActiveHoursAgo,

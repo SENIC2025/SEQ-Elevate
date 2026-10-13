@@ -29,6 +29,38 @@ describe("pickText", () => {
     expect(pickText({}, "en")).toBe("");
     expect(pickText(undefined, "en")).toBe("");
   });
+
+  it("treats a cleared or blank field as not written", () => {
+    // The editor stores a field typed in and cleared again as "".
+    expect(pickText({ en: "E", de: "" }, "de")).toBe("E");
+    expect(pickText({ en: "E", de: "  \n " }, "de")).toBe("E");
+    expect(pickText({ en: "", de: "D" }, "el")).toBe("D");
+    expect(pickText({ en: " ", de: "" }, "de")).toBe("");
+  });
+});
+
+describe("cleared translations in an exercise", () => {
+  it("resolve to the English text, field by field", () => {
+    const cleared: StoredSimulation = {
+      ...sim,
+      prompt: { en: "What do you say?", de: "" },
+      options: sim.options.map((o) => ({ ...o, text: { ...o.text, de: " " } })),
+    };
+    const out = resolveSimulation(cleared, "de");
+    expect(out.prompt).toBe("What do you say?");
+    expect(out.options.map((o) => o.text)).toEqual(
+      sim.options.map((o) => o.text.en)
+    );
+  });
+
+  it("count as written when another language has the text", () => {
+    // Only German written; the English field was cleared.
+    const deOnly: StoredSimulation = {
+      ...sim,
+      prompt: { en: "", de: "Was sagst du?" },
+    };
+    expect(validateStructure(deOnly)).toEqual([]);
+  });
 });
 
 describe("resolveSimulation", () => {

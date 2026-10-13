@@ -11,18 +11,8 @@ import "server-only";
  */
 
 import { prisma } from "@/lib/prisma";
-import type {
-  CourseContent,
-  VideoContent,
-  LessonDocumentRef,
-  NarrativeBlock,
-} from "./types";
-
-interface NarrativeOverride {
-  title?: string;
-  subtitle?: string;
-  blocks?: NarrativeBlock[];
-}
+import { overlayNarrative } from "./text-fallback";
+import type { CourseContent, VideoContent, LessonDocumentRef } from "./types";
 
 export async function applyLessonMedia(
   projectId: string,
@@ -48,8 +38,10 @@ export async function applyLessonMedia(
       const lesson = byStage.get(stage.key);
       if (!lesson) return stage;
 
-      // Narrative override for this locale (falls back to bundled copy).
-      const narrative = (lesson.narrative as Record<string, NarrativeOverride>) ?? null;
+      // Narrative override for this locale, field by field: a field left
+      // blank (typed, then cleared) keeps the bundled copy rather than
+      // showing learners nothing.
+      const narrative = (lesson.narrative as Record<string, unknown>) ?? null;
       const ov = narrative?.[content.locale];
 
       const documents: LessonDocumentRef[] = lesson.documents.map((d) => ({
@@ -62,10 +54,7 @@ export async function applyLessonMedia(
       }));
 
       return {
-        ...stage,
-        title: ov?.title ?? stage.title,
-        subtitle: ov?.subtitle ?? stage.subtitle,
-        blocks: ov?.blocks ?? stage.blocks,
+        ...overlayNarrative(stage, ov),
         // DB-attached video overrides any bundled demo video for this stage.
         video: (lesson.video as VideoContent | null) ?? stage.video,
         documents: documents.length ? documents : stage.documents,

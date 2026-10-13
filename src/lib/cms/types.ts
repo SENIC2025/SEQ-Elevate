@@ -206,6 +206,13 @@ export interface CourseSummary {
   badgeMeaning?: string;
   /** Courses not yet authored render as "coming soon" (not clickable). */
   comingSoon?: boolean;
+  /**
+   * The lessons learners see in this course, in order: all seven for a
+   * built-in course; a CMS-created one's four narrative lessons plus each
+   * interactive lesson an editor has written. Progress is counted against
+   * these (src/lib/course-progress.ts). Absent = all seven.
+   */
+  stageKeys?: StageKey[];
 }
 
 /** A Comp Card template (fields the learner fills). Configurable per project. */
