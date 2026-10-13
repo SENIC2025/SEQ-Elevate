@@ -11,6 +11,7 @@
     "finish": "Fertig",
     "close": "Schließen",
     "minutes": "{count, plural, one {# Minute} other {# Minuten}}",
+    "language": "Sprache",
     "switchRole": "Rolle wechseln",
     "demoBannerLine1": "Du bist in einer Testumgebung von SEQ Elevate, in der Änderungen geprüft werden, bevor sie live gehen.",
     "demoBannerLine2": "Nutze sie nur zum Testen. Die Live-Plattform findest du unter seq-elevate.eu.",
@@ -144,6 +145,7 @@
     "workplaceConflictHint": "20 Minuten. Mobiltauglich. Keine Noten. Du kannst pausieren."
   },
   "course": {
+    "stepsNav": "Kursschritte",
     "stageLabel": {
       "context": "Kontext",
       "concept": "Skill-Konzept",

@@ -135,4 +135,41 @@ describe("signed-in pages on a 320px phone", () => {
       await page.goto("about:blank");
     });
   }
+
+  test("the staff workspace menu opens on the screen, not off its edge", async ({
+    page,
+    context,
+  }) => {
+    await signIn(context, staffSession);
+    await page.goto("/en/facilitator");
+    const switcher = page.locator("header summary").first();
+    await expect(switcher).toBeVisible({ timeout: 15000 });
+    await switcher.click();
+    const menu = page.getByRole("navigation", { name: /workspaces/i });
+    await expect(menu).toBeVisible();
+    const box = await menu.boundingBox();
+    expect(box!.x, "starts on the screen").toBeGreaterThanOrEqual(0);
+    expect(box!.x + box!.width, "ends on the screen").toBeLessThanOrEqual(320);
+    await menu.getByRole("link", { name: "Manage people" }).click();
+    await expect(page).toHaveURL(/\/en\/admin$/);
+    await page.waitForLoadState("networkidle");
+    await page.goto("about:blank");
+  });
+
+  test("on a phone, controls keep their names, in the page's language", async ({
+    page,
+    context,
+  }) => {
+    await signIn(context, learnerSession);
+    await page.goto("/de/learner/course/workplace-conflict");
+    await expect(page.getByRole("combobox", { name: "Sprache" })).toBeVisible({
+      timeout: 15000,
+    });
+    // The step names don't show at 320px, but still name the buttons.
+    const steps = page.getByRole("navigation", { name: "Kursschritte" });
+    await expect(steps.getByRole("button", { name: /Kontext/ })).toBeVisible();
+    await expect(steps.getByRole("button", { name: /Schnellcheck/ })).toBeVisible();
+    await page.waitForLoadState("networkidle");
+    await page.goto("about:blank");
+  });
 });

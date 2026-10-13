@@ -320,7 +320,8 @@ describe("Preview as learner", () => {
     ).toHaveCount(2);
 
     // Switching the menu language keeps the preview (and the lesson).
-    await page.getByRole("combobox", { name: /^language/i }).selectOption("en");
+    // The German page names its controls in German.
+    await page.getByRole("combobox", { name: /^sprache/i }).selectOption("en");
     await expect(page).toHaveURL(
       new RegExp(
         `/en/learner/course/${BUILT_IN}\\?preview=1&lesson=behaviour&ui=en$`

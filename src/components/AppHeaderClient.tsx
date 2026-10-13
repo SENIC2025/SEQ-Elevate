@@ -101,8 +101,9 @@ export function AppHeaderClient({
                 onClick={() => dispatch({ type: "setRole", role: null })}
                 className="flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm hover:bg-[var(--surface-muted)]"
               >
-                <LogOut className="h-4 w-4" />
-                <span className="hidden sm:inline">{t("switchRole")}</span>
+                <LogOut className="h-4 w-4" aria-hidden />
+                {/* Hidden on a phone but still the button's name. */}
+                <span className="sr-only sm:not-sr-only">{t("switchRole")}</span>
               </button>
             </>
           ) : null}
@@ -152,7 +153,10 @@ function WorkspaceSwitcher({ workspaces }: { workspaces: WorkspaceId[] }) {
       ref={ref}
       open={open}
       onToggle={(e) => setOpen(e.currentTarget.open)}
-      className="relative"
+      // Below md the menu is placed against the (sticky, so positioned)
+      // header rather than this button: right-aligned to the button it
+      // opened up to 160px off the left edge of a phone.
+      className="md:relative"
     >
       <summary className="flex cursor-pointer list-none items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm hover:bg-[var(--surface-muted)] [&::-webkit-details-marker]:hidden">
         <CurrentIcon className="h-4 w-4" aria-hidden />
@@ -161,7 +165,7 @@ function WorkspaceSwitcher({ workspaces }: { workspaces: WorkspaceId[] }) {
       </summary>
       <nav
         aria-label={t("switcherMenu")}
-        className="absolute right-0 z-30 mt-2 w-64 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-1 shadow-lg"
+        className="absolute z-30 mt-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-1 shadow-lg max-md:inset-x-3 md:right-0 md:w-64"
       >
         <ul>
           {workspaces.map((id) => {

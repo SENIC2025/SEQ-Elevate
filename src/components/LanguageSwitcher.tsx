@@ -1,6 +1,6 @@
 "use client";
 
-import { useLocale } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { usePathname, useRouter } from "@/i18n/navigation";
 import { routing } from "@/i18n/routing";
 import { useTransition } from "react";
@@ -17,7 +17,7 @@ const LABELS: Record<string, string> = {
  * The page's language. Below md the pill shows only the short code ("EN")
  * so the signed-in header fits from a 360px phone up; the real select lies
  * invisibly over the whole pill, so a tap still opens the full list and
- * screen readers still hear "Language, English".
+ * screen readers still hear "Language, English" — in the page's language.
  *
  * Switching keeps the query string: it carries an editor's sandboxed preview
  * (?preview=1) and the course page's lesson and content language. A page
@@ -26,6 +26,7 @@ const LABELS: Record<string, string> = {
  */
 export function LanguageSwitcher() {
   const locale = useLocale();
+  const t = useTranslations("common");
   const pathname = usePathname();
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -33,7 +34,7 @@ export function LanguageSwitcher() {
   return (
     <label className="relative flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm focus-within:ring-2 focus-within:ring-[var(--ring)]">
       <Globe className="h-4 w-4" aria-hidden="true" />
-      <span className="sr-only">Language</span>
+      <span className="sr-only">{t("language")}</span>
       <span aria-hidden="true" className="font-medium uppercase md:hidden">
         {locale}
       </span>

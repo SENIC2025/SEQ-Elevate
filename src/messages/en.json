@@ -11,6 +11,7 @@
     "finish": "Finish",
     "close": "Close",
     "minutes": "{count, plural, one {# minute} other {# minutes}}",
+    "language": "Language",
     "switchRole": "Switch role",
     "demoBannerLine1": "You are on a test copy of SEQ Elevate, used for checking changes before they go live.",
     "demoBannerLine2": "Use it for testing only. The live platform is at seq-elevate.eu.",
@@ -144,6 +145,7 @@
     "workplaceConflictHint": "20 minutes. Mobile-friendly. No grades. You can pause."
   },
   "course": {
+    "stepsNav": "Course stages",
     "stageLabel": {
       "context": "Context",
       "concept": "Skill concept",
