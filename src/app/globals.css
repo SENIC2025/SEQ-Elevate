@@ -84,9 +84,14 @@ html[data-contrast="true"] {
   --border: #000000;
   --foreground: #000000;
   --muted-foreground: #1a1a1a;
-  --primary: #797d1a;            /* primary-ultra-dark — accessible lime-derived */
+  /* !important: ProjectThemeProvider writes the project's brand colours
+     inline on <html>, which would otherwise win here and leave white text
+     on the brand lime (1.7:1). The olive is darker than primary-ultra-dark
+     (#797d1a, only 4.4:1 with white): 7.4:1, and 8.5:1 on hover. */
+  --primary: #55590f !important;
+  --primary-hover: #4d500e !important;
   --primary-foreground: #ffffff;
-  --accent: #463e68;             /* secondary-ultra-dark */
+  --accent: #463e68 !important;  /* secondary-ultra-dark, 9.8:1 */
   --accent-foreground: #ffffff;
   --ring: rgba(0, 0, 0, 0.7);
 }
