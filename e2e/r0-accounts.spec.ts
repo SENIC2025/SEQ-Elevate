@@ -8,6 +8,9 @@ import { PrismaPg } from "@prisma/adapter-pg";
  *   learner features; a person with no role still becomes a learner (C11);
  * - a facilitator's note is saved for a learner of the project, and refused,
  *   with a message, for someone who no longer is one (C20);
+ * - staff who still hold the LEARNER role an older release gave them aren't
+ *   learners: not on the roster, not in the Learners figure, and a note
+ *   about them is refused;
  * - a course created in the platform gets a badge, and a learner who earns
  *   it still has it after a reload (C9).
  *
@@ -33,15 +36,20 @@ const FACILITATOR = email("facilitator");
 const EDITOR = email("editor");
 const LEARNER = email("learner");
 const NEWCOMER = email("newcomer");
-const EMAILS = [FACILITATOR, EDITOR, LEARNER, NEWCOMER];
+const OLD_ADMIN = email("old-admin");
+const COLLEAGUE = email("colleague");
+const EMAILS = [FACILITATOR, EDITOR, LEARNER, NEWCOMER, OLD_ADMIN, COLLEAGUE];
 const LEARNER_NAME = `R0 Learner ${RUN}`;
+const OLD_ADMIN_NAME = `R0 Old Admin ${RUN}`;
+const COLLEAGUE_NAME = `R0 Colleague ${RUN}`;
 // The course an editor creates here; its slug is what slugify makes of it.
 const COURSE_TITLE = `E2E Badge Course ${RUN}`;
 const COURSE_SLUG = COURSE_TITLE.toLowerCase().replace(/[^a-z0-9]+/g, "-");
 // A bundled course's badge (from the seed), held by a staff member.
 const BUNDLED_BADGE = { slug: "voice-without-edges", name: "Voice without edges" };
 
-type Role = "FACILITATOR" | "CONTENT_EDITOR" | "LEARNER";
+type Role = "ADMIN" | "FACILITATOR" | "CONTENT_EDITOR" | "LEARNER";
+const STAFF_ROLES: Role[] = ["ADMIN", "FACILITATOR", "CONTENT_EDITOR"];
 
 /** A user holding `roles` in the project, plus a live session. */
 async function signedInUser(address: string, roles: Role[], name?: string) {
@@ -92,6 +100,35 @@ const learnerRoles = (userId: string) =>
     where: { userId, projectId: PROJECT, role: "LEARNER" },
   });
 
+/**
+ * The project's learners as the database holds them right now (among
+ * `userIds`, when given): a LEARNER membership and no staff role in the
+ * project. Written out here, not taken from the app, so the spec checks the
+ * app against the rule itself.
+ */
+const learnerCount = (userIds?: string[]) =>
+  prisma.membership.count({
+    where: {
+      ...(userIds ? { userId: { in: userIds } } : {}),
+      projectId: PROJECT,
+      role: "LEARNER",
+      user: {
+        memberships: {
+          none: { projectId: PROJECT, role: { in: STAFF_ROLES } },
+        },
+      },
+    },
+  });
+
+/** The figure under "Learners" on the admin dashboard, as a number. */
+async function learnersFigure(page: import("@playwright/test").Page) {
+  const value = page
+    .getByRole("main")
+    .locator("p", { hasText: /^learners$/i })
+    .locator("xpath=following-sibling::p[1]");
+  return Number(await value.textContent());
+}
+
 /** The learner dashboard's Badges panel. */
 const badgesPanel = (page: import("@playwright/test").Page) =>
   page
@@ -103,6 +140,7 @@ describe("Release 0 — accounts", () => {
   let editor: { userId: string; sessionToken: string };
   let learner: { userId: string; sessionToken: string };
   let newcomer: { userId: string; sessionToken: string };
+  let oldAdmin: { userId: string; sessionToken: string };
 
   async function cleanUp() {
     const users = await prisma.user.findMany({
@@ -128,6 +166,9 @@ describe("Release 0 — accounts", () => {
     editor = await signedInUser(EDITOR, ["CONTENT_EDITOR"]);
     learner = await signedInUser(LEARNER, ["LEARNER"], LEARNER_NAME);
     newcomer = await signedInUser(NEWCOMER, []);
+    // An admin who opened a learner page before Release 0, which gave them
+    // the LEARNER role; Release 0 leaves that row in place.
+    oldAdmin = await signedInUser(OLD_ADMIN, ["ADMIN", "LEARNER"], OLD_ADMIN_NAME);
   });
 
   test.afterAll(async () => {
@@ -225,6 +266,75 @@ describe("Release 0 — accounts", () => {
     await prisma.membership.create({
       data: { userId: learner.userId, projectId: PROJECT, role: "LEARNER" },
     });
+  });
+
+  test("staff who still hold an old learner role are not learners", async ({
+    page,
+    context,
+  }) => {
+    // A colleague still listed as a learner when the facilitator opens the
+    // page, and given a staff role while it is open: from then on they are
+    // staff holding an old LEARNER row, like the admin from beforeAll.
+    const colleague = await signedInUser(COLLEAGUE, ["LEARNER"], COLLEAGUE_NAME);
+    await signInAs(context, facilitator.sessionToken);
+    await page.goto("/en/facilitator");
+    const roster = page.getByRole("main");
+    await expect(roster.getByText(COLLEAGUE_NAME)).toBeVisible({ timeout: 15000 });
+    // The admin who still holds LEARNER isn't on the roster at all.
+    await expect(roster.getByText(OLD_ADMIN_NAME)).toHaveCount(0);
+
+    await page
+      .getByRole("listitem")
+      .filter({ hasText: COLLEAGUE_NAME })
+      .getByRole("button", { name: /open learner/i })
+      .click();
+    await prisma.membership.create({
+      data: { userId: colleague.userId, projectId: PROJECT, role: "FACILITATOR" },
+    });
+    await page.getByPlaceholder(/what did you notice/i).fill("A note about a colleague.");
+    await page.getByRole("button", { name: /^save$/i }).click();
+    await expect(
+      page.getByRole("alert").filter({ hasText: /wasn't saved/i })
+    ).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText(/^saved$/i)).toHaveCount(0);
+    expect(
+      await prisma.observation.count({ where: { observedId: colleague.userId } }),
+      "nothing was written about the colleague"
+    ).toBe(0);
+
+    // Opened again, the roster leaves both of them out; the learner stays.
+    await page.goto("/en/facilitator");
+    await expect(roster.getByText(LEARNER_NAME)).toBeVisible({ timeout: 15000 });
+    await expect(roster.getByText(COLLEAGUE_NAME)).toHaveCount(0);
+    await expect(roster.getByText(OLD_ADMIN_NAME)).toHaveCount(0);
+
+    // Both still hold their LEARNER row, and the rule leaves both out.
+    const staff = [oldAdmin.userId, colleague.userId];
+    expect(
+      await prisma.membership.count({
+        where: { userId: { in: staff }, projectId: PROJECT, role: "LEARNER" },
+      })
+    ).toBe(2);
+    expect(await learnerCount(staff)).toBe(0);
+
+    // The admin's Learners figure counts learners only. Other specs may add
+    // learners meanwhile, so the figure is read again until it matches the
+    // database.
+    await signInAs(context, oldAdmin.sessionToken);
+    await page.goto("/en/admin");
+    await expect(page.getByRole("heading", { name: /admin dashboard/i })).toBeVisible({
+      timeout: 15000,
+    });
+    await expect
+      .poll(
+        async () => {
+          await page.reload();
+          const [shown, learners] = [await learnersFigure(page), await learnerCount()];
+          return shown - learners;
+        },
+        { timeout: 20000 }
+      )
+      .toBe(0);
   });
 
   test("a badge earned on a course created in the platform is still there after a reload", async ({
