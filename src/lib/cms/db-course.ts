@@ -22,6 +22,13 @@ import { prisma } from "@/lib/prisma";
 import { introFromBlocks } from "@/lib/rich-text/narrative";
 import { presentStageKeys } from "./course-derive";
 import {
+  firstText,
+  pickMeta,
+  resolveNarrative,
+  type CourseMeta,
+  type CourseMetaEntry,
+} from "./text-fallback";
+import {
   resolveStructure,
   pickText,
   type StoredStructure,
@@ -32,7 +39,6 @@ import type {
   CourseStage,
   CourseSummary,
   Locale,
-  NarrativeBlock,
   StageKey,
 } from "./types";
 
@@ -100,25 +106,9 @@ const DEFAULTS: Record<
   },
 };
 
-export interface CourseMetaEntry {
-  title: string;
-  tagline: string;
-  clusterLabel: string;
-}
-export type CourseMeta = Partial<Record<Locale, CourseMetaEntry>>;
-
-/**
- * Pick the best copy for a locale: the requested one, else English, else the
- * first authored language. A half-translated course still renders instead of
- * showing blanks — the editor fills the gaps as they go.
- */
-export function pickMeta(
-  meta: CourseMeta | null,
-  locale: Locale
-): CourseMetaEntry | null {
-  if (!meta) return null;
-  return meta[locale] ?? meta.en ?? Object.values(meta)[0] ?? null;
-}
+// The course's copy for a locale, field by field, blanks skipped (pure, in
+// text-fallback.ts); re-exported for the callers that read it from here.
+export { pickMeta, type CourseMeta, type CourseMetaEntry };
 
 function toSummary(
   slug: string,
@@ -249,6 +239,8 @@ export async function getDbCourse(
           scenario: "Branching scenario",
           assessment: "Quick check",
         };
+        // pickText falls back field by field, blanks skipped: the author's
+        // English title comes before the generic one.
         stages.push({
           key,
           title: pickText(structure.title, locale) || DEFAULT_TITLE[key],
@@ -258,11 +250,10 @@ export async function getDbCourse(
       }
 
       // Narrative-family stage — always present (may be empty until authored).
-      const narrative = (lesson?.narrative ?? null) as Record<
-        string,
-        { title?: string; subtitle?: string; blocks?: NarrativeBlock[] }
-      > | null;
-      const authored = narrative?.[locale] ?? narrative?.en ?? null;
+      // Each field comes from the learner's language, else English, else the
+      // first language written; a blank field (typed, then cleared) counts
+      // as not written, so learners never get a blank heading or lesson.
+      const authored = resolveNarrative(lesson?.narrative ?? null, locale);
 
       if (key === "reflection") {
         // Reflection is a journaling stage: the player's ReflectionStage needs
@@ -274,13 +265,14 @@ export async function getDbCourse(
         // paragraph's `text` is always saved beside it, or derived from
         // `rich` if that's all there is) and, once an author has formatted
         // it, its rich text (D36). The fallbacks stay plain.
-        const intro = introFromBlocks(authored?.blocks);
+        const intro = introFromBlocks(authored.blocks);
+        const introText = firstText(intro?.text);
         stages.push({
           key,
-          title: authored?.title ?? d.reflectionTitle,
+          title: authored.title ?? d.reflectionTitle,
           reflection: {
-            intro: intro?.text ?? authored?.subtitle ?? d.reflectionIntro,
-            ...(intro?.rich ? { introRich: intro.rich } : {}),
+            intro: introText ?? authored.subtitle ?? d.reflectionIntro,
+            ...(introText && intro?.rich ? { introRich: intro.rich } : {}),
             prompts: d.reflectionPrompts.map((label) => ({
               label,
               placeholder: "",
@@ -292,9 +284,9 @@ export async function getDbCourse(
 
       stages.push({
         key,
-        title: authored?.title ?? `${entry.title} — ${key}`,
-        subtitle: authored?.subtitle,
-        blocks: authored?.blocks ?? [],
+        title: authored.title ?? `${entry.title} — ${key}`,
+        subtitle: authored.subtitle,
+        blocks: authored.blocks ?? [],
       });
     }
 

@@ -134,6 +134,20 @@ describe("lessonCoveredIn", () => {
     expect(lessonCoveredIn("cms", "reflection", written, "de")).toBe(false);
   });
 
+  it("doesn't cover a language whose text was cleared down to blanks", () => {
+    const lesson = {
+      stageKey: "context",
+      narrative: {
+        ...narrative("en"),
+        de: { title: " ", blocks: [{ kind: "paragraph", text: "" }] },
+      },
+    };
+    expect(lessonCoveredIn("cms", "context", lesson, "de")).toBe(false);
+    // A reflection cleared everywhere is back on the localised defaults.
+    const cleared = { stageKey: "reflection", narrative: { en: { title: "" } } };
+    expect(lessonCoveredIn("cms", "reflection", cleared, "de")).toBe(true);
+  });
+
   it("covers a CMS interactive lesson via its structure", () => {
     const lesson = { stageKey: "simulation", structure: sim({ en: "Hi" }) };
     expect(lessonCoveredIn("cms", "simulation", lesson, "en")).toBe(true);
@@ -176,6 +190,12 @@ describe("languageCoverage", () => {
       keys
     );
     expect(c2.el.state).toBe("partial");
+  });
+
+  it("doesn't count a title and subtitle cleared down to blanks as copy", () => {
+    const meta = { en: { title: "X" }, de: { title: "", tagline: "  " } };
+    const c = languageCoverage("cms", meta, [], keys);
+    expect(c.de.state).toBe("missing");
   });
 });
 

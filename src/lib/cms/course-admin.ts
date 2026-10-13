@@ -21,7 +21,14 @@ import { STAGES } from "@/data/course";
 import { getBaseCourseCopy, getCourse, listCourses } from "@/lib/cms";
 import { normaliseStatus } from "./course-status";
 import { readCopyOverride, applyCopy } from "./course-copy";
-import { pickMeta, type CourseMeta } from "./db-course";
+import {
+  metaFallbackFrom,
+  metaHasText,
+  narrativeHasText,
+  pickMeta,
+  type CourseMeta,
+  type NarrativeVersion,
+} from "./text-fallback";
 import { STRUCTURE_STAGE_KEYS, type StoredStructure } from "./structure";
 import { fingerprint } from "./stored-json";
 import {
@@ -39,10 +46,11 @@ import {
   type LessonOutline,
   type NarrativeInitial,
 } from "./course-admin-types";
+import { introFromBlocks } from "@/lib/rich-text/narrative";
 import type {
   CourseContent,
+  CourseStage,
   Locale,
-  NarrativeBlock,
   StageKey,
   VideoContent,
 } from "./types";
@@ -55,9 +63,7 @@ const SLUG = /^[a-z0-9][a-z0-9-]{0,79}$/;
 const isInteractive = (key: StageKey) =>
   (STRUCTURE_STAGE_KEYS as readonly string[]).includes(key);
 
-type NarrativeJson = Partial<
-  Record<Locale, { title?: string; subtitle?: string; blocks?: NarrativeBlock[] }>
->;
+type NarrativeJson = Partial<Record<Locale, NarrativeVersion>>;
 
 /** Every course (drafts and archived included) as a card, in catalogue order. */
 export async function getCourseGrid(locale: Locale): Promise<CourseGridEntry[]> {
@@ -254,10 +260,15 @@ export async function getCourseOutline(
 
 /* --------------------------------- helpers --------------------------------- */
 
-/** A CMS course's copy in `locale`: its own, or what learners get instead. */
+/**
+ * A CMS course's copy in `locale`: its own, or what learners get instead. A
+ * language whose title and subtitle are both blank (typed, then cleared)
+ * has no copy of its own: learners get another language's, and the publish
+ * warnings say so.
+ */
 function cmsCopy(meta: CourseMeta | null, locale: Locale): CourseCopyState {
   const own = meta?.[locale];
-  if (own) {
+  if (own && metaHasText(own)) {
     return {
       title: own.title ?? "",
       tagline: own.tagline ?? "",
@@ -266,8 +277,7 @@ function cmsCopy(meta: CourseMeta | null, locale: Locale): CourseCopyState {
     };
   }
   const shown = pickMeta(meta, locale);
-  const from =
-    meta?.en ? "en" : (Object.keys(meta ?? {})[0] as Locale | undefined);
+  const from = metaFallbackFrom(meta, locale);
   return {
     title: shown?.title ?? "",
     tagline: shown?.tagline ?? "",
@@ -311,17 +321,28 @@ function narrativeInitial(
   narrative: NarrativeJson | null,
   locale: Locale
 ): NarrativeInitial {
-  const hasOverride = Boolean(narrative?.[locale]);
+  const own = narrative?.[locale];
+  // A version with nothing but blanks (typed, then cleared) isn't written:
+  // learners get another language's text, which the editor then starts from.
+  const hasOverride = narrativeHasText(own);
   // A CMS lesson not written in this language shows the English one
-  // (db-course.ts: `narrative[locale] ?? narrative.en`).
+  // (db-course.ts resolves it field by field: this language, else English).
   const fallbackFrom: Locale | undefined =
-    kind === "cms" && !hasOverride && locale !== "en" && narrative?.en
+    kind === "cms" &&
+    !hasOverride &&
+    locale !== "en" &&
+    narrativeHasText(narrative?.en)
       ? "en"
       : undefined;
+  // A CMS lesson written in this language starts from what is stored in it,
+  // not from what learners see: they get English for any field still blank
+  // here, and saving that would copy the English into this language.
+  const source =
+    kind === "cms" && hasOverride && own ? storedStage(body, own) : stage;
   const base =
     body === "reflection"
       ? {
-          title: stage.title,
+          title: source.title,
           subtitle: "",
           // The editor shows the intro as a single paragraph (db-course.ts
           // reads back exactly the title and the first paragraph), with its
@@ -329,22 +350,49 @@ function narrativeInitial(
           blocks: [
             {
               kind: "paragraph" as const,
-              text: stage.reflection?.intro ?? "",
-              ...(stage.reflection?.introRich
-                ? { rich: stage.reflection.introRich }
+              text: source.reflection?.intro ?? "",
+              ...(source.reflection?.introRich
+                ? { rich: source.reflection.introRich }
                 : {}),
             },
           ],
         }
       : {
-          title: stage.title,
-          subtitle: stage.subtitle ?? "",
-          blocks: stage.blocks ?? [],
+          title: source.title,
+          subtitle: source.subtitle ?? "",
+          blocks: source.blocks ?? [],
         };
   return {
     ...base,
     hasOverride,
     version: fingerprint(narrative?.[locale]),
     ...(fallbackFrom ? { fallbackFrom } : {}),
+  };
+}
+
+/**
+ * One language's stored lesson text, shaped like the stage the editor
+ * otherwise starts from: the reflection's intro is its first paragraph, as
+ * db-course.ts reads it.
+ */
+function storedStage(
+  body: "narrative" | "reflection",
+  own: NarrativeVersion
+): Pick<CourseStage, "title" | "subtitle" | "blocks" | "reflection"> {
+  if (body === "reflection") {
+    const intro = introFromBlocks(own.blocks);
+    return {
+      title: own.title ?? "",
+      reflection: {
+        intro: intro?.text ?? "",
+        ...(intro?.rich ? { introRich: intro.rich } : {}),
+        prompts: [],
+      },
+    };
+  }
+  return {
+    title: own.title ?? "",
+    subtitle: own.subtitle,
+    blocks: own.blocks ?? [],
   };
 }

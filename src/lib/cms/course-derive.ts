@@ -26,6 +26,7 @@ import type {
   ReadinessIssue,
 } from "./course-admin-types";
 import type { Locale, StageKey } from "./types";
+import { blockHasText, metaHasText, narrativeHasText } from "./text-fallback";
 
 const LOCALES: readonly Locale[] = ["en", "de", "el"];
 
@@ -118,11 +119,14 @@ function lessonState(
       ? "authored"
       : "missing";
   }
+  // A language version with nothing but blanks (typed, then cleared) isn't
+  // written: learners get another language's text there.
   const narrative = asRecord(lesson?.narrative);
-  if (narrative?.[locale]) return "authored";
+  if (narrativeHasText(narrative?.[locale])) return "authored";
   // A reflection nobody wrote uses generic prompts localised for every
   // language (db-course.ts DEFAULTS), so it reads fine in each of them.
-  const written = narrative && Object.values(narrative).some(Boolean);
+  const written =
+    narrative && Object.values(narrative).some(narrativeHasText);
   if (key === "reflection" && !written) return "default";
   return "missing";
 }
@@ -157,7 +161,7 @@ export function languageCoverage(
   const copy = asRecord(meta);
   const out = {} as Record<Locale, LanguageCoverage>;
   for (const locale of LOCALES) {
-    const copyOk = kind === "bundled" || Boolean(copy?.[locale]);
+    const copyOk = kind === "bundled" || metaHasText(copy?.[locale]);
     const states = presentKeys.map((k) =>
       lessonState(kind, k, byStage.get(k), locale)
     );
@@ -222,8 +226,9 @@ export function publishReadiness(
   const empty = new Set<StageKey>();
   for (const l of present) {
     if (l.body !== "narrative") continue;
+    // Blocks with nothing in them don't count: learners would see none.
     const blocks = LOCALES.map(
-      (loc) => l.byLang[loc]?.narrative?.blocks.length ?? 0
+      (loc) => l.byLang[loc]?.narrative?.blocks.filter(blockHasText).length ?? 0
     );
     if (blocks.every((n) => n === 0)) {
       empty.add(l.key);

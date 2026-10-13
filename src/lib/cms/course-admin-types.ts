@@ -57,8 +57,9 @@ export interface CourseCopyState {
    * authored — a CMS course's own copy for this language;
    * override  — a built-in course's copy, reworded by an editor;
    * built-in  — a built-in course's copy, as it ships;
-   * fallback  — a CMS course with no copy in this language yet: the values
-   *             above are what learners see instead (from `fallbackFrom`).
+   * fallback  — a CMS course with no copy in this language yet (or only
+   *             blanks): the values above are what learners see instead
+   *             (from `fallbackFrom`).
    */
   source: "authored" | "override" | "built-in" | "fallback";
   fallbackFrom?: Locale;
@@ -71,7 +72,11 @@ export interface NarrativeInitial {
   title: string;
   subtitle: string;
   blocks: NarrativeBlock[];
-  /** An editor has written this language (vs. the built-in or fallback text). */
+  /**
+   * An editor has written this language (vs. the built-in or fallback text).
+   * A stored version with nothing but blanks doesn't count: learners get the
+   * built-in or fallback text there.
+   */
   hasOverride: boolean;
   /**
    * Fingerprint of this language's stored text (null = none stored). A save

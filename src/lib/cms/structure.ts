@@ -22,6 +22,7 @@ import type {
   CourseStage,
   ScenarioChoice,
 } from "./types";
+import { fallbackOrder, firstText } from "./text-fallback";
 
 export type LocalizedText = Partial<Record<Locale, string>>;
 
@@ -88,10 +89,16 @@ export const STRUCTURE_STAGE_KEYS = [
 ] as const;
 export type StructureStageKey = (typeof STRUCTURE_STAGE_KEYS)[number];
 
-/** Best text for a locale: requested → English → first authored → "". */
+/**
+ * Best text for a locale: requested → English → first authored → "". A
+ * blank value counts as not written: the editor stores a field typed in and
+ * cleared again as "", and learners should get the English, not a blank.
+ */
 export function pickText(t: LocalizedText | undefined, locale: Locale): string {
   if (!t) return "";
-  return t[locale] ?? t.en ?? Object.values(t).find(Boolean) ?? "";
+  return (
+    firstText(...fallbackOrder(t, locale).map((k) => t[k as Locale])) ?? ""
+  );
 }
 
 /* --------------------------------- resolve -------------------------------- */

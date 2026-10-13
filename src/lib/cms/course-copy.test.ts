@@ -44,6 +44,17 @@ describe("applyCopy", () => {
     expect(applyCopy(base, override, "el")).toBe(base);
   });
 
+  it("keeps the built-in wording for a field cleared in the editor", () => {
+    // As stored: the German title typed and cleared again, the subtitle
+    // left as spaces. Learners read the built-in German, never a blank.
+    const stored = { de: { title: "", tagline: "   " }, el: { title: "Σύγκρουση", tagline: " " } };
+    expect(applyCopy(base, readCopyOverride(stored), "de")).toEqual(base);
+    expect(applyCopy(base, readCopyOverride(stored), "el")).toEqual({
+      ...base,
+      title: "Σύγκρουση",
+    });
+  });
+
   it("leaves the copy alone without an override", () => {
     expect(applyCopy(base, null, "de")).toBe(base);
     expect(applyCopy(base, {}, "de")).toBe(base);
