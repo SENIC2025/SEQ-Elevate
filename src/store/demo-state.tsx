@@ -29,6 +29,7 @@ import {
 import { migrateGuest } from "./guest-migration";
 import { pendingSave } from "./pending-save";
 import { RETRY_DELAYS_MS, wait, withRetry } from "./retry";
+import { isRefusedAward } from "@/lib/badge-award";
 import {
   SESSION_RECHECK_MS,
   forgetLearner,
@@ -767,8 +768,10 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
   // An award that doesn't get through (a dropped connection, a session
   // lookup that failed) is sent again after 1 s, 2 s, 4 s and 8 s — it's
   // idempotent — unless the learner's data has been let go of meanwhile
-  // (persistedBadges replaced). A completed course's badge is also saved
-  // with the course itself (see saveCourseProgress).
+  // (persistedBadges replaced). One the server refuses (no Badge row for
+  // it) is logged once and not sent again this visit: no retry can fix it
+  // (badge-award.ts). A completed course's badge is also saved with the
+  // course itself (see saveCourseProgress).
   React.useEffect(() => {
     if (!authed || !dbOwner) return;
     const sent = persistedBadges.current;
@@ -778,7 +781,12 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
       if (sent.has(slug)) continue;
       sent.add(slug);
       awardBadgeAction(slug, forUser).then(
-        () => tries.delete(slug),
+        (result) => {
+          tries.delete(slug);
+          if (isRefusedAward(result)) {
+            console.error(`The badge "${slug}" wasn't saved.`, result);
+          }
+        },
         (err: unknown) => {
           sent.delete(slug);
           if (persistedBadges.current !== sent) return;

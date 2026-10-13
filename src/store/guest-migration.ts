@@ -20,6 +20,7 @@
 
 import type { CompCardData, CourseProgress, DemoState } from "./demo-state";
 import { withRetry } from "./retry";
+import { isRefusedAward } from "@/lib/badge-award";
 
 /** What the account has saved (loadLearnerGlobal). */
 export interface SavedGlobal {
@@ -62,7 +63,14 @@ export async function migrateGuest(
   let wrote = false;
   const write = async (call: () => Promise<unknown>) => {
     try {
-      await retry(call);
+      const result = await retry(call);
+      // A refusal (a badge the server has no row for) is answered, not
+      // thrown, so it isn't tried again: no try could succeed. It isn't
+      // counted as saved either.
+      if (isRefusedAward(result)) {
+        console.error("The server refused a guest's badge; it isn't saved.", result);
+        return false;
+      }
       wrote = true;
       return true;
     } catch (err) {

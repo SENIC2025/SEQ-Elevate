@@ -106,7 +106,7 @@ plays through the same engine.
 ### Identity & access
 - **Magic-link sign-in** (passwordless, email link via Resend) with database sessions.
 - **One-click demo profiles** at `/demo` (code-gated `elevate-demo`): Stefan (Admin+Editor), Demo Editor, Demo Teacher, Demo Learner — provisioned on first use; kill-switch `DEMO_LOGIN_DISABLED`.
-- **Project-scoped RBAC** (Learner / Facilitator / Content-Editor / Admin); auto-provisions a Learner membership on first course use; configured emails (e.g. `stefan@senic.org`) get editor roles on login.
+- **Project-scoped RBAC** (Learner / Facilitator / Content-Editor / Admin); gives a Learner membership to anyone who signs in without a role in the project (staff are never turned into learners); configured emails (e.g. `stefan@senic.org`) get editor roles on login.
 - **Account page** — profile, roles, stats, reading-help note.
 
 ### Learner journey

@@ -928,5 +928,10 @@
       "navDraft": "Entwurf",
       "readinessDraft": "Die Lektion „{stage}“ hat einen Entwurf, den Lernende noch nicht sehen."
     }
+  },
+  "accounts": {
+    "facilitatorNotSaved": "Das wurde nicht gespeichert. Notizen und Bestätigungen kannst du nur für Lernende in diesem Projekt anlegen. Lade die Seite neu und versuch es noch einmal.",
+    "facilitatorSaveError": "Das wurde nicht gespeichert. Prüf deine Verbindung und versuch es noch einmal.",
+    "facilitatorNoteKept": "Deine Notiz ist gespeichert. Wenn du noch einmal speicherst, wird nur die Bestätigung gesendet."
   }
 }

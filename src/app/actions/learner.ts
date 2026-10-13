@@ -7,8 +7,12 @@
  * project. Stage keys map to the StageKey enum; the client uses lowercase.
  */
 
-import { getCurrentUser } from "@/lib/auth-helpers";
+import { getCurrentUser, getProjectMemberships } from "@/lib/auth-helpers";
+import { isBootstrapAdmin } from "@/lib/admin-bootstrap";
+import { needsLearnerMembership } from "@/lib/learner-membership";
+import { ensureProjectRoles } from "@/lib/role-grants";
 import { prisma } from "@/lib/prisma";
+import type { BadgeAwardResult } from "@/lib/badge-award";
 import { getCourse } from "@/lib/cms";
 import type { Locale } from "@/lib/cms/types";
 import {
@@ -91,16 +95,25 @@ function isLearner(
   return user.id === forUser || (user.email !== null && user.email === forUser);
 }
 
-/** Auto-provision a LEARNER membership on first use. */
+/**
+ * Give someone who signed in by themselves a place in the project: a
+ * LEARNER membership, but only when they hold no role in it at all (see
+ * needsLearnerMembership). Staff stay staff, and nothing they hold is
+ * removed. The roles are read through getProjectMemberships, which grants
+ * an ADMIN_EMAILS address its roles first. A failed read fails the call,
+ * so the store tries again rather than guessing that there are none.
+ */
 export async function ensureLearnerMembership() {
   const user = await requireLearner();
-  const existing = await prisma.membership.findFirst({
-    where: { userId: user.id, projectId: PROJECT, role: "LEARNER" },
-  });
-  if (!existing) {
-    await prisma.membership.create({
-      data: { userId: user.id, projectId: PROJECT, role: "LEARNER" },
-    });
+  const roles = (await getProjectMemberships(PROJECT)).map((m) => m.role);
+  if (
+    needsLearnerMembership(roles, {
+      bootstrapAdmin: isBootstrapAdmin(user.email),
+    })
+  ) {
+    // Two tabs loading at once can both get here; the upsert (and its
+    // unique-constraint guard) makes the second one a no-op.
+    await ensureProjectRoles(user.id, PROJECT, ["LEARNER"]);
   }
   return true;
 }
@@ -266,18 +279,27 @@ export async function saveCompCard(input: CompCardInput, forUser: string) {
 
 /**
  * Award a badge to the current user (idempotent); they must be `forUser`
- * (isLearner).
+ * (isLearner). A badge with no Badge row is refused rather than answered as
+ * if it were saved: the learner would lose the badge on the next reload
+ * without anyone knowing (C9). It is answered, not thrown, because a thrown
+ * award is tried again as if the connection had dropped, and this one can
+ * never succeed (badge-award.ts). Every course's badge has a row: the seed
+ * makes the bundled ones, createCourse and its migration the others.
  */
-export async function awardBadgeAction(slug: string, forUser: string) {
+export async function awardBadgeAction(
+  slug: string,
+  forUser: string
+): Promise<BadgeAwardResult> {
   const user = await requireLearner();
-  if (!isLearner(user, forUser)) return;
+  if (!isLearner(user, forUser)) return { ok: false, reason: "other-account" };
   const badge = await prisma.badge.findUnique({
     where: { projectId_slug: { projectId: PROJECT, slug } },
   });
-  if (!badge) return;
+  if (!badge) return { ok: false, reason: "no-badge" };
   await prisma.userBadge.upsert({
     where: { userId_badgeId: { userId: user.id, badgeId: badge.id } },
     create: { userId: user.id, badgeId: badge.id },
     update: {},
   });
+  return { ok: true };
 }

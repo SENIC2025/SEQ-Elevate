@@ -9,6 +9,13 @@ import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 import type { FacilitatorLearner } from "@/lib/server-queries";
 import { saveObservation, recordValidation } from "@/app/actions/facilitator";
+import {
+  NOTHING_SAVED,
+  saveFacilitatorEntry,
+  type FacilitatorSaved,
+  type FacilitatorSaveFailure,
+} from "@/lib/facilitator-save";
+import { FACILITATOR_TEXT_MAX } from "@/lib/facilitator-access";
 import { Link } from "@/i18n/navigation";
 import { STAGES } from "@/data/course";
 import {
@@ -50,12 +57,17 @@ export function RealFacilitatorView({
   const t = useTranslations("facilitator");
   const tCommon = useTranslations("common");
   const tCard = useTranslations("compCard");
+  const tAccounts = useTranslations("accounts");
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [observation, setObservation] = useState("");
   const [validated, setValidated] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  // What the server already has of this note and validation, so a Save
+  // tried again sends only the rest (facilitator-save.ts).
+  const [done, setDone] = useState<FacilitatorSaved>(NOTHING_SAVED);
+  const [failure, setFailure] = useState<FacilitatorSaveFailure>(null);
 
   const active = learners.filter((l) => l.progressPct > 0).length;
   const cards = learners.filter((l) => l.compCard).length;
@@ -68,14 +80,34 @@ export function RealFacilitatorView({
     : 0;
   const selected = learners.find((l) => l.id === selectedId) ?? null;
 
+  // The server refuses a note or validation about someone who isn't a
+  // learner of the project (any more), and a save can fail on the way: say
+  // which, rather than showing "Saved" for something that wasn't. A note
+  // that got through isn't sent again when the validation after it failed.
   async function handleSave() {
     if (!selected) return;
+    const learnerId = selected.id;
     setSaving(true);
-    if (observation.trim()) await saveObservation(selected.id, observation);
-    if (validated)
-      await recordValidation(selected.id, "communicationEi", observation);
+    setFailure(null);
+    const result = await saveFacilitatorEntry(
+      { note: observation, validate: validated, done },
+      {
+        saveObservation: (note) => saveObservation(learnerId, note),
+        recordValidation: (evidence) =>
+          recordValidation(learnerId, "communicationEi", evidence),
+      }
+    );
+    setDone(result.done);
+    setFailure(result.failure);
+    setSaved(!result.failure);
     setSaving(false);
-    setSaved(true);
+  }
+
+  /** The note or the checkbox changed: what's shown is no longer saved. */
+  function edited(part: keyof FacilitatorSaved) {
+    setDone((d) => ({ ...d, [part]: false }));
+    setSaved(false);
+    setFailure(null);
   }
 
   // ---- Detail view ----
@@ -92,6 +124,8 @@ export function RealFacilitatorView({
             setObservation("");
             setValidated(false);
             setSaved(false);
+            setDone(NOTHING_SAVED);
+            setFailure(null);
           }}
           className="inline-flex items-center gap-1 text-sm text-[var(--muted-foreground)] hover:text-[var(--foreground)] mb-3"
         >
@@ -149,9 +183,10 @@ export function RealFacilitatorView({
                 value={observation}
                 onChange={(e) => {
                   setObservation(e.target.value);
-                  setSaved(false);
+                  edited("note");
                 }}
                 placeholder={t("observationPlaceholder")}
+                maxLength={FACILITATOR_TEXT_MAX}
                 rows={2}
               />
             </div>
@@ -164,7 +199,7 @@ export function RealFacilitatorView({
                   checked={validated}
                   onChange={(e) => {
                     setValidated(e.target.checked);
-                    setSaved(false);
+                    edited("validation");
                   }}
                   className="mt-1 h-4 w-4 accent-[var(--accent)]"
                 />
@@ -177,7 +212,20 @@ export function RealFacilitatorView({
               </label>
             </div>
 
-            <div className="mt-5 flex items-center justify-end gap-3">
+            <div className="mt-5 flex flex-wrap items-center justify-end gap-3">
+              <p
+                role="alert"
+                className="text-sm text-[var(--danger)] empty:hidden"
+              >
+                {failure === "refused"
+                  ? tAccounts("facilitatorNotSaved")
+                  : failure === "error"
+                    ? tAccounts("facilitatorSaveError")
+                    : null}
+                {failure && done.note && validated && !done.validation
+                  ? ` ${tAccounts("facilitatorNoteKept")}`
+                  : null}
+              </p>
               {saved ? (
                 <span className="text-sm text-[var(--success)] inline-flex items-center gap-1">
                   <CheckCircle2 className="h-4 w-4" />

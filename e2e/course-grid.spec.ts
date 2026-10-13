@@ -106,6 +106,13 @@ async function cleanUp() {
   await prisma.user.deleteMany({ where: { email: { in: EMAILS } } });
   await prisma.lesson.deleteMany({ where: { courseSlug: { in: SLUGS } } });
   await prisma.course.deleteMany({ where: { slug: { in: SLUGS } } });
+  // A course created here comes with its badge (createCourse).
+  await prisma.badge.deleteMany({
+    where: {
+      projectId: PROJECT,
+      OR: SLUGS.map((slug) => ({ slug: { startsWith: `${slug}-complete` } })),
+    },
+  });
 }
 
 describe("Manage courses grid", () => {

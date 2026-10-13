@@ -26,6 +26,11 @@ import {
 } from "@/lib/cms/course-copy";
 import { isContentLocale } from "@/lib/cms/course-admin-types";
 import { pickMeta, type CourseMeta } from "@/lib/cms/db-course";
+import {
+  COURSE_BADGE_ICON,
+  courseBadgeCopy,
+  courseBadgeSlug,
+} from "@/lib/cms/course-badge";
 import { slugify } from "@/lib/slug";
 import type { Locale } from "@/lib/cms/types";
 
@@ -96,22 +101,43 @@ export async function createCourse(input: {
   }
 
   const duration = Math.min(Math.max(input.durationMinutes || 20, 1), 240);
-  await prisma.course.create({
-    data: {
-      projectId: PROJECT,
-      strapiId: `cms-${slug}`,
-      slug,
-      cluster: input.cluster.trim() || "communication",
-      durationMinutes: duration,
-      status: "draft",
-      meta: {
-        [input.locale]: {
-          title,
-          tagline: input.tagline.trim().slice(0, 200),
-          clusterLabel: input.clusterLabel.trim().slice(0, 60) || "Skill",
+  const tagline = input.tagline.trim().slice(0, 200);
+  // The course comes with its badge (course-badge.ts): without a Badge row
+  // the badge a learner earns here would never be saved. Both are made in
+  // one transaction, so there's never a course without its badge, or a
+  // badge left over from a course that failed to save.
+  await prisma.$transaction(async (tx) => {
+    const base = courseBadgeSlug(slug);
+    const taken = await tx.badge.findMany({
+      where: { projectId: PROJECT, slug: { startsWith: base } },
+      select: { slug: true },
+    });
+    const badge = await tx.badge.create({
+      data: {
+        projectId: PROJECT,
+        slug: courseBadgeSlug(slug, new Set(taken.map((b) => b.slug))),
+        ...courseBadgeCopy({ title, tagline }, slug),
+        iconRef: COURSE_BADGE_ICON,
+      },
+    });
+    await tx.course.create({
+      data: {
+        projectId: PROJECT,
+        strapiId: `cms-${slug}`,
+        slug,
+        cluster: input.cluster.trim() || "communication",
+        durationMinutes: duration,
+        status: "draft",
+        badgeId: badge.id,
+        meta: {
+          [input.locale]: {
+            title,
+            tagline,
+            clusterLabel: input.clusterLabel.trim().slice(0, 60) || "Skill",
+          },
         },
       },
-    },
+    });
   });
 
   await audit(editor.id, "course.created", slug, { status: "draft" });
@@ -238,7 +264,7 @@ export async function updateCourseMeta(
       await tx.$queryRaw`SELECT id FROM "Course" WHERE "projectId" = ${PROJECT} AND "slug" = ${slug} FOR UPDATE`;
       const row = await tx.course.findFirst({
         where: { projectId: PROJECT, slug },
-        select: { id: true, meta: true, copyOverride: true },
+        select: { id: true, meta: true, copyOverride: true, badgeId: true },
       });
 
       if (row?.meta) {
@@ -253,10 +279,20 @@ export async function updateCourseMeta(
             pickMeta(meta, locale)?.clusterLabel ||
             "Skill",
         };
+        const next: CourseMeta = { ...meta, [locale]: entry };
         await tx.course.update({
           where: { id: row.id },
-          data: { meta: { ...meta, [locale]: entry } as Prisma.InputJsonValue },
+          data: { meta: next as Prisma.InputJsonValue },
         });
+        // The badge keeps the course's name: it follows the English copy
+        // (or the first language, until there is English), so rewording
+        // another language leaves it as it is.
+        if (row.badgeId) {
+          await tx.badge.update({
+            where: { id: row.badgeId },
+            data: courseBadgeCopy(pickMeta(next, "en"), slug),
+          });
+        }
         return { kind: "cms" as const, copy: entry, cleared: false };
       }
 

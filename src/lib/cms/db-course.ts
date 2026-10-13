@@ -28,6 +28,7 @@ import {
   type CourseMeta,
   type CourseMetaEntry,
 } from "./text-fallback";
+import { courseBadgeSlug } from "./course-badge";
 import {
   resolveStructure,
   pickText,
@@ -116,7 +117,8 @@ function toSummary(
   durationMinutes: number,
   status: string,
   entry: CourseMetaEntry,
-  stageKeys: StageKey[]
+  stageKeys: StageKey[],
+  badgeSlug: string
 ): CourseSummary {
   return {
     slug,
@@ -127,7 +129,20 @@ function toSummary(
     durationMinutes,
     status: status === "draft" || status === "archived" ? status : "published",
     stageKeys,
+    // The dashboard names a badge from the course list; without these it
+    // showed a created course's badge as its slug.
+    badgeSlug,
+    badgeName: entry.title,
+    badgeMeaning: entry.tagline,
   };
+}
+
+/**
+ * The slug of a created course's badge: the Badge row it's linked to
+ * (course-badge.ts), else the one the player has always awarded for it.
+ */
+function badgeSlugOf(row: { slug: string; badge: { slug: string } | null }) {
+  return row.badge?.slug ?? courseBadgeSlug(row.slug);
 }
 
 /**
@@ -161,6 +176,7 @@ export async function listDbCourses(
     const rows = await prisma.course.findMany({
       // `meta` present = created in the CMS; DB NULL = bundled course.
       where: { projectId, NOT: { meta: { equals: Prisma.DbNull } } },
+      include: { badge: { select: { slug: true } } },
       orderBy: { createdAt: "asc" },
     });
     // Which interactive lessons each course has written, so the dashboard
@@ -192,7 +208,8 @@ export async function listDbCourses(
           r.status,
           entry,
           // The same rule getDbCourse builds the player's lessons by.
-          presentStageKeys("cms", lessonsBySlug.get(r.slug) ?? [])
+          presentStageKeys("cms", lessonsBySlug.get(r.slug) ?? []),
+          badgeSlugOf(r)
         )
       );
     }
@@ -214,6 +231,7 @@ export async function getDbCourse(
   try {
     const row = await prisma.course.findFirst({
       where: { projectId, slug },
+      include: { badge: { select: { slug: true } } },
     });
     if (!row?.meta) return null;
     const entry = pickMeta(row.meta as CourseMeta | null, locale);
@@ -302,7 +320,7 @@ export async function getDbCourse(
       tagline: entry.tagline,
       durationMinutes: row.durationMinutes,
       badge: {
-        slug: `${slug}-complete`,
+        slug: badgeSlugOf(row),
         name: entry.title,
         meaning: entry.tagline,
       },
