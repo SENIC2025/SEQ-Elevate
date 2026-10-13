@@ -2,8 +2,10 @@ import "server-only";
 
 /**
  * Computes the analytics dashboard from REAL captured data:
- *   - LEARNER memberships + CourseEnrollment (funnel, position, progress,
- *     assessment scoring against the CMS answers),
+ *   - learners' memberships + CourseEnrollment (funnel, position, progress,
+ *     assessment scoring against the CMS answers); staff who still hold the
+ *     LEARNER role an older release gave them are left out
+ *     (learnerMembershipWhere), so their test runs don't count,
  *   - `stage.time` AuditLog events (time per stage / total),
  *   - `course.opened` AuditLog events (activity over time + when-they-open),
  *   - UserBadge (badges earned).
@@ -15,6 +17,7 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import { getCourse } from "@/lib/cms";
 import { readAssessment, scoreAssessment } from "@/lib/assessment-progress";
+import { learnerMembershipWhere } from "@/lib/learner-scope";
 import { STAGES } from "@/data/course";
 import { courseProgress, nextStage } from "@/lib/course-progress";
 import type { Locale } from "@/lib/cms/types";
@@ -33,7 +36,7 @@ export async function buildRealAnalytics(
 ): Promise<AnalyticsData | null> {
   try {
     const memberships = await prisma.membership.findMany({
-      where: { projectId: PROJECT, role: "LEARNER" },
+      where: learnerMembershipWhere(PROJECT),
       include: {
         user: { include: { enrollments: { include: { course: true } } } },
         cohort: true,

@@ -18,10 +18,11 @@ const enrolment = (stagesCompleted: string[], completedAt: Date | null) => ({
   assessment: null,
 });
 
+const membershipFindMany = vi.fn();
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     membership: {
-      findMany: async () => [
+      findMany: membershipFindMany.mockImplementation(async () => [
         {
           cohort: null,
           user: {
@@ -42,7 +43,7 @@ vi.mock("@/lib/prisma", () => ({
             enrollments: [enrolment(["CONTEXT", "CONCEPT", "BEHAVIOUR"], null)],
           },
         },
-      ],
+      ]),
     },
     auditLog: { findMany: async () => [] },
     userBadge: { count: async () => 1 },
@@ -76,5 +77,33 @@ describe("buildRealAnalytics", () => {
     const halfway = data?.learners.find((l) => l.id === "halfway");
     // Reflection (index 5 of the seven-step list), not Guided practice (3).
     expect(halfway?.currentStageIndex).toBe(5);
+  });
+});
+
+describe("whose data the statistics use", () => {
+  // Staff who opened a learner page before Release 0 still hold the LEARNER
+  // role it gave everyone; their test runs aren't learners' progress.
+  it("leaves out staff who still hold an old LEARNER role", async () => {
+    membershipFindMany.mockClear();
+    await buildRealAnalytics("en");
+    expect(membershipFindMany).toHaveBeenCalledTimes(1);
+    expect(membershipFindMany.mock.calls[0]).toEqual([
+      expect.objectContaining({
+        where: {
+          projectId: "seq-elevate",
+          role: "LEARNER",
+          user: {
+            memberships: {
+              none: {
+                projectId: "seq-elevate",
+                role: {
+                  in: expect.arrayContaining(["FACILITATOR", "ADMIN", "CONTENT_EDITOR"]),
+                },
+              },
+            },
+          },
+        },
+      }),
+    ]);
   });
 });
