@@ -225,3 +225,21 @@ describe("who a course's enrolment count counts", () => {
     ).toMatchObject(ENROLLED_LEARNERS);
   });
 });
+
+describe("each lesson's main content and whether learners get it", () => {
+  it("names the editor each lesson's main content needs, and marks the lessons learners get", async () => {
+    const outline = await getCourseOutline("asking-for-help");
+    expect(
+      outline?.lessons.map((l) => [l.key, l.mainKind, l.live, l.present])
+    ).toEqual([
+      ["context", "narrative", true, true],
+      ["concept", "narrative", true, true],
+      ["behaviour", "narrative", true, true],
+      // "Add …" slots: learners don't get them.
+      ["simulation", "simulation", false, false],
+      ["scenario", "scenario", false, false],
+      ["reflection", "reflection", true, true],
+      ["assessment", "assessment", false, false],
+    ]);
+  });
+});

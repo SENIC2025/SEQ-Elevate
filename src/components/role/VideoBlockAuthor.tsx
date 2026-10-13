@@ -14,12 +14,7 @@ import {
   saveLessonVideo,
 } from "@/app/actions/lesson";
 import { CONTENT_LOCALES, isContentLocale } from "@/lib/cms/course-admin-types";
-import type {
-  Locale,
-  StageKey,
-  VideoContent,
-  VideoCue,
-} from "@/lib/cms/types";
+import type { Locale, VideoContent, VideoCue } from "@/lib/cms/types";
 import {
   CAPTION_UPLOAD,
   VIDEO_UPLOAD,
@@ -172,7 +167,8 @@ function useReportDirty(dirty: boolean, onDirtyChange?: (d: boolean) => void) {
 export interface VideoBlockAuthorProps {
   /** The lesson the video belongs to. */
   courseSlug: string;
-  stageKey: StageKey;
+  /** The lesson's id: a stage key, or a Release 1 lesson's "s-…". */
+  stageKey: string;
   /** The video stored on the lesson (null = none). Left out, it's fetched first. */
   initialVideo?: VideoContent | null;
   /** The platform supplies a video here that a saved one replaces. */

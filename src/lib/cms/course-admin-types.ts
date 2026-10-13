@@ -18,6 +18,15 @@ import type {
 } from "./types";
 import type { StoredStructure } from "./structure";
 import type { CourseStatus } from "./course-status";
+import type {
+  MainKind,
+  NewOnlyReason,
+  PartId,
+  PartsView,
+  SectionStage,
+  SectionView,
+  SectionsMeta,
+} from "./sections/contract";
 
 export type { CourseStatus };
 
@@ -89,22 +98,42 @@ export interface NarrativeInitial {
 }
 
 export interface LessonOutline {
-  key: StageKey;
+  /**
+   * The lesson's id: a standard lesson's stage key, or "s-xxxxxxxx" for a
+   * lesson added in Release 1 (sections/contract.ts). Only created courses
+   * have the latter.
+   */
+  key: string;
   /** Learners see this lesson (it is in getCourse().stages). */
   present: boolean;
   /** A CMS interactive lesson that isn't written yet — offered as "Add …". */
   addable: boolean;
   body: "narrative" | "reflection" | "interactive";
   /**
+   * What the lesson's main content is, so which editor edits it: the
+   * narrative or reflection text editor, or StructureAuthor for that kind.
+   * A standard lesson's is fixed by its key (mainKindOf).
+   */
+  mainKind: MainKind;
+  /**
    * body  — false for a built-in course's reflection and interactive lessons
    *         (they come from code; the server refuses edits).
    * media — false until the lesson exists, since learners couldn't see it.
    */
   editable: { body: boolean; media: boolean };
-  /** What learners see per language, and the narrative editor's start point. */
+  /**
+   * Per language: what learners see (`stage`, standard lessons only), the
+   * narrative editor's start point, and the editor's preview of a lesson
+   * learners don't get yet — a Release 1 lesson, or one with extra content
+   * (`sectioned`, null otherwise).
+   */
   byLang: Record<
     Locale,
-    { stage: CourseStage | null; narrative: NarrativeInitial | null }
+    {
+      stage: CourseStage | null;
+      narrative: NarrativeInitial | null;
+      sectioned: SectionStage | null;
+    }
   >;
   /** The stored interactive structure (CMS courses), or null. */
   structure: StoredStructure | null;
@@ -124,18 +153,38 @@ export interface LessonOutline {
   documents: LessonDocumentRef[];
   /** ISO time the lesson row last changed, or null when there is no row. */
   updatedAt: string | null;
+  // The four below are for the lesson list of a created course: null for
+  // built-in courses and for "Add …" slots.
+  /** The lesson in the course's lesson list: name, hidden, number, bases. */
+  section: SectionView | null;
+  /** The lesson's content in order, main content included, with its bases. */
+  parts: PartsView | null;
+  /** Base of deleteSection (sectionContentVersion), null when there is no row. */
+  contentVersion: string | null;
+  /** Learners get this lesson now (it is in getCourse().stages). */
+  live: boolean;
 }
 
 export interface ReadinessIssue {
-  level: "warning" | "info";
+  /** Blockers stop publishing (D57); warnings and info never do. */
+  level: "blocker" | "warning" | "info";
   code:
     | "copy-missing"
     | "lesson-empty"
     | "lesson-untranslated"
     | "lesson-draft"
-    | "no-interactive";
+    | "no-interactive"
+    | "needs-release-2"
+    | "part-draft"
+    | "labels-later"
+    | "sections-many";
   locale?: Locale;
-  stage?: StageKey;
+  /** The lesson's id (a stage key, or a Release 1 lesson's "s-…"). */
+  stage?: string;
+  /** part-draft: the content with an unsaved-for-learners draft. */
+  part?: PartId;
+  /** needs-release-2: one issue per reason learners couldn't get yet. */
+  reason?: NewOnlyReason;
   /** lesson-untranslated: how many lessons lack text in `locale`. */
   count?: number;
 }
@@ -151,10 +200,15 @@ export interface CourseOutline {
   lastEdited: string | null;
   copy: Record<Locale, CourseCopyState>;
   languages: Record<Locale, LanguageCoverage>;
-  /** In learner (STAGES) order, including "Add …" slots for CMS courses. */
+  /**
+   * In the course's lesson order (learner order for a standard layout),
+   * including "Add …" slots for CMS courses.
+   */
   lessons: LessonOutline[];
-  /** Warnings shown before publishing — they never block it. */
+  /** Shown before publishing: blockers stop it (D57), the rest never do. */
   readiness: ReadinessIssue[];
+  /** The lesson list's bases and reasons: created courses only, else null. */
+  sections: SectionsMeta | null;
 }
 
 /** One card on the course grid. */
@@ -170,6 +224,12 @@ export interface CourseGridEntry {
   enrolled: number;
   /** The lessons learners see, in STAGES order (count = length). */
   lessonKeys: StageKey[];
+  /**
+   * Set when the course's lesson list is stored (Course.outline): its
+   * lessons in order with their names in the grid's language, hidden ones
+   * left out. Otherwise the card names `lessonKeys` as before.
+   */
+  sections?: { id: string; name: string }[];
   languages: Record<Locale, LanguageCoverage>;
   /** ISO time of the latest edit, or null when never edited. */
   lastEdited: string | null;

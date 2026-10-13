@@ -9,7 +9,7 @@ import type {
   LanguageCoverage,
   ReadinessIssue,
 } from "@/lib/cms/course-admin-types";
-import type { Locale, StageKey } from "@/lib/cms/types";
+import type { Locale } from "@/lib/cms/types";
 import { ContentLanguageSwitch } from "./ContentLanguageSwitch";
 import { PublishControls } from "./PublishControls";
 import {
@@ -64,7 +64,8 @@ export function PreviewLink({
 }: {
   slug: string;
   lang: Locale;
-  lesson?: StageKey;
+  /** A lesson id: a stage key, or a Release 1 lesson's "s-…". */
+  lesson?: string;
   className: string;
   children: React.ReactNode;
 }) {
@@ -116,7 +117,7 @@ export function CourseHeader({
   languages: Record<Locale, LanguageCoverage>;
   lang: Locale;
   /** Start the preview at this lesson (the first one open), if any. */
-  previewLesson?: StageKey;
+  previewLesson?: string;
   onLangChange: (next: Locale) => void;
   onStatusChange: (next: CourseStatus) => void;
 }) {

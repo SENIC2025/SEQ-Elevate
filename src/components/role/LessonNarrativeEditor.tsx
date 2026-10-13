@@ -8,7 +8,7 @@ import {
   saveLessonNarrative,
   clearLessonNarrative,
 } from "@/app/actions/lesson";
-import type { Locale, NarrativeBlock, StageKey } from "@/lib/cms/types";
+import type { Locale, NarrativeBlock } from "@/lib/cms/types";
 import type {
   CourseKind,
   NarrativeInitial,
@@ -106,7 +106,8 @@ export function LessonNarrativeEditor({
   onReread,
 }: {
   courseSlug: string;
-  stageKey: StageKey;
+  /** The lesson's id: a stage key, or a Release 1 lesson's "s-…". */
+  stageKey: string;
   locale: Locale;
   /** What learners see now, in this language (from the course outline). */
   initial: NarrativeInitial;

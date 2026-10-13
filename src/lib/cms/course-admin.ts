@@ -49,6 +49,7 @@ import {
   type NarrativeInitial,
 } from "./course-admin-types";
 import { introFromBlocks } from "@/lib/rich-text/narrative";
+import { mainKindOf } from "./sections/contract";
 import type {
   CourseContent,
   CourseStage,
@@ -221,6 +222,8 @@ export async function getCourseOutline(
           stage && bodyEditable && body !== "interactive"
             ? narrativeInitial(kind, body, stage, narrative, l)
             : null,
+        // Lessons learners don't get yet come with Course.outline (F2).
+        sectioned: null,
       };
     });
 
@@ -229,6 +232,7 @@ export async function getCourseOutline(
       present: isPresent,
       addable,
       body,
+      mainKind: mainKindOf({ id: key, template: key }),
       editable: { body: bodyEditable, media: isPresent },
       byLang: lessonByLang,
       structure:
@@ -254,6 +258,12 @@ export async function getCourseOutline(
         published: d.published,
       })),
       updatedAt: lesson?.updatedAt.toISOString() ?? null,
+      // The lesson list of a created course is read from Course.outline in
+      // F2; until then every course has today's layout and no extras.
+      section: null,
+      parts: null,
+      contentVersion: null,
+      live: isPresent,
     });
   }
 
@@ -271,6 +281,7 @@ export async function getCourseOutline(
     copy,
     languages: languageCoverage(kind, meta, lessons, presentKeys),
     lessons: outlineLessons,
+    sections: null,
   };
   return { ...outline, readiness: publishReadiness(outline) };
 }

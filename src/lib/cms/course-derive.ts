@@ -237,7 +237,8 @@ export function publishReadiness(
   }
 
   const present = outline.lessons.filter((l) => l.present);
-  const empty = new Set<StageKey>();
+  // Lesson ids, not only stage keys: a created course's own lessons count too.
+  const empty = new Set<string>();
   for (const l of present) {
     if (l.body !== "narrative") continue;
     // Blocks with nothing in them don't count: learners would see none.

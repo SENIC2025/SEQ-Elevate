@@ -4,7 +4,7 @@ import { useTranslations } from "next-intl";
 import { FilePenLine, PenLine, Plus } from "lucide-react";
 import type { LessonOutline } from "@/lib/cms/course-admin-types";
 import { offersAdd } from "@/lib/cms/course-derive";
-import type { Locale, StageKey } from "@/lib/cms/types";
+import type { Locale } from "@/lib/cms/types";
 
 /**
  * Jump links to every lesson, in learner order, with the lesson's own title
@@ -23,8 +23,9 @@ export function LessonNav({
 }: {
   lessons: LessonOutline[];
   lang: Locale;
-  lessonLabel: (key: StageKey) => string;
-  onAdd: (key: StageKey) => void;
+  /** "n. Name" for a lesson id (a stage key, or a Release 1 lesson's "s-…"). */
+  lessonLabel: (key: string) => string;
+  onAdd: (key: string) => void;
 }) {
   const t = useTranslations("courseManager.page");
   const tDraft = useTranslations("exerciseEditor.page");

@@ -10,7 +10,7 @@ import {
   setLessonDocumentOrder,
   setLessonDocumentPublished,
 } from "@/app/actions/lesson";
-import type { LessonDocumentRef, StageKey } from "@/lib/cms/types";
+import type { LessonDocumentRef } from "@/lib/cms/types";
 import { DOCUMENT_UPLOAD, acceptAttribute, formatSize } from "@/lib/uploads";
 import { attachFailureMessage, isNetworkError } from "@/lib/author-feedback";
 import { cn } from "@/lib/utils";
@@ -89,7 +89,8 @@ export function LessonDocumentManager({
   onChange,
 }: {
   courseSlug: string;
-  stageKey: StageKey;
+  /** The lesson's id: a stage key, or a Release 1 lesson's "s-…". */
+  stageKey: string;
   /** Every document on the lesson, drafts included; skips the first load. */
   initialDocuments?: LessonDocumentRef[];
   /** Inside a lesson on the course page: lighter frame. */

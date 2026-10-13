@@ -17,6 +17,7 @@ import type {
   NarrativeInitial,
 } from "./course-admin-types";
 import type { Locale, StageKey } from "./types";
+import { mainKindOf } from "./sections/contract";
 
 const sim = (text: Partial<Record<Locale, string>>): StoredStructure => ({
   kind: "simulation",
@@ -256,13 +257,14 @@ function lesson(
       hasOverride: written[l] !== undefined,
       version: written[l] !== undefined ? `v-${l}` : null,
     };
-    byLang[l] = { stage: null, narrative: n };
+    byLang[l] = { stage: null, narrative: n, sectioned: null };
   }
   return {
     key,
     present: true,
     addable: false,
     body: key === "reflection" ? "reflection" : "narrative",
+    mainKind: mainKindOf({ id: key, template: key }),
     editable: { body: true, media: true },
     byLang,
     structure: null,
@@ -271,6 +273,10 @@ function lesson(
     builtInVideo: false,
     documents: [],
     updatedAt: null,
+    section: null,
+    parts: null,
+    contentVersion: null,
+    live: true,
     ...over,
   };
 }

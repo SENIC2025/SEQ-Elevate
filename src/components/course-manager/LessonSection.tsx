@@ -7,19 +7,13 @@ import { LessonNarrativeEditor } from "@/components/role/LessonNarrativeEditor";
 import { VideoBlockAuthor } from "@/components/role/VideoBlockAuthor";
 import { LessonDocumentManager } from "@/components/role/LessonDocumentManager";
 import { DraftBadge, StructureAuthor } from "@/components/role/StructureAuthor";
-import type {
-  CourseKind,
-  CourseStatus,
-  LessonOutline,
-  NarrativeInitial,
-} from "@/lib/cms/course-admin-types";
-import type { LessonDocumentRef, Locale, VideoContent } from "@/lib/cms/types";
-import type { StoredStructure, StructureStageKey } from "@/lib/cms/structure";
+import type { StructureStageKey } from "@/lib/cms/structure";
 import { offersAdd } from "@/lib/cms/course-derive";
 import { DirtyScope } from "./dirty-registry";
 import { LessonReadView } from "./LessonReadView";
 import { BuiltInNotice } from "./BuiltInNotice";
 import { PreviewLink } from "./CourseHeader";
+import type { LessonSectionProps } from "./lesson-section-props";
 import { Check, FileText, PenLine, Plus, Video } from "lucide-react";
 
 /**
@@ -29,51 +23,30 @@ import { Check, FileText, PenLine, Plus, Video } from "lucide-react";
  * itself (CoursePlayer's order). Editors mount only while open — each upload
  * tool checks storage when it mounts, and a course has up to seven lessons.
  */
-export function LessonSection({
-  lesson,
-  label,
-  slug,
-  kind,
-  status,
-  lang,
-  open,
-  rev,
-  onOpen,
-  onClose,
-  onNarrativeSaved,
-  onReread,
-  onStructureSaved,
-  onStructureDraftChanged,
-  onStructureCleared,
-  onVideoSaved,
-  onDocumentsChanged,
-}: {
-  lesson: LessonOutline;
-  /** "2. Skill concept" (unnumbered for a lesson not added yet). */
-  label: string;
-  slug: string;
-  kind: CourseKind;
-  /** The course's status: whether a save for learners goes live at once. */
-  status: CourseStatus;
-  lang: Locale;
-  open: boolean;
-  /** Bumped when this lesson's text in `lang` was re-read after a revert. */
-  rev: number;
-  onOpen: () => void;
-  onClose: () => void;
-  onNarrativeSaved: (value: NarrativeInitial) => void;
-  /**
-   * Re-read this lesson's text in `lang` from the server, once it is no
-   * longer the `stale` version the editor had (then `rev` bumps).
-   */
-  onReread: (stale: string | null) => void;
-  onStructureSaved: (structure: StoredStructure) => void;
-  /** An interactive lesson's draft was saved (as stored) or is gone (null). */
-  onStructureDraftChanged: (draft: StoredStructure | null) => void;
-  onStructureCleared: () => void;
-  onVideoSaved: (video: VideoContent | null) => void;
-  onDocumentsChanged: (documents: LessonDocumentRef[]) => void;
-}) {
+export function LessonSection(props: LessonSectionProps) {
+  // Every prop of the contract arrives (CourseWorkspace passes them all);
+  // `enrolled`, `reasons` and `onOutline` are for the content controls that
+  // come with extra content.
+  const {
+    lesson,
+    label,
+    slug,
+    kind,
+    status,
+    lang,
+    open,
+    rev,
+    headerExtra,
+    onOpen,
+    onClose,
+    onNarrativeSaved,
+    onReread,
+    onStructureSaved,
+    onStructureDraftChanged,
+    onStructureCleared,
+    onVideoSaved,
+    onDocumentsChanged,
+  } = props;
   const t = useTranslations("courseManager");
   const tDraft = useTranslations("exerciseEditor.page");
   // The exercise editor's heading, which also names its region for screen
@@ -226,6 +199,7 @@ export function LessonSection({
           ) : null}
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {headerExtra}
           {lesson.present ? (
             <PreviewLink
               slug={slug}
