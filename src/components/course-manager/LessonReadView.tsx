@@ -170,7 +170,7 @@ function SectionedBody({
     return <p className="text-sm text-[var(--muted-foreground)]">{t("emptyLesson")}</p>;
   }
   return (
-    <ol className="space-y-5" lang={lang}>
+    <ol className="space-y-5">
       {items.map(({ id, view }) => {
         const part = resolved.get(id);
         const main = view?.type === "main";
@@ -185,7 +185,10 @@ function SectionedBody({
               {draft ? <DraftBadge label={tBlocks("draft")} /> : null}
             </h3>
             {part ? (
-              <PartBody part={part} />
+              // The content is in the content language; its heading isn't.
+              <div lang={lang}>
+                <PartBody part={part} />
+              </div>
             ) : (
               <p className="text-sm text-[var(--muted-foreground)]">
                 {view?.type === "text"

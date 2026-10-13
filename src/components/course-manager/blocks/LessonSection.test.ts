@@ -154,6 +154,8 @@ describe("LessonSection — closed", () => {
     expect(html).toContain("Quick check");
     expect(html).toContain(">Draft<");
     expect(html).toContain(en.lessonBlocks.notShown);
+    // The content is marked with its language; the headings (menu language) aren't.
+    expect(html).toMatch(/<div lang="en">(?:(?!<\/li>).)*Extra words/);
   });
 
   it("reads a standard lesson as today", () => {

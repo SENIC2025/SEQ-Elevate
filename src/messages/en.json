@@ -1166,7 +1166,8 @@
     "partHint": "“Save stage” makes this content ready: learners get it from Release 2, and Preview as learner shows it now. “Save draft” keeps unfinished work for editors only.",
     "notShown": "Not shown yet — only a draft so far, or not ready.",
     "scale": "1 = {min} · 5 = {max}",
-    "noText": "No text written yet."
+    "noText": "No text written yet.",
+    "courseUnreadable": "Something in this course's lessons can't be read, so content can't be added, moved or removed until an admin repairs it."
   },
   "accounts": {
     "facilitatorNotSaved": "This wasn't saved. Notes and validations can only be added for learners in this project. Reload the page and try again.",

@@ -331,6 +331,8 @@ export function PartList({
   }
 
   const lockedAny = addLocked || moveLocked || removeLocked;
+  // Locked because something in the course can't be read (G8), not because it is live.
+  const unreadableCourse = reasons.some((r) => r.code === "unreadable");
 
   return (
     <div className="space-y-4">
@@ -342,7 +344,7 @@ export function PartList({
       ) : null}
       {lockedAny ? (
         <p id={lockedNoteId} className="text-sm text-[var(--muted-foreground)]">
-          {t("liveLocked")}
+          {unreadableCourse ? t("courseUnreadable") : t("liveLocked")}
         </p>
       ) : null}
       {full ? (

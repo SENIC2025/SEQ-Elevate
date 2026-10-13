@@ -583,7 +583,7 @@ export function LessonNarrativeEditor({
           </div>
         ) : null
       ) : (
-        <div className={blocksOnly ? "" : "mt-4"} lang={locale}>
+        <div className={blocksOnly ? "" : "mt-4"}>
           <p className="mb-2 text-sm font-semibold">Content blocks</p>
           <BlockList
             blocks={blocks}

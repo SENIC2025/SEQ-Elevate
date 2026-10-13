@@ -141,6 +141,15 @@ describe("PartList — on a live course", () => {
 });
 
 describe("PartList — limits and unreadable content", () => {
+  it("says it is the unreadable course, not a live one, that stops changes", () => {
+    const html = render(lesson([MAIN, QUIZ]), { reasons: [{ code: "unreadable" }] });
+    expect(html).toContain(en.lessonBlocks.courseUnreadable.replace(/'/g, "&#x27;"));
+    expect(html).not.toContain(en.lessonBlocks.liveLocked);
+    expect(tagWith(html, 'aria-label="Add content after content 2: Quick check"')).toContain(
+      'aria-disabled="true"'
+    );
+  });
+
   it("stops adding at the most content a lesson can hold, saying why", () => {
     const many = Array.from({ length: 11 }, (_, i) => ({
       ...TEXT,

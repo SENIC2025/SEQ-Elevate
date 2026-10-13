@@ -1166,7 +1166,8 @@
     "partHint": "„Lektion speichern“ macht diesen Inhalt fertig: Lernende bekommen ihn ab Release 2, die Vorschau als Lernende:r zeigt ihn schon jetzt. „Entwurf speichern“ hebt Unfertiges nur für Bearbeitende auf.",
     "notShown": "Noch nicht sichtbar — bisher nur ein Entwurf oder noch nicht fertig.",
     "scale": "1 = {min} · 5 = {max}",
-    "noText": "Noch kein Text geschrieben."
+    "noText": "Noch kein Text geschrieben.",
+    "courseUnreadable": "Etwas in den Lektionen dieses Kurses kann nicht gelesen werden. Deshalb kann kein Inhalt hinzugefügt, verschoben oder entfernt werden, bis eine Administratorin oder ein Administrator es repariert."
   },
   "accounts": {
     "facilitatorNotSaved": "Das wurde nicht gespeichert. Notizen und Bestätigungen kannst du nur für Lernende in diesem Projekt anlegen. Lade die Seite neu und versuch es noch einmal.",
