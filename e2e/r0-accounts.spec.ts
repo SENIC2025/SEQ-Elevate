@@ -9,7 +9,8 @@ import { PrismaPg } from "@prisma/adapter-pg";
  * - a facilitator's note is saved for a learner of the project, and refused,
  *   with a message, for someone who no longer is one (C20);
  * - a course created in the platform gets a badge, and a learner who earns
- *   it still has it after a reload (C9).
+ *   it still has it after a reload (C9); one the old code left without a
+ *   badge, while a deploy was building, gets it when it is published.
  *
  * Requires a real database — gated on E2E_DB=1, like db-backed-progress.
  * Every email and course slug is unique to the run, and everything the run
@@ -38,6 +39,10 @@ const LEARNER_NAME = `R0 Learner ${RUN}`;
 // The course an editor creates here; its slug is what slugify makes of it.
 const COURSE_TITLE = `E2E Badge Course ${RUN}`;
 const COURSE_SLUG = COURSE_TITLE.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+// A created course without a badge, as the old code made them.
+const BADGELESS_TITLE = `E2E Badgeless Course ${RUN}`;
+const BADGELESS_SLUG = BADGELESS_TITLE.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+const COURSE_SLUGS = [COURSE_SLUG, BADGELESS_SLUG];
 // A bundled course's badge (from the seed), held by a staff member.
 const BUNDLED_BADGE = { slug: "voice-without-edges", name: "Voice without edges" };
 
@@ -115,10 +120,13 @@ describe("Release 0 — accounts", () => {
     // Observations, validations, enrollments, badges awarded, memberships
     // and sessions go with their users.
     await prisma.user.deleteMany({ where: { email: { in: EMAILS } } });
-    await prisma.lesson.deleteMany({ where: { courseSlug: COURSE_SLUG } });
-    await prisma.course.deleteMany({ where: { slug: COURSE_SLUG } });
+    await prisma.lesson.deleteMany({ where: { courseSlug: { in: COURSE_SLUGS } } });
+    await prisma.course.deleteMany({ where: { slug: { in: COURSE_SLUGS } } });
     await prisma.badge.deleteMany({
-      where: { projectId: PROJECT, slug: { startsWith: `${COURSE_SLUG}-complete` } },
+      where: {
+        projectId: PROJECT,
+        OR: COURSE_SLUGS.map((slug) => ({ slug: { startsWith: `${slug}-complete` } })),
+      },
     });
   }
 
@@ -301,5 +309,79 @@ describe("Release 0 — accounts", () => {
       timeout: 15000,
     });
     await expect(badgesPanel(page).getByText(`${COURSE_SLUG}-complete`)).toHaveCount(0);
+  });
+
+  test("a created course the old code left without a badge gets one when it is published", async ({
+    page,
+    context,
+  }) => {
+    // Made as the old createCourse made it while a deploy was building:
+    // copy in `meta`, no badge. A learner had already finished it.
+    const course = await prisma.course.create({
+      data: {
+        projectId: PROJECT,
+        strapiId: `cms-${BADGELESS_SLUG}`,
+        slug: BADGELESS_SLUG,
+        cluster: "communication",
+        durationMinutes: 15,
+        status: "draft",
+        meta: {
+          en: { title: BADGELESS_TITLE, tagline: "Said kindly", clusterLabel: "Communication" },
+        },
+      },
+    });
+    for (const stageKey of ["context", "concept", "behaviour", "reflection"]) {
+      await prisma.lesson.create({
+        data: {
+          projectId: PROJECT,
+          courseSlug: BADGELESS_SLUG,
+          stageKey,
+          narrative: {
+            en: {
+              title: `Stage ${stageKey}`,
+              blocks: [{ kind: "paragraph", text: `Content for ${stageKey}.` }],
+            },
+          },
+        },
+      });
+    }
+    await prisma.courseEnrollment.create({
+      data: {
+        userId: learner.userId,
+        courseId: course.id,
+        stagesCompleted: ["CONTEXT", "CONCEPT", "BEHAVIOUR", "REFLECTION"],
+        completedAt: new Date(),
+      },
+    });
+
+    // The editor publishes it from the course page.
+    await signInAs(context, editor.sessionToken);
+    await page.goto(`/en/content/courses/${BADGELESS_SLUG}`);
+    await page.getByRole("button", { name: /^publish$/i }).click();
+    await expect(page.getByRole("status").getByText(/^published$/i).first()).toBeVisible({
+      timeout: 15000,
+    });
+
+    // It now has its badge, and the learner who had finished it holds it.
+    const linked = await prisma.course.findUnique({
+      where: { id: course.id },
+      include: { badge: true },
+    });
+    expect(linked?.badge, "the course is linked to a badge").toBeTruthy();
+    expect(linked?.badge?.slug).toBe(`${BADGELESS_SLUG}-complete`);
+    expect(linked?.badge?.name).toBe(BADGELESS_TITLE);
+    expect(
+      await prisma.userBadge.count({
+        where: { userId: learner.userId, badgeId: linked!.badgeId! },
+      })
+    ).toBe(1);
+
+    // So the learner's dashboard shows it, by its name.
+    await signInAs(context, learner.sessionToken);
+    await page.goto("/en/learner");
+    await page.reload();
+    await expect(badgesPanel(page).getByText(BADGELESS_TITLE)).toBeVisible({
+      timeout: 15000,
+    });
   });
 });
