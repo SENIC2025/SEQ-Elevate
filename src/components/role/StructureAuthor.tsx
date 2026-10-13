@@ -6,32 +6,33 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
-  getStructure,
-  saveStructure,
-  saveStructureDraft,
-  discardStructureDraft,
-  clearStructure,
-  type StructureState,
-} from "@/app/actions/structure";
-import {
-  validateStructure,
   fieldKey,
-  issueField,
-  type StoredStructure,
   type StoredSimulation,
   type StoredScenario,
   type StoredAssessment,
   type StoredScenarioChoice,
-  type LocalizedText,
-  type StructureIssue,
   type StructureStageKey,
 } from "@/lib/cms/structure";
+import { STRUCTURE_LIMITS } from "@/lib/cms/structure-sanitize";
+import type {
+  ExerciseKind,
+  ExerciseState,
+  ExerciseValue,
+  PartIssue,
+  PartLimitBreach,
+} from "@/lib/cms/sections/contract";
 import {
-  sanitizeStructure,
-  STRUCTURE_LIMITS,
-  type StructureLimitBreach,
-} from "@/lib/cms/structure-sanitize";
+  emptyExercise,
+  partIssueField,
+  sanitizeExercise,
+  validateExercise,
+} from "@/lib/cms/sections/part-kinds";
 import { limitField, limitText } from "./structure-limit-text";
+import { lessonTarget, type ExerciseTarget } from "./exercise/exercise-target";
+import { FieldIssuesContext, IssueList, LocField, newId, type FieldIssues } from "./exercise/fields";
+import { ReflectionPromptsEditor } from "./exercise/ReflectionPromptsEditor";
+import { RatingEditor } from "./exercise/RatingEditor";
+import { removeErrorMessage, writeErrorMessage, type WriteRefusal } from "./exercise/write-errors";
 import type { CourseStatus } from "@/lib/cms/course-status";
 import type { Locale, OutcomeQuality } from "@/lib/cms/types";
 import {
@@ -50,19 +51,16 @@ import {
   Undo2,
 } from "lucide-react";
 
+export { IssueList, LocField };
+
 const QUALITIES: OutcomeQuality[] = ["best", "okay", "poor"];
 
-const inputCls =
-  "w-full rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm aria-invalid:border-[var(--danger)]";
-
-let idSeq = 0;
-const newId = (p: string) => `${p}${(idSeq++).toString(36)}${Date.now().toString(36).slice(-3)}`;
-
-function setLoc(map: LocalizedText, locale: Locale, value: string): LocalizedText {
-  return { ...map, [locale]: value };
-}
-
-function emptyStructure(kind: StructureStageKey): StoredStructure {
+/**
+ * A new exercise as the editor starts it when nothing is stored: Release 0's
+ * (fresh ids each time), or the flexible editor's own kinds' empty value.
+ */
+function emptyStructure(kind: ExerciseKind): ExerciseValue {
+  if (kind === "reflection" || kind === "rating") return emptyExercise(kind);
   if (kind === "simulation") {
     return {
       kind: "simulation",
@@ -125,15 +123,15 @@ function useReportDirty(dirty: boolean, onDirtyChange?: (d: boolean) => void) {
 interface LoadedStructure {
   key: string;
   /** What's on screen: the draft if there is one, else the saved stage. */
-  edit: StoredStructure;
+  edit: ExerciseValue;
   /** What `edit` started from (or was last saved as): unsaved = edit !== saved. */
-  saved: StoredStructure;
+  saved: ExerciseValue;
   /**
    * What the server holds as far as this editor knows. Sent with every
    * write, so the server can refuse it if someone else has saved the stage
    * or its draft since (both hold every language — D33).
    */
-  base: StructureState;
+  base: ExerciseState;
 }
 
 type Status =
@@ -145,57 +143,37 @@ type Status =
   | "removed"
   | "error";
 
-/**
- * What the text boxes below need to know about the reasons listed above:
- * `idFor` gives each box (by its fieldKey) a stable element id, so a reason
- * can take the author to its box; `refused` maps each box a refused save
- * named (a "Save stage" reason, or a text over its size limit in the
- * language on screen) to the id of that reason, so the box is announced as
- * invalid, with the reason as its description.
- */
-interface FieldIssues {
-  idFor: (field: string) => string;
-  refused: ReadonlyMap<string, string>;
-}
-
-const FieldIssuesContext = React.createContext<FieldIssues>({
-  idFor: (field) => field,
-  refused: new Map(),
-});
-
-type WriteError =
-  | "forbidden"
-  | "bad-input"
-  | "kind-mismatch"
-  | "not-cms-course"
-  // Release 1: a lesson of the course's own (G6), and "Remove stage" (G5).
-  | "not-a-section"
-  | "outline-unreadable"
-  | "has-learners";
-
 /** A save refused for size: what was sent, and where it was over. */
 interface OverLimit {
-  sent: StoredStructure;
-  at: StructureLimitBreach;
+  sent: ExerciseValue;
+  at: PartLimitBreach;
 }
 
 /**
- * Author one interactive stage (simulation / scenario / assessment) of a
- * CMS-created course, on the course page. The page gives the lesson and the
- * language being written; the editor holds every language at once, so a
- * language switch keeps unsaved work.
+ * Author one exercise of a CMS-created course, on the course page: a
+ * lesson's main content (practice question, scenario, quick check —
+ * Release 0's "interactive stage") or a question in its extra content
+ * (those three, reflection questions, a 1–5 self-assessment). The page
+ * gives the lesson and the language being written; the editor holds every
+ * language at once, so a language switch keeps unsaved work.
  *
  * Two ways to save: "Save draft" keeps unfinished work for editors only,
  * whatever is still missing; "Save stage" saves it for learners once it is
- * complete (on a published course it is live at once). What is still
- * missing is listed as the author types, naming each field.
+ * complete (on a published course a lesson's main content is live at
+ * once). What is still missing is listed as the author types, naming each
+ * field.
  *
- * It reads the stage fresh whenever it opens, rather than taking what the
- * page loaded: a colleague may have saved another language since.
+ * Where it reads and writes is its `target` (exercise-target.ts): by default
+ * the lesson's main content through Release 0's actions, so a standard
+ * lesson behaves exactly as before. It reads fresh whenever it opens,
+ * rather than taking what the page loaded: a colleague may have saved
+ * another language since.
  */
 export function StructureAuthor({
   courseSlug: slug,
   kind,
+  stageKey,
+  target: givenTarget,
   locale,
   courseStatus,
   regionLabel,
@@ -204,24 +182,38 @@ export function StructureAuthor({
   onDraftChange,
   onCleared,
   onDirtyChange,
-}: {
+}: (
+  | {
+      /** The main content's kind (a standard key's own, or mainKindOf a lesson of the course's own). */
+      kind: StructureStageKey;
+      /** The lesson's id when it isn't `kind` itself: a lesson of the course's own ("s-…"). */
+      stageKey?: string;
+      target?: undefined;
+    }
+  | {
+      kind?: undefined;
+      stageKey?: undefined;
+      /** Where to read and write: a question in the lesson's extra content. */
+      target: ExerciseTarget;
+    }
+) & {
   courseSlug: string;
-  kind: StructureStageKey;
   /** The language being written. The editor holds every language at once. */
   locale: Locale;
   /** Says whether "Save stage" goes live at once (published) or not. */
   courseStatus?: CourseStatus;
-  /** Heading and region name, in the menu language (exerciseEditor.region). */
+  /** Heading and region name, in the menu language (exerciseEditor.region, lessonBlocks.position). */
   regionLabel?: string;
   /** Inside a lesson on the course page: lighter frame. */
   embedded?: boolean;
-  onSaved?: (structure: StoredStructure) => void;
+  onSaved?: (value: ExerciseValue) => void;
   /** The stored draft changed: saved (the draft as stored) or gone (null). */
-  onDraftChange?: (draft: StoredStructure | null) => void;
+  onDraftChange?: (draft: ExerciseValue | null) => void;
   onCleared?: () => void;
   onDirtyChange?: (dirty: boolean) => void;
 }) {
   const t = useTranslations("exerciseEditor");
+  const tBlocks = useTranslations("lessonBlocks");
   const tLanguage = useTranslations("courseManager.languageName");
   const headingId = React.useId();
   // Element ids for the text boxes and for the reasons a save was refused.
@@ -229,24 +221,34 @@ export function StructureAuthor({
   const headingRef = React.useRef<HTMLHeadingElement>(null);
   const notReadyRef = React.useRef<HTMLParagraphElement>(null);
   const overLimitRef = React.useRef<HTMLParagraphElement>(null);
-  // The stage plus the (course, stage) it belongs to, as one unit. Deriving
-  // `ready` from the key means Save waits until the stage has loaded.
+  const target = givenTarget ?? lessonTarget(slug, stageKey ?? kind!, kind!);
+  const targetKey = target.key;
+  const exerciseKind = target.kind;
+  const part = target.scope === "part";
+  // The latest target for the load below, which runs only when the key
+  // changes (the page makes a new target object on every render).
+  const targetRef = React.useRef(target);
+  React.useEffect(() => {
+    targetRef.current = target;
+  });
+  // The exercise plus the target it belongs to, as one unit. Deriving
+  // `ready` from the key means Save waits until it has loaded.
   const [loaded, setLoaded] = React.useState<LoadedStructure | null>(null);
   const [loadFailed, setLoadFailed] = React.useState(false);
   const [status, setStatus] = React.useState<Status>("idle");
   // Why the last "Save stage" was refused, as the server said it.
-  const [notReady, setNotReady] = React.useState<StructureIssue[]>([]);
+  const [notReady, setNotReady] = React.useState<PartIssue[]>([]);
   // The last save refused for size (either kind of save).
   const [overLimit, setOverLimit] = React.useState<OverLimit | null>(null);
   const [error, setError] = React.useState("");
-  // Someone else saved this stage after it was loaded here, found by a
-  // refused save or a refused "Remove stage".
+  // Someone else saved this after it was loaded here, found by a refused
+  // save or a refused "Remove stage".
   const [conflict, setConflict] = React.useState<"save" | "remove" | null>(null);
   const [reloadKey, setReloadKey] = React.useState(0);
 
-  const setEdit = (next: StoredStructure) => {
+  const setEdit = (next: ExerciseValue) => {
     setLoaded((l) => (l ? { ...l, edit: next } : l));
-    // These describe the stage before this edit.
+    // These describe the exercise before this edit.
     setStatus((s) =>
       s === "removed" || s === "saved" || s === "draftSaved" || s === "draftDiscarded"
         ? "idle"
@@ -258,15 +260,16 @@ export function StructureAuthor({
 
   React.useEffect(() => {
     let cancelled = false;
-    getStructure(slug, kind).then(
+    const from = targetRef.current;
+    from.load().then(
       (state) => {
         if (cancelled) return;
         if (!state) {
           setLoadFailed(true);
           return;
         }
-        const edit = state.draft ?? state.structure ?? emptyStructure(kind);
-        setLoaded({ key: `${slug}:${kind}`, edit, saved: edit, base: state });
+        const edit = state.draft ?? state.structure ?? emptyStructure(from.kind);
+        setLoaded({ key: from.key, edit, saved: edit, base: state });
         setLoadFailed(false);
         setConflict(null);
         setNotReady([]);
@@ -282,11 +285,11 @@ export function StructureAuthor({
     return () => {
       cancelled = true;
     };
-  }, [slug, kind, reloadKey]);
+  }, [targetKey, reloadKey]);
 
   // Until the load resolves, `loaded.key` doesn't match (or `loaded` is
   // null), so `ready` is false — no synchronous reset needed.
-  const ready = loaded?.key === `${slug}:${kind}`;
+  const ready = loaded?.key === targetKey;
   const edit = ready ? loaded!.edit : null;
   const authored = ready ? loaded!.base.structure !== null : false;
   const hasDraft = ready ? loaded!.base.draft !== null : false;
@@ -296,7 +299,7 @@ export function StructureAuthor({
   // What learners would still miss, as the author types (the same check the
   // server runs before "Save stage").
   const missing = React.useMemo(
-    () => (edit ? validateStructure(edit) : []),
+    () => (edit ? validateExercise(edit) : []),
     [edit]
   );
 
@@ -311,8 +314,8 @@ export function StructureAuthor({
     if (notReady.length) notReadyRef.current?.focus();
   }, [notReady]);
 
-  // Where the stage is over a size limit, after a save was refused for it:
-  // what the server said, until the author edits; then the same check,
+  // Where the exercise is over a size limit, after a save was refused for
+  // it: what the server said, until the author edits; then the same check,
   // here, on what is on screen — so it goes away once they have shortened
   // the text (and points to the next one, if another is over). Checked
   // against what is stored, like the server: what was already over a limit
@@ -320,16 +323,16 @@ export function StructureAuthor({
   const breach = React.useMemo(() => {
     if (!overLimit || !edit || !ready) return null;
     if (edit === overLimit.sent) return overLimit.at;
-    const now = sanitizeStructure(edit, kind, [loaded!.base.structure, loaded!.base.draft]);
+    const now = sanitizeExercise(edit, exerciseKind, [loaded!.base.structure, loaded!.base.draft]);
     return !now.ok && now.error === "too-large" ? now.at : null;
-  }, [overLimit, edit, ready, kind, loaded]);
+  }, [overLimit, edit, ready, exerciseKind, loaded]);
 
   // A save refused for size: take the reader to where.
   React.useEffect(() => {
     if (overLimit) overLimitRef.current?.focus();
   }, [overLimit]);
 
-  const issueText = (issue: StructureIssue) =>
+  const issueText = (issue: PartIssue) =>
     t(`issues.${issue.code}`, issue.params ?? {});
 
   const refusedId = React.useCallback(
@@ -345,32 +348,21 @@ export function StructureAuthor({
   const fieldIssues = React.useMemo<FieldIssues>(() => {
     const refused = new Map<string, string>();
     notReady.forEach((issue, i) => {
-      const field = issueField(issue);
+      const field = partIssueField(issue);
       if (field && !refused.has(field)) refused.set(field, refusedId(i));
     });
     if (breachHere) refused.set(breachHere, overLimitId);
     return { idFor: (field) => `${fieldsId}-field-${field}`, refused };
   }, [notReady, fieldsId, refusedId, breachHere, overLimitId]);
 
-  function writeError(code: WriteError | "changed-elsewhere" | "generic") {
-    if (code === "changed-elsewhere") {
+  function writeError(refusal: WriteRefusal) {
+    if (refusal.error === "changed-elsewhere") {
       // Nothing was written; the edits stay on screen.
       setConflict("save");
       return;
     }
-    setError(
-      code === "forbidden"
-        ? t("errors.forbidden")
-        : code === "not-cms-course"
-          ? t("errors.notCms")
-          : code === "kind-mismatch" || code === "bad-input"
-            ? t("errors.mismatch")
-            : code === "not-a-section"
-              ? t("errors.notASection")
-              : code === "outline-unreadable"
-                ? t("errors.outlineUnreadable")
-                : t("errors.generic")
-    );
+    const message = writeErrorMessage(refusal);
+    setError(t(message.key, message.values));
   }
 
   function startWrite() {
@@ -383,11 +375,11 @@ export function StructureAuthor({
 
   async function onSave() {
     if (!edit || !ready) return;
-    const savedKey = `${slug}:${kind}`;
+    const savedKey = targetKey;
     const sent = edit;
     startWrite();
     try {
-      const res = await saveStructure(slug, kind, sent, loaded!.base);
+      const res = await target.save(sent, loaded!.base);
       if (res.ok) {
         // Keep what's on screen rather than reloading: a reload resets the
         // status (the "Saved" confirmation would flash for ~25ms) and
@@ -396,31 +388,32 @@ export function StructureAuthor({
         // (cleaned, blank languages dropped) is the base for the next write.
         setLoaded((l) =>
           l?.key === savedKey
-            ? { ...l, saved: sent, base: { structure: res.structure, draft: null } }
+            ? { ...l, saved: sent, base: { structure: res.value, draft: null } }
             : l
         );
         setStatus("saved");
         // The page re-reads itself (what learners see, warnings).
-        onSaved?.(res.structure);
+        onSaved?.(res.value);
         return;
       }
       setStatus("error");
-      if (res.error === "invalid") setNotReady(res.issues);
-      else if (res.error === "too-large") setOverLimit({ sent, at: res.at });
-      else writeError(res.error);
+      if (res.error === "invalid") setNotReady((res as { issues: PartIssue[] }).issues);
+      else if (res.error === "too-large") {
+        setOverLimit({ sent, at: (res as { at: PartLimitBreach }).at });
+      } else writeError(res);
     } catch {
       setStatus("error");
-      writeError("generic");
+      writeError({ error: "generic" });
     }
   }
 
   async function onSaveDraft() {
     if (!edit || !ready) return;
-    const savedKey = `${slug}:${kind}`;
+    const savedKey = targetKey;
     const sent = edit;
     startWrite();
     try {
-      const res = await saveStructureDraft(slug, kind, sent, loaded!.base);
+      const res = await target.saveDraft(sent, loaded!.base);
       if (res.ok) {
         setLoaded((l) =>
           l?.key === savedKey
@@ -432,11 +425,12 @@ export function StructureAuthor({
         return;
       }
       setStatus("error");
-      if (res.error === "too-large") setOverLimit({ sent, at: res.at });
-      else writeError(res.error);
+      if (res.error === "too-large") {
+        setOverLimit({ sent, at: (res as { at: PartLimitBreach }).at });
+      } else writeError(res);
     } catch {
       setStatus("error");
-      writeError("generic");
+      writeError({ error: "generic" });
     }
   }
 
@@ -449,7 +443,7 @@ export function StructureAuthor({
     headingRef.current?.focus();
     startWrite();
     try {
-      const res = await discardStructureDraft(slug, kind, loaded!.base);
+      const res = await target.discardDraft(loaded!.base);
       if (res.ok) {
         setStatus("draftDiscarded");
         setReloadKey((k) => k + 1);
@@ -457,10 +451,10 @@ export function StructureAuthor({
         return;
       }
       setStatus("error");
-      writeError(res.error);
+      writeError(res);
     } catch {
       setStatus("error");
-      writeError("generic");
+      writeError({ error: "generic" });
     }
   }
 
@@ -470,7 +464,7 @@ export function StructureAuthor({
   }
 
   async function onClear() {
-    if (!ready) return;
+    if (!ready || !target.clear) return;
     if (!window.confirm(t("confirm.remove"))) return;
     // "Remove stage" goes away once it's done (and so do the lesson's video
     // and documents above): keep focus here, not on the page.
@@ -480,13 +474,14 @@ export function StructureAuthor({
       // With the version this page shows, so a draft a colleague saved since
       // isn't deleted unseen: the server refuses, and the conflict banner
       // offers to reload it.
-      const res = await clearStructure(slug, kind, loaded!.base);
+      const res = await target.clear(loaded!.base);
       if (!res.ok) {
         setStatus("error");
         if (res.error === "changed-elsewhere") setConflict("remove");
-        else if (res.error === "has-learners") {
-          setError(t("errors.hasLearners", { count: res.count }));
-        } else setError(t("errors.removeFailed"));
+        else {
+          const message = removeErrorMessage(res);
+          setError(t(message.key, message.values));
+        }
         return;
       }
     } catch {
@@ -514,9 +509,11 @@ export function StructureAuthor({
             <Puzzle className="h-4 w-4 text-[var(--accent)]" aria-hidden />
             {regionLabel ?? t("region.fallback")}
           </h3>
-          <Badge variant={authored ? "accent" : "muted"} className="text-[10px]">
-            {authored ? t("badge.added") : t("badge.notAdded")}
-          </Badge>
+          {part ? null : (
+            <Badge variant={authored ? "accent" : "muted"} className="text-[10px]">
+              {authored ? t("badge.added") : t("badge.notAdded")}
+            </Badge>
+          )}
           {hasDraft ? <DraftBadge label={t("badge.draft")} /> : null}
         </div>
 
@@ -612,7 +609,7 @@ export function StructureAuthor({
             <IssueList
               items={notReady.map((issue) => ({
                 text: issueText(issue),
-                field: issueField(issue),
+                field: partIssueField(issue),
               }))}
               idFor={fieldIssues.idFor}
               itemId={refusedId}
@@ -636,7 +633,7 @@ export function StructureAuthor({
             <IssueList
               items={missing.map((issue) => ({
                 text: issueText(issue),
-                field: issueField(issue),
+                field: partIssueField(issue),
               }))}
               idFor={fieldIssues.idFor}
             />
@@ -647,15 +644,7 @@ export function StructureAuthor({
         ) : null}
 
         {edit ? (
-          <FieldIssuesContext.Provider value={fieldIssues}>
-            {edit.kind === "simulation" ? (
-              <SimulationEditor value={edit} locale={locale} onChange={setEdit} />
-            ) : edit.kind === "scenario" ? (
-              <ScenarioEditor value={edit} locale={locale} onChange={setEdit} />
-            ) : (
-              <AssessmentEditor value={edit} locale={locale} onChange={setEdit} />
-            )}
-          </FieldIssuesContext.Provider>
+          <ExerciseFields value={edit} locale={locale} issues={fieldIssues} onChange={setEdit} />
         ) : loadFailed ? (
           <p className="text-sm text-[var(--danger)]" role="alert">
             {t("errors.load")}
@@ -694,7 +683,7 @@ export function StructureAuthor({
                 {t("actions.discardDraft")}
               </Button>
             ) : null}
-            {authored ? (
+            {authored && target.clear ? (
               <Button
                 size="sm"
                 variant="outline"
@@ -732,11 +721,62 @@ export function StructureAuthor({
             </p>
           ) : null}
           <p className="mt-2 text-xs text-[var(--muted-foreground)]">
-            {courseStatus === "published" ? t("hint.live") : t("hint.notLive")}
+            {part
+              ? tBlocks("partHint")
+              : courseStatus === "published"
+                ? t("hint.live")
+                : t("hint.notLive")}
           </p>
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+const NO_REFUSALS: ReadonlyMap<string, string> = new Map();
+
+/**
+ * The boxes of one exercise, by its kind. Their element ids are this
+ * editor's own (`issues`, or made here), so several exercises in one lesson
+ * never share one.
+ */
+export function ExerciseFields({
+  value,
+  locale,
+  issues,
+  onChange,
+}: {
+  value: ExerciseValue;
+  locale: Locale;
+  /** The editor's reasons and its ids for the boxes (StructureAuthor). */
+  issues?: FieldIssues;
+  onChange: (next: ExerciseValue) => void;
+}) {
+  const ownId = React.useId();
+  const own = React.useMemo<FieldIssues>(
+    () => ({ idFor: (field) => `${ownId}-field-${field}`, refused: NO_REFUSALS }),
+    [ownId]
+  );
+  let fields: React.ReactNode;
+  switch (value.kind) {
+    case "simulation":
+      fields = <SimulationEditor value={value} locale={locale} onChange={onChange} />;
+      break;
+    case "scenario":
+      fields = <ScenarioEditor value={value} locale={locale} onChange={onChange} />;
+      break;
+    case "assessment":
+      fields = <AssessmentEditor value={value} locale={locale} onChange={onChange} />;
+      break;
+    case "reflection":
+      fields = <ReflectionPromptsEditor value={value} locale={locale} onChange={onChange} />;
+      break;
+    case "rating":
+      fields = <RatingEditor value={value} locale={locale} onChange={onChange} />;
+      break;
+  }
+  return (
+    <FieldIssuesContext.Provider value={issues ?? own}>{fields}</FieldIssuesContext.Provider>
   );
 }
 
@@ -750,116 +790,6 @@ export function DraftBadge({ label }: { label: string }) {
       <FilePenLine className="h-3 w-3" aria-hidden />
       {label}
     </Badge>
-  );
-}
-
-/**
- * The reasons, each naming its box. A reason about one box (`field`, its
- * fieldKey) is a button that takes the author there, so it can be reached
- * by keyboard or voice from the list rather than by counting identical
- * boxes.
- */
-function IssueList({
-  items,
-  idFor,
-  itemId,
-}: {
-  items: { text: string; field: string | null }[];
-  idFor: (field: string) => string;
-  /** Ids for the items, when boxes refer to them as their description. */
-  itemId?: (i: number) => string;
-}) {
-  return (
-    <ul className="mt-1 ml-6 list-disc text-sm text-[var(--foreground)] break-words">
-      {items.map(({ text, field }, i) => (
-        <li key={i} id={itemId?.(i)}>
-          {field ? (
-            <button
-              type="button"
-              onClick={() => document.getElementById(idFor(field))?.focus()}
-              className="py-0.5 text-left underline underline-offset-2 hover:text-[var(--accent)]"
-            >
-              {text}
-            </button>
-          ) : (
-            text
-          )}
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-/* --------------------------------- shared --------------------------------- */
-
-function LocField({
-  label,
-  map,
-  locale,
-  onChange,
-  textarea,
-  placeholder,
-  maxLength = STRUCTURE_LIMITS.maxTextChars,
-  field,
-  context,
-}: {
-  label: string;
-  map: LocalizedText;
-  locale: Locale;
-  onChange: (next: LocalizedText) => void;
-  textarea?: boolean;
-  placeholder?: string;
-  /** The server's limit (STRUCTURE_LIMITS): the box stops there. */
-  maxLength?: number;
-  /**
-   * The fieldKey of this box: the key a reason or a size limit names it by,
-   * so they can point to it.
-   */
-  field?: string;
-  /**
-   * The id of the caption this box belongs to ("Choice 2"), so its name
-   * says which one it is: "Choice 2 Choice text", not one of several
-   * identical "Choice text" boxes.
-   */
-  context?: string;
-}) {
-  const { idFor, refused } = React.useContext(FieldIssuesContext);
-  const labelId = React.useId();
-  const val = map[locale] ?? "";
-  // The reason a refused save gave for this box, read out as its description.
-  const reasonId = field ? refused.get(field) : undefined;
-  const a11y = {
-    id: field ? idFor(field) : undefined,
-    "aria-labelledby": context ? `${context} ${labelId}` : undefined,
-    "aria-invalid": reasonId ? true : undefined,
-    "aria-describedby": reasonId,
-  };
-  return (
-    <label className="block text-xs text-[var(--muted-foreground)]">
-      <span id={labelId} className="block mb-1">
-        {label}
-      </span>
-      {textarea ? (
-        <textarea
-          {...a11y}
-          value={val}
-          onChange={(e) => onChange(setLoc(map, locale, e.target.value))}
-          placeholder={placeholder}
-          maxLength={maxLength}
-          rows={2}
-          className={inputCls}
-        />
-      ) : (
-        <input
-          {...a11y}
-          value={val}
-          onChange={(e) => onChange(setLoc(map, locale, e.target.value))}
-          placeholder={placeholder}
-          maxLength={maxLength}
-          className={inputCls}
-        />
-      )}
-    </label>
   );
 }
 

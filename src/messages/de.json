@@ -1146,7 +1146,27 @@
       "written": "Auf {language} geschrieben",
       "missing": "Auf {language} noch nicht geschrieben"
     },
-    "tooLarge": "Dieser Inhalt ist zu groß zum Speichern. Kürze einige seiner Texte."
+    "tooLarge": "Dieser Inhalt ist zu groß zum Speichern. Kürze einige seiner Texte.",
+    "addContentAfter": "Inhalt hinzufügen nach Inhalt {n}: {type}",
+    "picker": "Wähle, was du hinzufügen möchtest:",
+    "typeHints": {
+      "text": "Text mit Listen, Tipps und Zitaten, je Sprache geschrieben.",
+      "practice": "Eine Situation mit einigen Antworten, eine davon als beste markiert.",
+      "scenario": "Eine Situation mit Auswahlmöglichkeiten, Folgen und Anschlussfragen.",
+      "quiz": "Fragen mit jeweils einer richtigen Antwort.",
+      "reflection": "Fragen, die Lernende in eigenen Worten beantworten.",
+      "rating": "Aussagen, die Lernende von 1 bis 5 bewerten."
+    },
+    "added": "{type} hinzugefügt.",
+    "moved": "An Position {n} von {total} verschoben.",
+    "removed": "Inhalt entfernt.",
+    "changedElsewhere": "Jemand anderes hat den Inhalt dieser Lektion geändert, seit du sie geöffnet hast. Deshalb wurde nichts geändert. Die Lektion zeigt jetzt die neue Fassung.",
+    "tooMany": "Eine Lektion kann höchstens {max} Inhalte haben, ihren Hauptinhalt eingeschlossen.",
+    "unreadable": "Der hinzugefügte Inhalt dieser Lektion kann nicht gelesen werden. Er kann erst geändert werden, wenn eine Administratorin oder ein Administrator ihn repariert.",
+    "partHint": "„Lektion speichern“ macht diesen Inhalt fertig: Lernende bekommen ihn ab Release 2, die Vorschau als Lernende:r zeigt ihn schon jetzt. „Entwurf speichern“ hebt Unfertiges nur für Bearbeitende auf.",
+    "notShown": "Noch nicht sichtbar — bisher nur ein Entwurf oder noch nicht fertig.",
+    "scale": "1 = {min} · 5 = {max}",
+    "noText": "Noch kein Text geschrieben."
   },
   "accounts": {
     "facilitatorNotSaved": "Das wurde nicht gespeichert. Notizen und Bestätigungen kannst du nur für Lernende in diesem Projekt anlegen. Lade die Seite neu und versuch es noch einmal.",

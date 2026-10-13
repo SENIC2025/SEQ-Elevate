@@ -7,7 +7,7 @@ import { LessonNarrativeEditor } from "@/components/role/LessonNarrativeEditor";
 import { VideoBlockAuthor } from "@/components/role/VideoBlockAuthor";
 import { LessonDocumentManager } from "@/components/role/LessonDocumentManager";
 import { DraftBadge, StructureAuthor } from "@/components/role/StructureAuthor";
-import type { StructureStageKey } from "@/lib/cms/structure";
+import type { StoredStructure, StructureStageKey } from "@/lib/cms/structure";
 import { offersAdd } from "@/lib/cms/course-derive";
 import { DirtyScope } from "./dirty-registry";
 import { LessonReadView } from "./LessonReadView";
@@ -102,7 +102,9 @@ export function LessonSection(props: LessonSectionProps) {
       </div>
     );
   } else if (interactive) {
-    const stageKind = key as StructureStageKey;
+    // A standard key's own kind, or the one a lesson of the course's own
+    // was made as (mainKindOf); the lesson itself by its id.
+    const stageKind = lesson.mainKind as StructureStageKey;
     body = (
       // Not keyed by language: its draft holds every language, so unsaved
       // work survives a language switch. It reads the stage itself when the
@@ -113,12 +115,16 @@ export function LessonSection(props: LessonSectionProps) {
           <StructureAuthor
             courseSlug={slug}
             kind={stageKind}
+            stageKey={key}
             locale={lang}
             courseStatus={status}
             regionLabel={tRegion(stageKind)}
             embedded
-            onSaved={onStructureSaved}
-            onDraftChange={onStructureDraftChanged}
+            // Main content is one of Release 0's three kinds.
+            onSaved={(value) => onStructureSaved(value as StoredStructure)}
+            onDraftChange={(draft) =>
+              onStructureDraftChanged(draft as StoredStructure | null)
+            }
             onCleared={onStructureCleared}
             onDirtyChange={report}
           />

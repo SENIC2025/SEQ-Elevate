@@ -1146,7 +1146,27 @@
       "written": "Written in {language}",
       "missing": "Not written in {language} yet"
     },
-    "tooLarge": "This content is too large to save. Shorten some of its texts."
+    "tooLarge": "This content is too large to save. Shorten some of its texts.",
+    "addContentAfter": "Add content after content {n}: {type}",
+    "picker": "Choose what to add:",
+    "typeHints": {
+      "text": "Text with lists, tips and quotes, written per language.",
+      "practice": "A situation with a few responses, one marked best.",
+      "scenario": "A situation with choices, outcomes and follow-ups.",
+      "quiz": "Questions with one correct answer each.",
+      "reflection": "Questions learners answer in their own words.",
+      "rating": "Statements learners rate from 1 to 5."
+    },
+    "added": "{type} added.",
+    "moved": "Moved to position {n} of {total}.",
+    "removed": "Content removed.",
+    "changedElsewhere": "Someone else changed this lesson's content since you opened it, so nothing was changed. The lesson now shows their version.",
+    "tooMany": "A lesson can hold at most {max} pieces of content, its main content included.",
+    "unreadable": "This lesson's added content can't be read, so it can't be changed until an admin repairs it.",
+    "partHint": "“Save stage” makes this content ready: learners get it from Release 2, and Preview as learner shows it now. “Save draft” keeps unfinished work for editors only.",
+    "notShown": "Not shown yet — only a draft so far, or not ready.",
+    "scale": "1 = {min} · 5 = {max}",
+    "noText": "No text written yet."
   },
   "accounts": {
     "facilitatorNotSaved": "This wasn't saved. Notes and validations can only be added for learners in this project. Reload the page and try again.",
