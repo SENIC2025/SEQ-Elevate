@@ -118,7 +118,13 @@ export function LessonListPanel({
   const tNav = useTranslations("courseManager.page");
   const tDraft = useTranslations("exerciseEditor.page");
   const uid = React.useId();
-  const ctx: ListContext = { kind, status, sections, enrolled };
+  const ctx: ListContext = {
+    kind,
+    status,
+    sections,
+    enrolled,
+    learnerKeys: lessons.filter((l) => l.live).map((l) => l.key),
+  };
   const list = sections.resolved.sections;
 
   const [expanded, setExpanded] = React.useState(false);

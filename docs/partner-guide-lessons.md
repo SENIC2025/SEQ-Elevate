@@ -25,7 +25,7 @@ The list is on the left of the course page (above the lessons on a phone). Each 
 
 Limits: up to **15 lessons** per course, hidden ones included (the page asks you to check past 12).
 
-Deleting a lesson is only possible while **no learner is enrolled** in the course, whatever its status. This protects learners' progress.
+A lesson learners already have can be deleted only while **no learner is enrolled** in the course, whatever its status. This protects learners' progress. Lessons you added yourself can always be deleted.
 
 ## Content in a lesson
 

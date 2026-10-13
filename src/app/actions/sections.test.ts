@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { db, lockOrderOk, prisma, reset, row, storedIds } from "./sections-test-db";
 import { outlineVersion, labelVersion, resolveOutline } from "@/lib/cms/sections/outline";
 import { sectionContentVersion } from "@/lib/cms/sections/versions";
-import type { SectionFacts } from "@/lib/cms/sections/contract";
+import type { SectionFacts, SectionId } from "@/lib/cms/sections/contract";
 
 /*
  * The lesson-list actions (spec 8.1) against an in-memory course: every
@@ -410,6 +410,32 @@ describe("deleteSection", () => {
     expect(res).toEqual({ ok: false, error: "has-learners", count: 2 });
     expect(db.log.indexOf("count learners")).toBeGreaterThan(db.log.indexOf("lock Course update"));
     expect(db.course?.outline).toBeNull();
+  });
+
+  it("deletes a lesson learners don't get, even with learners enrolled", async () => {
+    // A course unpublished to rework it, with learners: a lesson of its own
+    // (learners never get one in Release 1) must stay removable, or the
+    // course could never be published again.
+    db.enrolled = 2;
+    const added = await addSection(SLUG, "text", null, base());
+    const id = added.ok ? added.id : "";
+    expect(await deleteSection(SLUG, id as SectionId, base(), null)).toMatchObject({ ok: true });
+    expect(storedIds()).toEqual(STANDARD);
+    // An exercise lesson with nothing saved for learners: they don't have it either.
+    const practice = await addSection(SLUG, "practice", null, base());
+    expect(practice).toMatchObject({ ok: true, id: "simulation" });
+    expect(await deleteSection(SLUG, "simulation", base(), null)).toMatchObject({ ok: true });
+  });
+
+  it("still refuses a lesson learners have while they are enrolled", async () => {
+    db.enrolled = 1;
+    db.lessons = [row("scenario", { structure: SCENARIO })];
+    expect(await deleteSection(SLUG, "scenario", base(), contentBase("scenario"))).toEqual({
+      ok: false,
+      error: "has-learners",
+      count: 1,
+    });
+    expect(db.lessons).toHaveLength(1);
   });
 
   it("refuses when the lesson's content changed since the page opened", async () => {

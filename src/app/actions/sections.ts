@@ -29,6 +29,7 @@ import { getCurrentUser, getProjectMemberships, hasRole } from "@/lib/auth-helpe
 import { canEditContent } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
 import { getCourseOutline } from "@/lib/cms/course-admin";
+import { presentStageKeys } from "@/lib/cms/course-derive";
 import { isContentLocale } from "@/lib/cms/course-admin-types";
 import type { CourseOutline } from "@/lib/cms/course-admin-types";
 import { ChangedElsewhere } from "@/lib/cms/stored-json";
@@ -357,7 +358,12 @@ export async function renameSection(
  * as removeLessonDocument keeps them; their addresses go in the audit row.
  *
  * Refused while any learner is enrolled (G4), counted again under the
- * Course lock, and when the lesson's content changed since the page opened
+ * Course lock — for a lesson learners get now (presentStageKeys: the text
+ * lessons, and exercise lessons with an exercise saved for them). A lesson
+ * of the course's own, or an exercise lesson with nothing saved for
+ * learners, is nobody's yet: it can always go, so a course reworked while
+ * it has learners can be put back as they had it. Also refused when the
+ * lesson's content changed since the page opened
  * (`contentBase`, sectionContentVersion): nobody deletes what they haven't
  * seen. An enrolment is created without the Course lock (learner.ts), but
  * its foreign-key check takes the row FOR KEY SHARE, which this FOR UPDATE
@@ -396,8 +402,10 @@ export async function deleteSection(
       );
       if (version !== contentBase) throw new ChangedElsewhere();
 
-      const count = await learnerCount(tx, state.course.id);
-      if (count > 0) throw new Refusal({ ok: false, error: "has-learners", count });
+      if ((presentStageKeys("cms", state.lessons) as string[]).includes(id)) {
+        const count = await learnerCount(tx, state.course.id);
+        if (count > 0) throw new Refusal({ ok: false, error: "has-learners", count });
+      }
 
       const r = applyOutlineOp(state.outline, { op: "delete", id }, state.lessons);
       if (!r.ok) throw opRefusal(r.error);

@@ -46,6 +46,11 @@ export interface ListContext {
   status: CourseStatus;
   sections: SectionsMeta;
   enrolled: number;
+  /**
+   * The lessons learners get now (LessonOutline.live). Only these are kept
+   * from deleting while learners are enrolled (G4); without it, all are.
+   */
+  learnerKeys?: readonly string[];
 }
 
 export interface RowControls {
@@ -169,7 +174,7 @@ export function rowControls(ctx: ListContext, id: SectionId): RowControls {
     rename: gate(ctx, { op: "rename", id, locale: "en", label: "" }),
     addAfter: anyAddAllowed(ctx),
     delete:
-      ctx.enrolled > 0
+      ctx.enrolled > 0 && (ctx.learnerKeys?.includes(id) ?? true)
         ? { kind: "learners", count: ctx.enrolled }
         : gate(ctx, { op: "delete", id }),
   };

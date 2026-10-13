@@ -292,7 +292,7 @@ Single source of truth for decisions made, decisions still open, and the rationa
 ### D59 · Published courses keep their shape until Release 2 (a deliberate deviation)
 **Decided**: 13 October 2026 · *Decider: SENIC (build decision); confirmation asked of the SENIC principal*
 - The consortium's default is "reorder or hide on a published course, with a warning". Until Release 2 the learner player ignores the arrangement and resumes learners by count, so on a **published** course these are refused instead: reordering, hiding, adding a lesson, adding extra content or own reflection questions, and deleting a standard lesson. The controls say why. From Release 2 the consortium default applies.
-- A lesson can be deleted only while the course has **no learners** (D53, on any status, counted again inside the change). The Course row is locked for the delete, which an enrolment's own check waits on, so a first enrolment can't slip in between.
+- A lesson learners have — a text lesson, or an exercise saved for them — can be deleted only while the course has **no learners** (D53, on any status, counted again inside the change). The Course row is locked for the delete, which an enrolment's own check waits on, so a first enrolment can't slip in between. A lesson of the course's own, or an exercise lesson with nothing saved for learners, is nobody's yet and can always be deleted, so a course reworked while it has learners can be put back as they had it and published again.
 - Removing an exercise learners have (*Remove stage*) is refused while learners are enrolled, whatever the course's status, since the course can be published again.
 
 ### D60 · The learner path is frozen in Release 1

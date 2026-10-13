@@ -123,6 +123,12 @@ describe("a draft course: everything is offered", () => {
       count: 3,
     });
   });
+
+  it("a lesson learners don't get can go with learners enrolled", () => {
+    const c = { ...ctx(STANDARD, "draft", 3), learnerKeys: ["context", "concept", "behaviour", "reflection"] };
+    expect(rowControls(c, "concept").delete).toEqual({ kind: "learners", count: 3 });
+    expect(rowControls(c, "s-abcdefgh").delete.kind).not.toBe("learners");
+  });
 });
 
 describe("a published standard course (G3)", () => {
