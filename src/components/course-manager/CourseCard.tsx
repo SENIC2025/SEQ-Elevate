@@ -64,6 +64,12 @@ export async function CourseCard({
     .filter(Boolean)
     .join(" · ");
   const ago = entry.lastEdited ? editedAgo(entry.lastEdited, locale) : null;
+  // A created course's stored lesson list names its lessons itself (in the
+  // grid's language, hidden ones left out); otherwise the standard lessons
+  // learners see, by their standard names.
+  const lessons =
+    entry.sections ??
+    entry.lessonKeys.map((key) => ({ id: key, name: tStage(key) }));
 
   return (
     <article
@@ -99,7 +105,7 @@ export async function CourseCard({
 
       <dl className="mt-4 flex flex-wrap gap-x-5 gap-y-2 text-sm">
         <Fact icon={BookOpen} term={t("grid.facts.lessons")}>
-          {t("grid.lessons", { count: entry.lessonKeys.length })}
+          {t("grid.lessons", { count: lessons.length })}
         </Fact>
         <Fact icon={Users} term={t("grid.facts.enrolled")}>
           {t("grid.enrolled", { count: entry.enrolled })}
@@ -128,7 +134,7 @@ export async function CourseCard({
         </div>
       </dl>
 
-      {entry.lessonKeys.length > 0 ? (
+      {lessons.length > 0 ? (
         <nav
           aria-label={t("grid.lessonsNav", { title })}
           className="mt-3"
@@ -141,15 +147,15 @@ export async function CourseCard({
             {t("grid.facts.lessons")}
           </p>
           <ol className="mt-1 flex flex-wrap gap-1.5">
-            {entry.lessonKeys.map((key, i) => {
+            {lessons.map(({ id, name }, i) => {
               const label = t("grid.lessonLink", {
                 n: i + 1,
-                stage: tStage(key),
+                stage: name,
               });
               return (
-                <li key={key}>
+                <li key={id}>
                   <Link
-                    href={{ pathname: coursePath, query: { lesson: key } }}
+                    href={{ pathname: coursePath, query: { lesson: id } }}
                     prefetch={false}
                     aria-label={label}
                     title={label}

@@ -9,9 +9,12 @@ import type {
   CourseStatus,
   ReadinessIssue,
 } from "@/lib/cms/course-admin-types";
+import { SECTION_LIMITS, type NewOnlyReason } from "@/lib/cms/sections/contract";
+import { reasonText } from "./lesson-list/list-model";
 import {
   AlertTriangle,
   Archive,
+  Ban,
   Eye,
   EyeOff,
   Info,
@@ -27,6 +30,15 @@ const STATUS_ICON = { published: Eye, draft: PenLine, archived: Archive };
  * link here). Unpublishing always asks first, saying how many learners are
  * enrolled — their progress is kept either way. Warnings before publishing
  * never block it.
+ *
+ * Blockers do (D57): a created course whose lesson list learners couldn't
+ * get yet (a lesson of its own, a hidden or deleted one, a new order, added
+ * content) lists them first, under "Can't publish yet", each linking to its
+ * lesson. Publish then stays focusable but aria-disabled, described by that
+ * list, and pressing it takes focus there. A page that didn't know yet (the
+ * server refused with "needs-release-2") says why the same way. A course
+ * that is live although it has some (published past the guard) says what
+ * learners don't get yet.
  */
 export function PublishControls({
   slug,
@@ -34,23 +46,44 @@ export function PublishControls({
   enrolled,
   readiness,
   onStatusChange,
+  lessonName,
+  onRefresh,
 }: {
   slug: string;
   status: CourseStatus;
   enrolled: number;
   readiness: ReadinessIssue[];
   onStatusChange: (next: CourseStatus) => void;
+  /**
+   * A lesson's name in the content language, by id. Without it, the
+   * standard name in the menu language (a built-in course).
+   */
+  lessonName?: (id: string) => string;
+  /** Re-read the page (after a refusal that shows it was out of date). */
+  onRefresh?: () => void;
 }) {
   const t = useTranslations("courseManager");
   const tStage = useTranslations("course.stageLabel");
   const tDraft = useTranslations("exerciseEditor.page");
+  const tList = useTranslations("lessonList");
+  const tReason = useTranslations("lessonList.publish.reason");
   const ids = React.useId();
   const headingRef = React.useRef<HTMLHeadingElement>(null);
   const warningRef = React.useRef<HTMLParagraphElement>(null);
   const unpublishRef = React.useRef<HTMLButtonElement>(null);
+  const blockersRef = React.useRef<HTMLDivElement>(null);
   const [pending, setPending] = React.useState<CourseStatus | null>(null);
   const [confirming, setConfirming] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  /** The reasons of a refused publish (a page that didn't know them yet). */
+  const [refusedReasons, setRefusedReasons] = React.useState<NewOnlyReason[]>([]);
+
+  const nameOf = (id: string) => (lessonName ? lessonName(id) : tStage(id));
+  const blockers = readiness.flatMap((issue) =>
+    issue.level === "blocker" && issue.code === "needs-release-2" && issue.reason ? [issue.reason] : []
+  );
+  const issues = readiness.filter((issue) => issue.level !== "blocker");
+  const blocked = blockers.length > 0 && status !== "published";
 
   // Read the consequence first; "Yes, unpublish" is one Tab away.
   React.useEffect(() => {
@@ -60,11 +93,17 @@ export function PublishControls({
   async function change(next: CourseStatus) {
     setPending(next);
     setError(null);
+    setRefusedReasons([]);
     try {
       const res = await setCourseStatus(slug, next);
       if (res.ok) {
         setConfirming(false);
         onStatusChange(res.status);
+      } else if (res.error === "needs-release-2") {
+        // Changed since this page loaded: say why, and bring the page up to date.
+        setError(tList("publish.needsRelease2"));
+        setRefusedReasons("reasons" in res ? res.reasons : []);
+        onRefresh?.();
       } else {
         setError(
           res.error === "forbidden"
@@ -104,7 +143,7 @@ export function PublishControls({
         return t("page.readiness.copyMissing", { language });
       case "lesson-empty":
         return t("page.readiness.lessonEmpty", {
-          stage: issue.stage ? tStage(issue.stage) : "",
+          stage: issue.stage ? nameOf(issue.stage) : "",
         });
       case "lesson-untranslated":
         return t("page.readiness.lessonUntranslated", {
@@ -113,12 +152,41 @@ export function PublishControls({
         });
       case "lesson-draft":
         return tDraft("readinessDraft", {
-          stage: issue.stage ? tStage(issue.stage) : "",
+          stage: issue.stage ? nameOf(issue.stage) : "",
         });
       case "no-interactive":
         return t("page.readiness.noInteractive");
+      case "part-draft":
+        return tList("publish.partDraft", { name: issue.stage ? nameOf(issue.stage) : "" });
+      case "sections-many":
+        return tList("many", { count: SECTION_LIMITS.warnAbove });
+      case "labels-later":
+        return tList("labelsLater");
+      case "needs-release-2":
+        return issue.reason ? reasonText(issue.reason, nameOf, tReason).text : "";
     }
   };
+
+  /** The blockers as a list, each linking to its lesson when it is on the page. */
+  const reasonList = (reasons: NewOnlyReason[]) => (
+    <ul className="mt-1.5 space-y-1">
+      {reasons.map((reason, i) => {
+        const { text, href } = reasonText(reason, nameOf, tReason);
+        return (
+          <li key={i} className="flex items-start gap-1.5 text-xs">
+            <Ban className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-[var(--danger)]" aria-hidden />
+            {href ? (
+              <a href={href} className="underline underline-offset-2 hover:text-[var(--accent)]">
+                {text}
+              </a>
+            ) : (
+              <span>{text}</span>
+            )}
+          </li>
+        );
+      })}
+    </ul>
+  );
 
   return (
     <section
@@ -144,14 +212,33 @@ export function PublishControls({
         </span>
       </div>
 
-      {status !== "published" && readiness.length ? (
+      {blockers.length ? (
+        <div
+          id={`${ids}-blockers`}
+          ref={blockersRef}
+          tabIndex={-1}
+          className="mt-3 rounded-lg border border-[var(--danger)]/40 bg-[var(--danger)]/5 p-3"
+        >
+          {status === "published" ? (
+            <p className="text-xs font-semibold">{tList("publish.liveBypass")}</p>
+          ) : (
+            <>
+              <p className="text-xs font-semibold">{tList("publish.blockedTitle")}</p>
+              <p className="text-xs text-[var(--muted-foreground)]">{tList("publish.blockedIntro")}</p>
+            </>
+          )}
+          {reasonList(blockers)}
+        </div>
+      ) : null}
+
+      {status !== "published" && issues.length ? (
         <div className="mt-3">
           <p className="text-xs font-semibold">{t("page.readiness.title")}</p>
           <p className="text-xs text-[var(--muted-foreground)]">
             {t("page.readiness.intro")}
           </p>
           <ul className="mt-1.5 space-y-1">
-            {readiness.map((issue, i) => {
+            {issues.map((issue, i) => {
               const WarnIcon = issue.level === "warning" ? AlertTriangle : Info;
               const text = readinessText(issue);
               return (
@@ -165,7 +252,8 @@ export function PublishControls({
                     aria-hidden
                   />
                   {(issue.code === "lesson-empty" ||
-                    issue.code === "lesson-draft") &&
+                    issue.code === "lesson-draft" ||
+                    issue.code === "part-draft") &&
                   issue.stage ? (
                     <a
                       href={`#lesson-${issue.stage}`}
@@ -197,7 +285,18 @@ export function PublishControls({
           </Button>
         ) : null}
         {status !== "published" ? (
-          <Button size="sm" disabled={busy} onClick={() => change("published")}>
+          <Button
+            size="sm"
+            disabled={busy}
+            // Focusable while blocked, so it can say why: the list.
+            aria-disabled={blocked || undefined}
+            aria-describedby={blocked ? `${ids}-blockers` : undefined}
+            className={blocked ? "opacity-60" : undefined}
+            onClick={() => {
+              if (blocked) blockersRef.current?.focus();
+              else void change("published");
+            }}
+          >
             {spinner("published") ?? <Eye className="h-4 w-4" aria-hidden />}
             {t("page.publish")}
           </Button>
@@ -263,13 +362,17 @@ export function PublishControls({
       ) : null}
 
       {error ? (
-        <p
+        <div
           role="alert"
           className="mt-3 flex items-start gap-1.5 text-sm text-[var(--danger)]"
         >
           <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" aria-hidden />
-          {error}
-        </p>
+          <div>
+            <p>{error}</p>
+            {/* Once the page knows the blockers it lists them above. */}
+            {refusedReasons.length && !blockers.length ? reasonList(refusedReasons) : null}
+          </div>
+        </div>
       ) : null}
     </section>
   );

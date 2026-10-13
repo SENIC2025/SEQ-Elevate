@@ -191,4 +191,32 @@ describe("CourseGrid", () => {
     expect(c).toContain("lucide-circle-dashed");
     expect(c).toContain("lucide-circle ");
   });
+
+  it("names a stored lesson list's lessons, hidden ones left out, linking each by its id", async () => {
+    const LISTED: CourseGridEntry = {
+      ...CREATED,
+      slug: "speaking-up",
+      title: "Speaking up",
+      lessonKeys: ["context", "concept", "behaviour", "reflection"],
+      // As getCourseGrid sends it: names in the grid's language.
+      sections: [
+        { id: "context", name: "Where we start" },
+        { id: "s-abcdefgh", name: "Wrap-up" },
+        { id: "concept", name: "Skill concept" },
+      ],
+    };
+    const c = card(await render([LISTED]), LISTED.slug);
+    expect(c).toContain("3 lessons");
+    expect(c).toContain(
+      '<a href="/en/content/courses/speaking-up?lesson=s-abcdefgh" aria-label="Edit lesson 2: Wrap-up"'
+    );
+    expect(c).toContain('aria-label="Edit lesson 1: Where we start"');
+    expect(c.match(/\?lesson=/g)).toHaveLength(3);
+  });
+
+  it("without a stored list, names the standard lessons as before", async () => {
+    const c = card(await render([{ ...CREATED, sections: undefined }]), CREATED.slug);
+    expect(c).toContain('aria-label="Edit lesson 2: Skill concept"');
+    expect(c).toContain("4 lessons");
+  });
 });

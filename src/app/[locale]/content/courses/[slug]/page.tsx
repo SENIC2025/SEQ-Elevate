@@ -6,10 +6,12 @@ import { AccessNotice } from "@/components/AccessNotice";
 import { CourseWorkspace } from "@/components/course-manager/CourseWorkspace";
 import type { TimeLabel } from "@/components/course-manager/CourseHeader";
 import { editedAgo, editedAt } from "@/components/course-manager/edited-time";
+import type { ContentNames } from "@/components/course-manager/lesson-list/list-model";
+import { STAGES } from "@/data/course";
 import { viewerCanEditContent } from "@/lib/editor-gate";
 import { getCourseOutline } from "@/lib/cms/course-admin";
-import { isContentLocale } from "@/lib/cms/course-admin-types";
-import { isSectionId } from "@/lib/cms/sections/contract";
+import { CONTENT_LOCALES, isContentLocale } from "@/lib/cms/course-admin-types";
+import { NEW_SECTION_TEMPLATES, isSectionId } from "@/lib/cms/sections/contract";
 import type { Locale } from "@/lib/cms/types";
 
 // Reads the viewer's roles and live course data — never prerender.
@@ -85,8 +87,37 @@ export default async function Page({
           : undefined
       }
       lastEdited={timeLabel(outline.lastEdited, loc)}
+      names={await contentNames()}
     />
   );
+}
+
+/**
+ * The standard lesson names, the template names and "Lesson {n}" in every
+ * content language. The lesson list names lessons in the language being
+ * written, while the client only has the menu language's messages.
+ */
+async function contentNames(): Promise<ContentNames> {
+  const per = await Promise.all(
+    CONTENT_LOCALES.map(async (locale) => {
+      const t = await getTranslations({ locale, namespace: "course" });
+      return {
+        locale,
+        standard: Object.fromEntries(STAGES.map((k) => [k, t(`stageLabel.${k}`)])),
+        template: Object.fromEntries(
+          NEW_SECTION_TEMPLATES.map((k) => [k, t(`sectionTemplate.${k}`)])
+        ),
+        numbered: t.raw("sectionNumbered") as string,
+      };
+    })
+  );
+  const by = <K extends "standard" | "template" | "numbered">(key: K) =>
+    Object.fromEntries(per.map((p) => [p.locale, p[key]]));
+  return {
+    standard: by("standard") as ContentNames["standard"],
+    template: by("template") as ContentNames["template"],
+    numbered: by("numbered") as ContentNames["numbered"],
+  };
 }
 
 /**

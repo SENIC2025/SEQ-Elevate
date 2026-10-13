@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useTranslations } from "next-intl";
 import { useRouter } from "@/i18n/navigation";
 import { Button } from "@/components/ui/button";
 import { createCourse } from "@/app/actions/course";
@@ -17,6 +18,11 @@ const labelCls = "block text-xs text-[var(--muted-foreground)]";
  * straight to the new course's page, where the lessons are written — unless
  * the host passes `onCreated`.
  *
+ * "Start from the full template" stores all seven standard lessons from the
+ * start, the three exercises still to write (still the standard layout, so
+ * it publishes like any other course); without it the course starts with
+ * the four text lessons, as before.
+ *
  * Used on "Create courses" and behind "New course" on the course grid.
  */
 export function NewCourseForm({
@@ -27,10 +33,12 @@ export function NewCourseForm({
   onCreated?: (slug: string) => void;
 }) {
   const router = useRouter();
+  const tList = useTranslations("lessonList");
   const [title, setTitle] = React.useState("");
   const [tagline, setTagline] = React.useState("");
   const [cluster, setCluster] = React.useState("");
   const [duration, setDuration] = React.useState("20");
+  const [full, setFull] = React.useState(false);
   const [pending, setPending] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -48,6 +56,7 @@ export function NewCourseForm({
         clusterLabel: cluster || "Skill",
         durationMinutes: Number(duration) || 20,
         locale,
+        ...(full ? { layout: "full" as const } : {}),
       });
       if (res.ok) {
         if (onCreated) onCreated(res.slug);
@@ -120,6 +129,16 @@ export function NewCourseForm({
           />
         </label>
       </div>
+
+      <label className="mt-3 flex min-h-6 items-start gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={full}
+          onChange={(e) => setFull(e.target.checked)}
+          className="mt-0.5 h-4 w-4 flex-shrink-0 accent-[var(--accent)]"
+        />
+        <span>{tList("fullTemplate")}</span>
+      </label>
 
       <div className="mt-3 flex flex-wrap items-center gap-3">
         <Button type="submit" size="sm" disabled={!title.trim() || pending}>
