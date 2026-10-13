@@ -232,12 +232,24 @@ const PLACES = ["option", "choice", "followup", "question", "answer"] as const;
  * codes for the boxes a reason can be about, plus the boxes that may stay
  * blank — which no reason names, but a size limit can (sanitizeStructure).
  */
-export type StructureFieldCode =
-  | StructureIssueCode
-  | "stageTitle"
-  | "simInstruction"
-  | "simOptionFeedback"
-  | "assessmentIntro";
+export const STRUCTURE_FIELD_CODES = [
+  "stageTitle",
+  "simPrompt",
+  "simInstruction",
+  "simOptionText",
+  "simOptionFeedback",
+  "scenarioSetup",
+  "scenarioQuestion",
+  "scenarioFollowupQuestion",
+  "scenarioChoiceText",
+  "scenarioChoiceOutcome",
+  "scenarioFollowupText",
+  "scenarioFollowupOutcome",
+  "assessmentIntro",
+  "assessmentQuestionText",
+  "assessmentAnswerText",
+] as const;
+export type StructureFieldCode = (typeof STRUCTURE_FIELD_CODES)[number];
 
 /**
  * A key for one text box in the editor: the reason's code plus where it is.
@@ -247,7 +259,7 @@ export type StructureFieldCode =
  * part of an element id.
  */
 export function fieldKey(
-  code: StructureFieldCode,
+  code: StructureIssueCode | StructureFieldCode,
   params: StructureIssue["params"] = {}
 ): string {
   return [code, ...PLACES.flatMap((p) => (params[p] ? [`${p}${params[p]}`] : []))].join(

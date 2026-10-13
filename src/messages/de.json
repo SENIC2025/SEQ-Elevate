@@ -861,12 +861,41 @@
       "forbidden": "Nur die Inhalts-Redaktion und Admins können Kurse ändern. Melde dich erneut an oder bitte die Administration deines Projekts um die Rolle Inhalts-Redaktion.",
       "notCms": "Hier lassen sich nur Kurse bearbeiten, die auf der Plattform erstellt wurden.",
       "mismatch": "Das passt nicht zu dieser Lektion. Lade die Seite neu und versuche es erneut.",
-      "tooLarge": "Das ist zu lang zum Speichern. Kürze einige Texte und versuche es erneut.",
       "generic": "Das wurde nicht gespeichert. Prüfe deine Verbindung und versuche es erneut.",
       "removeFailed": "Die Lektion konnte nicht entfernt werden: Nur die Inhalts-Redaktion und Admins können Kurse ändern.",
       "load": "Diese Lektion konnte nicht geladen werden. Lade die Seite neu, um es noch einmal zu versuchen."
     },
     "loading": "Wird geladen …",
+    "limits": {
+      "title": "Das ist über einer Größengrenze, deshalb wurde nichts gespeichert:",
+      "text": "{box} ({language}): Kürze den Text auf höchstens {max, number} Zeichen.",
+      "otherLanguage": "Dieser Text ist auf {language}: Stelle die Inhaltssprache auf {language} um, um ihn zu sehen.",
+      "total": "Diese Lektion ist als Ganzes zu groß zum Speichern (über {max, number} Zeichen). Kürze einige ihrer Texte.",
+      "boxes": {
+        "stageTitle": "Titel der Lektion",
+        "simPrompt": "Ausgangssituation",
+        "simInstruction": "Anleitung",
+        "simOptionText": "Option {option}, Text der Option",
+        "simOptionFeedback": "Option {option}, Rückmeldung bei dieser Wahl",
+        "scenarioSetup": "Ausgangslage",
+        "scenarioQuestion": "Erste Frage",
+        "scenarioFollowupQuestion": "Folgefrage",
+        "scenarioChoiceText": "Auswahl {choice}, Text der Auswahl",
+        "scenarioChoiceOutcome": "Auswahl {choice}, was danach passiert",
+        "scenarioFollowupText": "Folgeschritt {choice}.{followup}, Text des Folgeschritts",
+        "scenarioFollowupOutcome": "Folgeschritt {choice}.{followup}, was nach dem Folgeschritt passiert",
+        "assessmentIntro": "Einleitung",
+        "assessmentQuestionText": "Frage {question}",
+        "assessmentAnswerText": "Frage {question}, Antwort {answer}"
+      },
+      "lists": {
+        "simOptions": "Optionen: Es sind {count}, gespeichert werden können höchstens {max}. Entferne einige.",
+        "scenarioChoices": "Erste Auswahlmöglichkeiten: Es sind {count}, gespeichert werden können höchstens {max}. Entferne einige.",
+        "scenarioFollowups": "Auswahl {choice}, Folgeschritte: Es sind {count}, gespeichert werden können höchstens {max}. Entferne einige.",
+        "assessmentQuestions": "Fragen: Es sind {count}, gespeichert werden können höchstens {max}. Entferne einige.",
+        "assessmentAnswers": "Frage {question}, Antworten: Es sind {count}, gespeichert werden können höchstens {max}. Entferne einige."
+      }
+    },
     "region": {
       "fallback": "Interaktive Lektion",
       "simulation": "Interaktive Lektion — Geführte Übung",

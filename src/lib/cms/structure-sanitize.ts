@@ -65,12 +65,14 @@ export const STRUCTURE_LIMITS = {
 } as const;
 
 /** The lists the editor caps, named like its boxes (StructureFieldCode). */
-export type StructureListCode =
-  | "simOptions"
-  | "scenarioChoices"
-  | "scenarioFollowups"
-  | "assessmentQuestions"
-  | "assessmentAnswers";
+export const STRUCTURE_LIST_CODES = [
+  "simOptions",
+  "scenarioChoices",
+  "scenarioFollowups",
+  "assessmentQuestions",
+  "assessmentAnswers",
+] as const;
+export type StructureListCode = (typeof STRUCTURE_LIST_CODES)[number];
 
 /**
  * Where a structure is over a limit, in the editor's terms: the box (its

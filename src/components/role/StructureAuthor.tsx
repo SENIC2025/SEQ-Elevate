@@ -26,7 +26,12 @@ import {
   type StructureIssue,
   type StructureStageKey,
 } from "@/lib/cms/structure";
-import { STRUCTURE_LIMITS } from "@/lib/cms/structure-sanitize";
+import {
+  sanitizeStructure,
+  STRUCTURE_LIMITS,
+  type StructureLimitBreach,
+} from "@/lib/cms/structure-sanitize";
+import { limitField, limitText } from "./structure-limit-text";
 import type { CourseStatus } from "@/lib/cms/course-status";
 import type { Locale, OutcomeQuality } from "@/lib/cms/types";
 import {
@@ -143,8 +148,9 @@ type Status =
 /**
  * What the text boxes below need to know about the reasons listed above:
  * `idFor` gives each box (by its fieldKey) a stable element id, so a reason
- * can take the author to its box; `refused` maps each box a refused
- * "Save stage" named to the id of that reason, so the box is announced as
+ * can take the author to its box; `refused` maps each box a refused save
+ * named (a "Save stage" reason, or a text over its size limit in the
+ * language on screen) to the id of that reason, so the box is announced as
  * invalid, with the reason as its description.
  */
 interface FieldIssues {
@@ -157,12 +163,13 @@ const FieldIssuesContext = React.createContext<FieldIssues>({
   refused: new Map(),
 });
 
-type WriteError =
-  | "forbidden"
-  | "bad-input"
-  | "kind-mismatch"
-  | "not-cms-course"
-  | "too-large";
+type WriteError = "forbidden" | "bad-input" | "kind-mismatch" | "not-cms-course";
+
+/** A save refused for size: what was sent, and where it was over. */
+interface OverLimit {
+  sent: StoredStructure;
+  at: StructureLimitBreach;
+}
 
 /**
  * Author one interactive stage (simulation / scenario / assessment) of a
@@ -207,11 +214,13 @@ export function StructureAuthor({
   onDirtyChange?: (dirty: boolean) => void;
 }) {
   const t = useTranslations("exerciseEditor");
+  const tLanguage = useTranslations("courseManager.languageName");
   const headingId = React.useId();
   // Element ids for the text boxes and for the reasons a save was refused.
   const fieldsId = React.useId();
   const headingRef = React.useRef<HTMLHeadingElement>(null);
   const notReadyRef = React.useRef<HTMLParagraphElement>(null);
+  const overLimitRef = React.useRef<HTMLParagraphElement>(null);
   // The stage plus the (course, stage) it belongs to, as one unit. Deriving
   // `ready` from the key means Save waits until the stage has loaded.
   const [loaded, setLoaded] = React.useState<LoadedStructure | null>(null);
@@ -219,6 +228,8 @@ export function StructureAuthor({
   const [status, setStatus] = React.useState<Status>("idle");
   // Why the last "Save stage" was refused, as the server said it.
   const [notReady, setNotReady] = React.useState<StructureIssue[]>([]);
+  // The last save refused for size (either kind of save).
+  const [overLimit, setOverLimit] = React.useState<OverLimit | null>(null);
   const [error, setError] = React.useState("");
   // Someone else saved this stage after it was loaded here, found by a
   // refused save or a refused "Remove stage".
@@ -251,6 +262,7 @@ export function StructureAuthor({
         setLoadFailed(false);
         setConflict(null);
         setNotReady([]);
+        setOverLimit(null);
         setError("");
         // Keep "Removed" / "Draft discarded" after the reload that follows.
         setStatus((s) => (s === "removed" || s === "draftDiscarded" ? s : "idle"));
@@ -291,6 +303,24 @@ export function StructureAuthor({
     if (notReady.length) notReadyRef.current?.focus();
   }, [notReady]);
 
+  // Where the stage is over a size limit, after a save was refused for it:
+  // what the server said, until the author edits; then the same check,
+  // here, on what is on screen — so it goes away once they have shortened
+  // the text (and points to the next one, if another is over). Checked
+  // against what is stored, like the server: what was already over a limit
+  // before the limits existed may stay.
+  const breach = React.useMemo(() => {
+    if (!overLimit || !edit || !ready) return null;
+    if (edit === overLimit.sent) return overLimit.at;
+    const now = sanitizeStructure(edit, kind, [loaded!.base.structure, loaded!.base.draft]);
+    return !now.ok && now.error === "too-large" ? now.at : null;
+  }, [overLimit, edit, ready, kind, loaded]);
+
+  // A save refused for size: take the reader to where.
+  React.useEffect(() => {
+    if (overLimit) overLimitRef.current?.focus();
+  }, [overLimit]);
+
   const issueText = (issue: StructureIssue) =>
     t(`issues.${issue.code}`, issue.params ?? {});
 
@@ -298,14 +328,21 @@ export function StructureAuthor({
     (i: number) => `${fieldsId}-refused-${i}`,
     [fieldsId]
   );
+  const overLimitId = `${fieldsId}-over-limit`;
+  const breachField = breach ? limitField(breach) : null;
+  // The box over its limit is marked invalid only in its own language: the
+  // same box in the language on screen holds another, shorter text.
+  const breachHere =
+    breach?.limit === "text" && breach.locale === locale ? breachField : null;
   const fieldIssues = React.useMemo<FieldIssues>(() => {
     const refused = new Map<string, string>();
     notReady.forEach((issue, i) => {
       const field = issueField(issue);
       if (field && !refused.has(field)) refused.set(field, refusedId(i));
     });
+    if (breachHere) refused.set(breachHere, overLimitId);
     return { idFor: (field) => `${fieldsId}-field-${field}`, refused };
-  }, [notReady, fieldsId, refusedId]);
+  }, [notReady, fieldsId, refusedId, breachHere, overLimitId]);
 
   function writeError(code: WriteError | "changed-elsewhere" | "generic") {
     if (code === "changed-elsewhere") {
@@ -320,9 +357,7 @@ export function StructureAuthor({
           ? t("errors.notCms")
           : code === "kind-mismatch" || code === "bad-input"
             ? t("errors.mismatch")
-            : code === "too-large"
-              ? t("errors.tooLarge")
-              : t("errors.generic")
+            : t("errors.generic")
     );
   }
 
@@ -331,6 +366,7 @@ export function StructureAuthor({
     setError("");
     setConflict(null);
     setNotReady([]);
+    setOverLimit(null);
   }
 
   async function onSave() {
@@ -358,6 +394,7 @@ export function StructureAuthor({
       }
       setStatus("error");
       if (res.error === "invalid") setNotReady(res.issues);
+      else if (res.error === "too-large") setOverLimit({ sent, at: res.at });
       else writeError(res.error);
     } catch {
       setStatus("error");
@@ -383,7 +420,8 @@ export function StructureAuthor({
         return;
       }
       setStatus("error");
-      writeError(res.error);
+      if (res.error === "too-large") setOverLimit({ sent, at: res.at });
+      else writeError(res.error);
     } catch {
       setStatus("error");
       writeError("generic");
@@ -509,6 +547,39 @@ export function StructureAuthor({
           </div>
         ) : null}
 
+        {breach ? (
+          // Mounted fresh on each refusal, so it's announced.
+          <div
+            key="over-limit"
+            className="mb-3 rounded-lg border border-[var(--danger)] bg-[var(--danger)]/10 p-3"
+            role="alert"
+          >
+            <p
+              ref={overLimitRef}
+              tabIndex={-1}
+              className="text-sm font-medium text-[var(--danger)] flex items-start gap-1.5"
+            >
+              <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" aria-hidden />
+              {t("limits.title")}
+            </p>
+            <IssueList
+              items={[
+                {
+                  text: limitText(breach, (key, values) => t(key, values), (l) => tLanguage(l)),
+                  field: breachField,
+                },
+              ]}
+              idFor={fieldIssues.idFor}
+              itemId={() => overLimitId}
+            />
+            {breach.limit === "text" && breach.locale !== locale ? (
+              <p className="mt-1 ml-6 text-xs text-[var(--muted-foreground)]">
+                {t("limits.otherLanguage", { language: tLanguage(breach.locale) })}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+
         {notReady.length ? (
           // Mounted fresh on each refusal, so it's announced.
           <div
@@ -525,8 +596,10 @@ export function StructureAuthor({
               {t("missing.notReady")}
             </p>
             <IssueList
-              issues={notReady}
-              text={issueText}
+              items={notReady.map((issue) => ({
+                text: issueText(issue),
+                field: issueField(issue),
+              }))}
               idFor={fieldIssues.idFor}
               itemId={refusedId}
             />
@@ -546,7 +619,13 @@ export function StructureAuthor({
               />
               {t("missing.title")}
             </p>
-            <IssueList issues={missing} text={issueText} idFor={fieldIssues.idFor} />
+            <IssueList
+              items={missing.map((issue) => ({
+                text: issueText(issue),
+                field: issueField(issue),
+              }))}
+              idFor={fieldIssues.idFor}
+            />
             <p className="mt-1 ml-6 text-xs text-[var(--muted-foreground)]">
               {t("missing.oneLanguage")}
             </p>
@@ -661,42 +740,38 @@ export function DraftBadge({ label }: { label: string }) {
 }
 
 /**
- * The reasons, each naming its box. A reason about one box is a button that
- * takes the author there, so it can be reached by keyboard or voice from
- * the list rather than by counting identical boxes.
+ * The reasons, each naming its box. A reason about one box (`field`, its
+ * fieldKey) is a button that takes the author there, so it can be reached
+ * by keyboard or voice from the list rather than by counting identical
+ * boxes.
  */
 function IssueList({
-  issues,
-  text,
+  items,
   idFor,
   itemId,
 }: {
-  issues: StructureIssue[];
-  text: (issue: StructureIssue) => string;
+  items: { text: string; field: string | null }[];
   idFor: (field: string) => string;
   /** Ids for the items, when boxes refer to them as their description. */
   itemId?: (i: number) => string;
 }) {
   return (
     <ul className="mt-1 ml-6 list-disc text-sm text-[var(--foreground)] break-words">
-      {issues.map((issue, i) => {
-        const field = issueField(issue);
-        return (
-          <li key={i} id={itemId?.(i)}>
-            {field ? (
-              <button
-                type="button"
-                onClick={() => document.getElementById(idFor(field))?.focus()}
-                className="py-0.5 text-left underline underline-offset-2 hover:text-[var(--accent)]"
-              >
-                {text(issue)}
-              </button>
-            ) : (
-              text(issue)
-            )}
-          </li>
-        );
-      })}
+      {items.map(({ text, field }, i) => (
+        <li key={i} id={itemId?.(i)}>
+          {field ? (
+            <button
+              type="button"
+              onClick={() => document.getElementById(idFor(field))?.focus()}
+              className="py-0.5 text-left underline underline-offset-2 hover:text-[var(--accent)]"
+            >
+              {text}
+            </button>
+          ) : (
+            text
+          )}
+        </li>
+      ))}
     </ul>
   );
 }
@@ -722,7 +797,10 @@ function LocField({
   placeholder?: string;
   /** The server's limit (STRUCTURE_LIMITS): the box stops there. */
   maxLength?: number;
-  /** The fieldKey of the reason that would name this box, if any. */
+  /**
+   * The fieldKey of this box: the key a reason or a size limit names it by,
+   * so they can point to it.
+   */
   field?: string;
   /**
    * The id of the caption this box belongs to ("Choice 2"), so its name
@@ -796,6 +874,7 @@ function SimulationEditor({
         onChange={(m) => set({ title: m })}
         placeholder={t("placeholders.simulationTitle")}
         maxLength={STRUCTURE_LIMITS.maxTitleChars}
+        field={fieldKey("stageTitle")}
       />
       <LocField
         label={t("fields.prompt")}
@@ -811,6 +890,7 @@ function SimulationEditor({
         locale={locale}
         onChange={(m) => set({ instruction: m })}
         placeholder={t("placeholders.instruction")}
+        field={fieldKey("simInstruction")}
       />
 
       <p className="text-xs font-medium text-[var(--foreground)] pt-1">
@@ -882,6 +962,7 @@ function SimulationEditor({
                 />
                 <LocField
                   label={t("fields.feedback")}
+                  field={fieldKey("simOptionFeedback", { option: i + 1 })}
                   context={caption}
                   map={o.feedback}
                   locale={locale}
@@ -974,6 +1055,7 @@ function ScenarioEditor({
         onChange={(m) => set({ title: m })}
         placeholder={t("placeholders.scenarioTitle")}
         maxLength={STRUCTURE_LIMITS.maxTitleChars}
+        field={fieldKey("stageTitle")}
       />
       <LocField
         label={t("fields.setup")}
@@ -1197,12 +1279,14 @@ function AssessmentEditor({
         onChange={(m) => set({ title: m })}
         placeholder={t("placeholders.assessmentTitle")}
         maxLength={STRUCTURE_LIMITS.maxTitleChars}
+        field={fieldKey("stageTitle")}
       />
       <LocField
         label={t("fields.intro")}
         map={value.intro}
         locale={locale}
         onChange={(m) => set({ intro: m })}
+        field={fieldKey("assessmentIntro")}
       />
 
       <ul className="space-y-2">
