@@ -23,7 +23,8 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { learnerUserWhere } from "@/lib/learner-scope";
 import { normaliseStatus, type CourseStatus } from "../course-status";
-import { newOnlyReasons } from "./guard";
+import { ChangedElsewhere } from "../stored-json";
+import { introducedReasons, liveWriteAllowed, newOnlyReasons } from "./guard";
 import { resolveOutline } from "./outline";
 import type {
   CustomSectionId,
@@ -49,7 +50,11 @@ export const isVersion = (v: unknown): v is string | null =>
  * ChangedElsewhere, stored-json.ts).
  */
 export class Refusal extends Error {
-  constructor(readonly result: Refused | { ok: false; error: "invalid"; issues: unknown[] }) {
+  /**
+   * One of the action's own refusals: Refused, or the content saves'
+   * "invalid" and "too-large" (contract.ts result unions).
+   */
+  constructor(readonly result: Refused | { ok: false; error: "invalid" | "too-large"; [k: string]: unknown }) {
     super(result.error);
     this.name = "Refusal";
   }
@@ -256,4 +261,42 @@ export async function auditLesson(
       metadata,
     },
   });
+}
+
+/** Step 3.4 of spec 8: the lesson must be in the course's list. */
+export function member(state: CourseState, id: string): ResolvedOutline["sections"][number] {
+  const section = state.outline.sections.find((s) => s.id === id);
+  if (!section) throw new Refusal({ ok: false, error: "not-a-section" });
+  return section;
+}
+
+/**
+ * G3: on a published course, a change may not add a reason learners
+ * couldn't get it yet (liveWriteAllowed). A standard live course stays
+ * standard; one published past the guard can still be put right.
+ */
+export function guardLive(state: CourseState, after: NewOnlyReason[]): void {
+  if (state.course.status === "published" && !liveWriteAllowed(state.reasons, after)) {
+    throw new Refusal({
+      ok: false,
+      error: "live-course-standard-only",
+      reasons: introducedReasons(state.reasons, after),
+    });
+  }
+}
+
+export type Settled<T, R = Refused> =
+  | { ok: true; value: T }
+  | { ok: false; refused: R }
+  | { ok: false; changed: true };
+
+/** Run one action's transaction, turning its refusals (Refusal, ChangedElsewhere) into results. */
+export async function settle<T, R = Refused>(run: () => Promise<T>): Promise<Settled<T, R>> {
+  try {
+    return { ok: true, value: await run() };
+  } catch (error) {
+    if (error instanceof ChangedElsewhere) return { ok: false, changed: true };
+    if (error instanceof Refusal) return { ok: false, refused: error.result as R };
+    throw error;
+  }
 }

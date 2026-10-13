@@ -39,11 +39,9 @@ import {
   isLegacySectionId,
   isSectionId,
   type AddSectionChoice,
-  type NewOnlyReason,
   type OutlineOp,
   type OutlineOpError,
   type OutlineResult,
-  type Refused,
   type ResolvedOutline,
   type SectionFacts,
   type SectionId,
@@ -51,7 +49,7 @@ import {
   type VersionResult,
 } from "@/lib/cms/sections/contract";
 import { PART_DEFAULTS } from "@/lib/cms/sections/defaults";
-import { introducedReasons, liveWriteAllowed, newOnlyReasons } from "@/lib/cms/sections/guard";
+import { newOnlyReasons } from "@/lib/cms/sections/guard";
 import {
   applyOutlineOp,
   labelVersion,
@@ -74,8 +72,12 @@ import {
   lockLessonRowIfAny,
   newPartId,
   newSectionId,
+  guardLive,
+  member,
   openCourse,
+  settle,
   type CourseState,
+  type Settled,
 } from "@/lib/cms/sections/store.server";
 import type { Locale } from "@/lib/cms/types";
 
@@ -100,28 +102,6 @@ function opRefusal(error: OutlineOpError): Refusal {
   return new Refusal({ ok: false, error: error === "unknown-section" ? "not-a-section" : error });
 }
 
-/** Step 3.4: the lesson must be in the course's list. */
-function member(state: CourseState, id: SectionId) {
-  const section = state.outline.sections.find((s) => s.id === id);
-  if (!section) throw new Refusal({ ok: false, error: "not-a-section" });
-  return section;
-}
-
-/**
- * G3: on a published course, a change may not add a reason learners
- * couldn't get it yet (liveWriteAllowed). A standard live course stays
- * standard; one published past the guard can still be put right.
- */
-function guardLive(state: CourseState, after: NewOnlyReason[]) {
-  if (state.course.status === "published" && !liveWriteAllowed(state.reasons, after)) {
-    throw new Refusal({
-      ok: false,
-      error: "live-course-standard-only",
-      reasons: introducedReasons(state.reasons, after),
-    });
-  }
-}
-
 /** Store the list as the rules rebuilt it (put-back lessons included). */
 async function writeOutline(tx: Prisma.TransactionClient, state: CourseState, o: ResolvedOutline) {
   await tx.course.update({
@@ -137,19 +117,6 @@ async function writeOutline(tx: Prisma.TransactionClient, state: CourseState, o:
  */
 async function fresh(slug: string): Promise<CourseOutline | undefined> {
   return (await getCourseOutline(slug)) ?? undefined;
-}
-
-type Settled<T> = { ok: true; value: T } | { ok: false; refused: Refused } | { ok: false; changed: true };
-
-/** Run one action's transaction, turning its refusals into results. */
-async function settle<T>(run: () => Promise<T>): Promise<Settled<T>> {
-  try {
-    return { ok: true, value: await run() };
-  } catch (error) {
-    if (error instanceof ChangedElsewhere) return { ok: false, changed: true };
-    if (error instanceof Refusal) return { ok: false, refused: error.result as Refused };
-    throw error;
-  }
 }
 
 /** A structural action's result: the whole outline, or why not (with the list as it is now). */
