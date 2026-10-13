@@ -429,10 +429,12 @@ describe("a lesson of the course's own", () => {
 });
 
 /*
- * G5: "Remove stage" takes away an exercise learners have now. On a
- * published course with learners enrolled it is refused: they would lose
- * what they have. The Course row is locked FOR UPDATE first, which an
- * enrolment's foreign-key check (FOR KEY SHARE) waits for (addendum 7).
+ * G5: "Remove stage" takes away an exercise learners have now. With learners
+ * enrolled it is refused, whatever the course's status, as deleteSection is
+ * (G4): otherwise unpublishing, removing and publishing again would take the
+ * exercise from them in three steps. The Course row is locked FOR UPDATE
+ * first, which an enrolment's foreign-key check (FOR KEY SHARE) waits for
+ * (addendum 7).
  */
 describe("clearStructure and learners (G5)", () => {
   beforeEach(() => {
@@ -453,14 +455,29 @@ describe("clearStructure and learners (G5)", () => {
     expect(db.audit).toEqual([]);
   });
 
-  it("is allowed with no learners, on a draft, or when learners have nothing of it", async () => {
+  it.each(["draft", "archived"])(
+    "is refused on a %s course with learners too, so unpublishing doesn't lift it",
+    async (status) => {
+      db.courseStatus = status;
+      db.enrolled = 5;
+      expect(await clearStructure(SLUG, "scenario", base())).toEqual({
+        ok: false,
+        error: "has-learners",
+        count: 5,
+      });
+      expect(db.lesson).toEqual({ structure: complete, structureDraft: null });
+      expect(db.audit).toEqual([]);
+    }
+  );
+
+  it("is allowed with no learners, or when learners have nothing of it", async () => {
     db.courseStatus = "published";
     expect(await clearStructure(SLUG, "scenario", base())).toEqual({ ok: true });
 
     db.lesson = { structure: complete, structureDraft: null };
     db.courseStatus = "draft";
-    db.enrolled = 3;
     expect(await clearStructure(SLUG, "scenario", base())).toEqual({ ok: true });
+    db.enrolled = 3;
 
     // Only a draft: learners have nothing of it to lose.
     db.lesson = { structure: null, structureDraft: unfinished };

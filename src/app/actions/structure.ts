@@ -214,8 +214,8 @@ type WriteRefused =
  * the lesson list with that kind (G6). Removing a stage (`guardLearners`)
  * locks the Course row FOR UPDATE first — an enrolment's foreign-key check
  * takes FOR KEY SHARE, which FOR SHARE wouldn't hold off — and is refused
- * on a published course while learners are enrolled and have the stage
- * (G5).
+ * while learners are enrolled and have the stage, whatever the course's
+ * status (G5).
  */
 async function writeIfUnchanged(
   courseSlug: string,
@@ -264,11 +264,10 @@ async function writeIfUnchanged(
       ) {
         throw new ChangedElsewhere();
       }
-      if (
-        opts.guardLearners &&
-        course?.status === "published" &&
-        (current?.structure ?? null) !== null
-      ) {
+      // Whatever the status, as for deleting a lesson (G4): otherwise
+      // unpublishing, removing and publishing again would take the exercise
+      // from learners in three steps.
+      if (opts.guardLearners && course && (current?.structure ?? null) !== null) {
         const count = await learnerCount(tx, course.id);
         if (count > 0) throw new Refusal({ ok: false, error: "has-learners", count });
       }
@@ -434,9 +433,10 @@ export async function discardStructureDraft(
  * the meantime was never shown on this page, and removing the stage must
  * not delete it unseen.
  *
- * Refused with "has-learners" on a published course while learners are
- * enrolled and the stage is one they have (G5): they would lose it. A stage
- * that is only a draft can always go.
+ * Refused with "has-learners" while learners are enrolled and the stage is
+ * one they have (G5): they would lose it. This holds on a draft or archived
+ * course too, as for deleting a lesson (G4), since the course can be
+ * published again. A stage that is only a draft can always go.
  */
 export async function clearStructure(
   courseSlug: string,
