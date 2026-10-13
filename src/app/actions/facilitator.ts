@@ -2,27 +2,49 @@
 
 /**
  * Facilitator actions — record an observation and validate a competence
- * against a learner. RBAC-gated: only FACILITATOR/ADMIN of the project may
- * write. Both create rows the learner's record + admin audit can read.
+ * against a learner. RBAC-gated: only a FACILITATOR/ADMIN of the project may
+ * write, and only about a LEARNER of the project (canRecordForLearner).
+ * Both create rows the learner's record + admin audit can read.
  */
 
-import { getCurrentUser, hasRole } from "@/lib/auth-helpers";
+import { getCurrentUser, getProjectMemberships } from "@/lib/auth-helpers";
+import { canRecordForLearner } from "@/lib/facilitator-access";
 import { prisma } from "@/lib/prisma";
 
 const PROJECT = "seq-elevate";
 
-async function requireStaff() {
-  const user = await getCurrentUser();
-  if (!user) return null;
-  const isFac = await hasRole(PROJECT, "FACILITATOR");
-  const isAdmin = await hasRole(PROJECT, "ADMIN");
-  if (!isFac && !isAdmin) return null;
-  return user;
+/**
+ * The signed-in staff member, when they may write about `learnerId`; null
+ * otherwise. Fails closed: a roles read that fails refuses the write, as
+ * does an id that isn't a string (a server action is a public endpoint).
+ */
+async function requireStaffFor(learnerId: unknown) {
+  if (typeof learnerId !== "string" || !learnerId) return null;
+  try {
+    const user = await getCurrentUser();
+    if (!user) return null;
+    const [writer, learner] = await Promise.all([
+      getProjectMemberships(PROJECT),
+      prisma.membership.findMany({
+        where: { userId: learnerId, projectId: PROJECT },
+        select: { role: true },
+      }),
+    ]);
+    const ok = canRecordForLearner(
+      writer.map((m) => m.role),
+      learner.map((m) => m.role)
+    );
+    return ok ? user : null;
+  } catch (e) {
+    console.error("[facilitator] couldn't check who may write this", e);
+    return null;
+  }
 }
 
 export async function saveObservation(learnerId: string, note: string) {
-  const staff = await requireStaff();
-  if (!staff || !note.trim()) return { ok: false };
+  if (typeof note !== "string" || !note.trim()) return { ok: false };
+  const staff = await requireStaffFor(learnerId);
+  if (!staff) return { ok: false };
   const compCard = await prisma.compCard.findUnique({
     where: { userId_projectId: { userId: learnerId, projectId: PROJECT } },
   });
@@ -50,7 +72,8 @@ export async function recordValidation(
   cluster: string,
   evidence?: string
 ) {
-  const staff = await requireStaff();
+  if (typeof cluster !== "string" || !cluster) return { ok: false };
+  const staff = await requireStaffFor(learnerId);
   if (!staff) return { ok: false };
   const compCard = await prisma.compCard.findUnique({
     where: { userId_projectId: { userId: learnerId, projectId: PROJECT } },

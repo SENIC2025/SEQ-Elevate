@@ -787,5 +787,8 @@
     "expiredHelp": "Falls er abgelaufen ist, gehe auf {site} und melde dich mit dieser E-Mail-Adresse an.",
     "ignore": "Falls du diese Einladung nicht erwartet hast, kannst du diese E-Mail einfach ignorieren.",
     "footer": "Erstellt und betrieben von SENIC · senic.world"
+  },
+  "accounts": {
+    "facilitatorNotSaved": "Das wurde nicht gespeichert. Notizen und Bestätigungen kannst du nur für Lernende in diesem Projekt anlegen. Lade die Seite neu und versuch es noch einmal."
   }
 }

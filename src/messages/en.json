@@ -787,5 +787,8 @@
     "expiredHelp": "If it has expired, go to {site} and sign in with this email address.",
     "ignore": "If you weren't expecting this invitation, you can safely ignore this email.",
     "footer": "Created and Powered by SENIC · senic.world"
+  },
+  "accounts": {
+    "facilitatorNotSaved": "This wasn't saved. Notes and validations can only be added for learners in this project. Reload the page and try again."
   }
 }
