@@ -147,16 +147,23 @@ export function hasAssessmentProgress(a: AssessmentProgress): boolean {
 /**
  * The quick check from both sides, when the saved progress arrives after
  * the learner has started (see progress-merge.ts): each answer chosen
- * locally, else the saved one; checked if either side checked it — a
- * check is only ever done, like a lesson.
+ * locally, else the saved one. While every local answer matches the saved
+ * one, the answers are the ones that were checked, so a check from either
+ * side holds. A different local answer opens the quiz again, as it does in
+ * answerQuestion: the saved check scored other answers, so only a local
+ * check counts — otherwise the player would lock answers nobody checked,
+ * and the facilitator and statistics views would score them.
  */
 export function mergeAssessment(
   local: AssessmentProgress,
   saved: AssessmentProgress
 ): AssessmentProgress {
+  const changedLocally = Object.entries(local.answers).some(
+    ([id, answer]) => saved.answers[id] !== answer
+  );
   return {
     answers: { ...saved.answers, ...local.answers },
-    checked: local.checked || saved.checked,
+    checked: changedLocally ? local.checked : local.checked || saved.checked,
   };
 }
 

@@ -69,13 +69,40 @@ describe("hasAssessmentProgress", () => {
 });
 
 describe("mergeAssessment", () => {
-  it("keeps each answer chosen locally, the saved one otherwise, and a check from either side", () => {
+  it("keeps each answer chosen locally and the saved one otherwise", () => {
+    expect(
+      mergeAssessment(
+        { answers: { b: "local" }, checked: false },
+        { answers: { a: "saved", b: "saved" }, checked: false }
+      )
+    ).toEqual({ answers: { a: "saved", b: "local" }, checked: false });
+  });
+
+  it("keeps a check from either side while the local answers match the saved ones", () => {
+    expect(
+      mergeAssessment(
+        { answers: { a: "x" }, checked: false },
+        { answers: { a: "x", b: "y" }, checked: true }
+      )
+    ).toEqual({ answers: { a: "x", b: "y" }, checked: true });
+    expect(
+      mergeAssessment(
+        { answers: { a: "x", b: "y" }, checked: true },
+        { answers: { a: "x" }, checked: false }
+      )
+    ).toEqual({ answers: { a: "x", b: "y" }, checked: true });
+    expect(
+      mergeAssessment({ answers: {}, checked: false }, { answers: { a: "x" }, checked: true })
+    ).toEqual({ answers: { a: "x" }, checked: true });
+  });
+
+  it("opens a saved checked quiz again when a different answer was chosen locally", () => {
     expect(
       mergeAssessment(
         { answers: { b: "local" }, checked: false },
         { answers: { a: "saved", b: "saved" }, checked: true }
       )
-    ).toEqual({ answers: { a: "saved", b: "local" }, checked: true });
+    ).toEqual({ answers: { a: "saved", b: "local" }, checked: false });
   });
 });
 

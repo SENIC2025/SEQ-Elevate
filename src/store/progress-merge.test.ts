@@ -150,6 +150,21 @@ describe("mergeCourseProgress", () => {
     expect(mergeCourseProgress(open, open).assessment.checked).toBe(false);
   });
 
+  it("doesn't lock a saved checked quiz over an answer the learner changed while it loaded", () => {
+    // Checked on one device; on another, the learner picked a different
+    // answer for q1 before the saved progress arrived and hasn't checked it.
+    const saved = progress({
+      assessment: { answers: { q1: "a", q2: "a", q3: "a" }, checked: true },
+    });
+    const local = progress({
+      assessment: { answers: { q1: "b" }, checked: false },
+    });
+    expect(mergeCourseProgress(local, saved).assessment).toEqual({
+      answers: { q1: "b", q2: "a", q3: "a" },
+      checked: false,
+    });
+  });
+
   it("keeps the saved simulation when none was made locally", () => {
     const saved = progress({ simulation: { choice: "old", correct: false } });
     expect(mergeCourseProgress(progress(), saved).simulation).toEqual({

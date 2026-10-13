@@ -44,8 +44,9 @@ export function hasCourseProgress(course: CourseProgress): boolean {
  *
  * - stages: the saved ones in their order, then any new local ones;
  * - simulation, quick-check answers (by question id): the local choice,
- *   else the saved one; the quick check is checked if either side checked
- *   it (see assessment-progress.ts);
+ *   else the saved one; a check from either side holds unless a local
+ *   answer differs from the saved one, which opens the quiz again (see
+ *   assessment-progress.ts);
  * - scenario: the local path if one was started (root and follow-up belong
  *   together), else the saved path;
  * - reflection: each local answer that isn't empty, else the saved one;
