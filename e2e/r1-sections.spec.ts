@@ -107,7 +107,8 @@ const lessonList = (page: Page) =>
   page.getByRole("navigation", { name: /^lessons$/i }).filter({ visible: true });
 
 /** The page's polite live region (the lesson list's announcements). */
-const announcements = (page: Page) => page.locator('p[role="status"][aria-live="polite"]');
+/** The course page's one live region for the list and content changes. */
+const announcements = (page: Page) => page.locator("#workspace-announcements").filter({ visible: true });
 
 async function openCourse(page: Page) {
   await page.goto(`/en/content/courses/${SLUG}`);

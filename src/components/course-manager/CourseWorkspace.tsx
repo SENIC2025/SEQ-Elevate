@@ -228,7 +228,7 @@ function Workspace({
         onRefresh={refresh}
       />
 
-      <p role="status" aria-live="polite" className="sr-only">
+      <p id="workspace-announcements" role="status" aria-live="polite" className="sr-only">
         <span key={announcement.n}>{announcement.text}</span>
       </p>
 
