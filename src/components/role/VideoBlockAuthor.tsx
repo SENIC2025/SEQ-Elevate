@@ -23,7 +23,7 @@ import {
   formatSize,
 } from "@/lib/uploads";
 import { isStorableMediaUrl, mediaUrlMessage } from "@/lib/media-url";
-import { saveFailureMessage } from "@/lib/author-feedback";
+import { lessonListRefusal, saveFailureMessage } from "@/lib/author-feedback";
 import {
   fetchStorageStatus,
   useBlobUpload,
@@ -135,6 +135,18 @@ function fieldsFrom(video: VideoContent | null, lang: Locale): VideoFields {
 }
 
 /** The form's content as one string, to tell edited from saved. */
+/**
+ * Why saving or removing the video was refused. A lesson of the course's own
+ * that left the lesson list, or a list that can't be read (Release 1), says
+ * to reload or to ask an admin; "forbidden" covers both signed out and not
+ * an editor — ask which.
+ */
+async function refusalMessage(error: string): Promise<string> {
+  const listRefusal = lessonListRefusal(error);
+  if (listRefusal) return saveFailureMessage({ kind: "lesson-list", error: listRefusal });
+  return saveFailureMessage({ kind: "refused", access: await fetchStorageStatus() });
+}
+
 function snapshotOf(f: VideoFields): string {
   return JSON.stringify([
     f.provider,
@@ -487,13 +499,7 @@ function VideoEditor({
         // Names what learners couldn't load, e.g. a file still in this browser.
         setSaveError(res.message);
       } else {
-        // "forbidden" covers both signed out and not an editor — ask which.
-        setSaveError(
-          saveFailureMessage({
-            kind: "refused",
-            access: await fetchStorageStatus(),
-          })
-        );
+        setSaveError(await refusalMessage(res.error));
       }
     } catch (error) {
       setSaveError(saveFailureMessage({ kind: "thrown", error }));
@@ -534,12 +540,7 @@ function VideoEditor({
         onSaved?.(null);
         return;
       }
-      setSaveError(
-        saveFailureMessage({
-          kind: "refused",
-          access: await fetchStorageStatus(),
-        })
-      );
+      setSaveError(await refusalMessage(res.error));
     } catch (error) {
       setSaveError(saveFailureMessage({ kind: "thrown", error }));
     }
