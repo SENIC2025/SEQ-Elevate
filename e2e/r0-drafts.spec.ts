@@ -80,21 +80,29 @@ async function useSession(context: BrowserContext, sessionToken: string) {
   ]);
 }
 
-/** The applied-scenario editor on the course page, once its stage has loaded. */
+/**
+ * The applied-scenario editor on the course page, once its stage has loaded.
+ *
+ * Its boxes are found by role and accessible name: each sits inside its
+ * <label>, so once a box holds text, a label-text match ("Setup …") no longer
+ * equals the name a screen reader announces ("Setup").
+ */
 async function openScenario(page: Page) {
   await page.goto(`/en/content/courses/${SLUG}?lesson=scenario`);
   const panel = page
     .locator("#lesson-scenario")
     .filter({ visible: true })
     .getByRole("region", { name: /^interactive stage — scenario$/i });
-  await expect(panel.getByLabel(/^setup$/i)).toBeVisible({ timeout: 15000 });
+  await expect(panel.getByRole("textbox", { name: /^setup$/i })).toBeVisible({ timeout: 15000 });
   return panel;
 }
 
 /** How many lessons a learner gets, from the player's "1 / n · Context". */
 async function learnerLessonCount(page: Page) {
   await page.goto(`/en/learner/course/${SLUG}`);
-  const counter = page.getByText(/^1 \/ \d+ · /);
+  // Only the one on screen: the streamed page can hold a hidden copy for a
+  // moment before React moves it in.
+  const counter = page.getByText(/^1 \/ \d+ · /).filter({ visible: true });
   await expect(counter).toBeVisible({ timeout: 15000 });
   const text = (await counter.textContent()) ?? "";
   return Number(/\/ (\d+)/.exec(text)?.[1]);
@@ -147,8 +155,8 @@ describe("Release 0 — exercise drafts", () => {
     await expect(panel.getByText(/still missing before learners can use this/i)).toBeVisible();
     await expect(panel.getByText("Write the setup.")).toBeVisible();
 
-    await panel.getByLabel(/^setup$/i).fill(SETUP);
-    await panel.getByLabel(/^first question$/i).fill("What do you do?");
+    await panel.getByRole("textbox", { name: /^setup$/i }).fill(SETUP);
+    await panel.getByRole("textbox", { name: /^first question$/i }).fill("What do you do?");
     // Each repeated box is named by its place: "Choice 1 Choice text".
     await panel.getByRole("textbox", { name: /^choice 1 choice text$/i }).fill("Talk to them privately");
 
@@ -205,7 +213,7 @@ describe("Release 0 — exercise drafts", () => {
       const panel = await openScenario(page);
 
       // The draft opens in the editor, clearly labelled.
-      await expect(panel.getByLabel(/^setup$/i)).toHaveValue(SETUP);
+      await expect(panel.getByRole("textbox", { name: /^setup$/i })).toHaveValue(SETUP);
       await expect(panel.getByText(/^draft — learners don't see this yet$/i)).toBeVisible();
       await expect(
         page.locator("#lesson-scenario").filter({ visible: true }).getByText(/^draft saved$/i)
@@ -234,7 +242,7 @@ describe("Release 0 — exercise drafts", () => {
   }) => {
     await useSession(context, editorSession);
     const panel = await openScenario(page);
-    await expect(panel.getByLabel(/^setup$/i)).toHaveValue(SETUP);
+    await expect(panel.getByRole("textbox", { name: /^setup$/i })).toHaveValue(SETUP);
 
     await panel.getByRole("textbox", { name: /^choice 1 outcome shown$/i }).fill("They listen.");
     await panel.getByRole("textbox", { name: /^choice 2 choice text$/i }).fill("Snap back");
@@ -255,7 +263,7 @@ describe("Release 0 — exercise drafts", () => {
       "still nothing for learners"
     ).toBeNull();
 
-    await panel.getByLabel(/^follow-up question$/i).fill("What next?");
+    await panel.getByRole("textbox", { name: /^follow-up question$/i }).fill("What next?");
     await panel
       .getByRole("textbox", { name: /^follow-up 1\.1 follow-up text$/i })
       .fill("Ask what happened");
@@ -304,13 +312,13 @@ describe("Release 0 — exercise drafts", () => {
     await expect(page.getByText("E2E unfinished rewrite")).toHaveCount(0);
 
     const panel = await openScenario(page);
-    await expect(panel.getByLabel(/^setup$/i)).toHaveValue("E2E unfinished rewrite");
+    await expect(panel.getByRole("textbox", { name: /^setup$/i })).toHaveValue("E2E unfinished rewrite");
     await expect(panel.getByText(/learners still see the last saved version/i)).toBeVisible();
 
     page.once("dialog", (dialog) => void dialog.accept());
     await panel.getByRole("button", { name: /^discard draft$/i }).click();
     await expect(panel.getByText(/^draft discarded\.$/i)).toBeVisible({ timeout: 15000 });
-    await expect(panel.getByLabel(/^setup$/i)).toHaveValue(LIVE_SETUP);
+    await expect(panel.getByRole("textbox", { name: /^setup$/i })).toHaveValue(LIVE_SETUP);
     const row = await prisma.lesson.findUnique({ where: lessonWhere("scenario") });
     expect(row?.structureDraft).toBeNull();
     expect((row?.structure as { setup?: { en?: string } }).setup?.en).toBe(LIVE_SETUP);
@@ -322,7 +330,7 @@ describe("Release 0 — exercise drafts", () => {
   }) => {
     await useSession(context, editorSession);
     const panel = await openScenario(page);
-    await expect(panel.getByLabel(/^setup$/i)).toHaveValue(LIVE_SETUP);
+    await expect(panel.getByRole("textbox", { name: /^setup$/i })).toHaveValue(LIVE_SETUP);
     await expect(panel.getByText(/^draft — learners don't see this yet$/i)).toHaveCount(0);
 
     // A colleague saves a draft after this page opened, so it isn't shown here.
@@ -346,7 +354,7 @@ describe("Release 0 — exercise drafts", () => {
 
     // Reloading shows the colleague's draft, clearly marked.
     await panel.getByRole("button", { name: /^reload the saved version$/i }).click();
-    await expect(panel.getByLabel(/^setup$/i)).toHaveValue("E2E colleague's draft", {
+    await expect(panel.getByRole("textbox", { name: /^setup$/i })).toHaveValue("E2E colleague's draft", {
       timeout: 15000,
     });
     await expect(panel.getByText(/^draft — learners don't see this yet$/i)).toBeVisible();
@@ -387,7 +395,7 @@ describe("Release 0 — exercise drafts", () => {
       .locator("#lesson-assessment")
       .filter({ visible: true })
       .getByRole("region", { name: /^interactive stage — assessment$/i });
-    await expect(panel.getByLabel(/^intro$/i)).toBeVisible({ timeout: 15000 });
+    await expect(panel.getByRole("textbox", { name: /^intro$/i })).toBeVisible({ timeout: 15000 });
     // Nothing is listed as missing: German text is enough.
     await expect(panel.getByText(/still missing before learners can use this/i)).toHaveCount(0);
 

@@ -54,14 +54,17 @@ const BUILT_IN_ANSWERS = [
 const cont = (page: Page) =>
   page.getByRole("button", { name: /^continue$/i }).first();
 
-/** Continue, retried until the next step shows (hydration may lag). */
+/**
+ * Continue, retried until the next step shows (a click before hydration does
+ * nothing), and never clicked again once it does: a click React replays after
+ * hydration plus a retried one would skip a step.
+ */
 async function next(page: Page, heading: RegExp) {
+  const target = page.getByRole("heading", { name: heading }).first();
   await expect(async () => {
-    await cont(page).click();
-    await expect(page.getByRole("heading", { name: heading }).first()).toBeVisible({
-      timeout: 2000,
-    });
-  }).toPass({ timeout: 15_000 });
+    if (!(await target.isVisible())) await cont(page).click();
+    await expect(target).toBeVisible({ timeout: 5000 });
+  }).toPass({ timeout: 20_000 });
 }
 
 /** An option button of the quick check, by its text. */
@@ -231,20 +234,27 @@ test.describe("R0 player — as a guest", () => {
     await expect(page.locator("html")).toHaveAttribute("data-contrast", "true");
     await expect(page.locator("html")).toHaveAttribute("data-font-size", "xl");
     const weiter = () => page.getByRole("button", { name: /^weiter$/i }).first();
+    const step = page.locator("[aria-current=step]");
+    // Retried until hydration has caught up, never past step 2 (see next()).
     await expect(async () => {
-      await weiter().click();
-      await expect(page.locator("[aria-current=step]")).toContainText("2", {
-        timeout: 2000,
-      });
-    }).toPass({ timeout: 15_000 });
+      if ((await step.textContent())?.trim().startsWith("1")) await weiter().click();
+      await expect(step).toContainText("2", { timeout: 5000 });
+    }).toPass({ timeout: 20_000 });
     await weiter().click();
+    await expect(step).toContainText("3");
     await weiter().click();
+    await expect(step).toContainText("4");
 
     const hint = page.getByText("Wähle eine Antwort, um weiterzumachen.");
     await expect(hint).toBeVisible();
     // Plain text in page order: not announced as it appears.
     await expect(hint).not.toHaveAttribute("aria-live", /.+/);
     // The step itself: the rest of the page is scanned in accessibility.spec.
+    // Once the step bar's colours have finished fading to the new step
+    // (transition-colors): measured mid-fade they are a blend of both.
+    await page.waitForFunction(() =>
+      document.getAnimations().every((a) => a.playState !== "running")
+    );
     const results = await new AxeBuilder({ page })
       .include("[tabindex='-1']")
       .withTags(TAGS)

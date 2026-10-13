@@ -386,10 +386,18 @@ describe("Quick links in lesson text", () => {
     await expect(link).toHaveCSS("outline-width", "2px");
 
     const scan = async () => {
+      // Colours fade over 150 ms (transition-colors) after a change such as
+      // switching high contrast on; measured mid-fade they are a blend of
+      // the two themes. Scan what learners end up seeing.
+      await page.waitForFunction(() =>
+        document.getAnimations().every((a) => a.playState !== "running")
+      );
       const results = await new AxeBuilder({ page }).withTags(TAGS).analyze();
+      // Each failing rule with the elements it failed on, so a failure says
+      // where to look.
       return results.violations
         .filter((v) => v.impact === "serious" || v.impact === "critical")
-        .map((v) => v.id);
+        .map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`);
     };
     expect(await scan()).toEqual([]);
 

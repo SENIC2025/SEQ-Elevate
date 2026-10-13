@@ -158,10 +158,13 @@ describe("Release 0 — accounts", () => {
     }
 
     // Neither shows up on the facilitator's roster; the learner does.
+    // The roster only: the header names whoever is signed in, here the
+    // facilitator.
     await page.goto("/en/facilitator");
-    await expect(page.getByText(LEARNER_NAME)).toBeVisible({ timeout: 15000 });
-    await expect(page.getByText(FACILITATOR)).toHaveCount(0);
-    await expect(page.getByText(EDITOR)).toHaveCount(0);
+    const roster = page.getByRole("main");
+    await expect(roster.getByText(LEARNER_NAME)).toBeVisible({ timeout: 15000 });
+    await expect(roster.getByText(FACILITATOR)).toHaveCount(0);
+    await expect(roster.getByText(EDITOR)).toHaveCount(0);
   });
 
   test("someone who signs in with no role becomes a learner", async ({

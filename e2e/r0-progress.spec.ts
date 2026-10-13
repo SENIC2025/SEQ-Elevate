@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import type { StageKey } from "@prisma/client";
@@ -18,6 +18,26 @@ import type { StageKey } from "@prisma/client";
  * Everything it creates carries this run's id and is removed afterwards.
  */
 
+/**
+ * Text on screen only. While the page streams in, the server's copy of it
+ * can sit in a hidden block for a moment before React moves it into place.
+ */
+const shown = (page: Page, text: string | RegExp) =>
+  page.getByText(text).filter({ visible: true });
+
+/**
+ * "Weiter", retried until the given lesson shows (a click before hydration
+ * does nothing), and never clicked again once it does.
+ */
+async function advanceTo(page: Page, heading: string) {
+  const target = page.getByRole("heading", { name: heading });
+  await expect(async () => {
+    if (!(await target.isVisible())) {
+      await page.getByRole("button", { name: /^weiter$/i }).first().click();
+    }
+    await expect(target).toBeVisible({ timeout: 5000 });
+  }).toPass({ timeout: 20_000 });
+}
 const DB = process.env.E2E_DB === "1";
 const prisma = DB
   ? new PrismaClient({
@@ -220,14 +240,12 @@ describe("Release 0 — progress per course and cleared translations", () => {
     await page.goto(`/en/content/courses/${SLUG}`);
     // The readiness list is on the page twice (the side panel and the
     // narrow-screen copy); only one of them shows at a time.
-    const shown = (text: RegExp) =>
-      page.getByText(text).filter({ visible: true });
-    await expect(shown(/^before you publish$/i)).toBeVisible({
+    await expect(shown(page, /^before you publish$/i)).toBeVisible({
       timeout: 15000,
     });
-    await expect(shown(/no german title and subtitle yet/i)).toBeVisible();
+    await expect(shown(page, /no german title and subtitle yet/i)).toBeVisible();
     // Context, concept, behaviour and the practice: all blank in German.
-    await expect(shown(/4 lessons have no german text yet/i)).toBeVisible();
+    await expect(shown(page, /4 lessons have no german text yet/i)).toBeVisible();
   });
 
   test("German learners get the English text where German was cleared", async ({
@@ -241,32 +259,20 @@ describe("Release 0 — progress per course and cleared translations", () => {
     await useSession(context, null);
 
     await page.goto("/de/learner");
-    await expect(page.getByText(TITLE).first()).toBeVisible({ timeout: 15000 });
+    await expect(shown(page, TITLE).first()).toBeVisible({ timeout: 15000 });
 
     await page.goto(`/de/learner/course/${SLUG}`);
     await expect(
       page.getByRole("heading", { name: "The situation" })
     ).toBeVisible({ timeout: 15000 });
-    await expect(page.getByText("You are stuck on a task.")).toBeVisible();
+    await expect(shown(page, "You are stuck on a task.")).toBeVisible();
 
     // On to the guided practice: its title, prompt and options in English.
-    const weiter = () => page.getByRole("button", { name: /^weiter$/i });
-    await weiter().click(); // context → concept
-    await expect(page.getByRole("heading", { name: "The skill" })).toBeVisible();
-    await weiter().click(); // concept → behaviour
-    await expect(
-      page.getByRole("heading", { name: "What it looks like" })
-    ).toBeVisible();
-    await weiter().click(); // behaviour → practice
-    await expect(
-      page.getByRole("heading", { name: "Practise asking" })
-    ).toBeVisible();
-    await expect(
-      page.getByText("What do you say to your colleague?")
-    ).toBeVisible();
-    await expect(
-      page.getByText("I tried two things; can you help?")
-    ).toBeVisible();
+    await advanceTo(page, "The skill");
+    await advanceTo(page, "What it looks like");
+    await advanceTo(page, "Practise asking");
+    await expect(shown(page, "What do you say to your colleague?")).toBeVisible();
+    await expect(shown(page, "I tried two things; can you help?")).toBeVisible();
   });
 
   test("a learner who finished every course sees 100%", async ({
@@ -314,7 +320,7 @@ describe("Release 0 — progress per course and cleared translations", () => {
       timeout: 15000,
     });
     await expect(
-      page.getByText(`${slugs.length} of ${slugs.length} courses completed`)
+      shown(page, `${slugs.length} of ${slugs.length} courses completed`)
     ).toBeVisible();
   });
 
