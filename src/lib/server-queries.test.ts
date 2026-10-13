@@ -32,22 +32,25 @@ const enrollments = [
   },
 ];
 
+const membershipFindMany = vi.fn(async () => [
+  {
+    user: {
+      id: "u1",
+      name: "Ana",
+      email: "ana@example.test",
+      enrollments,
+      compCards: [],
+    },
+  },
+]);
+const membershipCount = vi.fn(async () => 1);
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    membership: {
-      findMany: async () => [
-        {
-          user: {
-            id: "u1",
-            name: "Ana",
-            email: "ana@example.test",
-            enrollments,
-            compCards: [],
-          },
-        },
-      ],
-    },
+    membership: { findMany: membershipFindMany, count: membershipCount },
     auditLog: { findMany: async () => [] },
+    cohort: { count: async () => 0 },
+    organisation: { count: async () => 0 },
+    course: { count: async () => 0 },
   },
 }));
 vi.mock("@/lib/auth-helpers", () => ({
@@ -65,7 +68,7 @@ vi.mock("@/lib/cms", () => ({
     }) as unknown as CourseContent,
 }));
 
-const { getProjectLearners } = await import("./server-queries");
+const { getProjectLearners, getAdminCounts } = await import("./server-queries");
 
 describe("getProjectLearners", () => {
   it("counts each course against its own lessons", async () => {
@@ -80,5 +83,43 @@ describe("getProjectLearners", () => {
     // Three lessons done in a four-lesson course: Reflection is next, not
     // "Guided practice", a step this course doesn't have.
     expect(learner.currentStage).toBe("reflection");
+  });
+});
+
+/*
+ * Staff who opened a learner page before Release 0 still hold the LEARNER
+ * role it gave everyone. The roster and the admin's Learners figure ask the
+ * database only for people who hold no staff role in the project as well.
+ */
+const LEARNERS_ONLY = {
+  projectId: "seq-elevate",
+  role: "LEARNER",
+  user: {
+    memberships: {
+      none: {
+        projectId: "seq-elevate",
+        role: { in: expect.arrayContaining(["FACILITATOR", "ADMIN", "CONTENT_EDITOR"]) },
+      },
+    },
+  },
+};
+
+describe("who the facilitator roster lists", () => {
+  it("leaves out staff who still hold an old LEARNER role", async () => {
+    membershipFindMany.mockClear();
+    await getProjectLearners("en");
+    expect(membershipFindMany).toHaveBeenCalledTimes(1);
+    expect(membershipFindMany.mock.calls[0]).toEqual([
+      expect.objectContaining({ where: LEARNERS_ONLY }),
+    ]);
+  });
+});
+
+describe("getAdminCounts", () => {
+  it("counts learners without staff who still hold an old LEARNER role", async () => {
+    membershipCount.mockClear();
+    await expect(getAdminCounts()).resolves.toMatchObject({ users: 1 });
+    expect(membershipCount).toHaveBeenCalledTimes(1);
+    expect(membershipCount.mock.calls[0]).toEqual([{ where: LEARNERS_ONLY }]);
   });
 });
