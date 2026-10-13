@@ -12,13 +12,16 @@ import { PrismaPg } from "@prisma/adapter-pg";
  * German, "context" hidden, "scenario" moved before "behaviour", and
  * "concept" holding extra content of every kind — text, two quick checks,
  * reflection questions of its own, a self-assessment with three statements,
- * a practice question — plus a quick check that is only a draft. The lesson
- * of its own holds a branching scenario with follow-ups.
+ * a practice question — plus a quick check that is only a draft. The first
+ * lesson of its own holds a branching scenario with follow-ups; a second
+ * one ("Wrap-up") ends the course, so ?lesson= can open somewhere other
+ * than the start.
  *
  * An editor's "Preview as learner" plays it in the sectioned preview: the
  * course's own order and step names, every kind of content, answers that
  * stay apart and stay put, a self-assessment used by keyboard alone,
- * Continue that says what's missing, the editors' note about the draft,
+ * Continue that says what's missing, focus that stays in the lesson when a
+ * pressed button goes, quick-check results not shown by colour alone, the editors' note about the draft,
  * "Edit this lesson" pointing at the lesson of its own — and nothing saved.
  *
  * Requires a real database — gated on E2E_DB=1, like db-backed-progress.
@@ -40,8 +43,11 @@ const RUN = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}
 const EDITOR = `e2e-r1-preview-editor-${RUN}@example.com`;
 const EMAILS = [EDITOR];
 const SLUG = `e2e-r1-preview-${RUN}`;
-// A lesson of the course's own: "s-" + 8 × [a-z0-9], unique to this run.
-const CUSTOM = `s-${Math.random().toString(36).slice(2, 10).padEnd(8, "0")}`;
+// Lessons of the course's own: "s-" + 8 × [a-z0-9], unique to this run.
+const customId = () => `s-${Math.random().toString(36).slice(2, 10).padEnd(8, "0")}`;
+const CUSTOM = customId();
+let CUSTOM2 = customId();
+while (CUSTOM2 === CUSTOM) CUSTOM2 = customId();
 
 const TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
 
@@ -63,6 +69,7 @@ const OUTLINE = {
     { id: "scenario", template: "scenario" },
     { id: "behaviour", template: "behaviour" },
     { id: "reflection", template: "reflection" },
+    { id: CUSTOM2, template: "text", label: { en: "Wrap-up", de: "Abschluss" } },
   ],
 };
 
@@ -225,6 +232,13 @@ const LESSONS: { stageKey: string; narrative?: unknown; structure?: unknown; par
       de: { title: "Bevor du anfängst", blocks: [para("E2E Aufwärmtext.")] },
     },
     parts: CUSTOM_PARTS,
+  },
+  {
+    stageKey: CUSTOM2,
+    narrative: {
+      en: { title: "Bringing it together", blocks: [para("E2E wrap-up text.")] },
+      de: { title: "Alles zusammen", blocks: [para("E2E Abschlusstext.")] },
+    },
   },
 ];
 
@@ -398,14 +412,14 @@ describe("Release 1 — a flexible course previews with every kind of content", 
     ).toBeVisible({ timeout: 15000 });
     await expect(page.getByText(/draft preview/i).first()).toBeVisible();
 
-    const names = ["Warm-up", "Skill concept", "Applied scenario", "Behaviour model", "Reflection"];
+    const names = ["Warm-up", "Skill concept", "Applied scenario", "Behaviour model", "Reflection", "Wrap-up"];
     const buttons = steps(page).getByRole("button");
     await expect(buttons).toHaveCount(names.length);
     for (const [i, name] of names.entries()) {
       await expect(buttons.nth(i)).toHaveAccessibleName(new RegExp(`${name}$`));
     }
     await expect(page.getByText("E2E hidden context text.")).toHaveCount(0);
-    await expect(counter(page)).toHaveText("1 / 5 · Warm-up");
+    await expect(counter(page)).toHaveText("1 / 6 · Warm-up");
     await expect(page.getByRole("main").getByRole("heading", { level: 2 })).toHaveText("Before you start");
 
     // "Edit this lesson" opens the lesson of the course's own on its page.
@@ -417,13 +431,13 @@ describe("Release 1 — a flexible course previews with every kind of content", 
   test("German step names under /de", async ({ page, context }) => {
     await useSession(context, editorSession);
     await page.goto(`/de/learner/course/${SLUG}`);
-    const names = ["Aufwärmen", "Skill-Konzept", "Anwendung", "Verhaltens-Modell", "Reflexion"];
+    const names = ["Aufwärmen", "Skill-Konzept", "Anwendung", "Verhaltens-Modell", "Reflexion", "Abschluss"];
     const buttons = steps(page).getByRole("button");
     await expect(buttons).toHaveCount(names.length, { timeout: 15000 });
     for (const [i, name] of names.entries()) {
       await expect(buttons.nth(i)).toHaveAccessibleName(new RegExp(`${name}$`));
     }
-    await expect(counter(page)).toHaveText("1 / 5 · Aufwärmen");
+    await expect(counter(page)).toHaveText("1 / 6 · Aufwärmen");
     await expect(page.getByRole("main").getByRole("heading", { level: 2 })).toHaveText("Bevor du anfängst");
     await expect(page.getByRole("link", { name: /^diese lektion bearbeiten$/i })).toHaveAttribute(
       "href",
@@ -435,7 +449,7 @@ describe("Release 1 — a flexible course previews with every kind of content", 
     await useSession(context, editorSession);
     await page.goto(`/en/learner/course/${SLUG}`);
     const main = page.getByRole("main");
-    await expect(counter(page)).toHaveText("1 / 5 · Warm-up", { timeout: 15000 });
+    await expect(counter(page)).toHaveText("1 / 6 · Warm-up", { timeout: 15000 });
 
     // Continue before answering: focus goes to the scenario that's waiting,
     // and a polite announcement says why. Pressing it again is harmless.
@@ -446,7 +460,7 @@ describe("Release 1 — a flexible course previews with every kind of content", 
       await expect(hallway).toBeFocused({ timeout: 2000 });
     }).toPass({ timeout: 20_000 });
     await expect(announcement).toHaveCount(1);
-    await expect(counter(page)).toHaveText("1 / 5 · Warm-up");
+    await expect(counter(page)).toHaveText("1 / 6 · Warm-up");
 
     // The scenario with a follow-up.
     const scenario = region(page, "The hallway");
@@ -454,10 +468,18 @@ describe("Release 1 — a flexible course previews with every kind of content", 
     await expect(scenario.getByText("They pause and listen.")).toBeVisible();
     await scenario.getByRole("button", { name: "Finish your point briefly" }).click();
     await expect(scenario.getByText("Your point lands.")).toBeVisible();
+    // The follow-up buttons went: focus is on the outcome that took their place.
+    await expect(page.locator(":focus")).toContainText("Your point lands.");
+    // "Try different choices" goes too: focus moves to the scenario's heading.
+    await scenario.getByRole("button", { name: "Try different choices" }).click();
+    await expect(hallway).toBeFocused();
+    await scenario.getByRole("button", { name: "Raise a hand and say you'd like to finish" }).click();
+    await scenario.getByRole("button", { name: "Finish your point briefly" }).click();
+    await expect(scenario.getByText("Your point lands.")).toBeVisible();
     await continueTo(page, 2);
 
     // Every kind of content in "concept", the draft-only one left out.
-    await expect(counter(page)).toHaveText("2 / 5 · Skill concept");
+    await expect(counter(page)).toHaveText("2 / 6 · Skill concept");
     await expect(main.getByText("E2E concept text.")).toBeVisible();
     await expect(main.getByText("E2E extra text: say it early.")).toBeVisible();
     for (const name of [
@@ -491,8 +513,15 @@ describe("Release 1 — a flexible course previews with every kind of content", 
     await expect(main.getByRole("heading", { level: 3, name: "Quick check", exact: true })).toBeFocused();
     await quiz1.getByRole("button", { name: /^check answers$/i }).click();
     await expect(quiz1.getByText("You got 1 out of 1 right.")).toBeVisible();
+    // "Check answers" went: focus is on the quick check's heading, not the page.
+    await expect(main.getByRole("heading", { level: 3, name: "Quick check", exact: true })).toBeFocused();
+    await expect(quiz1.getByRole("button", { name: "Early (your answer, correct)" })).toBeVisible();
     await quiz2.getByRole("button", { name: /^check answers$/i }).click();
     await expect(quiz2.getByText("You got 0 out of 1 right.")).toBeVisible();
+    await expect(main.getByRole("heading", { level: 3, name: "Second check", exact: true })).toBeFocused();
+    // Which answer was right is said in words, not by colour alone.
+    await expect(quiz2.getByRole("button", { name: "Never (your answer, not correct)" })).toBeVisible();
+    await expect(quiz2.getByRole("button", { name: "Early (the correct answer)" })).toBeVisible();
 
     // Reflection questions of its own: four labelled boxes.
     const reflection = region(page, "Reflection questions");
@@ -521,6 +550,11 @@ describe("Release 1 — a flexible course previews with every kind of content", 
     await continueButton(page).click();
     await expect(main.getByRole("heading", { level: 3, name: "Practice question", exact: true })).toBeFocused();
     const practice = region(page, "Practice question");
+    await practice.getByRole("button", { name: "Say nothing." }).click();
+    await expect(practice.getByText("The pattern goes on.")).toBeVisible();
+    // "Try another" goes once pressed: focus moves to the question's heading.
+    await practice.getByRole("button", { name: "Try another" }).click();
+    await expect(main.getByRole("heading", { level: 3, name: "Practice question", exact: true })).toBeFocused();
     await practice.getByRole("button", { name: "Let me finish this thought, please." }).click();
     await expect(practice.getByText("Clear and calm.")).toBeVisible();
 
@@ -530,7 +564,7 @@ describe("Release 1 — a flexible course previews with every kind of content", 
     // Back: every answer is still there.
     // Back, named by the lesson it goes to (the last such button: after the step bar).
     await page.getByRole("button", { name: "Skill concept", exact: true }).filter({ visible: true }).last().click();
-    await expect(counter(page)).toHaveText("2 / 5 · Skill concept");
+    await expect(counter(page)).toHaveText("2 / 6 · Skill concept");
     await expect(region(page, "Quick check").getByText("You got 1 out of 1 right.")).toBeVisible();
     await expect(region(page, "Second check").getByText("You got 0 out of 1 right.")).toBeVisible();
     await expect(
@@ -551,6 +585,8 @@ describe("Release 1 — a flexible course previews with every kind of content", 
     await continueTo(page, 4);
     await continueTo(page, 5);
     await expect(main.getByRole("textbox")).toHaveCount(3);
+    await continueTo(page, 6);
+    await expect(main.getByText("E2E wrap-up text.")).toBeVisible();
     await continueButton(page).click();
     await expect(page.getByRole("heading", { name: /course complete/i })).toBeVisible({ timeout: 15000 });
 
@@ -576,8 +612,15 @@ describe("Release 1 — a flexible course previews with every kind of content", 
     await page.goto(`/en/learner/course/${SLUG}?preview=1&lesson=context`);
     await expect(current).toHaveAccessibleName(/warm-up$/i, { timeout: 15000 });
 
-    await page.goto(`/en/learner/course/${SLUG}?preview=1&lesson=${CUSTOM}`);
-    await expect(current).toHaveAccessibleName(/warm-up$/i, { timeout: 15000 });
+    // A lesson of the course's own, not the first: it opens there.
+    await page.goto(`/en/learner/course/${SLUG}?preview=1&lesson=${CUSTOM2}`);
+    await expect(current).toHaveAccessibleName(/wrap-up$/i, { timeout: 15000 });
+    await expect(counter(page)).toHaveText("6 / 6 · Wrap-up");
+    await expect(page.getByRole("main").getByRole("heading", { level: 2 })).toHaveText("Bringing it together");
+    await expect(page.getByRole("link", { name: /^edit this lesson$/i })).toHaveAttribute(
+      "href",
+      `/en/content/courses/${SLUG}?lesson=${CUSTOM2}&lang=en`
+    );
     await noSideScroll(page);
     await axeClean(page);
 
