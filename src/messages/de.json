@@ -515,6 +515,9 @@
       "explanation": "Eine Ich-Botschaft benennt dein Erleben und dein Bedürfnis – sie ist kein Vorwurf."
     }
   },
+  "lessonLinks": {
+    "newTab": "(öffnet in einem neuen Tab)"
+  },
   "compCard": {
     "title": "Comp Card",
     "subtitle": "Kurz, strukturiert, immer deine.",

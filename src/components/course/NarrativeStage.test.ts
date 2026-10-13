@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { createElement } from "react";
+import { createElement, type FC, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { NextIntlClientProvider } from "next-intl";
+import en from "@/messages/en.json";
 import type { NarrativeBlock } from "@/lib/cms/types";
 import { NarrativeBlocks } from "./NarrativeStage";
 
@@ -112,5 +114,56 @@ describe("NarrativeBlocks", () => {
     const html = render(broken);
     expect(html).toContain("<li class=\"text-base\">ok</li>");
     expect(html).not.toContain("[object Object]");
+  });
+});
+
+// Quick links: every kind of lesson text links the addresses typed in it.
+const IntlProvider = NextIntlClientProvider as FC<{
+  locale: string;
+  messages: typeof en;
+  children?: ReactNode;
+}>;
+
+function renderWithMessages(blocks: NarrativeBlock[]): string {
+  return renderToStaticMarkup(
+    createElement(
+      IntlProvider,
+      { locale: "en", messages: en },
+      createElement(NarrativeBlocks, { blocks })
+    )
+  );
+}
+
+const link = (href: string, shown: string) =>
+  `<a href="${href}" target="_blank" rel="noopener noreferrer" class="seq-link">${shown}<span class="sr-only"> (opens in a new tab)</span></a>`;
+
+describe("NarrativeBlocks quick links", () => {
+  it("links addresses in a list block's points", () => {
+    const html = renderWithMessages([
+      {
+        kind: "list",
+        listStyle: "bullet",
+        items: ["Visit https://example.org.", "Mail help@example.org", "None"],
+      },
+    ]);
+    expect(html).toContain(
+      `<li class="text-base">Visit ${link("https://example.org/", "https://example.org")}.</li>` +
+        `<li class="text-base">Mail ${link("mailto:help@example.org", "help@example.org")}</li>` +
+        '<li class="text-base">None</li>'
+    );
+  });
+
+  it("links addresses in paragraphs, key messages and compare sides", () => {
+    const html = renderWithMessages([
+      { kind: "paragraph", text: "See https://example.org/a" },
+      { kind: "callout", text: "Ask help@example.org" },
+      {
+        kind: "compare",
+        compare: [{ label: "Do", text: "https://example.org/b", tone: "positive" }],
+      },
+    ]);
+    expect(html).toContain(link("https://example.org/a", "https://example.org/a"));
+    expect(html).toContain(link("mailto:help@example.org", "help@example.org"));
+    expect(html).toContain(link("https://example.org/b", "https://example.org/b"));
   });
 });

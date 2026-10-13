@@ -1,5 +1,6 @@
 import { Fragment, type ReactNode } from "react";
 import { legacyTextToDoc } from "@/lib/rich-text/from-legacy";
+import { linkifyInline } from "@/lib/rich-text/linkify";
 import { isEmptyDoc, sanitizeRichText } from "@/lib/rich-text/sanitize";
 import {
   RT_LIMITS,
@@ -10,6 +11,7 @@ import {
   type RtText,
 } from "@/lib/rich-text/types";
 import { cn } from "@/lib/utils";
+import { QuickLink } from "./QuickLink";
 
 /**
  * The one renderer for lesson text (D36): rich paragraphs and key messages
@@ -29,14 +31,20 @@ import { cn } from "@/lib/utils";
  * inline padding), both clamped here once more. Lists render no deeper
  * than RT_LIMITS.maxListDepth, so recursion is bounded even on its own.
  *
- * Pure (no hooks, no editor code), so server and client render the same
- * markup. Renders nothing when there is no text.
+ * Quick links: web and email addresses in the text are shown as links
+ * (QuickLink, an <a> opening an https, http or mailto address in a new
+ * tab), found at render time by linkifyInline — nothing stored changes,
+ * and text without an address renders exactly as before.
+ *
+ * Pure (no hooks of its own, no editor code), so server and client render
+ * the same markup. Renders nothing when there is no text.
  */
 export function RichTextView({
   rich,
   text,
   className,
   compact = false,
+  inertLinks = false,
 }: {
   /** A block's stored rich text, unchecked. */
   rich?: unknown;
@@ -45,6 +53,13 @@ export function RichTextView({
   className?: string;
   /** Tighter spacing, for small containers such as callouts. */
   compact?: boolean;
+  /**
+   * Show addresses looking like links, but not as links: for a preview
+   * that is itself a button (the lesson editor's block preview), where a
+   * link would be a control inside a control and a click would leave the
+   * editor instead of opening it.
+   */
+  inertLinks?: boolean;
 }) {
   const value = rich == null ? null : sanitizeRichText(rich).value;
   // Plain text is converted, not sanitized: existing lessons must render
@@ -66,7 +81,9 @@ export function RichTextView({
         className
       )}
     >
-      {doc.content.map((block, i) => renderBlock(block, i, 1))}
+      {doc.content.map((block, i) =>
+        renderBlock(block, i, 1, inertLinks ? "inert" : "live")
+      )}
     </div>
   );
 }
@@ -96,19 +113,27 @@ function listStart(start: unknown): number {
     : 1;
 }
 
+/** Whether addresses are real links or only look like them. */
+type LinkMode = "live" | "inert";
+
 /**
  * A paragraph or list. `listDepth` is the depth a list here would have
  * (1 at the top level); only top-level paragraphs are indented.
  */
-function renderBlock(block: RtBlock, key: number, listDepth: number): ReactNode {
+function renderBlock(
+  block: RtBlock,
+  key: number,
+  listDepth: number,
+  links: LinkMode
+): ReactNode {
   switch (block.type) {
     case "paragraph":
-      return renderParagraph(block, key, listDepth === 1);
+      return renderParagraph(block, key, listDepth === 1, links);
     case "bulletList":
     case "orderedList": {
       if (listDepth > RT_LIMITS.maxListDepth) return null;
       const items = block.content.map((item, i) =>
-        renderItem(item, i, listDepth)
+        renderItem(item, i, listDepth, links)
       );
       return block.type === "bulletList" ? (
         <ul key={key}>{items}</ul>
@@ -127,14 +152,15 @@ function renderBlock(block: RtBlock, key: number, listDepth: number): ReactNode 
 function renderParagraph(
   paragraph: RtParagraph,
   key: number,
-  topLevel: boolean
+  topLevel: boolean,
+  links: LinkMode
 ): ReactNode {
   // An empty paragraph adds no space for learners.
   if (!paragraph.content?.length) return null;
   const padding = topLevel ? indentPadding(paragraph.attrs?.indent) : null;
   return (
     <p key={key} style={padding ? { paddingInlineStart: padding } : undefined}>
-      {renderInline(paragraph.content)}
+      {renderInline(paragraph.content, links)}
     </p>
   );
 }
@@ -146,30 +172,65 @@ function renderParagraph(
  * whose own text was deleted but that still holds a sub-list starts with an
  * empty line, as in the editor, so its bullet doesn't join the sub-list's.
  */
-function renderItem(item: RtListItem, key: number, listDepth: number) {
+function renderItem(
+  item: RtListItem,
+  key: number,
+  listDepth: number,
+  links: LinkMode
+) {
   const [first, ...rest] = item.content;
   const lead = first?.type === "paragraph" ? first : null;
   const after = lead ? rest : item.content;
   return (
     <li key={key}>
       {lead?.content?.length ? (
-        renderInline(lead.content)
+        renderInline(lead.content, links)
       ) : after.length ? (
         <br />
       ) : null}
-      {after.map((block, i) => renderBlock(block, i, listDepth + 1))}
+      {after.map((block, i) => renderBlock(block, i, listDepth + 1, links))}
     </li>
   );
 }
 
-function renderInline(content: readonly RtInline[]): ReactNode[] {
-  return content.map((node, i) => {
+/**
+ * A paragraph's text, line breaks and links. An address keeps its bold and
+ * italic inside the link: <a><strong>…</strong></a>.
+ */
+function renderInline(
+  content: readonly RtInline[],
+  links: LinkMode
+): ReactNode[] {
+  return linkifyInline(content).map((node, i) => {
     if (node.type === "hardBreak") return <br key={i} />;
     if (node.type === "text") {
       return <Fragment key={i}>{withMarks(node)}</Fragment>;
     }
+    if (node.type === "link") {
+      const text = node.content.map((part, j) => (
+        <Fragment key={j}>{withMarks(part)}</Fragment>
+      ));
+      return links === "live" ? (
+        <QuickLink key={i} href={node.href}>
+          {text}
+        </QuickLink>
+      ) : (
+        <span key={i} className="seq-link">
+          {text}
+        </span>
+      );
+    }
     return null;
   });
+}
+
+/**
+ * A plain string — a list block's point, say — with its web and email
+ * addresses as links, by the same rules as lesson text. A string without
+ * an address is rendered as it is.
+ */
+export function LinkedText({ text }: { text: string }) {
+  return <>{renderInline([{ type: "text", text }], "live")}</>;
 }
 
 /** Bold outside italic: <strong><em>…</em></strong>. */
