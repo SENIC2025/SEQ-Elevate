@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import type { CourseStage } from "@/lib/cms/types";
 import { CheckCircle2, XCircle, ArrowRight, Award } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { LinkedText } from "@/components/rich-text/RichTextView";
 
 /**
  * Micro-assessment. Renders authored questions; answers keyed by question
@@ -52,7 +53,11 @@ export function AssessmentStage({
           {t("quickCheck")}
         </div>
         <h2 className="text-2xl font-bold tracking-tight">{stage.title}</h2>
-        <p className="mt-2 text-sm text-[var(--muted-foreground)]">{a.intro}</p>
+        {/* Addresses in the intro are links, as the course page's read
+            view shows them to editors (quick links). */}
+        <p className="mt-2 text-sm text-[var(--muted-foreground)]">
+          <LinkedText text={a.intro} />
+        </p>
 
         <div className="mt-6 space-y-6">
           {questions.map((q, idx) => (
