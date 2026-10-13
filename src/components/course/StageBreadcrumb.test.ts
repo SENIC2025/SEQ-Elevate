@@ -3,6 +3,7 @@ import { createElement, type FC, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { NextIntlClientProvider } from "next-intl";
 import en from "@/messages/en.json";
+import de from "@/messages/de.json";
 import { StageBreadcrumb } from "./StageBreadcrumb";
 import type { Stage } from "@/data/course";
 
@@ -13,11 +14,14 @@ const IntlProvider = NextIntlClientProvider as FC<{
   children?: ReactNode;
 }>;
 
-function render(props: Parameters<typeof StageBreadcrumb>[0]): string {
+function render(
+  props: Parameters<typeof StageBreadcrumb>[0],
+  locale: "en" | "de" = "en"
+): string {
   return renderToStaticMarkup(
     createElement(
       IntlProvider,
-      { locale: "en", messages: en },
+      { locale, messages: locale === "en" ? en : de },
       createElement(StageBreadcrumb, props)
     )
   );
@@ -81,5 +85,28 @@ describe("StageBreadcrumb", () => {
       })
     );
     expect(got.every((s) => !s.disabled)).toBe(true);
+  });
+
+  // On a phone the step names don't show; they must still name the
+  // buttons, or a finished step (a tick) is announced as just "button".
+  it("keeps each step's name for screen readers when it doesn't show", () => {
+    const html = render({ current: "concept", completed: ["context"] });
+    expect(html).not.toMatch(/class="hidden sm:inline"/);
+    expect(html).toContain('<span class="sr-only sm:not-sr-only">Context</span>');
+  });
+
+  it("names the steps in the page's language", () => {
+    expect(render({ current: "context", completed: [] }, "de")).toContain(
+      'aria-label="Kursschritte"'
+    );
+  });
+
+  // White on the lime was 1.5:1; the step's own text colour reads on it.
+  it("shows the current step's number in the step's own text colour", () => {
+    const html = render({ current: "concept", completed: ["context"] });
+    const current = html.match(/<button[^>]*aria-current="step"[^>]*>(.*?)<\/button>/)?.[1];
+    expect(current).toBeTruthy();
+    expect(current).not.toContain("text-white");
+    expect(current).toContain("text-[var(--primary-foreground)]");
   });
 });

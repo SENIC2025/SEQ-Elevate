@@ -25,10 +25,11 @@ export function StageBreadcrumb({
   allReachable?: boolean;
 }) {
   const t = useTranslations("course.stageLabel");
+  const tCourse = useTranslations("course");
   const currentIndex = stages.indexOf(current);
 
   return (
-    <nav aria-label="Course stages" className="w-full overflow-x-auto">
+    <nav aria-label={tCourse("stepsNav")} className="w-full overflow-x-auto">
       <ol className="flex items-center gap-1 min-w-max">
         {stages.map((stage, i) => {
           const isCurrent = stage === current;
@@ -67,8 +68,11 @@ export function StageBreadcrumb({
                 <span
                   className={cn(
                     "flex h-5 w-5 items-center justify-center rounded-full text-[10px]",
+                    // The step's own text colour: white on the lime was
+                    // 1.5:1 (dark text on it reads at 6.3:1, white on the
+                    // high-contrast olive at 5.1:1).
                     isCurrent
-                      ? "bg-white/20 text-white"
+                      ? "bg-[var(--primary-foreground)]/15 text-[var(--primary-foreground)]"
                       : isDone
                         ? "bg-[var(--primary)] text-[var(--primary-foreground)]"
                         : "bg-[var(--surface)] border border-[var(--border)] text-[var(--muted-foreground)]"
@@ -76,7 +80,9 @@ export function StageBreadcrumb({
                 >
                   {isDone ? <Check className="h-3 w-3" /> : i + 1}
                 </span>
-                <span className="hidden sm:inline">{t(stage)}</span>
+                {/* Hidden on a phone but still the button's name: a
+                    finished step shows only a tick. */}
+                <span className="sr-only sm:not-sr-only">{t(stage)}</span>
               </button>
               {i < stages.length - 1 ? (
                 <span
