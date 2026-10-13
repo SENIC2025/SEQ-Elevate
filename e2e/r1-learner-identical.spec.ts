@@ -18,6 +18,11 @@ import path from "node:path";
  * 1 must match it exactly — also after an editor renames the steps, which
  * learners only see from Release 2.
  *
+ * Phase 2 (Release 1 only) stores the course's lesson list with every step
+ * renamed in English and German, directly through Prisma, and walks it
+ * again against the same baseline: learners keep the standard names until
+ * Release 2.
+ *
  * Requires a real database — gated on E2E_DB=1, like db-backed-progress.
  * The course has a fixed slug and is rebuilt at the start; everything it
  * creates is removed afterwards.
@@ -41,7 +46,9 @@ const RUN = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}
 const LEARNER = `e2e-r1-identical-learner-${RUN}@example.com`;
 const LEARNER_DE = `e2e-r1-identical-learner-de-${RUN}@example.com`;
 const LEARNER_BUILT_IN = `e2e-r1-identical-builtin-${RUN}@example.com`;
-const EMAILS = [LEARNER, LEARNER_DE, LEARNER_BUILT_IN];
+const LEARNER_NAMED = `e2e-r1-identical-named-${RUN}@example.com`;
+const LEARNER_NAMED_DE = `e2e-r1-identical-named-de-${RUN}@example.com`;
+const EMAILS = [LEARNER, LEARNER_DE, LEARNER_BUILT_IN, LEARNER_NAMED, LEARNER_NAMED_DE];
 
 const BASELINE_FILE = path.resolve("e2e/fixtures/r1-learner-baseline.json");
 
@@ -210,6 +217,51 @@ async function seedCourse() {
       });
     }
   }
+}
+
+/*
+ * Phase 2 (addendum 6): the course with its lesson list stored as an editor
+ * leaves it after renaming every step in English and German — the seven
+ * standard lessons in the standard order, so still the standard layout.
+ * Learners see the standard names until Release 2, so the walk must match
+ * the same Release 0 baseline.
+ */
+const STANDARD_IDS = [
+  "context",
+  "concept",
+  "behaviour",
+  "simulation",
+  "scenario",
+  "reflection",
+  "assessment",
+] as const;
+const NAMED_OUTLINE = {
+  v: 1,
+  sections: STANDARD_IDS.map((id, i) => ({
+    id,
+    template: id,
+    label: { en: `Our step ${i + 1}`, de: `Unser Schritt ${i + 1}` },
+  })),
+};
+
+async function nameEveryStep() {
+  await prisma.course.update({
+    where: { projectId_slug: { projectId: PROJECT, slug: SLUG } },
+    data: { outline: NAMED_OUTLINE as Prisma.InputJsonValue },
+  });
+}
+
+/** What a learner's progress holds: Release 0's stage keys only. */
+async function stagesCompletedOf(userId: string): Promise<string[]> {
+  const course = await prisma.course.findFirstOrThrow({
+    where: { projectId: PROJECT, slug: SLUG },
+    select: { id: true },
+  });
+  const enrolment = await prisma.courseEnrollment.findUnique({
+    where: { userId_courseId: { userId, courseId: course.id } },
+    select: { stagesCompleted: true },
+  });
+  return enrolment?.stagesCompleted ?? [];
 }
 
 async function cleanCourse() {
@@ -403,5 +455,30 @@ describe("Release 1 — standard-layout courses are unchanged for learners", () 
     const { sessionToken } = await learner(LEARNER_BUILT_IN);
     await useSession(context, sessionToken);
     await walkBuiltIn(page, "builtin");
+  });
+
+  // Phase 2 compares with the baseline Release 0 recorded; recording it
+  // (on Release 0, which has no Course.outline) runs phase 1 only.
+  test("phase 2 — with every step renamed in English and German, still as on Release 0", async ({
+    page,
+    context,
+  }) => {
+    test.skip(RECORD, "phase 2 only compares; the baseline comes from phase 1 on Release 0");
+    await nameEveryStep();
+
+    const en = await learner(LEARNER_NAMED);
+    await useSession(context, en.sessionToken);
+    await walkCreated(page, "en", "created");
+
+    const de = await learner(LEARNER_NAMED_DE);
+    await useSession(context, de.sessionToken);
+    await walkCreated(page, "de", "created");
+
+    // Progress was saved, in Release 0's stage keys only.
+    for (const userId of [en.userId, de.userId]) {
+      const done = await stagesCompletedOf(userId);
+      expect(done.length).toBeGreaterThan(0);
+      expect(done.every((k) => (STANDARD_IDS as readonly string[]).includes(k))).toBe(true);
+    }
   });
 });
