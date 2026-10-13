@@ -203,6 +203,44 @@ export interface StructureIssue {
   >;
 }
 
+/** The reasons that are about one text box (not about the whole exercise). */
+const FIELD_ISSUES: ReadonlySet<StructureIssueCode> = new Set<StructureIssueCode>([
+  "simPrompt",
+  "simOptionText",
+  "scenarioSetup",
+  "scenarioQuestion",
+  "scenarioFollowupQuestion",
+  "scenarioChoiceText",
+  "scenarioChoiceOutcome",
+  "scenarioFollowupText",
+  "scenarioFollowupOutcome",
+  "assessmentQuestionText",
+  "assessmentAnswerText",
+]);
+
+const PLACES = ["option", "choice", "followup", "question", "answer"] as const;
+
+/**
+ * A key for one text box in the editor: the reason's code plus where it is.
+ * The editor gives each box the key of the reason that would name it, so a
+ * refused save can mark exactly those boxes as invalid and each reason can
+ * take the author to its box. Letters, digits and "-" only, so it can be
+ * part of an element id.
+ */
+export function fieldKey(
+  code: StructureIssueCode,
+  params: StructureIssue["params"] = {}
+): string {
+  return [code, ...PLACES.flatMap((p) => (params[p] ? [`${p}${params[p]}`] : []))].join(
+    "-"
+  );
+}
+
+/** The text box a reason is about, or null when it is about no single box. */
+export function issueField(issue: StructureIssue): string | null {
+  return FIELD_ISSUES.has(issue.code) ? fieldKey(issue.code, issue.params) : null;
+}
+
 /**
  * Has this text been written in at least one language? A box that once held
  * text and was emptied is stored as "" (or spaces), which must count as

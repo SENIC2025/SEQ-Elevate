@@ -6,6 +6,8 @@ import {
   resolveAssessment,
   resolveStructure,
   validateStructure,
+  issueField,
+  fieldKey,
   type StoredSimulation,
   type StoredScenario,
   type StoredAssessment,
@@ -240,5 +242,55 @@ describe("validateStructure", () => {
     expect(validateStructure(blankAnswer)).toEqual([
       { code: "assessmentAnswerText", params: { question: 1, answer: 2 } },
     ]);
+  });
+});
+
+describe("issueField", () => {
+  // Everything blank: a reason for every field, plus "too few" / "which is
+  // correct" reasons that are about no single box.
+  const blank: StoredScenario = {
+    kind: "scenario",
+    setup: {},
+    question: {},
+    followupQuestion: {},
+    choices: [
+      {
+        id: "c1",
+        quality: "best",
+        text: {},
+        outcome: {},
+        followups: [
+          { id: "f1", quality: "okay", text: {}, outcome: {} },
+          { id: "f2", quality: "poor", text: {}, outcome: {} },
+        ],
+      },
+      { id: "c2", quality: "poor", text: {}, outcome: {}, followups: [] },
+    ],
+  };
+
+  it("names a different box for every reason about one box", () => {
+    const fields = validateStructure(blank).map(issueField);
+    expect(fields.every((f) => f !== null)).toBe(true);
+    expect(new Set(fields).size).toBe(fields.length);
+    // Safe inside an element id, so the editor can mark and focus the box.
+    for (const f of fields) expect(f).toMatch(/^[A-Za-z0-9-]+$/);
+  });
+
+  it("matches the key the editor gives that box", () => {
+    const issues = validateStructure(blank);
+    expect(issues.map(issueField)).toContain(
+      fieldKey("scenarioFollowupOutcome", { choice: 1, followup: 2 })
+    );
+    expect(issues.map(issueField)).toContain(fieldKey("scenarioChoiceText", { choice: 2 }));
+    expect(fieldKey("scenarioFollowupText", { followup: 1, choice: 2 })).toBe(
+      fieldKey("scenarioFollowupText", { choice: 2, followup: 1 })
+    );
+  });
+
+  it("names no box for reasons about the whole exercise", () => {
+    expect(issueField({ code: "scenarioChoicesTooFew" })).toBeNull();
+    expect(issueField({ code: "simBestCount" })).toBeNull();
+    expect(issueField({ code: "assessmentCorrect", params: { question: 1 } })).toBeNull();
+    expect(issueField({ code: "assessmentAnswersTooFew", params: { question: 1 } })).toBeNull();
   });
 });

@@ -15,6 +15,8 @@ import {
 } from "@/app/actions/structure";
 import {
   validateStructure,
+  fieldKey,
+  issueField,
   type StoredStructure,
   type StoredSimulation,
   type StoredScenario,
@@ -46,7 +48,7 @@ import {
 const QUALITIES: OutcomeQuality[] = ["best", "okay", "poor"];
 
 const inputCls =
-  "w-full rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm";
+  "w-full rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm aria-invalid:border-[var(--danger)]";
 
 let idSeq = 0;
 const newId = (p: string) => `${p}${(idSeq++).toString(36)}${Date.now().toString(36).slice(-3)}`;
@@ -138,6 +140,23 @@ type Status =
   | "removed"
   | "error";
 
+/**
+ * What the text boxes below need to know about the reasons listed above:
+ * `idFor` gives each box (by its fieldKey) a stable element id, so a reason
+ * can take the author to its box; `refused` maps each box a refused
+ * "Save stage" named to the id of that reason, so the box is announced as
+ * invalid, with the reason as its description.
+ */
+interface FieldIssues {
+  idFor: (field: string) => string;
+  refused: ReadonlyMap<string, string>;
+}
+
+const FieldIssuesContext = React.createContext<FieldIssues>({
+  idFor: (field) => field,
+  refused: new Map(),
+});
+
 type WriteError =
   | "forbidden"
   | "bad-input"
@@ -189,6 +208,8 @@ export function StructureAuthor({
 }) {
   const t = useTranslations("exerciseEditor");
   const headingId = React.useId();
+  // Element ids for the text boxes and for the reasons a save was refused.
+  const fieldsId = React.useId();
   const headingRef = React.useRef<HTMLHeadingElement>(null);
   const notReadyRef = React.useRef<HTMLParagraphElement>(null);
   // The stage plus the (course, stage) it belongs to, as one unit. Deriving
@@ -272,6 +293,19 @@ export function StructureAuthor({
 
   const issueText = (issue: StructureIssue) =>
     t(`issues.${issue.code}`, issue.params ?? {});
+
+  const refusedId = React.useCallback(
+    (i: number) => `${fieldsId}-refused-${i}`,
+    [fieldsId]
+  );
+  const fieldIssues = React.useMemo<FieldIssues>(() => {
+    const refused = new Map<string, string>();
+    notReady.forEach((issue, i) => {
+      const field = issueField(issue);
+      if (field && !refused.has(field)) refused.set(field, refusedId(i));
+    });
+    return { idFor: (field) => `${fieldsId}-field-${field}`, refused };
+  }, [notReady, fieldsId, refusedId]);
 
   function writeError(code: WriteError | "changed-elsewhere" | "generic") {
     if (code === "changed-elsewhere") {
@@ -490,7 +524,12 @@ export function StructureAuthor({
               <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" aria-hidden />
               {t("missing.notReady")}
             </p>
-            <IssueList issues={notReady} text={issueText} />
+            <IssueList
+              issues={notReady}
+              text={issueText}
+              idFor={fieldIssues.idFor}
+              itemId={refusedId}
+            />
             <p className="mt-1 ml-6 text-xs text-[var(--muted-foreground)]">
               {t("missing.oneLanguage")}
             </p>
@@ -507,7 +546,7 @@ export function StructureAuthor({
               />
               {t("missing.title")}
             </p>
-            <IssueList issues={missing} text={issueText} />
+            <IssueList issues={missing} text={issueText} idFor={fieldIssues.idFor} />
             <p className="mt-1 ml-6 text-xs text-[var(--muted-foreground)]">
               {t("missing.oneLanguage")}
             </p>
@@ -515,7 +554,7 @@ export function StructureAuthor({
         ) : null}
 
         {edit ? (
-          <>
+          <FieldIssuesContext.Provider value={fieldIssues}>
             {edit.kind === "simulation" ? (
               <SimulationEditor value={edit} locale={locale} onChange={setEdit} />
             ) : edit.kind === "scenario" ? (
@@ -523,7 +562,7 @@ export function StructureAuthor({
             ) : (
               <AssessmentEditor value={edit} locale={locale} onChange={setEdit} />
             )}
-          </>
+          </FieldIssuesContext.Provider>
         ) : loadFailed ? (
           <p className="text-sm text-[var(--danger)]" role="alert">
             {t("errors.load")}
@@ -621,18 +660,43 @@ export function DraftBadge({ label }: { label: string }) {
   );
 }
 
+/**
+ * The reasons, each naming its box. A reason about one box is a button that
+ * takes the author there, so it can be reached by keyboard or voice from
+ * the list rather than by counting identical boxes.
+ */
 function IssueList({
   issues,
   text,
+  idFor,
+  itemId,
 }: {
   issues: StructureIssue[];
   text: (issue: StructureIssue) => string;
+  idFor: (field: string) => string;
+  /** Ids for the items, when boxes refer to them as their description. */
+  itemId?: (i: number) => string;
 }) {
   return (
     <ul className="mt-1 ml-6 list-disc text-sm text-[var(--foreground)] break-words">
-      {issues.map((issue, i) => (
-        <li key={i}>{text(issue)}</li>
-      ))}
+      {issues.map((issue, i) => {
+        const field = issueField(issue);
+        return (
+          <li key={i} id={itemId?.(i)}>
+            {field ? (
+              <button
+                type="button"
+                onClick={() => document.getElementById(idFor(field))?.focus()}
+                className="py-0.5 text-left underline underline-offset-2 hover:text-[var(--accent)]"
+              >
+                {text(issue)}
+              </button>
+            ) : (
+              text(issue)
+            )}
+          </li>
+        );
+      })}
     </ul>
   );
 }
@@ -647,6 +711,8 @@ function LocField({
   textarea,
   placeholder,
   maxLength = STRUCTURE_LIMITS.maxTextChars,
+  field,
+  context,
 }: {
   label: string;
   map: LocalizedText;
@@ -656,13 +722,34 @@ function LocField({
   placeholder?: string;
   /** The server's limit (STRUCTURE_LIMITS): the box stops there. */
   maxLength?: number;
+  /** The fieldKey of the reason that would name this box, if any. */
+  field?: string;
+  /**
+   * The id of the caption this box belongs to ("Choice 2"), so its name
+   * says which one it is: "Choice 2 Choice text", not one of several
+   * identical "Choice text" boxes.
+   */
+  context?: string;
 }) {
+  const { idFor, refused } = React.useContext(FieldIssuesContext);
+  const labelId = React.useId();
   const val = map[locale] ?? "";
+  // The reason a refused save gave for this box, read out as its description.
+  const reasonId = field ? refused.get(field) : undefined;
+  const a11y = {
+    id: field ? idFor(field) : undefined,
+    "aria-labelledby": context ? `${context} ${labelId}` : undefined,
+    "aria-invalid": reasonId ? true : undefined,
+    "aria-describedby": reasonId,
+  };
   return (
     <label className="block text-xs text-[var(--muted-foreground)]">
-      <span className="block mb-1">{label}</span>
+      <span id={labelId} className="block mb-1">
+        {label}
+      </span>
       {textarea ? (
         <textarea
+          {...a11y}
           value={val}
           onChange={(e) => onChange(setLoc(map, locale, e.target.value))}
           placeholder={placeholder}
@@ -672,6 +759,7 @@ function LocField({
         />
       ) : (
         <input
+          {...a11y}
           value={val}
           onChange={(e) => onChange(setLoc(map, locale, e.target.value))}
           placeholder={placeholder}
@@ -695,6 +783,7 @@ function SimulationEditor({
   onChange: (s: StoredSimulation) => void;
 }) {
   const t = useTranslations("exerciseEditor");
+  const captions = React.useId();
   const set = (patch: Partial<StoredSimulation>) =>
     onChange({ ...value, ...patch });
 
@@ -714,6 +803,7 @@ function SimulationEditor({
         locale={locale}
         onChange={(m) => set({ prompt: m })}
         textarea
+        field={fieldKey("simPrompt")}
       />
       <LocField
         label={t("fields.instruction")}
@@ -727,78 +817,86 @@ function SimulationEditor({
         {t("simulation.optionsHint")}
       </p>
       <ul className="space-y-2">
-        {value.options.map((o, i) => (
-          <li
-            key={o.id}
-            className="rounded-lg border border-[var(--border)] p-3 space-y-2"
-          >
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() =>
-                  set({
-                    options: value.options.map((x) => ({
-                      ...x,
-                      isBest: x.id === o.id,
-                    })),
-                  })
-                }
-                aria-pressed={o.isBest}
-                aria-label={t("simulation.markBest", { n: i + 1 })}
-                className={`rounded-md p-1 ${
-                  o.isBest
-                    ? "text-[var(--accent)]"
-                    : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
-                }`}
-              >
-                <Star
-                  className="h-4 w-4"
-                  fill={o.isBest ? "currentColor" : "none"}
-                />
-              </button>
-              <span className="text-[11px] text-[var(--muted-foreground)]">
-                {t("simulation.option", { n: i + 1 })}
-                {o.isBest ? ` · ${t("simulation.best")}` : ""}
-              </span>
-              {value.options.length > 2 ? (
-                <button
-                  type="button"
-                  onClick={() =>
-                    set({ options: value.options.filter((x) => x.id !== o.id) })
+        {value.options.map((o, i) => {
+          const caption = `${captions}-option-${i}`;
+          return (
+            <li
+              key={o.id}
+              className="rounded-lg border border-[var(--border)] p-3"
+            >
+              <div role="group" aria-labelledby={caption} className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      set({
+                        options: value.options.map((x) => ({
+                          ...x,
+                          isBest: x.id === o.id,
+                        })),
+                      })
+                    }
+                    aria-pressed={o.isBest}
+                    aria-label={t("simulation.markBest", { n: i + 1 })}
+                    className={`rounded-md p-1 ${
+                      o.isBest
+                        ? "text-[var(--accent)]"
+                        : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+                    }`}
+                  >
+                    <Star
+                      className="h-4 w-4"
+                      fill={o.isBest ? "currentColor" : "none"}
+                    />
+                  </button>
+                  <span className="text-[11px] text-[var(--muted-foreground)]">
+                    <span id={caption}>{t("simulation.option", { n: i + 1 })}</span>
+                    {o.isBest ? ` · ${t("simulation.best")}` : ""}
+                  </span>
+                  {value.options.length > 2 ? (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        set({ options: value.options.filter((x) => x.id !== o.id) })
+                      }
+                      aria-label={t("simulation.removeOption", { n: i + 1 })}
+                      className="ml-auto rounded-md p-1 text-[var(--muted-foreground)] hover:text-[var(--danger)]"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  ) : null}
+                </div>
+                <LocField
+                  label={t("fields.optionText")}
+                  field={fieldKey("simOptionText", { option: i + 1 })}
+                  context={caption}
+                  map={o.text}
+                  locale={locale}
+                  onChange={(m) =>
+                    set({
+                      options: value.options.map((x) =>
+                        x.id === o.id ? { ...x, text: m } : x
+                      ),
+                    })
                   }
-                  aria-label={t("simulation.removeOption", { n: i + 1 })}
-                  className="ml-auto rounded-md p-1 text-[var(--muted-foreground)] hover:text-[var(--danger)]"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </button>
-              ) : null}
-            </div>
-            <LocField
-              label={t("fields.optionText")}
-              map={o.text}
-              locale={locale}
-              onChange={(m) =>
-                set({
-                  options: value.options.map((x) =>
-                    x.id === o.id ? { ...x, text: m } : x
-                  ),
-                })
-              }
-            />
-            <LocField
-              label={t("fields.feedback")}
-              map={o.feedback}
-              locale={locale}
-              onChange={(m) =>
-                set({
-                  options: value.options.map((x) =>
-                    x.id === o.id ? { ...x, feedback: m } : x
-                  ),
-                })
-              }
-            />
-          </li>
-        ))}
+                />
+                <LocField
+                  label={t("fields.feedback")}
+                  context={caption}
+                  map={o.feedback}
+                  locale={locale}
+                  onChange={(m) =>
+                    set({
+                      options: value.options.map((x) =>
+                        x.id === o.id ? { ...x, feedback: m } : x
+                      ),
+                    })
+                  }
+                />
+              </div>
+            </li>
+          );
+        })}
       </ul>
       {value.options.length < STRUCTURE_LIMITS.maxOptions ? (
         <Button
@@ -860,6 +958,7 @@ function ScenarioEditor({
   onChange: (s: StoredScenario) => void;
 }) {
   const t = useTranslations("exerciseEditor");
+  const captions = React.useId();
   const set = (patch: Partial<StoredScenario>) => onChange({ ...value, ...patch });
   const setChoice = (id: string, patch: Partial<StoredScenarioChoice>) =>
     set({
@@ -882,147 +981,173 @@ function ScenarioEditor({
         locale={locale}
         onChange={(m) => set({ setup: m })}
         textarea
+        field={fieldKey("scenarioSetup")}
       />
       <LocField
         label={t("fields.firstQuestion")}
         map={value.question}
         locale={locale}
         onChange={(m) => set({ question: m })}
+        field={fieldKey("scenarioQuestion")}
       />
       <LocField
         label={t("fields.followupQuestion")}
         map={value.followupQuestion}
         locale={locale}
         onChange={(m) => set({ followupQuestion: m })}
+        field={fieldKey("scenarioFollowupQuestion")}
       />
 
       <p className="text-xs font-medium text-[var(--foreground)] pt-1">
         {t("scenario.choicesHint")}
       </p>
       <ul className="space-y-2">
-        {value.choices.map((c, i) => (
-          <li
-            key={c.id}
-            className="rounded-lg border border-[var(--border)] p-3 space-y-2"
-          >
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-[11px] text-[var(--muted-foreground)]">
-                {t("scenario.choice", { n: i + 1 })}
-              </span>
-              <QualitySelect
-                value={c.quality}
-                onChange={(q) => setChoice(c.id, { quality: q })}
-              />
-              {value.choices.length > 2 ? (
-                <button
-                  type="button"
-                  onClick={() =>
-                    set({ choices: value.choices.filter((x) => x.id !== c.id) })
-                  }
-                  aria-label={t("scenario.removeChoice", { n: i + 1 })}
-                  className="ml-auto rounded-md p-1 text-[var(--muted-foreground)] hover:text-[var(--danger)]"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </button>
-              ) : null}
-            </div>
-            <LocField
-              label={t("fields.choiceText")}
-              map={c.text}
-              locale={locale}
-              onChange={(m) => setChoice(c.id, { text: m })}
-            />
-            <LocField
-              label={t("fields.outcome")}
-              map={c.outcome}
-              locale={locale}
-              onChange={(m) => setChoice(c.id, { outcome: m })}
-              textarea
-            />
+        {value.choices.map((c, i) => {
+          const caption = `${captions}-choice-${i}`;
+          const choice = i + 1;
+          return (
+            <li
+              key={c.id}
+              className="rounded-lg border border-[var(--border)] p-3"
+            >
+              <div role="group" aria-labelledby={caption} className="space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span id={caption} className="text-[11px] text-[var(--muted-foreground)]">
+                    {t("scenario.choice", { n: choice })}
+                  </span>
+                  <QualitySelect
+                    value={c.quality}
+                    onChange={(q) => setChoice(c.id, { quality: q })}
+                  />
+                  {value.choices.length > 2 ? (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        set({ choices: value.choices.filter((x) => x.id !== c.id) })
+                      }
+                      aria-label={t("scenario.removeChoice", { n: i + 1 })}
+                      className="ml-auto rounded-md p-1 text-[var(--muted-foreground)] hover:text-[var(--danger)]"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  ) : null}
+                </div>
+                <LocField
+                  label={t("fields.choiceText")}
+                  field={fieldKey("scenarioChoiceText", { choice })}
+                  context={caption}
+                  map={c.text}
+                  locale={locale}
+                  onChange={(m) => setChoice(c.id, { text: m })}
+                />
+                <LocField
+                  label={t("fields.outcome")}
+                  field={fieldKey("scenarioChoiceOutcome", { choice })}
+                  context={caption}
+                  map={c.outcome}
+                  locale={locale}
+                  onChange={(m) => setChoice(c.id, { outcome: m })}
+                  textarea
+                />
 
-            {/* Follow-ups */}
-            <div className="ml-3 border-l border-[var(--border)] pl-3 space-y-2">
-              {(c.followups ?? []).map((f, j) => {
-                const at = { choice: i + 1, followup: j + 1 };
-                return (
-                  <div key={f.id} className="space-y-2">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-[11px] text-[var(--muted-foreground)]">
-                        {t("scenario.followup", at)}
-                      </span>
-                      <QualitySelect
-                        value={f.quality}
-                        onChange={(q) =>
-                          setChoice(c.id, {
-                            followups: (c.followups ?? []).map((x) =>
-                              x.id === f.id ? { ...x, quality: q } : x
-                            ),
-                          })
-                        }
-                      />
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setChoice(c.id, {
-                            followups: (c.followups ?? []).filter(
-                              (x) => x.id !== f.id
-                            ),
-                          })
-                        }
-                        aria-label={t("scenario.removeFollowup", at)}
-                        className="ml-auto rounded-md p-1 text-[var(--muted-foreground)] hover:text-[var(--danger)]"
+                {/* Follow-ups */}
+                <div className="ml-3 border-l border-[var(--border)] pl-3 space-y-2">
+                  {(c.followups ?? []).map((f, j) => {
+                    const at = { choice, followup: j + 1 };
+                    const followupCaption = `${caption}-followup-${j}`;
+                    return (
+                      <div
+                        key={f.id}
+                        role="group"
+                        aria-labelledby={followupCaption}
+                        className="space-y-2"
                       >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </div>
-                    <LocField
-                      label={t("fields.followupText")}
-                      map={f.text}
-                      locale={locale}
-                      onChange={(m) =>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span
+                            id={followupCaption}
+                            className="text-[11px] text-[var(--muted-foreground)]"
+                          >
+                            {t("scenario.followup", at)}
+                          </span>
+                          <QualitySelect
+                            value={f.quality}
+                            onChange={(q) =>
+                              setChoice(c.id, {
+                                followups: (c.followups ?? []).map((x) =>
+                                  x.id === f.id ? { ...x, quality: q } : x
+                                ),
+                              })
+                            }
+                          />
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setChoice(c.id, {
+                                followups: (c.followups ?? []).filter(
+                                  (x) => x.id !== f.id
+                                ),
+                              })
+                            }
+                            aria-label={t("scenario.removeFollowup", at)}
+                            className="ml-auto rounded-md p-1 text-[var(--muted-foreground)] hover:text-[var(--danger)]"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                        <LocField
+                          label={t("fields.followupText")}
+                          field={fieldKey("scenarioFollowupText", at)}
+                          context={followupCaption}
+                          map={f.text}
+                          locale={locale}
+                          onChange={(m) =>
+                            setChoice(c.id, {
+                              followups: (c.followups ?? []).map((x) =>
+                                x.id === f.id ? { ...x, text: m } : x
+                              ),
+                            })
+                          }
+                        />
+                        <LocField
+                          label={t("fields.followupOutcome")}
+                          field={fieldKey("scenarioFollowupOutcome", at)}
+                          context={followupCaption}
+                          map={f.outcome}
+                          locale={locale}
+                          onChange={(m) =>
+                            setChoice(c.id, {
+                              followups: (c.followups ?? []).map((x) =>
+                                x.id === f.id ? { ...x, outcome: m } : x
+                              ),
+                            })
+                          }
+                          textarea
+                        />
+                      </div>
+                    );
+                  })}
+                  {(c.followups ?? []).length < STRUCTURE_LIMITS.maxFollowups ? (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() =>
                         setChoice(c.id, {
-                          followups: (c.followups ?? []).map((x) =>
-                            x.id === f.id ? { ...x, text: m } : x
-                          ),
+                          followups: [
+                            ...(c.followups ?? []),
+                            { id: newId("f"), quality: "okay", text: {}, outcome: {} },
+                          ],
                         })
                       }
-                    />
-                    <LocField
-                      label={t("fields.followupOutcome")}
-                      map={f.outcome}
-                      locale={locale}
-                      onChange={(m) =>
-                        setChoice(c.id, {
-                          followups: (c.followups ?? []).map((x) =>
-                            x.id === f.id ? { ...x, outcome: m } : x
-                          ),
-                        })
-                      }
-                      textarea
-                    />
-                  </div>
-                );
-              })}
-              {(c.followups ?? []).length < STRUCTURE_LIMITS.maxFollowups ? (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() =>
-                    setChoice(c.id, {
-                      followups: [
-                        ...(c.followups ?? []),
-                        { id: newId("f"), quality: "okay", text: {}, outcome: {} },
-                      ],
-                    })
-                  }
-                >
-                  <Plus className="h-4 w-4" />
-                  {t("scenario.addFollowup")}
-                </Button>
-              ) : null}
-            </div>
-          </li>
-        ))}
+                    >
+                      <Plus className="h-4 w-4" />
+                      {t("scenario.addFollowup")}
+                    </Button>
+                  ) : null}
+                </div>
+              </div>
+            </li>
+          );
+        })}
       </ul>
       {value.choices.length < STRUCTURE_LIMITS.maxChoices ? (
         <Button
@@ -1061,6 +1186,7 @@ function AssessmentEditor({
   // Radio group names from useId, not the question ids: a new question's id
   // is random, and would differ between the server and the browser.
   const group = React.useId();
+  const captions = React.useId();
 
   return (
     <div className="space-y-3">
@@ -1080,125 +1206,135 @@ function AssessmentEditor({
       />
 
       <ul className="space-y-2">
-        {value.questions.map((q, i) => (
-          <li
-            key={q.id}
-            className="rounded-lg border border-[var(--border)] p-3 space-y-2"
-          >
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] text-[var(--muted-foreground)]">
-                {t("assessment.question", { n: i + 1 })}
-              </span>
-              {value.questions.length > 1 ? (
-                <button
-                  type="button"
-                  onClick={() =>
-                    set({
-                      questions: value.questions.filter((x) => x.id !== q.id),
-                    })
-                  }
-                  aria-label={t("assessment.removeQuestion", { n: i + 1 })}
-                  className="ml-auto rounded-md p-1 text-[var(--muted-foreground)] hover:text-[var(--danger)]"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </button>
-              ) : null}
-            </div>
-            <LocField
-              label={t("fields.question")}
-              map={q.question}
-              locale={locale}
-              onChange={(m) =>
-                set({
-                  questions: value.questions.map((x) =>
-                    x.id === q.id ? { ...x, question: m } : x
-                  ),
-                })
-              }
-            />
-            <p className="text-[11px] text-[var(--muted-foreground)]">
-              {t("assessment.answersHint")}
-            </p>
-            {q.options.map((a, j) => (
-              <div key={a.id} className="flex items-start gap-2">
-                <input
-                  type="radio"
-                  name={`${group}-correct-${i}`}
-                  checked={q.correctOptionId === a.id}
-                  onChange={() =>
+        {value.questions.map((q, i) => {
+          const caption = `${captions}-question-${i}`;
+          const question = i + 1;
+          return (
+            <li
+              key={q.id}
+              className="rounded-lg border border-[var(--border)] p-3"
+            >
+              <div role="group" aria-labelledby={caption} className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <span id={caption} className="text-[11px] text-[var(--muted-foreground)]">
+                    {t("assessment.question", { n: question })}
+                  </span>
+                  {value.questions.length > 1 ? (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        set({
+                          questions: value.questions.filter((x) => x.id !== q.id),
+                        })
+                      }
+                      aria-label={t("assessment.removeQuestion", { n: i + 1 })}
+                      className="ml-auto rounded-md p-1 text-[var(--muted-foreground)] hover:text-[var(--danger)]"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  ) : null}
+                </div>
+                <LocField
+                  label={t("fields.question")}
+                  field={fieldKey("assessmentQuestionText", { question })}
+                  context={caption}
+                  map={q.question}
+                  locale={locale}
+                  onChange={(m) =>
                     set({
                       questions: value.questions.map((x) =>
-                        x.id === q.id ? { ...x, correctOptionId: a.id } : x
+                        x.id === q.id ? { ...x, question: m } : x
                       ),
                     })
                   }
-                  aria-label={t("assessment.isCorrect", { n: j + 1 })}
-                  className="mt-2.5"
                 />
-                <div className="flex-1 min-w-0">
-                  <LocField
-                    label={t("fields.answer", { n: j + 1 })}
-                    map={a.text}
-                    locale={locale}
-                    onChange={(m) =>
-                      set({
-                        questions: value.questions.map((x) =>
-                          x.id === q.id
-                            ? {
-                                ...x,
-                                options: x.options.map((y) =>
-                                  y.id === a.id ? { ...y, text: m } : y
-                                ),
-                              }
-                            : x
-                        ),
-                      })
-                    }
-                  />
-                </div>
-                {q.options.length > 2 ? (
-                  <button
-                    type="button"
+                <p className="text-[11px] text-[var(--muted-foreground)]">
+                  {t("assessment.answersHint")}
+                </p>
+                {q.options.map((a, j) => (
+                  <div key={a.id} className="flex items-start gap-2">
+                    <input
+                      type="radio"
+                      name={`${group}-correct-${i}`}
+                      checked={q.correctOptionId === a.id}
+                      onChange={() =>
+                        set({
+                          questions: value.questions.map((x) =>
+                            x.id === q.id ? { ...x, correctOptionId: a.id } : x
+                          ),
+                        })
+                      }
+                      aria-label={t("assessment.isCorrect", { n: j + 1 })}
+                      className="mt-2.5"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <LocField
+                        label={t("fields.answer", { n: j + 1 })}
+                        field={fieldKey("assessmentAnswerText", { question, answer: j + 1 })}
+                        context={caption}
+                        map={a.text}
+                        locale={locale}
+                        onChange={(m) =>
+                          set({
+                            questions: value.questions.map((x) =>
+                              x.id === q.id
+                                ? {
+                                    ...x,
+                                    options: x.options.map((y) =>
+                                      y.id === a.id ? { ...y, text: m } : y
+                                    ),
+                                  }
+                                : x
+                            ),
+                          })
+                        }
+                      />
+                    </div>
+                    {q.options.length > 2 ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          set({
+                            questions: value.questions.map((x) =>
+                              x.id === q.id
+                                ? {
+                                    ...x,
+                                    options: x.options.filter((y) => y.id !== a.id),
+                                  }
+                                : x
+                            ),
+                          })
+                        }
+                        aria-label={t("assessment.removeAnswer", { n: j + 1 })}
+                        className="mt-1 rounded-md p-1 text-[var(--muted-foreground)] hover:text-[var(--danger)]"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    ) : null}
+                  </div>
+                ))}
+                {q.options.length < STRUCTURE_LIMITS.maxAnswers ? (
+                  <Button
+                    size="sm"
+                    variant="ghost"
                     onClick={() =>
                       set({
                         questions: value.questions.map((x) =>
                           x.id === q.id
-                            ? {
-                                ...x,
-                                options: x.options.filter((y) => y.id !== a.id),
-                              }
+                            ? { ...x, options: [...x.options, { id: newId("a"), text: {} }] }
                             : x
                         ),
                       })
                     }
-                    aria-label={t("assessment.removeAnswer", { n: j + 1 })}
-                    className="mt-1 rounded-md p-1 text-[var(--muted-foreground)] hover:text-[var(--danger)]"
                   >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
+                    <Plus className="h-4 w-4" />
+                    {t("assessment.addAnswer")}
+                  </Button>
                 ) : null}
               </div>
-            ))}
-            {q.options.length < STRUCTURE_LIMITS.maxAnswers ? (
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() =>
-                  set({
-                    questions: value.questions.map((x) =>
-                      x.id === q.id
-                        ? { ...x, options: [...x.options, { id: newId("a"), text: {} }] }
-                        : x
-                    ),
-                  })
-                }
-              >
-                <Plus className="h-4 w-4" />
-                {t("assessment.addAnswer")}
-              </Button>
-            ) : null}
-          </li>
-        ))}
+            </li>
+          );
+        })}
       </ul>
       {value.questions.length < STRUCTURE_LIMITS.maxQuestions ? (
         <Button

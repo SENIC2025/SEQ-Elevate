@@ -149,7 +149,8 @@ describe("Release 0 — exercise drafts", () => {
 
     await panel.getByLabel(/^setup$/i).fill(SETUP);
     await panel.getByLabel(/^first question$/i).fill("What do you do?");
-    await panel.getByLabel(/^choice text$/i).nth(0).fill("Talk to them privately");
+    // Each repeated box is named by its place: "Choice 1 Choice text".
+    await panel.getByRole("textbox", { name: /^choice 1 choice text$/i }).fill("Talk to them privately");
 
     // Not complete: "Save stage" says exactly what is missing, and writes nothing.
     await panel.getByRole("button", { name: /^save stage$/i }).click();
@@ -157,6 +158,16 @@ describe("Release 0 — exercise drafts", () => {
     await expect(refused).toContainText(/not ready to save/i, { timeout: 15000 });
     await expect(refused).toContainText("Choice 1: write the outcome shown.");
     await expect(refused).toContainText("Choice 2: write the choice text.");
+    // The box it names is marked invalid, with the reason as its description,
+    // and the reason takes the author there.
+    const choice2 = panel.getByRole("textbox", { name: /^choice 2 choice text$/i });
+    await expect(choice2).toHaveAttribute("aria-invalid", "true");
+    await expect(choice2).toHaveAccessibleDescription("Choice 2: write the choice text.");
+    await expect(
+      panel.getByRole("textbox", { name: /^choice 1 choice text$/i })
+    ).not.toHaveAttribute("aria-invalid", "true");
+    await refused.getByRole("button", { name: "Choice 2: write the choice text." }).click();
+    await expect(choice2).toBeFocused();
     expect(
       await prisma.lesson.count({ where: { courseSlug: SLUG, stageKey: "scenario" } })
     ).toBe(0);
@@ -225,9 +236,9 @@ describe("Release 0 — exercise drafts", () => {
     const panel = await openScenario(page);
     await expect(panel.getByLabel(/^setup$/i)).toHaveValue(SETUP);
 
-    await panel.getByLabel(/^outcome shown$/i).nth(0).fill("They listen.");
-    await panel.getByLabel(/^choice text$/i).nth(1).fill("Snap back");
-    await panel.getByLabel(/^outcome shown$/i).nth(1).fill("It gets worse.");
+    await panel.getByRole("textbox", { name: /^choice 1 outcome shown$/i }).fill("They listen.");
+    await panel.getByRole("textbox", { name: /^choice 2 choice text$/i }).fill("Snap back");
+    await panel.getByRole("textbox", { name: /^choice 2 outcome shown$/i }).fill("It gets worse.");
     // A follow-up under choice 1, left blank: learners would be stuck there.
     await panel.getByRole("button", { name: /^add follow-up$/i }).first().click();
 
@@ -236,14 +247,21 @@ describe("Release 0 — exercise drafts", () => {
     await expect(refused).toContainText(/write the follow-up question/i, { timeout: 15000 });
     await expect(refused).toContainText("Follow-up 1.1: write the follow-up text.");
     await expect(refused).toContainText("Follow-up 1.1: write the follow-up outcome.");
+    await expect(
+      panel.getByRole("textbox", { name: /^follow-up 1\.1 follow-up outcome$/i })
+    ).toHaveAttribute("aria-invalid", "true");
     expect(
       (await prisma.lesson.findUnique({ where: lessonWhere("scenario") }))?.structure,
       "still nothing for learners"
     ).toBeNull();
 
     await panel.getByLabel(/^follow-up question$/i).fill("What next?");
-    await panel.getByLabel(/^follow-up text$/i).fill("Ask what happened");
-    await panel.getByLabel(/^follow-up outcome$/i).fill("You hear their side.");
+    await panel
+      .getByRole("textbox", { name: /^follow-up 1\.1 follow-up text$/i })
+      .fill("Ask what happened");
+    await panel
+      .getByRole("textbox", { name: /^follow-up 1\.1 follow-up outcome$/i })
+      .fill("You hear their side.");
     await panel.getByRole("button", { name: /^save stage$/i }).click();
     await expect(panel.getByText(/^saved$/i)).toBeVisible({ timeout: 15000 });
 
