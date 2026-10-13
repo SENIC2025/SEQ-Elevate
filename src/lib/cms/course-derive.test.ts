@@ -394,6 +394,18 @@ describe("publishReadiness", () => {
     );
     expect(issues).toEqual([{ level: "info", code: "no-interactive" }]);
   });
+
+  it("doesn't count a listed practice lesson with no exercise saved for learners", () => {
+    // A stored lesson list can hold the practice lesson before anything is
+    // saved in it (the full template, or "Add lesson" reusing the key).
+    const issues = publishReadiness(
+      outline([
+        lesson("concept", { en: 1, de: 1, el: 1 }),
+        lesson("simulation", {}, { body: "interactive", live: false }),
+      ])
+    );
+    expect(issues).toEqual([{ level: "info", code: "no-interactive" }]);
+  });
 });
 
 describe("offersAdd", () => {

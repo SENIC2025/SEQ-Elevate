@@ -472,7 +472,8 @@
       "scenario": "Verzweigtes Szenario",
       "quiz": "Schnellcheck",
       "reflectionRating": "Reflexion und Selbsteinschätzung"
-    }
+    },
+    "sectionNumbered": "Lektion {n}"
   },
   "coursePlayer": {
     "stepOf": "Schritt {current} von {total}",

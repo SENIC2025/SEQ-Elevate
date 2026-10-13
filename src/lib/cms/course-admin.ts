@@ -15,6 +15,7 @@ import "server-only";
  * course-derive.ts.
  */
 
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { viewerCanEditContent } from "@/lib/editor-gate";
 import { learnerUserWhere } from "@/lib/learner-scope";
@@ -28,6 +29,7 @@ import {
   metaHasText,
   narrativeHasText,
   pickMeta,
+  resolveNarrative,
   type CourseMeta,
   type NarrativeVersion,
 } from "./text-fallback";
@@ -38,6 +40,7 @@ import {
   languageCoverage,
   lastEdited,
   publishReadiness,
+  type LessonFacts,
 } from "./course-derive";
 import {
   CONTENT_LOCALES,
@@ -49,10 +52,40 @@ import {
   type NarrativeInitial,
 } from "./course-admin-types";
 import { introFromBlocks } from "@/lib/rich-text/narrative";
-import { mainKindOf } from "./sections/contract";
+import {
+  INTERACTIVE_KEYS,
+  SECTION_LIMITS,
+  mainKindOf,
+  type MainKind,
+  type ResolvedOutline,
+  type ResolvedSection,
+  type SectionFacts,
+  type SectionStage,
+  type SectionsMeta,
+  type SectionView,
+} from "./sections/contract";
+import { newOnlyReasons } from "./sections/guard";
+import {
+  canonicalInsertIndex,
+  freeInteractiveKeys,
+  labelVersion,
+  outlineVersion,
+  resolveOutline,
+} from "./sections/outline";
+import { previewDefaults } from "./sections/defaults";
+import { nameSection, standardName } from "./sections/names";
+import { resolveSectionStage } from "./sections/resolve";
+import { sectionContentVersion } from "./sections/versions";
+import {
+  deleteSummary,
+  hasExtraOrUnreadable,
+  partsView,
+  sectionTitle,
+} from "./sections/views";
 import type {
   CourseContent,
   CourseStage,
+  LessonDocumentRef,
   Locale,
   StageKey,
   VideoContent,
@@ -94,6 +127,7 @@ export async function getCourseGrid(locale: Locale): Promise<CourseGridEntry[]> 
       select: {
         slug: true,
         meta: true,
+        outline: true,
         updatedAt: true,
         ...enrolledLearners,
       },
@@ -105,6 +139,9 @@ export async function getCourseGrid(locale: Locale): Promise<CourseGridEntry[]> 
         stageKey: true,
         narrative: true,
         structure: true,
+        // A stored lesson list is read with each lesson's extra content
+        // (resolveOutline keeps a standard lesson that has some).
+        parts: true,
         updatedAt: true,
         // Only the newest upload matters for "last edited".
         documents: {
@@ -130,6 +167,8 @@ export async function getCourseGrid(locale: Locale): Promise<CourseGridEntry[]> 
     const kind: CourseKind = row?.meta ? "cms" : "bundled";
     const courseLessons = lessonsBySlug.get(s.slug) ?? [];
     const lessonKeys = presentStageKeys(kind, courseLessons);
+    const sections =
+      kind === "cms" ? gridSections(row?.outline ?? null, courseLessons, locale) : null;
     return {
       slug: s.slug,
       title: s.title,
@@ -140,6 +179,7 @@ export async function getCourseGrid(locale: Locale): Promise<CourseGridEntry[]> 
       durationMinutes: s.durationMinutes,
       enrolled: row?._count.enrollments ?? 0,
       lessonKeys,
+      ...(sections ? { sections } : {}),
       languages: languageCoverage(kind, row?.meta ?? null, courseLessons, lessonKeys),
       lastEdited: lastEdited(row?.updatedAt ?? null, courseLessons),
     };
@@ -168,6 +208,7 @@ export async function getCourseOutline(
       where: { projectId: PROJECT, slug },
       select: {
         meta: true,
+        outline: true,
         copyOverride: true,
         status: true,
         publishedAt: true,
@@ -200,18 +241,41 @@ export async function getCourseOutline(
         : bundledCopy(baseCopy[i], row?.copyOverride, l, byLang[i] ?? en);
   });
 
+  if (kind === "cms") {
+    const created = createdCourseLessons({
+      outlineRaw: row?.outline ?? null,
+      lessons,
+      byLang,
+      present,
+      meta,
+    });
+    const outline: Omit<CourseOutline, "readiness"> = {
+      slug,
+      kind,
+      status: row ? normaliseStatus(row.status) : "published",
+      publishedAt: row?.publishedAt?.toISOString() ?? null,
+      durationMinutes: en.durationMinutes,
+      enrolled: row?._count.enrollments ?? 0,
+      lastEdited: lastEdited(row?.updatedAt ?? null, lessons),
+      copy,
+      languages: created.languages,
+      lessons: created.lessons,
+      sections: created.sections,
+    };
+    return { ...outline, readiness: publishReadiness(outline) };
+  }
+
+  // A built-in course: its seven lessons, exactly as before Release 1.
   const outlineLessons: LessonOutline[] = [];
   for (const key of STAGES) {
-    const isPresent = present.has(key);
-    const addable = !isPresent && kind === "cms" && isInteractive(key);
-    if (!isPresent && !addable) continue;
+    if (!present.has(key)) continue;
 
     const lesson = lessonByStage.get(key);
     const narrative = (lesson?.narrative ?? null) as NarrativeJson | null;
     const body: LessonOutline["body"] =
       key === "reflection" ? "reflection" : isInteractive(key) ? "interactive" : "narrative";
     // Built-in reflection and interactive lessons come from code (Q3).
-    const bodyEditable = body === "narrative" || kind === "cms";
+    const bodyEditable = body === "narrative";
 
     const lessonByLang = {} as LessonOutline["byLang"];
     CONTENT_LOCALES.forEach((l, i) => {
@@ -219,51 +283,35 @@ export async function getCourseOutline(
       lessonByLang[l] = {
         stage,
         narrative:
-          stage && bodyEditable && body !== "interactive"
-            ? narrativeInitial(kind, body, stage, narrative, l)
+          stage && bodyEditable
+            ? narrativeInitial(kind, body as "narrative", stage, narrative, l)
             : null,
-        // Lessons learners don't get yet come with Course.outline (F2).
         sectioned: null,
       };
     });
 
     outlineLessons.push({
       key,
-      present: isPresent,
-      addable,
+      present: true,
+      addable: false,
       body,
       mainKind: mainKindOf({ id: key, template: key }),
-      editable: { body: bodyEditable, media: isPresent },
+      editable: { body: bodyEditable, media: true },
       byLang: lessonByLang,
-      structure:
-        kind === "cms" && isInteractive(key)
-          ? ((lesson?.structure ?? null) as StoredStructure | null)
-          : null,
-      draft:
-        kind === "cms" && isInteractive(key)
-          ? ((lesson?.structureDraft ?? null) as StoredStructure | null)
-          : null,
+      structure: null,
+      draft: null,
       video: (lesson?.video ?? null) as VideoContent | null,
       // From the platform's own course, not what learners see now: a stored
       // video hides the built-in one, which comes back if it's removed
       // (lesson-overlay.ts: `lesson.video ?? stage.video`).
-      builtInVideo:
-        kind === "bundled" && Boolean(baseCopy[0]?.videoStages.includes(key)),
-      documents: (lesson?.documents ?? []).map((d) => ({
-        id: d.id,
-        name: d.name,
-        url: d.url,
-        mimeType: d.mimeType,
-        sizeBytes: d.sizeBytes,
-        published: d.published,
-      })),
+      builtInVideo: Boolean(baseCopy[0]?.videoStages.includes(key)),
+      documents: documentRefs(lesson?.documents),
       updatedAt: lesson?.updatedAt.toISOString() ?? null,
-      // The lesson list of a created course is read from Course.outline in
-      // F2; until then every course has today's layout and no extras.
+      // A built-in course's lesson list can't change.
       section: null,
       parts: null,
       contentVersion: null,
-      live: isPresent,
+      live: true,
     });
   }
 
@@ -284,6 +332,266 @@ export async function getCourseOutline(
     sections: null,
   };
   return { ...outline, readiness: publishReadiness(outline) };
+}
+
+/* ------------------------- a created course's lessons ------------------------- */
+
+type LessonRow = Prisma.LessonGetPayload<{ include: { documents: true } }>;
+
+const bodyOf = (kind: MainKind): LessonOutline["body"] =>
+  kind === "narrative" || kind === "reflection" ? kind : "interactive";
+
+function documentRefs(
+  documents: LessonRow["documents"] | undefined
+): LessonDocumentRef[] {
+  return (documents ?? []).map((d) => ({
+    id: d.id,
+    name: d.name,
+    url: d.url,
+    mimeType: d.mimeType,
+    sizeBytes: d.sizeBytes,
+    published: d.published,
+  }));
+}
+
+const factsOf = (l: LessonRow): SectionFacts => ({
+  stageKey: l.stageKey,
+  narrative: l.narrative,
+  structure: l.structure,
+  structureDraft: l.structureDraft,
+  parts: l.parts,
+  video: l.video,
+  documentCount: l.documents.length,
+});
+
+/**
+ * A created course's rows (spec 9.1): its lesson list in order — the stored
+ * one, or today's while nothing is stored (resolveOutline) — and, for each
+ * standard practice, scenario and quick check that isn't in it, today's
+ * "Add …" row in its standard place. Each lesson carries its name in every
+ * content language, its number, its content with the bases of every
+ * change, and (for a lesson learners don't get as built) the preview's view
+ * of it.
+ *
+ * Learners get exactly the lessons getCourse gives (`present` there), so
+ * `live` comes from it; a lesson of the course's own has no learner stage,
+ * and its text editor starts from the stored text.
+ */
+function createdCourseLessons(input: {
+  outlineRaw: unknown;
+  lessons: LessonRow[];
+  byLang: (CourseContent | null)[];
+  present: Set<string>;
+  meta: CourseMeta | null;
+}): {
+  lessons: LessonOutline[];
+  sections: SectionsMeta;
+  languages: CourseOutline["languages"];
+} {
+  const { lessons, byLang, present, meta } = input;
+  const rowOf = new Map(lessons.map((l) => [l.stageKey, l]));
+  const facts = lessons.map(factsOf);
+  const resolved = resolveOutline("cms", input.outlineRaw, facts);
+  const reasons = newOnlyReasons("cms", resolved, facts);
+
+  // Numbers follow what learners would get: visible lessons with something
+  // in them (a standard list's are exactly today's numbers, 1 to n).
+  const shown = (s: ResolvedSection) => {
+    if (present.has(s.id)) return true;
+    const row = rowOf.get(s.id);
+    return (
+      resolveSectionStage({
+        section: s,
+        row: row && { ...factsOf(row), documents: documentRefs(row.documents) },
+        locale: "en",
+        label: "",
+        standardTitle: "",
+        defaults: previewDefaults("en"),
+      }) !== null
+    );
+  };
+  const numbers = new Map<string, number>();
+  for (const s of resolved.sections) {
+    if (!s.hidden && shown(s)) numbers.set(s.id, numbers.size + 1);
+  }
+
+  const rows: LessonOutline[] = resolved.sections.map((s, i) =>
+    sectionRow(s, i, resolved, rowOf.get(s.id), byLang, present, numbers.get(s.id) ?? null)
+  );
+
+  // Today's "Add guided practice / applied scenario / quick check" for each
+  // one that isn't a lesson of the list, where it would go.
+  for (const key of INTERACTIVE_KEYS) {
+    if (resolved.sections.some((s) => s.id === key)) continue;
+    const lesson = rowOf.get(key);
+    rows.splice(canonicalInsertIndex(rows.map((r) => ({ id: r.key })), key), 0, {
+      key,
+      present: false,
+      addable: true,
+      body: "interactive",
+      mainKind: key,
+      editable: { body: true, media: false },
+      byLang: Object.fromEntries(
+        CONTENT_LOCALES.map((l) => [l, { stage: null, narrative: null, sectioned: null }])
+      ) as LessonOutline["byLang"],
+      structure: (lesson?.structure ?? null) as StoredStructure | null,
+      draft: (lesson?.structureDraft ?? null) as StoredStructure | null,
+      video: (lesson?.video ?? null) as VideoContent | null,
+      builtInVideo: false,
+      documents: documentRefs(lesson?.documents),
+      updatedAt: lesson?.updatedAt.toISOString() ?? null,
+      section: null,
+      parts: null,
+      contentVersion: null,
+      live: false,
+    });
+  }
+
+  // Coverage counts the lessons learners would get, each read by its main
+  // content's kind (a lesson of the course's own may have no row yet).
+  const coverageFacts: LessonFacts[] = resolved.sections.map((s) => ({
+    ...(rowOf.get(s.id) ?? {}),
+    stageKey: s.id,
+    mainKind: mainKindOf(s),
+  }));
+  const languages = languageCoverage("cms", meta, coverageFacts, [...numbers.keys()]);
+
+  const sections: SectionsMeta = {
+    version: outlineVersion(resolved),
+    resolved,
+    reasons,
+    freeKeys: freeInteractiveKeys(resolved, facts),
+    hasLabels: resolved.sections.some((s) => s.label && Object.keys(s.label).length > 0),
+    max: SECTION_LIMITS.maxSections,
+    warnAbove: SECTION_LIMITS.warnAbove,
+  };
+  return { lessons: rows, sections, languages };
+}
+
+/** One lesson of a created course's list, as the course page shows it. */
+function sectionRow(
+  s: ResolvedSection,
+  index: number,
+  resolved: ResolvedOutline,
+  lesson: LessonRow | undefined,
+  byLang: (CourseContent | null)[],
+  present: Set<string>,
+  number: number | null
+): LessonOutline {
+  const mainKind = mainKindOf(s);
+  const body = bodyOf(mainKind);
+  const narrative = (lesson?.narrative ?? null) as NarrativeJson | null;
+  const documents = documentRefs(lesson?.documents);
+  const facts = lesson ? factsOf(lesson) : undefined;
+  // The preview's view, for a lesson learners don't get as built.
+  const ownView = s.custom || hasExtraOrUnreadable(lesson?.parts);
+
+  const name = {} as SectionView["name"];
+  const versions = {} as SectionView["labelVersion"];
+  const lessonByLang = {} as LessonOutline["byLang"];
+  CONTENT_LOCALES.forEach((l, i) => {
+    name[l] = nameSection(s, l, {
+      title: sectionTitle(facts, mainKind, l),
+      n: number ?? index + 1,
+    });
+    versions[l] = labelVersion(resolved, s.id, l);
+
+    const stage = byLang[i]?.stages.find((st) => st.key === s.id) ?? null;
+    let sectioned: SectionStage | null = null;
+    if (ownView) {
+      sectioned = resolveSectionStage({
+        section: s,
+        row: facts && { ...facts, documents },
+        locale: l,
+        label: name[l].text,
+        standardTitle: s.custom ? name[l].text : standardName(s.id as StageKey, l),
+        defaults: previewDefaults(l),
+      });
+    }
+    lessonByLang[l] = {
+      stage,
+      narrative:
+        body === "interactive"
+          ? null
+          : narrativeInitial(
+              "cms",
+              body,
+              stage ?? storedStage(body, resolveNarrative(narrative, l)),
+              narrative,
+              l
+            ),
+      sectioned,
+    };
+  });
+
+  return {
+    key: s.id,
+    present: true,
+    addable: false,
+    body,
+    mainKind,
+    // The lesson is in the list, so its video and documents can be added.
+    editable: { body: true, media: true },
+    byLang: lessonByLang,
+    structure:
+      body === "interactive" ? ((lesson?.structure ?? null) as StoredStructure | null) : null,
+    draft:
+      body === "interactive" ? ((lesson?.structureDraft ?? null) as StoredStructure | null) : null,
+    video: (lesson?.video ?? null) as VideoContent | null,
+    builtInVideo: false,
+    documents,
+    updatedAt: lesson?.updatedAt.toISOString() ?? null,
+    section: {
+      id: s.id,
+      template: s.template,
+      custom: s.custom,
+      hidden: s.hidden === true,
+      recovered: s.recovered === true,
+      label: s.label ?? {},
+      labelVersion: versions,
+      name,
+      number,
+      deleteSummary: deleteSummary(facts),
+    },
+    parts: partsView(lesson?.parts),
+    contentVersion: sectionContentVersion(
+      lesson
+        ? {
+            narrative: lesson.narrative,
+            structure: lesson.structure,
+            structureDraft: lesson.structureDraft,
+            parts: lesson.parts,
+            video: lesson.video,
+            documentIds: lesson.documents.map((d) => d.id),
+          }
+        : null
+    ),
+    live: present.has(s.id),
+  };
+}
+
+/**
+ * The grid card's lesson names when a created course's list is stored, in
+ * the grid's language, hidden lessons left out. Undefined otherwise: the card
+ * names the standard lessons as before (CourseGrid.test.ts).
+ */
+function gridSections(
+  outlineRaw: unknown,
+  lessons: (SectionFacts & { stageKey: string })[],
+  locale: Locale
+): { id: string; name: string }[] | null {
+  const resolved = resolveOutline("cms", outlineRaw, lessons);
+  if (!resolved.materialised || resolved.unreadable) return null;
+  const rowOf = new Map(lessons.map((l) => [l.stageKey, l]));
+  return resolved.sections
+    .filter((s) => !s.hidden)
+    .map((s, i) => ({
+      id: s.id,
+      name: nameSection(s, locale, {
+        title: sectionTitle(rowOf.get(s.id), mainKindOf(s), locale),
+        n: i + 1,
+      }).text,
+    }));
 }
 
 /* --------------------------------- helpers --------------------------------- */
@@ -340,12 +648,14 @@ function bundledCopy(
 
 /**
  * What the narrative editor starts from for one lesson and language: what
- * learners see now, and whether this language has its own stored text.
+ * learners see now, and whether this language has its own stored text. A
+ * lesson of a created course's own has no learner stage yet: `stage` is then
+ * its stored text as learners would read it (resolveNarrative).
  */
 function narrativeInitial(
   kind: CourseKind,
   body: "narrative" | "reflection",
-  stage: NonNullable<LessonOutline["byLang"][Locale]["stage"]>,
+  stage: Pick<CourseStage, "title" | "subtitle" | "blocks" | "reflection">,
   narrative: NarrativeJson | null,
   locale: Locale
 ): NarrativeInitial {

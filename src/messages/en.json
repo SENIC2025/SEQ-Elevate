@@ -472,7 +472,8 @@
       "scenario": "Branching scenario",
       "quiz": "Quick check",
       "reflectionRating": "Reflection & self-assessment"
-    }
+    },
+    "sectionNumbered": "Lesson {n}"
   },
   "coursePlayer": {
     "stepOf": "Step {current} of {total}",

@@ -247,7 +247,8 @@ export function offersAdd(lesson: Pick<LessonOutline, "addable" | "draft">): boo
  *                        saved for learners (or the preview);
  * - sections-many:       more than 12 lessons learners would see — fine,
  *                        but long for one sitting;
- * - no-interactive:      a CMS course has no simulation/scenario/quick check;
+ * - no-interactive:      a CMS course has no simulation/scenario/quick check
+ *                        saved for learners;
  * - labels-later:        (info) step names were written, which learners see
  *                        from Release 2 (D58).
  *
@@ -333,7 +334,9 @@ export function publishReadiness(
     }
   }
 
-  if (!present.some((l) => l.body === "interactive")) {
+  // An exercise lesson counts once its exercise is saved for learners: a
+  // stored lesson list can hold one with nothing saved in it yet.
+  if (!present.some((l) => l.body === "interactive" && l.structure)) {
     issues.push({ level: "info", code: "no-interactive" });
   }
   if (sections?.hasLabels) issues.push({ level: "info", code: "labels-later" });

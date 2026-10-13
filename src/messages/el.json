@@ -472,7 +472,8 @@
       "scenario": "Σενάριο με διακλαδώσεις",
       "quiz": "Σύντομος έλεγχος",
       "reflectionRating": "Αναστοχασμός και αυτοαξιολόγηση"
-    }
+    },
+    "sectionNumbered": "Ενότητα {n}"
   },
   "coursePlayer": {
     "stepOf": "Βήμα {current} από {total}",
