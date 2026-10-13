@@ -34,9 +34,11 @@ import {
   partStatus,
   partTypeOf,
   settleRereads,
-  textInitial,
+  settleSaves,
   textPair,
+  textStart,
   type PartFocus,
+  type SavedText,
 } from "./part-list";
 
 /** The first box an author types in, once a new content's editor has loaded. */
@@ -56,7 +58,13 @@ const FIELD = 'input:not([type="hidden"]), textarea, select, [contenteditable="t
  *
  * Focus is kept predictable (WCAG 2.4.3): on the button pressed after a
  * move, on the next content after a removal, in the new content's first
- * box after an add; and one polite status line says what happened.
+ * box after an add (on "Add content" while it is being added, and if it is
+ * refused); and one polite status line says what happened.
+ *
+ * A removal sends the version of the content the page shows. Right after
+ * the content's own save the page is still re-reading it, so a Remove
+ * pressed then waits for that re-read, rather than being refused as if
+ * someone else had changed it.
  */
 export function PartList({
   lesson,
@@ -85,7 +93,8 @@ export function PartList({
   const tEditor = useTranslations("exerciseEditor");
   const tLanguage = useTranslations("courseManager.languageName");
   const router = useRouter();
-  const [, startTransition] = React.useTransition();
+  // True while the page re-reads the course after a content's own save.
+  const [refreshing, startTransition] = React.useTransition();
   const ids = React.useId();
   const sectionId = lesson.key as SectionId;
   const parts = lesson.parts;
@@ -98,9 +107,14 @@ export function PartList({
   // Texts whose "Load the saved version" waits for a refreshed page.
   const [pending, setPending] = React.useState<Record<string, string | null>>({});
   const [revs, setRevs] = React.useState<Record<string, number>>({});
+  // Texts saved here that the page may not show yet (see textStart).
+  const [saved, setSaved] = React.useState<Record<string, SavedText>>({});
+  // A confirmed removal waiting for the page to catch up with a save.
+  const queuedRemove = React.useRef<PartId | null>(null);
   const [seenParts, setSeenParts] = React.useState(parts);
   if (parts !== seenParts) {
     setSeenParts(parts);
+    if (parts && Object.keys(saved).length) setSaved(settleSaves(saved, parts.items));
     if (parts && Object.keys(pending).length) {
       const settled = settleRereads(pending, revs, parts.items);
       setPending(settled.pending);
@@ -171,7 +185,8 @@ export function PartList({
   async function change(
     at: string,
     call: () => Promise<OutlineResult>,
-    done: (id: string | undefined) => void
+    done: (id: string | undefined) => void,
+    failed?: () => void
   ) {
     if (busy) return;
     setBusy(true);
@@ -191,12 +206,40 @@ export function PartList({
           ...("count" in res ? { count: res.count } : {}),
         }),
       });
+      failed?.();
     } catch {
       setError({ at, message: tEditor("errors.generic") });
+      failed?.();
     } finally {
       setBusy(false);
     }
   }
+
+  /** Removes `id` as the page now shows it (its current version). */
+  function removeNow(id: PartId) {
+    const list = parts?.items ?? [];
+    const item = list.find((i) => i.id === id);
+    if (!parts || !item || item.type === "main") return;
+    void change(
+      `card:${item.id}`,
+      () => removePart(slug, sectionId, item.id, parts.order, item.itemVersion),
+      () => {
+        const next = focusAfterRemove(list, item.id);
+        setFocus((f) => ({ ...next, n: (f?.n ?? 0) + 1 }));
+        say(t("removed"));
+      }
+    );
+  }
+
+  // A removal confirmed while the page was re-reading goes once it has.
+  React.useEffect(() => {
+    const id = queuedRemove.current;
+    if (refreshing || !id) return;
+    queuedRemove.current = null;
+    removeNow(id);
+    // removeNow reads this render's list, which is what the re-read brought.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshing]);
 
   if (!parts) {
     // Lesson.parts can't be read: the main content is still edited as
@@ -225,6 +268,10 @@ export function PartList({
 
   function add(after: PartId, type: PartType) {
     setPicker(null);
+    // The choice pressed goes with the picker: back to "Add content" while
+    // the content is added, and there if it is refused (the reason is below it).
+    const toAdd = () => setFocus((f) => ({ id: after, target: "add", n: (f?.n ?? 0) + 1 }));
+    toAdd();
     void change(
       `add:${after}`,
       () => addPart(slug, sectionId, type, after, parts!.order),
@@ -232,7 +279,8 @@ export function PartList({
         if (!id) return;
         setFocus((f) => ({ id: id as PartId, target: "field", n: (f?.n ?? 0) + 1 }));
         say(t("added", { type: t(`types.${type}`) }));
-      }
+      },
+      toAdd
     );
   }
 
@@ -255,15 +303,8 @@ export function PartList({
   function remove(item: PartView) {
     if (item.type === "main") return;
     if (!window.confirm(t("removeConfirm"))) return;
-    void change(
-      `card:${item.id}`,
-      () => removePart(slug, sectionId, item.id, parts!.order, item.itemVersion),
-      () => {
-        const next = focusAfterRemove(items, item.id);
-        setFocus((f) => ({ ...next, n: (f?.n ?? 0) + 1 }));
-        say(t("removed"));
-      }
-    );
+    if (refreshing) queuedRemove.current = item.id;
+    else removeNow(item.id);
   }
 
   function closePicker() {
@@ -293,14 +334,18 @@ export function PartList({
               courseSlug={slug}
               stageKey={lesson.key}
               locale={lang}
-              initial={textInitial(item, lang)}
+              initial={textStart(item, lang, saved[pairId])}
               initialRev={revs[pairId] ?? 0}
               courseKind={kind}
               target={target}
               fields="blocks"
               heading={position}
               embedded
-              onSaved={refresh}
+              onSaved={(value) => {
+                const from = item.versions[lang] ?? null;
+                setSaved((s) => ({ ...s, [pairId]: { from, value } }));
+                refresh();
+              }}
               onDirtyChange={report}
               onReread={(stale) => {
                 setPending((p) => ({ ...p, [pairId]: stale }));
@@ -370,6 +415,11 @@ export function PartList({
                   body: bodyId(item.id),
                 }}
                 groupLabel={t("groupLabel", { n: i + 1, total: items.length, type })}
+                names={{
+                  up: t("moveUpNamed", { n: i + 1, type }),
+                  down: t("moveDownNamed", { n: i + 1, type }),
+                  remove: t("removeNamed", { n: i + 1, type }),
+                }}
                 status={partStatus(item, lang)}
                 language={language}
                 header={extras > 0}

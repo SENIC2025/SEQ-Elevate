@@ -32,14 +32,14 @@ const IntlProvider = NextIntlClientProvider as FC<{
 
 const noop = () => {};
 
-function render(l: LessonOutline, open: boolean) {
+function render(l: LessonOutline, open: boolean, lang: "en" | "de" | "el" = "en") {
   const props: LessonSectionProps = {
     lesson: l,
     label: "2. Skill concept",
     slug: "my-course",
     kind: "cms",
     status: "draft",
-    lang: "en",
+    lang,
     open,
     rev: 0,
     enrolled: 0,
@@ -173,5 +173,36 @@ describe("LessonSection — closed", () => {
     const html = render(standard, false);
     expect(html).toContain("Main words");
     expect(html).not.toContain(en.lessonBlocks.notShown);
+  });
+});
+
+describe("LessonSection — closed, a text not written in the content language", () => {
+  // The text is written only in English; the preview shows the English text in German.
+  const stage: SectionStage = {
+    key: "concept",
+    label: "Skill concept",
+    title: "Skill concept",
+    parts: [
+      { id: "p-text0001", type: "text", blocks: [{ kind: "paragraph", text: "Extra words" }] },
+      { id: "main", type: "text", blocks: [{ kind: "paragraph", text: "Main words" }] },
+    ],
+    skipped: 0,
+  };
+  const l = lesson([TEXT, MAIN], {
+    byLang: {
+      en: { stage: null, narrative: null, sectioned: null },
+      de: { stage: null, narrative: null, sectioned: stage },
+      el: { stage: null, narrative: null, sectioned: null },
+    },
+  });
+  const html = render(l, false, "de");
+
+  it("says the text isn't written in the content language yet", () => {
+    expect(html).toMatch(/<h3[^>]*>(?:(?!<\/h3>).)*Not written in German yet/);
+  });
+
+  it("marks the text with the language it is actually in", () => {
+    expect(html).toMatch(/<div lang="en">(?:(?!<\/li>).)*Extra words/);
+    expect(html).not.toMatch(/<div lang="de">(?:(?!<\/li>).)*Extra words/);
   });
 });

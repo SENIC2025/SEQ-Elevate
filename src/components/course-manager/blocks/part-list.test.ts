@@ -9,7 +9,9 @@ import {
   partStatus,
   partTypeOf,
   settleRereads,
+  settleSaves,
   textInitial,
+  textStart,
   type TextPartView,
 } from "./part-list";
 
@@ -193,5 +195,34 @@ describe("settleRereads", () => {
       pending: {},
       revs: { "p-text0001:el": 1 },
     });
+  });
+});
+
+describe("a text saved here before the page caught up", () => {
+  const savedValue = {
+    title: "",
+    subtitle: "",
+    blocks: [para("Hello again")],
+    hasOverride: true,
+    version: "ven2",
+  };
+  const saved = { from: "ven", value: savedValue };
+
+  it("starts a remounted editor from what was saved, not the page's older text", () => {
+    // The author saved, switched language and back before the refresh landed.
+    expect(textStart(text, "en", saved)).toEqual(savedValue);
+  });
+
+  it("starts from the page once it holds a newer version", () => {
+    const fresh = { ...text, blocks: { ...text.blocks, en: [para("Hello again")] }, versions: { ...text.versions, en: "ven2" } };
+    expect(textStart(fresh, "en", saved)).toEqual(textInitial(fresh, "en"));
+    expect(textStart(text, "en", undefined)).toEqual(textInitial(text, "en"));
+  });
+
+  it("forgets the save once the page shows it, or a later one, or the text is gone", () => {
+    const fresh = { ...text, versions: { ...text.versions, en: "ven2" } };
+    expect(settleSaves({ "p-text0001:en": saved }, [main, text])).toEqual({ "p-text0001:en": saved });
+    expect(settleSaves({ "p-text0001:en": saved }, [main, fresh])).toEqual({});
+    expect(settleSaves({ "p-text0001:en": saved }, [main])).toEqual({});
   });
 });

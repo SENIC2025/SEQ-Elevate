@@ -292,8 +292,8 @@ describe("Release 1 — a lesson's content", () => {
     }
     // The main content now has a header too, with no Remove.
     const main = lesson.getByRole("group", { name: "Content 1 of 7: Text" });
-    await expect(main.getByRole("button", { name: /^move down$/i })).toBeEnabled();
-    await expect(main.getByRole("button", { name: /^remove$/i })).toHaveCount(0);
+    await expect(main.getByRole("button", { name: /^move down content 1: text$/i })).toBeEnabled();
+    await expect(main.getByRole("button", { name: /^remove content/i })).toHaveCount(0);
     // A new question opens with focus in its first box.
     await expect(
       partRegion(lesson, "Self-assessment (1–5)").getByRole("textbox", { name: /^title \(optional\)$/i })
@@ -429,7 +429,7 @@ describe("Release 1 — a lesson's content", () => {
     const quizHeader = partGroup(lesson, "Quick check");
     await expect(quizHeader).toHaveAccessibleName("Content 5 of 7: Quick check", { timeout: 15000 });
 
-    const up = quizHeader.getByRole("button", { name: /^move up$/i });
+    const up = quizHeader.getByRole("button", { name: /^move up content \d+: quick check$/i });
     await up.click();
     await expect(quizHeader).toHaveAccessibleName("Content 4 of 7: Quick check", { timeout: 15000 });
     await expect(up).toBeFocused();
@@ -442,7 +442,7 @@ describe("Release 1 — a lesson's content", () => {
       expect(dialog.message()).toMatch(/removed in all languages/i);
       void dialog.accept();
     });
-    await text.getByRole("button", { name: /^remove$/i }).click();
+    await text.getByRole("button", { name: /^remove content 2: text$/i }).click();
     await expect(lesson.getByRole("group", { name: /^content \d+ of 6:/i }).first()).toBeVisible({
       timeout: 15000,
     });
@@ -509,10 +509,10 @@ describe("Release 1 — a lesson's content", () => {
     await useSession(context, editorSession);
     const lesson = await openLesson(page, LIVE, "concept");
 
-    // Added content is refused here until Release 2, and the page says why.
+    // Added content is refused here (learners get it from Release 2), and the page says why.
     const add = lesson.getByRole("button", { name: /^add content after content 1:/i });
     await expect(add).toHaveAttribute("aria-disabled", "true");
-    await expect(add).toHaveAccessibleDescription(/learners get added content from release 2/i);
+    await expect(add).toHaveAccessibleDescription(/can.t add content to this lesson yet/i);
 
     const editor = lesson.getByRole("region", { name: /^lesson text \(english\)$/i });
     const title = editor.getByRole("textbox", { name: /^lesson title$/i });

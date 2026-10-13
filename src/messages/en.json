@@ -1138,7 +1138,7 @@
     "remove": "Remove",
     "removeConfirm": "Remove this content? It is removed in all languages.",
     "notInLearnerView": "Learners get the added content from Release 2. Preview as learner shows it now.",
-    "liveLocked": "This course is live: learners get added content from Release 2.",
+    "liveLocked": "This course is live, so you can't add content to this lesson yet. Lessons that already have added content can take more; learners get it from Release 2.",
     "ownQuestionsNote": "This lesson has its own reflection questions below, instead of the standard ones.",
     "draft": "Draft",
     "notReady": "Not ready ({count})",
@@ -1167,7 +1167,19 @@
     "notShown": "Not shown yet — only a draft so far, or not ready.",
     "scale": "1 = {min} · 5 = {max}",
     "noText": "No text written yet.",
-    "courseUnreadable": "Something in this course's lessons can't be read, so content can't be added, moved or removed until an admin repairs it."
+    "courseUnreadable": "Something in this course's lessons can't be read, so content can't be added, moved or removed until an admin repairs it.",
+    "moveUpNamed": "Move up content {n}: {type}",
+    "moveDownNamed": "Move down content {n}: {type}",
+    "removeNamed": "Remove content {n}: {type}",
+    "saveContent": "Save stage",
+    "maxPrompts": "At most {max} questions.",
+    "maxStatements": "At most {max} statements.",
+    "textEditor": {
+      "description": "Text learners read here, between the lesson's other content.",
+      "notWritten": "Not written yet",
+      "fallback": "Not written in {language} yet — showing the {from} text, which is what learners see. Saving creates the {language} version.",
+      "invalid": "Not saved — see the problems above."
+    }
   },
   "accounts": {
     "facilitatorNotSaved": "This wasn't saved. Notes and validations can only be added for learners in this project. Reload the page and try again.",

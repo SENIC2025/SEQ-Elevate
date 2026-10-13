@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useTranslations } from "next-intl";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -22,6 +23,7 @@ import { LazyRichTextEditor } from "@/components/rich-text/LazyRichTextEditor";
 import type { RichText } from "@/lib/rich-text/types";
 import type { VersionResult } from "@/lib/cms/sections/contract";
 import { blocksHaveText } from "@/lib/cms/text-fallback";
+import { markContentLang } from "@/components/course-manager/blocks/content-lang";
 import {
   PenSquare,
   Save,
@@ -34,7 +36,9 @@ import {
 } from "lucide-react";
 
 // Authoring-tool copy stays English (like the other tools), so language
-// names are English too.
+// names are English too — except for a text in a lesson's added content
+// (fields "blocks"), which sits among the course page's translated content
+// list and so takes its words from it (lessonBlocks.textEditor).
 const LANGUAGE: Record<Locale, string> = {
   en: "English",
   de: "German",
@@ -184,9 +188,16 @@ export function LessonNarrativeEditor({
 }) {
   const ids = React.useId();
   const headingRef = React.useRef<HTMLHeadingElement>(null);
-  const lang = LANGUAGE[locale];
+  const blocksRef = React.useRef<HTMLDivElement>(null);
   const reflection = mode === "reflection";
   const blocksOnly = fields === "blocks";
+  const tBlocks = useTranslations("lessonBlocks");
+  const tLanguage = useTranslations("courseManager.languageName");
+  // In the menu language for added content, English otherwise (see LANGUAGE).
+  const languageName = (l: Locale) => (blocksOnly ? tLanguage(l) : LANGUAGE[l]);
+  const lang = LANGUAGE[locale];
+  // The language as the heading and the translated words name it.
+  const shownLang = languageName(locale);
 
   const [title, setTitle] = React.useState(initial.title);
   const [subtitle, setSubtitle] = React.useState(initial.subtitle);
@@ -247,6 +258,19 @@ export function LessonNarrativeEditor({
     onDirtyChange?.(dirty);
   }, [dirty, onDirtyChange]);
 
+  // The block boxes carry the language of what is in them (WCAG 3.1.2); the
+  // block list's own controls keep the page's. Until a save, a text not
+  // written in this language shows (and is) another language's text.
+  const contentLang = fallbackFrom ?? locale;
+  React.useEffect(() => {
+    const root = blocksRef.current;
+    if (!root) return;
+    markContentLang(root, contentLang);
+    const watch = new MutationObserver(() => markContentLang(root, contentLang));
+    watch.observe(root, { childList: true, subtree: true });
+    return () => watch.disconnect();
+  }, [contentLang]);
+
   function edited() {
     setEdits((n) => n + 1);
     if (
@@ -257,6 +281,10 @@ export function LessonNarrativeEditor({
       setStatus("idle");
     }
   }
+
+  const invalidText = blocksOnly
+    ? tBlocks("textEditor.invalid")
+    : "Not saved — see the problems above.";
 
   async function handleSave() {
     const at = edits;
@@ -310,7 +338,7 @@ export function LessonNarrativeEditor({
       if (res.error === "invalid") {
         // Nothing was written: say which blocks to fix.
         setSaveIssues(res.issues);
-        setSaveError("Not saved — see the problems above.");
+        setSaveError(invalidText);
         setStatus("error");
         return;
       }
@@ -349,7 +377,7 @@ export function LessonNarrativeEditor({
       }
       if (res.error === "invalid") {
         setSaveIssues((res as { issues: string[] }).issues);
-        setSaveError("Not saved — see the problems above.");
+        setSaveError(invalidText);
         setStatus("error");
         return;
       }
@@ -436,10 +464,10 @@ export function LessonNarrativeEditor({
   const badge = blocksOnly ? (
     <Badge variant={hasOverride ? "accent" : "muted"} className="text-[10px]">
       {hasOverride
-        ? `Written in ${lang}`
+        ? tBlocks("langState.written", { language: shownLang })
         : fallbackFrom
-          ? `Not written in ${lang} yet`
-          : "Not written yet"}
+          ? tBlocks("langState.missing", { language: shownLang })
+          : tBlocks("textEditor.notWritten")}
     </Badge>
   ) : hasOverride ? (
     <Badge variant="accent" className="text-[10px]">
@@ -470,11 +498,11 @@ export function LessonNarrativeEditor({
             tabIndex={-1}
             className="font-semibold"
           >
-            {heading} ({lang})
+            {heading} ({shownLang})
           </h3>
           <p className="text-xs text-[var(--muted-foreground)]">
             {blocksOnly
-              ? "Text learners read here, between the lesson's other content."
+              ? tBlocks("textEditor.description")
               : reflection
                 ? "The title and introduction learners read before they reflect."
                 : "The title and teaching text learners read in this lesson."}
@@ -485,8 +513,17 @@ export function LessonNarrativeEditor({
 
       {fallbackFrom ? (
         <p className="mb-3 rounded-md bg-[var(--surface-muted)] px-3 py-2 text-xs text-[var(--muted-foreground)]">
-          Not written in {lang} yet — showing the {LANGUAGE[fallbackFrom]} text,
-          which is what learners see. Saving creates the {lang} version.
+          {blocksOnly ? (
+            tBlocks("textEditor.fallback", {
+              language: shownLang,
+              from: languageName(fallbackFrom),
+            })
+          ) : (
+            <>
+              Not written in {lang} yet — showing the {LANGUAGE[fallbackFrom]} text,
+              which is what learners see. Saving creates the {lang} version.
+            </>
+          )}
         </p>
       ) : null}
 
@@ -583,7 +620,7 @@ export function LessonNarrativeEditor({
           </div>
         ) : null
       ) : (
-        <div className={blocksOnly ? "" : "mt-4"}>
+        <div ref={blocksRef} className={blocksOnly ? "" : "mt-4"}>
           <p className="mb-2 text-sm font-semibold">Content blocks</p>
           <BlockList
             blocks={blocks}

@@ -24,6 +24,7 @@ const lockedCls = "aria-disabled:cursor-not-allowed aria-disabled:opacity-50";
 export function PartCard({
   ids,
   groupLabel,
+  names,
   status,
   language,
   header,
@@ -40,6 +41,11 @@ export function PartCard({
   /** Element ids of the header's name and move buttons, for the list to move focus to. */
   ids: { label: string; up: string; down: string; body: string };
   groupLabel: string;
+  /**
+   * Move up, Move down and Remove named with their content ("Remove content
+   * 2: Quick check"), starting with the words shown (WCAG 2.5.3).
+   */
+  names: { up: string; down: string; remove: string };
   status: PartStatus | null;
   /** The language on screen, by name ("English"). */
   language: string;
@@ -86,6 +92,7 @@ export function PartCard({
               variant="ghost"
               className={lockedCls}
               disabled={index === 0}
+              aria-label={names.up}
               {...lockedProps(locked.move)}
               onClick={guard(locked.move, () => onMove(-1))}
             >
@@ -98,6 +105,7 @@ export function PartCard({
               variant="ghost"
               className={lockedCls}
               disabled={index === total - 1}
+              aria-label={names.down}
               {...lockedProps(locked.move)}
               onClick={guard(locked.move, () => onMove(1))}
             >
@@ -109,6 +117,7 @@ export function PartCard({
                 size="sm"
                 variant="ghost"
                 className={`${lockedCls} hover:text-[var(--danger)]`}
+                aria-label={names.remove}
                 {...lockedProps(locked.remove)}
                 onClick={guard(locked.remove, onRemove)}
               >

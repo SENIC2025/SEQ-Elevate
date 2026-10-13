@@ -10,6 +10,7 @@ import type { LessonOutline } from "@/lib/cms/course-admin-types";
 import type { PartView, ResolvedPart, SectionStage } from "@/lib/cms/sections/contract";
 import type { CourseStage, Locale, OutcomeQuality } from "@/lib/cms/types";
 import { Check, FileText, Star, Video } from "lucide-react";
+import { blocksHaveText, fallbackOrder } from "@/lib/cms/text-fallback";
 import { partTypeOf } from "./blocks/part-list";
 
 const QUALITY_KEY: Record<OutcomeQuality, string> = {
@@ -161,6 +162,7 @@ function SectionedBody({
 }) {
   const t = useTranslations("courseManager.page.read");
   const tBlocks = useTranslations("lessonBlocks");
+  const tLanguage = useTranslations("courseManager.languageName");
   const resolved = new Map((stage?.parts ?? []).map((p) => [p.id as string, p]));
   // Content that can't be read has no list: show what the preview resolved.
   const items: readonly { id: string; view: PartView | null }[] =
@@ -178,15 +180,28 @@ function SectionedBody({
           ? lesson.draft !== null
           : view !== null && "draft" in view && view.draft !== null;
         const type = view ? partTypeOf(view, lesson.mainKind) : part?.type ?? "text";
+        // A text not written in the content language shows the language
+        // learners get instead: say so, and mark it with that language.
+        const shownIn =
+          view?.type === "text" && lang && !blocksHaveText(view.blocks[lang])
+            ? (fallbackOrder(view.blocks as Record<string, unknown>, lang).find((l) =>
+                blocksHaveText(view.blocks[l as Locale])
+              ) as Locale | undefined)
+            : lang;
         return (
           <li key={id} className="space-y-2">
             <h3 className="flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
               {tBlocks(`types.${type}`)}
               {draft ? <DraftBadge label={tBlocks("draft")} /> : null}
+              {lang && shownIn !== lang && part ? (
+                <Badge variant="muted" className="text-[10px] normal-case tracking-normal">
+                  {tBlocks("langState.missing", { language: tLanguage(lang) })}
+                </Badge>
+              ) : null}
             </h3>
             {part ? (
-              // The content is in the content language; its heading isn't.
-              <div lang={lang}>
+              // The content is in its own language; its heading isn't.
+              <div lang={shownIn}>
                 <PartBody part={part} />
               </div>
             ) : (

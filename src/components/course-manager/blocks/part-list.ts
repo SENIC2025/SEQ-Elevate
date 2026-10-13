@@ -183,3 +183,43 @@ export function settleRereads(
   }
   return { pending: nextPending, revs: nextRevs };
 }
+
+/**
+ * A text saved here that the page may not show yet: what was saved, and
+ * the version the page held for it when the save went through (`from`).
+ * Saving a text re-reads the page; until that lands, an editor that starts
+ * over (switching language and back) starts from the save, not from the
+ * older text with an older base.
+ */
+export interface SavedText {
+  from: string | null;
+  value: NarrativeInitial;
+}
+
+/** Where a text's editor starts: the save the page hasn't caught up with, else the page. */
+export function textStart(
+  item: TextPartView,
+  lang: Locale,
+  saved: SavedText | undefined
+): NarrativeInitial {
+  if (saved && (item.versions[lang] ?? null) === saved.from) return saved.value;
+  return textInitial(item, lang);
+}
+
+/**
+ * The saves the page still doesn't show: one is dropped once the page holds
+ * another version of that text (this save, or a later one), or the text is gone.
+ */
+export function settleSaves(
+  saved: Readonly<Record<string, SavedText>>,
+  items: readonly PartView[]
+): Record<string, SavedText> {
+  const next: Record<string, SavedText> = {};
+  for (const [id, entry] of Object.entries(saved)) {
+    const at = id.lastIndexOf(":");
+    const item = items.find((i) => i.id === id.slice(0, at));
+    if (!item || item.type !== "text") continue;
+    if ((item.versions[id.slice(at + 1) as Locale] ?? null) === entry.from) next[id] = entry;
+  }
+  return next;
+}

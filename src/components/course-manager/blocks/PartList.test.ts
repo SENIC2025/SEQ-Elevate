@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { NextIntlClientProvider } from "next-intl";
 import en from "@/messages/en.json";
 import de from "@/messages/de.json";
+import el from "@/messages/el.json";
 import type { CourseStatus } from "@/lib/cms/course-status";
 import type { LessonOutline } from "@/lib/cms/course-admin-types";
 import type { NewOnlyReason } from "@/lib/cms/sections/contract";
@@ -26,7 +27,12 @@ const IntlProvider = NextIntlClientProvider as FC<{
 
 function render(
   l: LessonOutline,
-  opts: { status?: CourseStatus; reasons?: NewOnlyReason[]; messages?: typeof en } = {}
+  opts: {
+    status?: CourseStatus;
+    reasons?: NewOnlyReason[];
+    messages?: typeof en;
+    lang?: "en" | "de" | "el";
+  } = {}
 ) {
   return renderToStaticMarkup(
     createElement(
@@ -41,7 +47,7 @@ function render(
           slug: "my-course",
           kind: "cms",
           status: opts.status ?? "draft",
-          lang: "en",
+          lang: opts.lang ?? "en",
           reasons: opts.reasons ?? [],
           main: createElement("p", null, "MAIN EDITOR"),
           onOutline: () => {},
@@ -94,6 +100,15 @@ describe("PartList — a lesson with added content", () => {
     expect(downs[2]).toContain('disabled=""');
   });
 
+  it("names Move up, Move down and Remove with their content, starting with the words shown", () => {
+    expect(html).toContain('aria-label="Move up content 3: Quick check"');
+    expect(html).toContain('aria-label="Move down content 1: Text"');
+    expect(html).toContain('aria-label="Remove content 3: Quick check"');
+    expect(html).not.toContain('aria-label="Remove content 2: Text"');
+    const removes = [...html.matchAll(/aria-label="(Remove content [^"]+)"/g)].map((m) => m[1]);
+    expect(new Set(removes).size).toBe(removes.length);
+  });
+
   it("shows each content's status in words: written or not, draft, not ready", () => {
     expect(html).toContain("Written in English");
     expect(html).toContain(">Draft<");
@@ -127,7 +142,15 @@ describe("PartList — on a live course", () => {
     expect(add).toContain('aria-disabled="true"');
     const describedBy = /aria-describedby="([^"]+)"/.exec(add)![1];
     expect(html).toContain(`id="${describedBy}"`);
-    expect(html).toContain(en.lessonBlocks.liveLocked);
+    expect(html).toContain(en.lessonBlocks.liveLocked.replace(/'/g, "&#x27;"));
+  });
+
+  it("says plainly that adding is what's blocked, and only for this lesson", () => {
+    for (const m of [en, de, el]) {
+      expect(m.lessonBlocks.liveLocked).not.toBe(m.lessonBlocks.notInLearnerView);
+    }
+    expect(en.lessonBlocks.liveLocked).toMatch(/can.t add/i);
+    expect(en.lessonBlocks.liveLocked).toMatch(/this lesson/);
   });
 
   it("lets a lesson that already has added content keep changing it", () => {
@@ -136,7 +159,7 @@ describe("PartList — on a live course", () => {
       reasons: [{ code: "extra-parts", sectionId: "concept" }],
     });
     expect(html).not.toContain('aria-disabled="');
-    expect(html).not.toContain(en.lessonBlocks.liveLocked);
+    expect(html).not.toContain(en.lessonBlocks.liveLocked.replace(/'/g, "&#x27;"));
   });
 });
 
@@ -144,7 +167,7 @@ describe("PartList — limits and unreadable content", () => {
   it("says it is the unreadable course, not a live one, that stops changes", () => {
     const html = render(lesson([MAIN, QUIZ]), { reasons: [{ code: "unreadable" }] });
     expect(html).toContain(en.lessonBlocks.courseUnreadable.replace(/'/g, "&#x27;"));
-    expect(html).not.toContain(en.lessonBlocks.liveLocked);
+    expect(html).not.toContain(en.lessonBlocks.liveLocked.replace(/'/g, "&#x27;"));
     expect(tagWith(html, 'aria-label="Add content after content 2: Quick check"')).toContain(
       'aria-disabled="true"'
     );
@@ -175,5 +198,19 @@ describe("PartList — in German", () => {
     const html = render(lesson([MAIN, QUIZ]), { messages: de as unknown as typeof en });
     expect(html).toContain("Inhalt 2 von 2: Schnellcheck");
     expect(html).toContain("Inhalt hinzufügen");
+  });
+});
+
+describe("PartList — a text in the added content, in German", () => {
+  const german = { ...TEXT, blocks: { en: TEXT.blocks.en } };
+  const html = render(lesson([german, MAIN]), { messages: de as unknown as typeof en, lang: "de" });
+
+  it("names the language in the menu language, and says in German it isn't written yet", () => {
+    expect(html).toContain("Text · 1 von 2 (Deutsch)");
+    expect(html).not.toContain("(German)");
+    expect(html).toContain("Auf Deutsch noch nicht geschrieben");
+    expect(html).not.toContain("Not written in German yet");
+    expect(html).not.toContain("Text learners read here");
+    expect(html).toContain(de.lessonBlocks.textEditor.description);
   });
 });
