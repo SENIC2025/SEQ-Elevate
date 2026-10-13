@@ -8,7 +8,10 @@
  * on the facilitator roster, in the admin's learner count and, once they
  * play a course, in the statistics. And a role an admin removed must stay
  * removed. So only someone with no role at all in the project is given one;
- * existing memberships are never touched.
+ * existing memberships are never touched. Staff who were given LEARNER
+ * before Release 0 keep that row, so every roster, count and statistic
+ * decides who is a learner with learner-scope.ts (LEARNER and no staff
+ * role), not by the LEARNER role alone.
  *
  * Every learner feature (progress, Comp Card, badges, reading help) works
  * for any signed-in person, with or without the LEARNER role, so staff lose
