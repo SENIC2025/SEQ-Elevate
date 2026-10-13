@@ -43,23 +43,30 @@ export function AppHeaderClient({
   const authed = status === "authenticated";
   // Staff get the workspace switcher too. Words join the icons as the screen
   // widens (md: product name, workspace; lg: sign out; xl: email), so the
-  // header never scrolls sideways, from a 360px phone up, in any language.
+  // header never scrolls sideways, from a 320px phone up (WCAG 1.4.10), in
+  // any language. Signed in, the product name needs 360px; the logo stays,
+  // and the sides and gaps tighten below that.
   // Hidden words stay as each control's accessible name.
   const crowded = authed && workspaces.length > 1;
+  const nameClass = crowded
+    ? "sr-only md:not-sr-only"
+    : authed
+      ? "sr-only min-[360px]:not-sr-only"
+      : undefined;
 
   return (
     <header className="sticky top-0 z-20 border-b border-[var(--border)] bg-[var(--surface)]/90 backdrop-blur">
-      <div className="mx-auto flex max-w-6xl items-center justify-between gap-2 px-4 py-3">
+      {/* Below 360px the sides and gaps tighten, so a staff header with the
+          workspace menu still fits a 320px phone. */}
+      <div className="mx-auto flex max-w-6xl items-center justify-between gap-1.5 px-3 py-3 min-[360px]:gap-2 min-[360px]:px-4">
         <Link
           href="/"
           className="flex items-center gap-2 font-semibold tracking-tight"
         >
           <BrandLogo variant="mark" width={21} className="shrink-0" />
-          <span className={crowded ? "sr-only md:not-sr-only" : undefined}>
-            {t("appName")}
-          </span>
+          <span className={nameClass}>{t("appName")}</span>
         </Link>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 min-[360px]:gap-2">
           {authed ? (
             <>
               {crowded ? (
