@@ -51,7 +51,7 @@ describe("ScenarioStage", () => {
       )
     );
     expect(html).not.toContain(">Continue<");
-    expect(html).toContain("Choose what you would do to continue.");
+    expect(html).toContain("To continue, choose what you would do.");
     expect(html).not.toMatch(/aria-live|role="status"|role="alert"/);
   });
 });

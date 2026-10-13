@@ -494,7 +494,7 @@
   },
   "continueHint": {
     "simulation": "Choose an answer to continue.",
-    "scenario": "Choose what you would do to continue.",
+    "scenario": "To continue, choose what you would do.",
     "scenarioFollowup": "Answer the follow-up question to continue.",
     "assessment": "Answer every question, then select “{button}” to continue."
   },
