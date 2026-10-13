@@ -269,6 +269,38 @@ Single source of truth for decisions made, decisions still open, and the rationa
 - Links open in a new tab with `rel="noopener noreferrer"` and a spoken "(opens in a new tab)" in the interface language; they're underlined (not colour alone), have a solid focus ring, and long ones wrap on a 320 px phone. Text without an address renders exactly as before.
 - A *Link* button in the editor is a later release.
 
+### D56 · Lessons and their content: the main content never moves (amends D33, D36, D52)
+**Decided**: 13 October 2026 · *Decider: SENIC principal ("Start Release 1", plan §3–4); design: SENIC (build decision)*
+- A lesson's main content stays where it is today: text in `Lesson.narrative`, exercises in `Lesson.structure` / `Lesson.structureDraft`, edited by the same editors and actions. Two nullable columns are added, nothing is copied or backfilled.
+- `Course.outline` holds what the editor arranges: lesson order, hidden lessons, step names per language, lessons added in Release 1, and standard lessons that were deleted. Empty means today's layout, worked out exactly as before.
+- `Lesson.parts` holds only a lesson's extra content (text, practice, scenario, quick check, own reflection questions, 1–5 self-assessment) around a `main` placeholder; a lesson with only its main content stores nothing.
+- Ids are made on the server: standard lessons keep their keys, new lessons get `s-` plus 8 characters, extra content `p-` plus 8. `lesson id/content id` is the key Release 2 will save learners' answers under; today's enrolment columns map onto `…/main`, so no data has to move.
+- Rejected: copying a course on first edit (it would freeze what learners of published courses see), writing both old and new forms (they drift apart), and converting between forms (the riskiest option for live data).
+
+### D57 · Courses using what only Release 2 can show can't be published yet (amends D33)
+**Decided**: 13 October 2026 · *Decider: SENIC principal (plan §4 safety catch); rules: SENIC (build decision)*
+- A created course that uses anything the learner player can't show until Release 2 — an own lesson, a hidden or deleted standard lesson, a changed order, extra content, or an arrangement the server can't read — can be previewed but **not published**. Publishing checks this with the Course row locked and refuses with the reasons, which the course page lists; the refusal is audited.
+- On a published course, every lesson or content change must not add a new reason (removing one is always allowed). Built-in courses, unpublishing and archiving are never checked.
+- The build-seeded demo course is left alone once an editor has added lessons or content to it.
+- Release 2 lifts this rule.
+
+### D58 · Step names live with the course, per language
+**Decided**: 13 October 2026 · *Decider: SENIC (build decision)*
+- A lesson's step name is stored per language in `Course.outline`, at most 40 characters, refused rather than cut (like D36). It is never stored in the lesson text, which the lesson editor rewrites on every save.
+- Step names never block publishing. In Release 1 they show on the course page, the lesson list and the editor's preview; learners, the dashboard and the facilitator view switch to them together in Release 2.
+
+### D59 · Published courses keep their shape until Release 2 (a deliberate deviation)
+**Decided**: 13 October 2026 · *Decider: SENIC (build decision); confirmation asked of the SENIC principal*
+- The consortium's default is "reorder or hide on a published course, with a warning". Until Release 2 the learner player ignores the arrangement and resumes learners by count, so on a **published** course these are refused instead: reordering, hiding, adding a lesson, adding extra content or own reflection questions, and deleting a standard lesson. The controls say why. From Release 2 the consortium default applies.
+- A lesson can be deleted only while the course has **no learners** (D53, on any status, counted again inside the change). The Course row is locked for the delete, which an enrolment's own check waits on, so a first enrolment can't slip in between.
+- Removing an exercise learners have (*Remove stage*) is refused while learners are enrolled, whatever the course's status, since the course can be published again.
+
+### D60 · The learner path is frozen in Release 1
+**Decided**: 13 October 2026 · *Decider: SENIC (build decision)*
+- What learners get is unchanged: the course loader, the player, its stage screens, the progress store, progress counting and the learner actions are not edited in Release 1. A test checks their file hashes and is removed on purpose in Release 2. A recorded walk through a standard created course (English and German) and a built-in course must match the Release 0 recording, also after its layout is saved as an outline with step names.
+- *Preview* of a standard course gives the very same course object learners get. A draft course using new features is previewed in a separate sectioned player, which becomes the learner player in Release 2.
+- Extra exercise content follows D52 item by item: a draft per item, *Save* checks it, *Save draft* always works, *Discard*, and a write is refused if a colleague changed it meanwhile. Extra text is saved per language, live, without a draft.
+
 ---
 
 ## 🟡 Open — must close before kickoff or Week 1
