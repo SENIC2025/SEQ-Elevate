@@ -8,12 +8,15 @@
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser, getProjectMemberships } from "@/lib/auth-helpers";
 import { getCourse } from "@/lib/cms";
-import { STAGES } from "@/data/course";
+import {
+  courseProgress,
+  nextStage,
+  overallProgress,
+} from "@/lib/course-progress";
 import type { Locale, CourseContent } from "@/lib/cms/types";
 import type { Role } from "@prisma/client";
 
 const PROJECT = "seq-elevate";
-const TOTAL_STAGES = STAGES.length;
 
 const PRIVACY_FROM_DB: Record<
   string,
@@ -37,9 +40,10 @@ export async function getLearnerEnrollments() {
       slug: e.course.slug,
       // Lowercased stage keys, so the dashboard checklist can show *which*
       // stages are done (not just the count) without re-querying.
+      // The dashboard counts these against each course's own lessons
+      // (CourseSummary.stageKeys), which it already has from the catalogue.
       stages: e.stagesCompleted.map((s) => s.toLowerCase()),
       stagesCompleted: e.stagesCompleted.length,
-      totalStages: TOTAL_STAGES,
       completed: !!e.completedAt,
     }));
   } catch {
@@ -186,14 +190,24 @@ async function loadLearners(
     return f ? `${r.text} → ${f.text}` : r.text;
   };
 
+  // Each course's own lessons, as the player shows them: a course created in
+  // the CMS can have four rather than seven. A course that no longer
+  // resolves counts as the full seven (courseStageKeys' default).
+  const stageKeysOf = (slug: string) =>
+    contentBySlug.get(slug)?.stages.map((s) => s.key);
+
   return memberships.map((m): FacilitatorLearner => {
     const u = m.user;
     const enr = u.enrollments;
-    const totalStages = enr.length * TOTAL_STAGES;
-    const done = enr.reduce((a, e) => a + e.stagesCompleted.length, 0);
-    const progressPct = totalStages
-      ? Math.round((done / totalStages) * 100)
-      : 0;
+    const { pct: progressPct } = overallProgress(
+      enr.map((e) =>
+        courseProgress(
+          stageKeysOf(e.course.slug),
+          e.stagesCompleted,
+          !!e.completedAt
+        )
+      )
+    );
     const completed = enr.length > 0 && enr.every((e) => !!e.completedAt);
     const card = u.compCards[0] ?? null;
     const ev = enr.find((e) => e.scenarioRoot);
@@ -212,9 +226,11 @@ async function loadLearners(
       lastActiveAt = recent.updatedAt.toISOString();
       currentCourse =
         contentBySlug.get(recent.course.slug)?.title ?? recent.course.slug;
-      currentStage = recent.completedAt
-        ? "complete"
-        : STAGES[Math.min(recent.stagesCompleted.length, STAGES.length - 1)];
+      currentStage = nextStage(
+        stageKeysOf(recent.course.slug),
+        recent.stagesCompleted,
+        !!recent.completedAt
+      );
     }
 
     // Quiz performance across enrollments.

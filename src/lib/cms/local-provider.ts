@@ -220,6 +220,7 @@ function summarise(c: CourseContent): CourseSummary {
     badgeSlug: c.badge.slug,
     badgeName: c.badge.name,
     badgeMeaning: c.badge.meaning,
+    stageKeys: c.stages.map((s) => s.key),
   };
 }
 

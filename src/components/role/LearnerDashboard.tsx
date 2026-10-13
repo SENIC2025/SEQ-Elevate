@@ -7,8 +7,9 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import { SKILL_CLUSTERS, STAGES } from "@/data/course";
+import { SKILL_CLUSTERS } from "@/data/course";
 import type { CourseSummary } from "@/lib/cms/types";
+import { courseProgress, overallProgress } from "@/lib/course-progress";
 import {
   MessageCircle,
   Shield,
@@ -42,7 +43,6 @@ export interface EnrollmentSummary {
   /** Lowercased stage keys completed in this course (real DB data). */
   stages: string[];
   stagesCompleted: number;
-  totalStages: number;
   completed: boolean;
 }
 
@@ -58,63 +58,50 @@ export function LearnerDashboard({
   const tClusters = useTranslations("skillClusters");
 
   const { state } = useDemoState();
-  const totalStages = STAGES.length;
 
   const published = courses.filter((c) => !c.comingSoon);
   const hero = published[0];
   const activeClusters = new Set(published.map((c) => c.cluster));
 
-  // Per-course status: real enrollments for authed users, demo-state for guests.
+  // Per-course status: real enrollments for authed users, demo-state for
+  // guests. Progress is counted against the course's OWN lessons — a course
+  // created in the CMS can have four, not seven (src/lib/course-progress.ts).
   const enrollMap = new Map((enrollments ?? []).map((e) => [e.slug, e]));
-  const courseStatus = (slug: string) => {
+  const courseStatus = (course: CourseSummary) => {
+    let stages: string[] = [];
+    let completed = false;
     if (enrollments) {
-      const e = enrollMap.get(slug);
-      if (!e) return { stagesDone: 0, completed: false, inProgress: false };
-      return {
-        stagesDone: e.stagesCompleted,
-        completed: e.completed,
-        inProgress: e.stagesCompleted > 0 && !e.completed,
-      };
+      const e = enrollMap.get(course.slug);
+      if (e) {
+        stages = e.stages;
+        completed = e.completed;
+      }
+    } else if (
+      state.course.courseSlug === course.slug ||
+      (!state.course.courseSlug && course.slug === hero?.slug)
+    ) {
+      stages = state.course.stagesCompleted;
+      completed = !!state.course.completedAt;
     }
-    const isActive =
-      state.course.courseSlug === slug ||
-      (!state.course.courseSlug && slug === hero?.slug);
-    if (isActive) {
-      const sd = state.course.stagesCompleted.length;
-      return {
-        stagesDone: sd,
-        completed: !!state.course.completedAt,
-        inProgress: sd > 0 && !state.course.completedAt,
-      };
-    }
-    return { stagesDone: 0, completed: false, inProgress: false };
+    const progress = courseProgress(course.stageKeys, stages, completed);
+    return {
+      ...progress,
+      completed,
+      inProgress: progress.done.length > 0 && !completed,
+    };
   };
 
-  const heroStatus = hero
-    ? courseStatus(hero.slug)
-    : { stagesDone: 0, completed: false, inProgress: false };
-  const stagesDone = heroStatus.stagesDone;
-  const progressPct = Math.round((stagesDone / totalStages) * 100);
-  const isInProgress = heroStatus.inProgress;
-  const isCompleted = heroStatus.completed;
-
-  // Which specific stages of the hero course are done, for the journey
-  // checklist: real per-course DB data for authed users, demo-state for guests.
-  const heroStages: string[] = enrollments
-    ? (hero ? (enrollMap.get(hero.slug)?.stages ?? []) : [])
-    : state.course.stagesCompleted;
+  const heroStatus = hero ? courseStatus(hero) : null;
+  const stagesDone = heroStatus?.done.length ?? 0;
+  const totalStages = heroStatus?.total ?? 0;
+  const progressPct = heroStatus?.pct ?? 0;
+  const isInProgress = heroStatus?.inProgress ?? false;
+  const isCompleted = heroStatus?.completed ?? false;
 
   // Overall completion across all published courses (the whole programme).
-  const overallTotalStages = published.length * totalStages;
-  const overallDone = published.reduce(
-    (sum, c) => sum + courseStatus(c.slug).stagesDone,
-    0
-  );
-  const overallPct = overallTotalStages
-    ? Math.round((overallDone / overallTotalStages) * 100)
-    : 0;
-  const coursesDone = published.filter((c) => courseStatus(c.slug).completed)
-    .length;
+  const publishedStatus = published.map(courseStatus);
+  const overallPct = overallProgress(publishedStatus).pct;
+  const coursesDone = publishedStatus.filter((s) => s.completed).length;
 
   // Badge slug → display info, from the course list.
   const badgeInfo = new Map<string, { name: string; meaning: string }>();
@@ -233,7 +220,7 @@ export function LearnerDashboard({
             const Icon = CLUSTER_ICONS[c.cluster] ?? MessageCircle;
             const status = c.comingSoon
               ? null
-              : courseStatus(c.slug);
+              : courseStatus(c);
             const inner = (
               <CardContent className="p-4 flex flex-col h-full">
                 <div className="flex items-start justify-between">
@@ -385,8 +372,8 @@ export function LearnerDashboard({
                   label={`${stagesDone}/${totalStages}`}
                 />
                 <ul className="mt-3 space-y-1.5">
-                  {STAGES.map((stage) => {
-                    const done = heroStages.includes(stage);
+                  {(heroStatus?.keys ?? []).map((stage) => {
+                    const done = heroStatus?.done.includes(stage) ?? false;
                     return (
                       <li key={stage} className="flex items-center gap-2 text-sm">
                         {done ? (

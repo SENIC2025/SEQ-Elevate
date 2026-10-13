@@ -20,6 +20,7 @@ import "server-only";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { introFromBlocks } from "@/lib/rich-text/narrative";
+import { presentStageKeys } from "./course-derive";
 import {
   resolveStructure,
   pickText,
@@ -124,7 +125,8 @@ function toSummary(
   cluster: string,
   durationMinutes: number,
   status: string,
-  entry: CourseMetaEntry
+  entry: CourseMetaEntry,
+  stageKeys: StageKey[]
 ): CourseSummary {
   return {
     slug,
@@ -134,6 +136,7 @@ function toSummary(
     tagline: entry.tagline,
     durationMinutes,
     status: status === "draft" || status === "archived" ? status : "published",
+    stageKeys,
   };
 }
 
@@ -170,12 +173,37 @@ export async function listDbCourses(
       where: { projectId, NOT: { meta: { equals: Prisma.DbNull } } },
       orderBy: { createdAt: "asc" },
     });
+    // Which interactive lessons each course has written, so the dashboard
+    // can count a course against its own lessons rather than all seven.
+    const written = await prisma.lesson.findMany({
+      where: {
+        projectId,
+        courseSlug: { in: rows.map((r) => r.slug) },
+        NOT: { structure: { equals: Prisma.DbNull } },
+      },
+      select: { courseSlug: true, stageKey: true, structure: true },
+    });
+    const lessonsBySlug = new Map<string, typeof written>();
+    for (const l of written) {
+      lessonsBySlug.set(l.courseSlug, [
+        ...(lessonsBySlug.get(l.courseSlug) ?? []),
+        l,
+      ]);
+    }
     const out: CourseSummary[] = [];
     for (const r of rows) {
       const entry = pickMeta(r.meta as CourseMeta | null, locale);
       if (!entry) continue;
       out.push(
-        toSummary(r.slug, r.cluster, r.durationMinutes, r.status, entry)
+        toSummary(
+          r.slug,
+          r.cluster,
+          r.durationMinutes,
+          r.status,
+          entry,
+          // The same rule getDbCourse builds the player's lessons by.
+          presentStageKeys("cms", lessonsBySlug.get(r.slug) ?? [])
+        )
       );
     }
     return out;
