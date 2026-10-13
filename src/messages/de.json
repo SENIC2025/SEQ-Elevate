@@ -464,6 +464,14 @@
         "openCompCard": "Comp Card öffnen",
         "backToDashboard": "Zum Dashboard"
       }
+    },
+    "sectionTemplate": {
+      "blank": "Leere Lektion",
+      "text": "Textlektion",
+      "practice": "Übungsfrage",
+      "scenario": "Verzweigtes Szenario",
+      "quiz": "Schnellcheck",
+      "reflectionRating": "Reflexion und Selbsteinschätzung"
     }
   },
   "coursePlayer": {
@@ -494,6 +502,22 @@
     "draftPreview": "<b>Entwurfsvorschau.</b> Dieser Kurs ist nicht veröffentlicht — Lernende sehen ihn noch nicht. Nichts, was du in dieser Vorschau tust, wird gespeichert.",
     "preview": "<b>Vorschau.</b> Nichts, was du hier tust, wird gespeichert.",
     "backToEditing": "Zurück zum Bearbeiten"
+  },
+  "sectionPreview": {
+    "banner": "Diese Vorschau zeigt den neuen Aufbau. Lernende bekommen ihn ab Release 2, deshalb lässt sich der Kurs noch nicht veröffentlichen.",
+    "answerFirst": "Beantworte das zuerst, um weiterzumachen.",
+    "skippedNote": "Für die Redaktion: {count, plural, one {Ein Inhalt wird} other {# Inhalte werden}} hier nicht gezeigt — bisher nur ein Entwurf oder noch nicht fertig.",
+    "ratingOption": "{n} von 5",
+    "ratingScale": "1 = {min} · 5 = {max}",
+    "editLesson": "Diese Lektion bearbeiten",
+    "partHeading": {
+      "text": "Text",
+      "practice": "Übungsfrage",
+      "scenario": "Verzweigtes Szenario",
+      "quiz": "Schnellcheck",
+      "reflection": "Reflexionsfragen",
+      "rating": "Selbsteinschätzung"
+    }
   },
   "continueHint": {
     "simulation": "Wähle eine Antwort, um weiterzumachen.",
@@ -740,6 +764,82 @@
       }
     }
   },
+  "lessonList": {
+    "heading": "Lektionen",
+    "count": "Lektionen ({count})",
+    "actionsFor": "Aktionen für {label}",
+    "moveUp": "Nach oben",
+    "moveDown": "Nach unten",
+    "moved": "„{name}“ ist jetzt an Position {position} von {total}.",
+    "hide": "Ausblenden",
+    "show": "Einblenden",
+    "hiddenTag": "Ausgeblendet",
+    "rename": {
+      "action": "Umbenennen",
+      "label": "Name der Lektion auf {language}",
+      "counter": "{count} von {max} Zeichen",
+      "tooLong": "Höchstens {max} Zeichen.",
+      "save": "Namen speichern",
+      "cancel": "Abbrechen",
+      "saved": "Name gespeichert."
+    },
+    "delete": {
+      "action": "Löschen",
+      "title": "„{name}“ in allen Sprachen löschen?",
+      "textIn": "Ihr Text auf {languages}",
+      "textItems": "{count, plural, one {# Text} other {# Texte}}",
+      "questions": "{count, plural, one {# Frage} other {# Fragen}}",
+      "video": "Ihr Video",
+      "documents": "{count, plural, one {# Dokument} other {# Dokumente}}",
+      "confirm": "Lektion löschen",
+      "keep": "Behalten",
+      "deleted": "„{name}“ gelöscht.",
+      "blockedLearners": "In diesem Kurs {count, plural, one {ist # lernende Person} other {sind # Lernende}} eingeschrieben, deshalb lässt sich diese Lektion nicht löschen."
+    },
+    "picker": {
+      "open": "Lektion hinzufügen",
+      "addAfter": "Lektion danach hinzufügen",
+      "title": "Eine Lektion hinzufügen",
+      "blank": "Leer",
+      "blankHint": "Eine leere Lektion: Du wählst danach ihren Inhalt.",
+      "text": "Text",
+      "textHint": "Text zum Lesen, mit Absätzen und Listen.",
+      "practice": "Übungsfrage",
+      "practiceHint": "Eine Situation und mehrere Antworten, eine davon die beste.",
+      "scenario": "Verzweigtes Szenario",
+      "scenarioHint": "Eine Situation, in der jede Wahl zu einer eigenen Folge führt.",
+      "quiz": "Schnellcheck",
+      "quizHint": "Fragen mit jeweils einer richtigen Antwort.",
+      "reflectionRating": "Reflexion und Selbsteinschätzung",
+      "reflectionRatingHint": "Fragen zum Nachdenken und Aussagen zum Bewerten von 1 bis 5.",
+      "restore": "Wieder hinzufügen: {name} (leer)",
+      "restoreHint": "Die gelöschte Standardlektion, ohne ihren alten Inhalt.",
+      "close": "Schließen"
+    },
+    "where": "Wo",
+    "many": "Dieser Kurs hat mehr als {count} Lektionen. Prüfe, ob Lernende alle brauchen.",
+    "max": "Ein Kurs kann höchstens {max} Lektionen haben.",
+    "liveLocked": "Dieser Kurs ist live: Solche Änderungen bekommen Lernende ab Release 2.",
+    "nonStandardHint": "Kurse damit lassen sich ab Release 2 veröffentlichen. Die Vorschau funktioniert schon jetzt.",
+    "conflict": "Jemand anderes hat die Lektionsliste geändert, seit du sie geöffnet hast, deshalb wurde nichts geändert. Die Liste zeigt jetzt diese Änderungen.",
+    "publish": {
+      "blockedTitle": "Noch nicht veröffentlichbar",
+      "blockedIntro": "Lernende bekommen das erst ab Release 2. Mach es rückgängig, um jetzt zu veröffentlichen, oder behalte es und nutze die Vorschau als Lernende:r.",
+      "liveBypass": "Lernende bekommen noch nicht alles von diesem Kurs: Bis Release 2 sehen sie die Standardlektionen. Nicht für sie sichtbar:",
+      "needsRelease2": "Dieser Kurs enthält Änderungen, die Lernende erst ab Release 2 bekommen, deshalb wurde er nicht veröffentlicht.",
+      "reason": {
+        "customSection": "„{name}“ ist eine neue Lektion",
+        "hiddenSection": "„{name}“ ist ausgeblendet",
+        "removedSection": "„{name}“ wurde gelöscht",
+        "reordered": "Die Lektionen sind neu angeordnet",
+        "extraParts": "„{name}“ hat zusätzlichen Inhalt",
+        "unreadable": "Die Lektionsliste lässt sich nicht lesen"
+      }
+    },
+    "labelsLater": "Lernende sehen deine Lektionsnamen ab Release 2.",
+    "laterNote": "Lernende sehen diesen Namen ab Release 2; bis dahin sehen sie „{standard}“.",
+    "fullTemplate": "Mit der vollständigen Vorlage beginnen (alle sieben Standardlektionen)"
+  },
   "lesson": {
     "resourcesTitle": "Materialien",
     "stepThrough": "Durchblättern",
@@ -837,7 +937,12 @@
       "assessmentQuestionText": "Frage {question}: Schreib die Frage.",
       "assessmentAnswersTooFew": "Frage {question}: Füge mindestens zwei Antworten hinzu.",
       "assessmentAnswerText": "Frage {question}, Antwort {answer}: Schreib die Antwort.",
-      "assessmentCorrect": "Frage {question}: Kreuze die richtige Antwort an."
+      "assessmentCorrect": "Frage {question}: Kreuze die richtige Antwort an.",
+      "reflectionNoPrompts": "Füge mindestens eine Reflexionsfrage hinzu.",
+      "reflectionPromptText": "Frage {prompt}: Schreib die Frage.",
+      "ratingNoStatements": "Füge mindestens eine Aussage zum Bewerten hinzu.",
+      "ratingStatementText": "Aussage {statement}: Schreib die Aussage.",
+      "ratingEndLabels": "Schreib, was 1 und was 5 bedeuten (die Beschriftungen an beiden Enden der Skala)."
     },
     "actions": {
       "saveStage": "Lektion speichern",
@@ -866,7 +971,15 @@
       "mismatch": "Das passt nicht zu dieser Lektion. Lade die Seite neu und versuche es erneut.",
       "generic": "Das wurde nicht gespeichert. Prüfe deine Verbindung und versuche es erneut.",
       "removeFailed": "Die Lektion konnte nicht entfernt werden: Nur die Inhalts-Redaktion und Admins können Kurse ändern.",
-      "load": "Diese Lektion konnte nicht geladen werden. Lade die Seite neu, um es noch einmal zu versuchen."
+      "load": "Diese Lektion konnte nicht geladen werden. Lade die Seite neu, um es noch einmal zu versuchen.",
+      "hasLearners": "In diesem Kurs {count, plural, one {ist # lernende Person} other {sind # Lernende}} eingeschrieben, deshalb lässt sich das nicht entfernen: Ihnen würde fehlen, was sie jetzt haben.",
+      "notASection": "Diese Lektion steht nicht mehr in der Lektionsliste des Kurses. Lade die Seite neu, um die aktuelle Liste zu sehen.",
+      "liveCourseStandardOnly": "Dieser Kurs ist live, deshalb muss diese Änderung warten: Lernende bekommen solche Änderungen ab Release 2. Es wurde nichts gespeichert.",
+      "kindMismatch": "Dieser Inhalt passt nicht mehr zur Lektion. Lade die Seite neu und versuche es erneut.",
+      "outlineUnreadable": "Die Lektionsliste dieses Kurses lässt sich nicht lesen, deshalb kann nichts geändert werden, bis ein Admin sie repariert. Es wurde nichts gespeichert.",
+      "partsTooLarge": "Die Inhalte dieser Lektion sind zusammen zu groß zum Speichern. Kürze einige Texte oder entferne Inhalte.",
+      "useMainEditor": "Das ist der Hauptinhalt der Lektion. Bearbeite ihn im Editor der Lektion selbst.",
+      "unknownPart": "Diesen Inhalt gibt es in der Lektion nicht mehr. Lade die Seite neu, um die Lektion so zu sehen, wie sie jetzt ist."
     },
     "loading": "Wird geladen …",
     "limits": {
@@ -889,21 +1002,32 @@
         "scenarioFollowupOutcome": "Folgeschritt {choice}.{followup}, was nach dem Folgeschritt passiert",
         "assessmentIntro": "Einleitung",
         "assessmentQuestionText": "Frage {question}",
-        "assessmentAnswerText": "Frage {question}, Antwort {answer}"
+        "assessmentAnswerText": "Frage {question}, Antwort {answer}",
+        "partTitle": "Titel",
+        "partIntro": "Einleitung",
+        "reflectionPromptLabel": "Frage {prompt}",
+        "reflectionPromptPlaceholder": "Frage {prompt}, Beispiel im Antwortfeld",
+        "ratingMinLabel": "Beschriftung für 1",
+        "ratingMaxLabel": "Beschriftung für 5",
+        "ratingStatementText": "Aussage {statement}"
       },
       "lists": {
         "simOptions": "Optionen: Es sind {count}, gespeichert werden können höchstens {max}. Entferne einige.",
         "scenarioChoices": "Erste Auswahlmöglichkeiten: Es sind {count}, gespeichert werden können höchstens {max}. Entferne einige.",
         "scenarioFollowups": "Auswahl {choice}, Folgeschritte: Es sind {count}, gespeichert werden können höchstens {max}. Entferne einige.",
         "assessmentQuestions": "Fragen: Es sind {count}, gespeichert werden können höchstens {max}. Entferne einige.",
-        "assessmentAnswers": "Frage {question}, Antworten: Es sind {count}, gespeichert werden können höchstens {max}. Entferne einige."
+        "assessmentAnswers": "Frage {question}, Antworten: Es sind {count}, gespeichert werden können höchstens {max}. Entferne einige.",
+        "reflectionPrompts": "Fragen: Es sind {count}, gespeichert werden können höchstens {max}. Entferne einige.",
+        "ratingStatements": "Aussagen: Es sind {count}, gespeichert werden können höchstens {max}. Entferne einige."
       }
     },
     "region": {
       "fallback": "Interaktive Lektion",
       "simulation": "Interaktive Lektion — Geführte Übung",
       "scenario": "Interaktive Lektion — Anwendung",
-      "assessment": "Interaktive Lektion — Schnellcheck"
+      "assessment": "Interaktive Lektion — Schnellcheck",
+      "reflection": "Interaktive Lektion — Reflexionsfragen",
+      "rating": "Interaktive Lektion — Selbsteinschätzung"
     },
     "fields": {
       "stageTitle": "Titel der Lektion",
@@ -965,7 +1089,63 @@
       "draftBadge": "Entwurf gespeichert",
       "navDraft": "Entwurf",
       "readinessDraft": "Die Lektion „{stage}“ hat einen Entwurf, den Lernende noch nicht sehen."
+    },
+    "reflection": {
+      "title": "Titel (optional)",
+      "titlePlaceholder": "z. B. Rückblick",
+      "intro": "Einleitung (optional)",
+      "standardNote": "Beginnt mit den drei Standardfragen der Plattform. Ändere sie nach Bedarf.",
+      "promptsHint": "Fragen — Lernende schreiben zu jeder ihre eigene Antwort.",
+      "prompt": "Frage {n}",
+      "promptLabel": "Frage",
+      "promptPlaceholder": "Beispiel im Antwortfeld (optional)",
+      "movePromptUp": "Frage {n} nach oben",
+      "movePromptDown": "Frage {n} nach unten",
+      "removePrompt": "Frage {n} entfernen",
+      "addPrompt": "Frage hinzufügen"
+    },
+    "rating": {
+      "title": "Titel (optional)",
+      "titlePlaceholder": "z. B. Wo stehst du?",
+      "intro": "Einleitung (optional)",
+      "scaleHint": "Lernende bewerten jede Aussage von 1 bis 5.",
+      "minLabel": "Was 1 bedeutet",
+      "maxLabel": "Was 5 bedeutet",
+      "statementsHint": "Aussagen — Lernende bewerten jede einzeln.",
+      "statement": "Aussage {n}",
+      "statementText": "Aussage",
+      "moveStatementUp": "Aussage {n} nach oben",
+      "moveStatementDown": "Aussage {n} nach unten",
+      "removeStatement": "Aussage {n} entfernen",
+      "addStatement": "Aussage hinzufügen"
     }
+  },
+  "lessonBlocks": {
+    "addContent": "Inhalt hinzufügen",
+    "types": {
+      "text": "Text",
+      "practice": "Übungsfrage",
+      "scenario": "Verzweigtes Szenario",
+      "quiz": "Schnellcheck",
+      "reflection": "Reflexionsfragen",
+      "rating": "Selbsteinschätzung (1–5)"
+    },
+    "position": "{type} · {n} von {total}",
+    "groupLabel": "Inhalt {n} von {total}: {type}",
+    "moveUp": "Nach oben",
+    "moveDown": "Nach unten",
+    "remove": "Entfernen",
+    "removeConfirm": "Diesen Inhalt entfernen? Er wird in allen Sprachen entfernt.",
+    "notInLearnerView": "Lernende bekommen den hinzugefügten Inhalt ab Release 2. Die Vorschau als Lernende:r zeigt ihn schon jetzt.",
+    "liveLocked": "Dieser Kurs ist live: Hinzugefügten Inhalt bekommen Lernende ab Release 2.",
+    "ownQuestionsNote": "Diese Lektion hat unten eigene Reflexionsfragen statt der Standardfragen.",
+    "draft": "Entwurf",
+    "notReady": "Nicht fertig ({count})",
+    "langState": {
+      "written": "Auf {language} geschrieben",
+      "missing": "Auf {language} noch nicht geschrieben"
+    },
+    "tooLarge": "Dieser Inhalt ist zu groß zum Speichern. Kürze einige seiner Texte."
   },
   "accounts": {
     "facilitatorNotSaved": "Das wurde nicht gespeichert. Notizen und Bestätigungen kannst du nur für Lernende in diesem Projekt anlegen. Lade die Seite neu und versuch es noch einmal.",

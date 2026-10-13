@@ -464,6 +464,14 @@
         "openCompCard": "Open your Comp Card",
         "backToDashboard": "Back to dashboard"
       }
+    },
+    "sectionTemplate": {
+      "blank": "Blank lesson",
+      "text": "Text lesson",
+      "practice": "Practice question",
+      "scenario": "Branching scenario",
+      "quiz": "Quick check",
+      "reflectionRating": "Reflection & self-assessment"
     }
   },
   "coursePlayer": {
@@ -494,6 +502,22 @@
     "draftPreview": "<b>Draft preview.</b> This course is not published — learners can't see it yet. Nothing you do in this preview is saved.",
     "preview": "<b>Preview.</b> Nothing you do here is saved.",
     "backToEditing": "Back to editing"
+  },
+  "sectionPreview": {
+    "banner": "This preview shows the new layout. Learners get it from Release 2, so the course can't be published yet.",
+    "answerFirst": "Answer this first to continue.",
+    "skippedNote": "For editors: {count, plural, one {one piece of content isn't shown} other {# pieces of content aren't shown}} here — only a draft so far, or not ready yet.",
+    "ratingOption": "{n} of 5",
+    "ratingScale": "1 = {min} · 5 = {max}",
+    "editLesson": "Edit this lesson",
+    "partHeading": {
+      "text": "Text",
+      "practice": "Practice question",
+      "scenario": "Branching scenario",
+      "quiz": "Quick check",
+      "reflection": "Reflection questions",
+      "rating": "Self-assessment"
+    }
   },
   "continueHint": {
     "simulation": "Choose an answer to continue.",
@@ -740,6 +764,82 @@
       }
     }
   },
+  "lessonList": {
+    "heading": "Lessons",
+    "count": "Lessons ({count})",
+    "actionsFor": "Actions for {label}",
+    "moveUp": "Move up",
+    "moveDown": "Move down",
+    "moved": "“{name}” moved to position {position} of {total}.",
+    "hide": "Hide",
+    "show": "Show",
+    "hiddenTag": "Hidden",
+    "rename": {
+      "action": "Rename",
+      "label": "Lesson name in {language}",
+      "counter": "{count} of {max} characters",
+      "tooLong": "Use {max} characters or fewer.",
+      "save": "Save name",
+      "cancel": "Cancel",
+      "saved": "Name saved."
+    },
+    "delete": {
+      "action": "Delete",
+      "title": "Delete “{name}” in all languages?",
+      "textIn": "Its text in {languages}",
+      "textItems": "{count, plural, one {# text} other {# texts}}",
+      "questions": "{count, plural, one {# question} other {# questions}}",
+      "video": "Its video",
+      "documents": "{count, plural, one {# document} other {# documents}}",
+      "confirm": "Delete lesson",
+      "keep": "Keep it",
+      "deleted": "“{name}” deleted.",
+      "blockedLearners": "{count, plural, one {# learner is} other {# learners are}} enrolled in this course, so this lesson can't be deleted."
+    },
+    "picker": {
+      "open": "Add lesson",
+      "addAfter": "Add lesson after",
+      "title": "Add a lesson",
+      "blank": "Blank",
+      "blankHint": "An empty lesson: choose its content next.",
+      "text": "Text",
+      "textHint": "Text to read, with paragraphs and lists.",
+      "practice": "Practice question",
+      "practiceHint": "A situation and several responses, one of them the best.",
+      "scenario": "Branching scenario",
+      "scenarioHint": "A situation where each choice leads somewhere of its own.",
+      "quiz": "Quick check",
+      "quizHint": "Questions with one correct answer each.",
+      "reflectionRating": "Reflection & self-assessment",
+      "reflectionRatingHint": "Questions to think about, and statements to rate from 1 to 5.",
+      "restore": "Add back: {name} (empty)",
+      "restoreHint": "The standard lesson you deleted, without its old content.",
+      "close": "Close"
+    },
+    "where": "Where",
+    "many": "This course has more than {count} lessons. Check that learners need them all.",
+    "max": "A course can have at most {max} lessons.",
+    "liveLocked": "This course is live: learners get changes like this from Release 2.",
+    "nonStandardHint": "Courses with this can be published from Release 2. Preview works now.",
+    "conflict": "Someone else changed the lesson list since you opened it, so nothing was changed. The list now shows their changes.",
+    "publish": {
+      "blockedTitle": "Can't publish yet",
+      "blockedIntro": "Learners get these from Release 2. Undo them to publish now, or keep them and use Preview as learner.",
+      "liveBypass": "Learners don't get all of this course yet: until Release 2 they see the standard lessons. Not shown to them:",
+      "needsRelease2": "This course has changes learners can't get until Release 2, so it wasn't published.",
+      "reason": {
+        "customSection": "“{name}” is a new lesson",
+        "hiddenSection": "“{name}” is hidden",
+        "removedSection": "“{name}” was deleted",
+        "reordered": "The lessons are in a new order",
+        "extraParts": "“{name}” has added content",
+        "unreadable": "The lesson list can't be read"
+      }
+    },
+    "labelsLater": "Learners see your lesson names from Release 2.",
+    "laterNote": "Learners see this name from Release 2; until then they see “{standard}”.",
+    "fullTemplate": "Start from the full template (all seven standard lessons)"
+  },
   "lesson": {
     "resourcesTitle": "Resources",
     "stepThrough": "Step through",
@@ -837,7 +937,12 @@
       "assessmentQuestionText": "Question {question}: write the question.",
       "assessmentAnswersTooFew": "Question {question}: add at least two answers.",
       "assessmentAnswerText": "Question {question}, answer {answer}: write the answer.",
-      "assessmentCorrect": "Question {question}: tick the correct answer."
+      "assessmentCorrect": "Question {question}: tick the correct answer.",
+      "reflectionNoPrompts": "Add at least one reflection question.",
+      "reflectionPromptText": "Question {prompt}: write the question.",
+      "ratingNoStatements": "Add at least one statement to rate.",
+      "ratingStatementText": "Statement {statement}: write the statement.",
+      "ratingEndLabels": "Write what 1 and what 5 mean (the labels at both ends of the scale)."
     },
     "actions": {
       "saveStage": "Save stage",
@@ -866,7 +971,15 @@
       "mismatch": "That doesn't match this lesson. Reload the page and try again.",
       "generic": "That didn't save. Check your connection and try again.",
       "removeFailed": "Couldn't remove the stage: only editors and admins can change courses.",
-      "load": "Couldn't load this stage. Reload the page to try again."
+      "load": "Couldn't load this stage. Reload the page to try again.",
+      "hasLearners": "{count, plural, one {# learner is} other {# learners are}} enrolled in this course, so this can't be removed: they would lose what they have now.",
+      "notASection": "This lesson isn't in the course's lesson list any more. Reload the page to see the list as it is now.",
+      "liveCourseStandardOnly": "This course is live, so this change has to wait: learners get changes like this from Release 2. Nothing was saved.",
+      "kindMismatch": "This content doesn't match the lesson any more. Reload the page and try again.",
+      "outlineUnreadable": "This course's lesson list can't be read, so nothing can be changed until an admin repairs it. Nothing was saved.",
+      "partsTooLarge": "This lesson's content is too large to save as a whole. Shorten some of its texts or remove some content.",
+      "useMainEditor": "This is the lesson's main content. Edit it in the lesson's own editor.",
+      "unknownPart": "This content isn't in the lesson any more. Reload the page to see the lesson as it is now."
     },
     "loading": "Loading…",
     "limits": {
@@ -889,21 +1002,32 @@
         "scenarioFollowupOutcome": "Follow-up {choice}.{followup}, follow-up outcome",
         "assessmentIntro": "Intro",
         "assessmentQuestionText": "Question {question}",
-        "assessmentAnswerText": "Question {question}, answer {answer}"
+        "assessmentAnswerText": "Question {question}, answer {answer}",
+        "partTitle": "Title",
+        "partIntro": "Intro",
+        "reflectionPromptLabel": "Question {prompt}",
+        "reflectionPromptPlaceholder": "Question {prompt}, example in the answer box",
+        "ratingMinLabel": "Label for 1",
+        "ratingMaxLabel": "Label for 5",
+        "ratingStatementText": "Statement {statement}"
       },
       "lists": {
         "simOptions": "Options: there are {count}, and at most {max} can be saved. Remove some.",
         "scenarioChoices": "First choices: there are {count}, and at most {max} can be saved. Remove some.",
         "scenarioFollowups": "Choice {choice}, follow-ups: there are {count}, and at most {max} can be saved. Remove some.",
         "assessmentQuestions": "Questions: there are {count}, and at most {max} can be saved. Remove some.",
-        "assessmentAnswers": "Question {question}, answers: there are {count}, and at most {max} can be saved. Remove some."
+        "assessmentAnswers": "Question {question}, answers: there are {count}, and at most {max} can be saved. Remove some.",
+        "reflectionPrompts": "Questions: there are {count}, and at most {max} can be saved. Remove some.",
+        "ratingStatements": "Statements: there are {count}, and at most {max} can be saved. Remove some."
       }
     },
     "region": {
       "fallback": "Interactive stage",
       "simulation": "Interactive stage — Simulation",
       "scenario": "Interactive stage — Scenario",
-      "assessment": "Interactive stage — Assessment"
+      "assessment": "Interactive stage — Assessment",
+      "reflection": "Interactive stage — Reflection questions",
+      "rating": "Interactive stage — Self-assessment"
     },
     "fields": {
       "stageTitle": "Stage title",
@@ -965,7 +1089,63 @@
       "draftBadge": "Draft saved",
       "navDraft": "Draft",
       "readinessDraft": "The “{stage}” lesson has a draft that learners don't see yet."
+    },
+    "reflection": {
+      "title": "Title (optional)",
+      "titlePlaceholder": "e.g. Look back",
+      "intro": "Intro (optional)",
+      "standardNote": "Starts with the platform's three standard questions. Change them as you like.",
+      "promptsHint": "Questions — learners write their own answer to each one.",
+      "prompt": "Question {n}",
+      "promptLabel": "Question",
+      "promptPlaceholder": "Example in the answer box (optional)",
+      "movePromptUp": "Move question {n} up",
+      "movePromptDown": "Move question {n} down",
+      "removePrompt": "Remove question {n}",
+      "addPrompt": "Add question"
+    },
+    "rating": {
+      "title": "Title (optional)",
+      "titlePlaceholder": "e.g. Where do you stand?",
+      "intro": "Intro (optional)",
+      "scaleHint": "Learners rate each statement from 1 to 5.",
+      "minLabel": "What 1 means",
+      "maxLabel": "What 5 means",
+      "statementsHint": "Statements — learners rate each one.",
+      "statement": "Statement {n}",
+      "statementText": "Statement",
+      "moveStatementUp": "Move statement {n} up",
+      "moveStatementDown": "Move statement {n} down",
+      "removeStatement": "Remove statement {n}",
+      "addStatement": "Add statement"
     }
+  },
+  "lessonBlocks": {
+    "addContent": "Add content",
+    "types": {
+      "text": "Text",
+      "practice": "Practice question",
+      "scenario": "Branching scenario",
+      "quiz": "Quick check",
+      "reflection": "Reflection questions",
+      "rating": "Self-assessment (1–5)"
+    },
+    "position": "{type} · {n} of {total}",
+    "groupLabel": "Content {n} of {total}: {type}",
+    "moveUp": "Move up",
+    "moveDown": "Move down",
+    "remove": "Remove",
+    "removeConfirm": "Remove this content? It is removed in all languages.",
+    "notInLearnerView": "Learners get the added content from Release 2. Preview as learner shows it now.",
+    "liveLocked": "This course is live: learners get added content from Release 2.",
+    "ownQuestionsNote": "This lesson has its own reflection questions below, instead of the standard ones.",
+    "draft": "Draft",
+    "notReady": "Not ready ({count})",
+    "langState": {
+      "written": "Written in {language}",
+      "missing": "Not written in {language} yet"
+    },
+    "tooLarge": "This content is too large to save. Shorten some of its texts."
   },
   "accounts": {
     "facilitatorNotSaved": "This wasn't saved. Notes and validations can only be added for learners in this project. Reload the page and try again.",

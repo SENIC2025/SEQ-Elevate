@@ -4,6 +4,13 @@ import { join } from "node:path";
 import en from "@/messages/en.json";
 import de from "@/messages/de.json";
 import el from "@/messages/el.json";
+import {
+  NEW_SECTION_TEMPLATES,
+  type PartFieldCode,
+  type PartIssueCode,
+  type PartListCode,
+  type SectionsError,
+} from "@/lib/cms/sections/contract";
 
 /**
  * The exercise editor's wording, beyond what messages-parity checks: it must
@@ -70,5 +77,220 @@ describe("exercise editor wording", () => {
       readFileSync(join(__dirname, "..", "components", file), "utf8");
     expect(source("course-manager/LessonSection.tsx")).not.toMatch(/Interactive stage/);
     expect(source("role/StructureAuthor.tsx")).not.toMatch(/"Interactive stage"/);
+  });
+});
+
+/* ------------------------------ Release 1 ------------------------------ */
+
+const FILES = { en, de, el } as const;
+
+/** A messages node by its dotted path, or undefined. */
+function at(messages: unknown, path: string): unknown {
+  return path
+    .split(".")
+    .reduce<unknown>(
+      (node, key) =>
+        node && typeof node === "object" ? (node as Record<string, unknown>)[key] : undefined,
+      messages
+    );
+}
+
+/** "has-learners" → "hasLearners": how a refusal's code names its message. */
+const errorKey = (code: string) => code.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase());
+
+/*
+ * The refusals Release 1 adds. The exercise and lesson editors say each in
+ * the menu language (exerciseEditor.errors.<errorKey(code)>). A stale save
+ * ("changed-elsewhere") keeps today's message, exerciseEditor.conflict.
+ */
+const NEW_ERRORS = [
+  "has-learners",
+  "not-a-section",
+  "live-course-standard-only",
+  "kind-mismatch",
+  "outline-unreadable",
+  "parts-too-large",
+  "use-main-editor",
+  "unknown-part",
+] as const satisfies readonly SectionsError[];
+
+const NEW_ISSUES = [
+  "reflectionNoPrompts",
+  "reflectionPromptText",
+  "ratingNoStatements",
+  "ratingStatementText",
+  "ratingEndLabels",
+] as const satisfies readonly PartIssueCode[];
+
+const NEW_BOXES = [
+  "partTitle",
+  "partIntro",
+  "reflectionPromptLabel",
+  "reflectionPromptPlaceholder",
+  "ratingMinLabel",
+  "ratingMaxLabel",
+  "ratingStatementText",
+] as const satisfies readonly PartFieldCode[];
+
+const NEW_LISTS = [
+  "reflectionPrompts",
+  "ratingStatements",
+] as const satisfies readonly PartListCode[];
+
+describe("Release 1 editor wording", () => {
+  it("says every new refusal in each language", () => {
+    for (const [locale, messages] of Object.entries(FILES)) {
+      const missing = NEW_ERRORS.filter(
+        (code) => typeof at(messages, `exerciseEditor.errors.${errorKey(code)}`) !== "string"
+      );
+      expect(missing, locale).toEqual([]);
+    }
+    // How many learners would lose something, in every language.
+    for (const messages of Object.values(FILES)) {
+      expect(messages.exerciseEditor.errors.hasLearners).toMatch(/\{count, plural,/);
+    }
+  });
+
+  it("names the new content's problems, boxes and lists in each language", () => {
+    for (const [locale, messages] of Object.entries(FILES)) {
+      const paths = [
+        ...NEW_ISSUES.map((c) => `exerciseEditor.issues.${c}`),
+        ...NEW_BOXES.map((c) => `exerciseEditor.limits.boxes.${c}`),
+        ...NEW_LISTS.map((c) => `exerciseEditor.limits.lists.${c}`),
+      ];
+      expect(paths.filter((path) => typeof at(messages, path) !== "string"), locale).toEqual([]);
+      expect(at(messages, "exerciseEditor.reflection"), locale).toBeTypeOf("object");
+      expect(at(messages, "exerciseEditor.rating"), locale).toBeTypeOf("object");
+    }
+  });
+
+  it("names the reflection and self-assessment regions like the others", () => {
+    for (const messages of Object.values(FILES)) {
+      for (const kind of ["reflection", "rating"] as const) {
+        expect(messages.exerciseEditor.region[kind].startsWith(
+          `${messages.exerciseEditor.region.fallback} — `
+        )).toBe(true);
+      }
+    }
+  });
+
+  it("names every lesson template, for a new lesson nobody has named", () => {
+    for (const messages of Object.values(FILES)) {
+      expect(Object.keys(messages.course.sectionTemplate).sort()).toEqual(
+        [...NEW_SECTION_TEMPLATES].sort()
+      );
+    }
+  });
+});
+
+/*
+ * Release 1's streams each own one namespace and edit nothing else in the
+ * message files. The namespaces sit apart from each other (each right after
+ * a namespace of its own area), so changes from parallel branches never
+ * touch neighbouring lines and merge without conflicts.
+ */
+describe("Release 1 stream namespaces", () => {
+  const PLACES = [
+    ["sectionPreview", "coursePlayer"],
+    ["lessonList", "courseManager"],
+    ["lessonBlocks", "exerciseEditor"],
+  ] as const;
+
+  const SEEDED: Record<(typeof PLACES)[number][0], string[]> = {
+    sectionPreview: [
+      "banner",
+      "answerFirst",
+      "skippedNote",
+      "ratingOption",
+      "ratingScale",
+      "editLesson",
+      "partHeading",
+    ],
+    lessonList: [
+      "heading",
+      "count",
+      "actionsFor",
+      "moveUp",
+      "moveDown",
+      "moved",
+      "hide",
+      "show",
+      "hiddenTag",
+      "rename",
+      "delete",
+      "picker",
+      "where",
+      "many",
+      "max",
+      "liveLocked",
+      "nonStandardHint",
+      "conflict",
+      "publish",
+      "labelsLater",
+      "laterNote",
+      "fullTemplate",
+    ],
+    lessonBlocks: [
+      "addContent",
+      "types",
+      "position",
+      "groupLabel",
+      "moveUp",
+      "moveDown",
+      "remove",
+      "removeConfirm",
+      "notInLearnerView",
+      "liveLocked",
+      "ownQuestionsNote",
+      "draft",
+      "notReady",
+      "langState",
+      "tooLarge",
+    ],
+  };
+
+  it("puts each stream's namespace right after its neighbour, in every file", () => {
+    for (const [locale, messages] of Object.entries(FILES)) {
+      const keys = Object.keys(messages);
+      for (const [namespace, after] of PLACES) {
+        expect(keys.indexOf(namespace), `${locale} ${namespace}`).toBe(keys.indexOf(after) + 1);
+      }
+    }
+  });
+
+  it("seeds each namespace with the keys its stream starts from", () => {
+    for (const [locale, messages] of Object.entries(FILES)) {
+      for (const [namespace, keys] of Object.entries(SEEDED)) {
+        const node = at(messages, namespace) as Record<string, unknown>;
+        expect(
+          keys.filter((k) => !(k in node)),
+          `${locale} ${namespace}`
+        ).toEqual([]);
+      }
+    }
+  });
+
+  it("names the publish blockers' reasons and the content types in full", () => {
+    const reasons = ["customSection", "hiddenSection", "removedSection", "reordered", "extraParts", "unreadable"];
+    const types = ["text", "practice", "scenario", "quiz", "reflection", "rating"];
+    for (const messages of Object.values(FILES)) {
+      expect(Object.keys(messages.lessonList.publish.reason).sort()).toEqual([...reasons].sort());
+      expect(Object.keys(messages.lessonBlocks.types).sort()).toEqual([...types].sort());
+      expect(Object.keys(messages.sectionPreview.partHeading).sort()).toEqual([...types].sort());
+    }
+  });
+
+  it("keeps the new content's German and Greek free of the words the editor avoids", () => {
+    // Content is "Inhalt" / "περιεχόμενο", never a "Teil" / "μέρος" of a lesson.
+    const lessonName = de.course.stageLabel.simulation;
+    const german = [de.lessonBlocks, de.lessonList, de.sectionPreview]
+      .flatMap(strings)
+      .map((s) => s.split(lessonName).join(""))
+      .filter((s) => /\bTeil(s|e)?\b/.test(s));
+    expect(german).toEqual([]);
+    const greek = [el.lessonBlocks, el.lessonList, el.sectionPreview]
+      .flatMap(strings)
+      .filter((s) => /μέρο|δραστηριότητ/i.test(s));
+    expect(greek).toEqual([]);
   });
 });
