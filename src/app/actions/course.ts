@@ -26,11 +26,11 @@ import {
 } from "@/lib/cms/course-copy";
 import { isContentLocale } from "@/lib/cms/course-admin-types";
 import { pickMeta, type CourseMeta } from "@/lib/cms/db-course";
+import { courseBadgeCopy } from "@/lib/cms/course-badge";
 import {
-  COURSE_BADGE_ICON,
-  courseBadgeCopy,
-  courseBadgeSlug,
-} from "@/lib/cms/course-badge";
+  createCourseBadge,
+  ensureCourseBadge,
+} from "@/lib/cms/ensure-course-badge";
 import { slugify } from "@/lib/slug";
 import type { Locale } from "@/lib/cms/types";
 
@@ -107,19 +107,7 @@ export async function createCourse(input: {
   // one transaction, so there's never a course without its badge, or a
   // badge left over from a course that failed to save.
   await prisma.$transaction(async (tx) => {
-    const base = courseBadgeSlug(slug);
-    const taken = await tx.badge.findMany({
-      where: { projectId: PROJECT, slug: { startsWith: base } },
-      select: { slug: true },
-    });
-    const badge = await tx.badge.create({
-      data: {
-        projectId: PROJECT,
-        slug: courseBadgeSlug(slug, new Set(taken.map((b) => b.slug))),
-        ...courseBadgeCopy({ title, tagline }, slug),
-        iconRef: COURSE_BADGE_ICON,
-      },
-    });
+    const badge = await createCourseBadge(tx, PROJECT, slug, { title, tagline });
     await tx.course.create({
       data: {
         projectId: PROJECT,
@@ -149,6 +137,10 @@ export async function createCourse(input: {
  * archived course can be published again or moved back to draft. Creates the
  * Course row if the course is bundled but was never seeded, so publishing
  * works on a fresh database.
+ *
+ * Publishing a created course that has no badge (one the old code made while
+ * a deploy was building) gives it one in the same transaction, so learners
+ * never take a course whose badge can't be saved (ensure-course-badge.ts).
  */
 export async function setCourseStatus(slug: string, status: CourseStatus) {
   const editor = await requireEditor();
@@ -168,16 +160,19 @@ export async function setCourseStatus(slug: string, status: CourseStatus) {
   });
 
   if (existing) {
-    await prisma.course.update({
-      where: { id: existing.id },
-      data: {
-        status,
-        // Stamp first publication only — re-publishing keeps the original
-        // date, so "published since" stays meaningful.
-        ...(status === "published" && !existing.publishedAt
-          ? { publishedAt: new Date() }
-          : {}),
-      },
+    await prisma.$transaction(async (tx) => {
+      if (status === "published") await ensureCourseBadge(tx, existing.id);
+      await tx.course.update({
+        where: { id: existing.id },
+        data: {
+          status,
+          // Stamp first publication only — re-publishing keeps the original
+          // date, so "published since" stays meaningful.
+          ...(status === "published" && !existing.publishedAt
+            ? { publishedAt: new Date() }
+            : {}),
+        },
+      });
     });
   } else {
     await prisma.course.create({
@@ -286,12 +281,16 @@ export async function updateCourseMeta(
         });
         // The badge keeps the course's name: it follows the English copy
         // (or the first language, until there is English), so rewording
-        // another language leaves it as it is.
+        // another language leaves it as it is. A course without a badge
+        // (one the old code made while a deploy was building) gets one
+        // here, named after the copy just saved.
         if (row.badgeId) {
           await tx.badge.update({
             where: { id: row.badgeId },
             data: courseBadgeCopy(pickMeta(next, "en"), slug),
           });
+        } else {
+          await ensureCourseBadge(tx, row.id);
         }
         return { kind: "cms" as const, copy: entry, cleared: false };
       }

@@ -14,13 +14,14 @@ import { ensureProjectRoles } from "@/lib/role-grants";
 import { prisma } from "@/lib/prisma";
 import type { BadgeAwardResult } from "@/lib/badge-award";
 import { getCourse } from "@/lib/cms";
+import { ensureCourseBadge } from "@/lib/cms/ensure-course-badge";
 import type { Locale } from "@/lib/cms/types";
 import {
   parseAssessmentInput,
   readAssessment,
   type AssessmentProgress,
 } from "@/lib/assessment-progress";
-import type { StageKey, PrivacyChoice } from "@prisma/client";
+import type { Prisma, StageKey, PrivacyChoice } from "@prisma/client";
 
 const PROJECT = "seq-elevate";
 
@@ -208,6 +209,11 @@ export async function loadCourseProgress(slug: string, locale: Locale) {
  * (see isLearner). A completed course's badge is saved with it, in one
  * transaction: the badge award the store sends separately may not get
  * through, and the course can't end up completed without its badge.
+ *
+ * A created course without a badge (one the old code made while a deploy
+ * was building) is given its badge first, in the same transaction, rather
+ * than the learner's badge being dropped without a word and gone after the
+ * next reload (ensure-course-badge.ts).
  */
 export async function saveCourseProgress(
   slug: string,
@@ -239,22 +245,36 @@ export async function saveCourseProgress(
     completedAt: progress.completedAt ? new Date(progress.completedAt) : null,
   };
 
-  const enrollment = prisma.courseEnrollment.upsert({
-    where: { userId_courseId: { userId: user.id, courseId: course.id } },
-    create: { userId: user.id, courseId: course.id, ...data },
-    update: data,
-  });
+  // On the client, or on the transaction that also saves the badge.
+  const upsertEnrollment = (db: Prisma.TransactionClient) =>
+    db.courseEnrollment.upsert({
+      where: { userId_courseId: { userId: user.id, courseId: course.id } },
+      create: { userId: user.id, courseId: course.id, ...data },
+      update: data,
+    });
   if (data.completedAt && course.badgeId) {
     await prisma.$transaction([
-      enrollment,
+      upsertEnrollment(prisma),
       prisma.userBadge.upsert({
         where: { userId_badgeId: { userId: user.id, badgeId: course.badgeId } },
         create: { userId: user.id, badgeId: course.badgeId },
         update: {},
       }),
     ]);
+  } else if (data.completedAt && course.meta !== null) {
+    await prisma.$transaction(async (tx) => {
+      const badgeId = await ensureCourseBadge(tx, course.id);
+      await upsertEnrollment(tx);
+      if (badgeId) {
+        await tx.userBadge.upsert({
+          where: { userId_badgeId: { userId: user.id, badgeId } },
+          create: { userId: user.id, badgeId },
+          update: {},
+        });
+      }
+    });
   } else {
-    await enrollment;
+    await upsertEnrollment(prisma);
   }
 }
 
@@ -284,7 +304,9 @@ export async function saveCompCard(input: CompCardInput, forUser: string) {
  * without anyone knowing (C9). It is answered, not thrown, because a thrown
  * award is tried again as if the connection had dropped, and this one can
  * never succeed (badge-award.ts). Every course's badge has a row: the seed
- * makes the bundled ones, createCourse and its migration the others.
+ * makes the bundled ones, createCourse and its migration the others, and a
+ * created course the old code left without one gets it when it is
+ * published or finished, or by the next deploy (ensure-course-badge.ts).
  */
 export async function awardBadgeAction(
   slug: string,

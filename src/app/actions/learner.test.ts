@@ -14,12 +14,28 @@ const membership = {
 };
 vi.mock("@/lib/auth-helpers", () => ({ getCurrentUser, getProjectMemberships }));
 vi.mock("@/lib/admin-bootstrap", () => ({ isBootstrapAdmin }));
-const badge = { findUnique: vi.fn() };
-const userBadge = { upsert: vi.fn() };
-vi.mock("@/lib/prisma", () => ({ prisma: { membership, badge, userBadge } }));
+const badge = { findUnique: vi.fn(), findMany: vi.fn(), create: vi.fn() };
+const userBadge = { upsert: vi.fn(), createMany: vi.fn() };
+const course = { findUnique: vi.fn(), update: vi.fn() };
+const courseEnrollment = { upsert: vi.fn(), findMany: vi.fn() };
+const prisma = {
+  membership,
+  badge,
+  userBadge,
+  course,
+  courseEnrollment,
+  $queryRaw: vi.fn(),
+  // An interactive transaction runs on the same mocked client; an array
+  // one waits for the queries it was given.
+  $transaction: vi.fn(async (arg: unknown) =>
+    typeof arg === "function" ? arg(prisma) : Promise.all(arg as unknown[])
+  ),
+};
+vi.mock("@/lib/prisma", () => ({ prisma }));
 vi.mock("@/lib/cms", () => ({ getCourse: vi.fn() }));
 
-const { ensureLearnerMembership, awardBadgeAction } = await import("./learner");
+const { ensureLearnerMembership, awardBadgeAction, saveCourseProgress } =
+  await import("./learner");
 
 const USER = { id: "u1", email: "person@example.org" };
 const roles = (...r: string[]) =>
@@ -125,5 +141,87 @@ describe("awardBadgeAction", () => {
     });
     expect(badge.findUnique).not.toHaveBeenCalled();
     expect(userBadge.upsert).not.toHaveBeenCalled();
+  });
+});
+
+describe("saveCourseProgress on a created course without a badge", () => {
+  afterEach(() => vi.clearAllMocks());
+
+  const ROW = {
+    id: "course-1",
+    projectId: "seq-elevate",
+    slug: "speaking-up",
+    meta: { en: { title: "Speaking up", tagline: "Say it", clusterLabel: "Communication" } },
+    badgeId: null as string | null,
+  };
+  const COMPLETED = {
+    stagesCompleted: ["context", "concept", "behaviour", "reflection"],
+    simulation: null,
+    scenario: { root: null, followup: null },
+    reflection: { p1: "", p2: "", p3: "" },
+    assessment: { answers: {}, checked: false },
+    completedAt: "2026-10-13T10:00:00.000Z",
+  };
+
+  function badgelessCourse(row = ROW) {
+    getCurrentUser.mockResolvedValue(USER);
+    course.findUnique.mockResolvedValue(row);
+    course.update.mockResolvedValue({});
+    prisma.$queryRaw.mockResolvedValue([]);
+    badge.findMany.mockResolvedValue([]);
+    badge.create.mockImplementation(async ({ data }) => ({ id: "badge-new", ...data }));
+    courseEnrollment.findMany.mockResolvedValue([]);
+    courseEnrollment.upsert.mockResolvedValue({});
+    userBadge.upsert.mockResolvedValue({});
+  }
+
+  // A course the old createCourse made while a deploy was building has no
+  // badge. Finishing it used to save the course but drop the badge without
+  // a word, so the learner lost it on the next reload (C9).
+  it("gives the course its badge and saves it for the learner who finished it", async () => {
+    badgelessCourse();
+    await saveCourseProgress("speaking-up", COMPLETED, "u1");
+    expect(badge.create.mock.calls[0][0].data).toEqual({
+      projectId: "seq-elevate",
+      slug: "speaking-up-complete",
+      name: "Speaking up",
+      meaning: "Say it",
+      iconRef: "award",
+    });
+    expect(course.update).toHaveBeenCalledWith({
+      where: { id: "course-1" },
+      data: { badgeId: "badge-new" },
+    });
+    expect(courseEnrollment.upsert).toHaveBeenCalledTimes(1);
+    expect(userBadge.upsert).toHaveBeenCalledWith({
+      where: { userId_badgeId: { userId: "u1", badgeId: "badge-new" } },
+      create: { userId: "u1", badgeId: "badge-new" },
+      update: {},
+    });
+  });
+
+  it("makes no badge while the course isn't finished", async () => {
+    badgelessCourse();
+    await saveCourseProgress("speaking-up", { ...COMPLETED, completedAt: null }, "u1");
+    expect(badge.create).not.toHaveBeenCalled();
+    expect(userBadge.upsert).not.toHaveBeenCalled();
+    expect(courseEnrollment.upsert).toHaveBeenCalledTimes(1);
+  });
+
+  it("makes no badge for a built-in course, whose badge comes from the seed", async () => {
+    badgelessCourse({ ...ROW, meta: null } as unknown as typeof ROW);
+    await saveCourseProgress("speaking-up", COMPLETED, "u1");
+    expect(badge.create).not.toHaveBeenCalled();
+    expect(userBadge.upsert).not.toHaveBeenCalled();
+    expect(courseEnrollment.upsert).toHaveBeenCalledTimes(1);
+  });
+
+  it("saves the badge a created course already has, without making another", async () => {
+    badgelessCourse({ ...ROW, badgeId: "badge-1" });
+    await saveCourseProgress("speaking-up", COMPLETED, "u1");
+    expect(badge.create).not.toHaveBeenCalled();
+    expect(userBadge.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({ create: { userId: "u1", badgeId: "badge-1" } })
+    );
   });
 });

@@ -7,8 +7,10 @@ const getProjectMemberships = vi.fn();
 const listCourses = vi.fn();
 const getBaseCourseCopy = vi.fn();
 const prisma = {
-  course: { create: vi.fn(), update: vi.fn(), findFirst: vi.fn() },
+  course: { create: vi.fn(), update: vi.fn(), findFirst: vi.fn(), findUnique: vi.fn() },
   badge: { create: vi.fn(), update: vi.fn(), findMany: vi.fn() },
+  courseEnrollment: { findMany: vi.fn() },
+  userBadge: { createMany: vi.fn() },
   auditLog: { create: vi.fn() },
   $queryRaw: vi.fn(),
   $transaction: vi.fn(),
@@ -18,7 +20,7 @@ vi.mock("@/lib/auth-helpers", () => ({ getCurrentUser, getProjectMemberships }))
 vi.mock("@/lib/prisma", () => ({ prisma }));
 vi.mock("@/lib/cms", () => ({ listCourses, getBaseCourseCopy }));
 
-const { createCourse, updateCourseMeta } = await import("./course");
+const { createCourse, setCourseStatus, updateCourseMeta } = await import("./course");
 
 const EDITOR = { id: "editor-1", email: "ed@example.org" };
 
@@ -127,6 +129,20 @@ describe("updateCourseMeta on a created course", () => {
     });
     prisma.course.update.mockResolvedValue({});
     prisma.badge.update.mockResolvedValue({});
+    // The row as the transaction reads it back: with the copy just saved.
+    prisma.course.findUnique.mockImplementation(async () => ({
+      id: "course-1",
+      projectId: "seq-elevate",
+      slug: "speaking-up",
+      meta: prisma.course.update.mock.calls.at(-1)?.[0].data.meta ?? meta,
+      badgeId,
+    }));
+    prisma.badge.findMany.mockResolvedValue([]);
+    prisma.badge.create.mockImplementation(async ({ data }) => ({
+      id: "badge-new",
+      ...data,
+    }));
+    prisma.courseEnrollment.findMany.mockResolvedValue([]);
   }
 
   it("renames the badge with the course's English title", async () => {
@@ -155,5 +171,130 @@ describe("updateCourseMeta on a created course", () => {
     for (const [arg] of prisma.badge.update.mock.calls) {
       expect(arg.data.name).toBe("Speaking up");
     }
+  });
+
+  // A course the old createCourse made while a deploy was building has no
+  // badge; saving its copy gives it one rather than leaving it without.
+  it("gives a created course that has no badge one, named after its English copy", async () => {
+    createdCourse(
+      { de: { title: "Sich äußern", tagline: "Sag es", clusterLabel: "Kommunikation" } },
+      null
+    );
+    const res = await updateCourseMeta("speaking-up", "en", {
+      title: "Speaking up at work",
+      tagline: "Ask for what you need",
+    });
+    expect(res.ok).toBe(true);
+    expect(prisma.badge.update).not.toHaveBeenCalled();
+    expect(prisma.badge.create).toHaveBeenCalledTimes(1);
+    expect(prisma.badge.create.mock.calls[0][0].data).toEqual({
+      projectId: "seq-elevate",
+      slug: "speaking-up-complete",
+      name: "Speaking up at work",
+      meaning: "Ask for what you need",
+      iconRef: "award",
+    });
+    expect(prisma.course.update).toHaveBeenCalledWith({
+      where: { id: "course-1" },
+      data: { badgeId: "badge-new" },
+    });
+  });
+});
+
+describe("setCourseStatus on a created course without a badge", () => {
+  afterEach(() => vi.clearAllMocks());
+
+  const COMPLETED_AT = new Date("2026-10-12T09:00:00Z");
+
+  function badgelessCourse(badgeId: string | null = null) {
+    signedInEditor();
+    listCourses.mockResolvedValue([
+      { slug: "speaking-up", cluster: "communicationEi", durationMinutes: 15, status: "draft" },
+    ]);
+    prisma.$queryRaw.mockResolvedValue([]);
+    prisma.course.findFirst.mockResolvedValue({ id: "course-1", publishedAt: null });
+    prisma.course.findUnique.mockResolvedValue({
+      id: "course-1",
+      projectId: "seq-elevate",
+      slug: "speaking-up",
+      meta: { en: { title: "Speaking up", tagline: "Say it", clusterLabel: "Communication" } },
+      badgeId,
+    });
+    prisma.course.update.mockResolvedValue({});
+    // Another course's badge already has the usual slug.
+    prisma.badge.findMany.mockResolvedValue([{ slug: "speaking-up-complete" }]);
+    prisma.badge.create.mockImplementation(async ({ data }) => ({
+      id: "badge-new",
+      ...data,
+    }));
+    // A learner finished it before it had a badge.
+    prisma.courseEnrollment.findMany.mockResolvedValue([
+      { userId: "learner-1", completedAt: COMPLETED_AT },
+    ]);
+    prisma.userBadge.createMany.mockResolvedValue({ count: 1 });
+  }
+
+  it("gives it its badge when it is published, and to those who already finished it", async () => {
+    badgelessCourse();
+    await expect(setCourseStatus("speaking-up", "published")).resolves.toEqual({
+      ok: true,
+      status: "published",
+    });
+    expect(prisma.badge.create.mock.calls[0][0].data).toEqual({
+      projectId: "seq-elevate",
+      slug: "speaking-up-complete-2",
+      name: "Speaking up",
+      meaning: "Say it",
+      iconRef: "award",
+    });
+    expect(prisma.course.update).toHaveBeenCalledWith({
+      where: { id: "course-1" },
+      data: { badgeId: "badge-new" },
+    });
+    expect(prisma.courseEnrollment.findMany.mock.calls[0][0].where).toEqual({
+      courseId: "course-1",
+      completedAt: { not: null },
+    });
+    expect(prisma.userBadge.createMany).toHaveBeenCalledWith({
+      data: [{ userId: "learner-1", badgeId: "badge-new", awardedAt: COMPLETED_AT }],
+      skipDuplicates: true,
+    });
+    // One transaction, holding the course's row, so two editors publishing
+    // at once can't each make it a badge.
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(prisma.$queryRaw).toHaveBeenCalled();
+    expect(prisma.course.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "course-1" },
+        data: expect.objectContaining({ status: "published" }),
+      })
+    );
+  });
+
+  it("leaves a course that has its badge as it is", async () => {
+    badgelessCourse("badge-1");
+    await setCourseStatus("speaking-up", "published");
+    expect(prisma.badge.create).not.toHaveBeenCalled();
+    expect(prisma.userBadge.createMany).not.toHaveBeenCalled();
+  });
+
+  it("makes no badge when the course only moves to draft or archive", async () => {
+    badgelessCourse();
+    await setCourseStatus("speaking-up", "draft");
+    await setCourseStatus("speaking-up", "archived");
+    expect(prisma.badge.create).not.toHaveBeenCalled();
+  });
+
+  it("makes no badge for a built-in course, whose badge comes from the seed", async () => {
+    badgelessCourse();
+    prisma.course.findUnique.mockResolvedValue({
+      id: "course-1",
+      projectId: "seq-elevate",
+      slug: "speaking-up",
+      meta: null,
+      badgeId: null,
+    });
+    await setCourseStatus("speaking-up", "published");
+    expect(prisma.badge.create).not.toHaveBeenCalled();
   });
 });

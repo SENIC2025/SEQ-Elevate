@@ -7,7 +7,10 @@
  * and without one the badge showed on the completion screen but was gone
  * after a reload. createCourse makes it with the course and links it
  * through Course.badgeId; the migration 20261013120000_created_course_badges
- * does the same for courses created before, with the same rules as here.
+ * does the same for courses created before, with the same rules as here,
+ * and runs again on every deploy (prisma/backfill-course-badges.mjs). A
+ * course the old code makes while a deploy builds gets its badge when it is
+ * published, reworded or finished (ensure-course-badge.ts, which writes it).
  *
  * The Badge row holds one language (it appears in the learner's data
  * export), so it follows the course's English copy, or its first language
