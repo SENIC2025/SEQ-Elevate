@@ -6,7 +6,12 @@ import { describe, it, expect, afterEach, vi } from "vitest";
 const listCourses = vi.fn();
 const getCourse = vi.fn();
 const probeDbCourses = vi.fn();
+const probeSectionData = vi.fn();
+const hasRole = vi.fn();
 vi.mock("@/lib/cms", () => ({ listCourses, getCourse }));
+vi.mock("@/lib/cms/sections/probe.server", () => ({ probeSectionData }));
+vi.mock("@/lib/auth-helpers", () => ({ hasRole }));
+vi.mock("@/app/actions/sections", () => ({ repairOutline: vi.fn() }));
 vi.mock("@/lib/cms/provider", () => ({ getCMSSource: () => "local" }));
 vi.mock("@/lib/cms/db-course", () => ({ probeDbCourses }));
 vi.mock("next-intl/server", () => ({ setRequestLocale: () => {} }));
@@ -26,6 +31,8 @@ describe("dev CMS check page", () => {
     expect(listCourses).not.toHaveBeenCalled();
     expect(getCourse).not.toHaveBeenCalled();
     expect(probeDbCourses).not.toHaveBeenCalled();
+    expect(probeSectionData).not.toHaveBeenCalled();
+    expect(hasRole).not.toHaveBeenCalled();
   });
 
   it("is a 404 wherever test sign-in is switched off", async () => {

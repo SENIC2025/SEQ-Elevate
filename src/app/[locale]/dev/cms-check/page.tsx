@@ -3,7 +3,10 @@ import { assertDevPagesAllowed } from "@/lib/dev-pages";
 import { getCourse, listCourses } from "@/lib/cms";
 import { getCMSSource } from "@/lib/cms/provider";
 import { probeDbCourses } from "@/lib/cms/db-course";
+import { probeSectionData } from "@/lib/cms/sections/probe.server";
+import { hasRole } from "@/lib/auth-helpers";
 import type { Locale } from "@/lib/cms/types";
+import { RepairButton } from "./RepairButton";
 
 /**
  * Dev verification page: calls the CMS client server-side and renders the
@@ -31,6 +34,10 @@ export default async function Page({
   });
   const course = await getCourse("seq-elevate", "workplace-conflict", loc);
   const dbCourses = await probeDbCourses("seq-elevate");
+  // Release 1: lesson lists and lesson content that can't be read. Only an
+  // admin may repair them (repairOutline checks again).
+  const sections = await probeSectionData("seq-elevate");
+  const isAdmin = await hasRole("seq-elevate", "ADMIN").catch(() => false);
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-8 font-mono text-sm">
@@ -61,6 +68,36 @@ export default async function Page({
             ✗ DB course path unavailable — migration may not have been applied:{" "}
             {dbCourses.error}
           </p>
+        )}
+      </div>
+
+      <h2 className="font-bold mt-4 mb-1">Lesson lists and lesson content (Release 1)</h2>
+      <div className="mb-6">
+        {!sections.ok ? (
+          <p className="text-[var(--danger)]">
+            ✗ couldn&apos;t check — migration may not have been applied: {sections.error}
+          </p>
+        ) : sections.unreadable.length === 0 ? (
+          <p className="text-[var(--success)]">
+            ✓ every lesson list and lesson content can be read ({sections.checked} created
+            course{sections.checked === 1 ? "" : "s"})
+          </p>
+        ) : (
+          <ul>
+            {sections.unreadable.map((c) => (
+              <li key={c.slug} className="text-[var(--danger)]">
+                ✗ {c.slug}:{" "}
+                {[
+                  c.outline ? "lesson list" : null,
+                  c.lessons.length ? `content of ${c.lessons.join(", ")}` : null,
+                ]
+                  .filter(Boolean)
+                  .join("; ")}{" "}
+                can&apos;t be read — changes and publishing are refused
+                {isAdmin ? <RepairButton slug={c.slug} /> : null}
+              </li>
+            ))}
+          </ul>
         )}
       </div>
 
