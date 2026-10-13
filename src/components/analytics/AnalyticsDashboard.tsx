@@ -295,7 +295,9 @@ export function AnalyticsDashboard({
           learner.
         </p>
         <Card>
-          <CardContent className="p-0 overflow-x-auto">
+          {/* relative: the table's visually hidden headings are positioned,
+              and would otherwise escape this scroll box and widen the page. */}
+          <CardContent className="relative p-0 overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-[var(--border)] text-left text-xs text-[var(--muted-foreground)]">

@@ -314,12 +314,15 @@ export function RealFacilitatorView({
               {learners.map((l) => (
                 <li
                   key={l.id}
-                  className="flex items-center gap-4 p-4 hover:bg-[var(--surface-muted)] transition-colors"
+                  // Wraps on a narrow phone: the button moves under the
+                  // learner rather than pushing the page sideways (WCAG
+                  // 1.4.10; "Lernende:n öffnen" is long).
+                  className="flex flex-wrap items-center gap-x-4 gap-y-2 p-4 hover:bg-[var(--surface-muted)] transition-colors"
                 >
                   <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[var(--accent)]/10 text-[var(--accent)] font-semibold text-sm">
                     {l.name.slice(0, 2).toUpperCase()}
                   </div>
-                  <div className="flex-1 min-w-0">
+                  <div className="flex-1 basis-40 min-w-0">
                     <p className="font-medium text-sm truncate">{l.name}</p>
                     <div className="mt-1 flex items-center gap-3">
                       <Progress value={l.progressPct} className="max-w-xs" />
@@ -336,7 +339,7 @@ export function RealFacilitatorView({
                   ) : l.completed ? (
                     <Badge variant="success" className="text-[10px]">
                       <CheckCircle2 className="h-3 w-3" />
-                      {tCommon("appName")}
+                      {t("completedAll")}
                     </Badge>
                   ) : null}
                   <Button

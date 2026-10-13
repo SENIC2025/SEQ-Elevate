@@ -3,10 +3,12 @@ import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 
 /**
- * The signed-in header fits a 320px phone (WCAG 1.4.10 Reflow) in every
- * language: a learner's, and a staff member's with the workspace menu. A
- * long address used to push a learner's page 2px sideways, and a staff
- * header 7–10px.
+ * Signed-in pages fit a 320px phone (WCAG 1.4.10 Reflow) in every language:
+ * a learner's, and a staff member's with the workspace menu. A long address
+ * used to push a learner's page 2px sideways and a staff header 7–10px; a
+ * learner with progress pushed "Support learners" 44px in German (its "open"
+ * button couldn't wrap), and a visually hidden table heading escaped the
+ * people table's scroll box and widened "Manage people" by 364px.
  *
  * Requires a real database — gated on E2E_DB=1, like db-backed-progress.
  * Everything it creates is unique to this run and removed afterwards.
@@ -65,7 +67,7 @@ async function signIn(context: BrowserContext, sessionToken: string) {
   ]);
 }
 
-describe("the signed-in header on a 320px phone", () => {
+describe("signed-in pages on a 320px phone", () => {
   test.use({ viewport: { width: 320, height: 640 } });
 
   let learnerSession: string;
@@ -73,6 +75,18 @@ describe("the signed-in header on a 320px phone", () => {
 
   test.beforeAll(async () => {
     learnerSession = await signedInUser(LEARNER, ["LEARNER"]);
+    // On the roster with progress, beside the button that opens them.
+    const learner = await prisma.user.findUniqueOrThrow({ where: { email: LEARNER } });
+    const course = await prisma.course.findFirstOrThrow({
+      where: { projectId: PROJECT, slug: "workplace-conflict" },
+    });
+    await prisma.courseEnrollment.create({
+      data: {
+        userId: learner.id,
+        courseId: course.id,
+        stagesCompleted: ["CONTEXT", "CONCEPT", "BEHAVIOUR"],
+      },
+    });
     // Several workspaces: the header shows the workspace menu too.
     staffSession = await signedInUser(STAFF, [
       "ADMIN",
@@ -92,8 +106,12 @@ describe("the signed-in header on a 320px phone", () => {
   for (const [who, path] of [
     ["learner", "/learner"],
     ["staff", "/facilitator"],
+    ["staff", "/admin"],
+    ["staff", "/admin/people"],
+    ["staff", "/analytics"],
+    ["staff", "/content/courses"],
   ] as const) {
-    test(`a ${who}'s page doesn't scroll sideways, in English, German and Greek`, async ({
+    test(`${path} (${who}) doesn't scroll sideways, in English, German and Greek`, async ({
       page,
       context,
     }) => {
@@ -110,7 +128,11 @@ describe("the signed-in header on a 320px phone", () => {
             document.documentElement.clientWidth
         );
         expect(overflow, `${locale}: no horizontal scrolling`).toBeLessThanOrEqual(0);
+        // Let the page's own requests (the learner's data, settings) finish
+        // before moving on: the clean-up afterwards deletes these users.
+        await page.waitForLoadState("networkidle");
       }
+      await page.goto("about:blank");
     });
   }
 });
