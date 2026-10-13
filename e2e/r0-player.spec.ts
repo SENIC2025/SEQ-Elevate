@@ -468,6 +468,39 @@ dbDescribe("R0 player — quick-check answers are saved to the account", () => {
     );
   });
 
+  test("finishing a course is saved at once, even when the page is left straight away", async ({
+    page,
+  }) => {
+    const email = `e2e-r0-player-leave-${RUN}@example.com`;
+    emails.push(email);
+    const { userId, sessionToken } = await newLearner(email);
+    await signIn(page, sessionToken);
+
+    await walkToQuickCheck(page);
+    await answerQuickCheck(page);
+    await cont(page).click();
+    await expect(
+      page.getByRole("heading", { name: /course complete/i })
+    ).toBeVisible();
+    // Gone well inside the ~0.7 s pause a save otherwise waits out.
+    await page.waitForTimeout(300);
+    await page.goto("about:blank");
+    await expect
+      .poll(
+        async () => {
+          const course = await prisma.course.findFirst({
+            where: { projectId: PROJECT, slug: BUILT_IN },
+          });
+          const e = await prisma.courseEnrollment.findFirst({
+            where: { userId, courseId: course!.id },
+          });
+          return !!e?.completedAt && e.stagesCompleted.includes("ASSESSMENT");
+        },
+        { timeout: 10_000 }
+      )
+      .toBe(true);
+  });
+
   test("a guest's checked quick check moves to the account they sign in to", async ({
     page,
   }) => {

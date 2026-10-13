@@ -734,6 +734,12 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
     const snap = state.course;
     // Opening a course doesn't enroll anyone: nothing done, nothing saved.
     if (snap === courseScheduled.current || !hasCourseProgress(snap)) return;
+    // This change finishes the course: it's sent at once, not after the
+    // pause, so a learner who leaves on "Course complete" keeps it.
+    const prev = courseScheduled.current;
+    const finishedNow =
+      !!snap.completedAt &&
+      !(prev?.courseSlug === snap.courseSlug && prev.completedAt);
     courseScheduled.current = snap;
     const forUser = dbOwner;
     courseSave.schedule(
@@ -754,6 +760,7 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
         ),
       slug
     );
+    if (finishedNow) courseSave.flush();
   }, [authed, dbOwner, state.course, courseSave]);
 
   // ---- DB write-through: Comp Card (debounced) ----
@@ -817,6 +824,25 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
   }, [authed, dbOwner, state.badges, badgeRetry]);
 
   // ---- Unmounting: send what's still waiting now ----
+  // A tab that's hidden (another app, another tab) or closed sends what's
+  // waiting now: the pause before a save would otherwise outlive the page.
+  // Only what was already scheduled, under the rules above, is sent.
+  React.useEffect(() => {
+    const sendWaiting = () => {
+      courseSave.flush();
+      cardSave.flush();
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") sendWaiting();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("pagehide", sendWaiting);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("pagehide", sendWaiting);
+    };
+  }, [courseSave, cardSave]);
+
   // Not left to a timer outliving this store: sent now, it reaches the
   // server before a store mounted next loads it back.
   React.useEffect(
