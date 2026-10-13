@@ -13,6 +13,14 @@
  * These only apply to CMS-CREATED courses (those carrying Course.meta).
  * Bundled courses own their structure in code; letting the CMS shadow it would
  * be silently ignored by getCourse (bundled wins), so we refuse it up front.
+ *
+ * Release 1 (G6): a lesson of a created course's own ("s-…") whose main
+ * content is an exercise is edited here too, only while it is in the
+ * course's lesson list and only with its own kind (mainKindOf), checked
+ * again under the Course row's FOR SHARE before the write. The standard
+ * lessons' path is unchanged and never asks for the Course lock — except
+ * "Remove stage", which on a published course with learners is refused
+ * (G5), with the Course row locked FOR UPDATE first.
  */
 
 import { Prisma } from "@prisma/client";
@@ -26,6 +34,17 @@ import {
 } from "@/lib/cms/structure";
 import { sanitizeStructure } from "@/lib/cms/structure-sanitize";
 import { ChangedElsewhere, sameStoredJson } from "@/lib/cms/stored-json";
+import {
+  isCustomSectionId,
+  mainKindOf,
+  type CustomSectionId,
+} from "@/lib/cms/sections/contract";
+import { resolveOutline } from "@/lib/cms/sections/outline";
+import {
+  Refusal,
+  learnerCount,
+  lockCourse,
+} from "@/lib/cms/sections/store.server";
 
 const PROJECT = "seq-elevate";
 
@@ -60,10 +79,12 @@ export interface StructureState {
  */
 export async function getStructure(
   courseSlug: string,
-  stageKey: StructureStageKey
+  stageKey: StructureStageKey | CustomSectionId
 ): Promise<StructureState | null> {
   if (!(await requireEditor())) return null;
+  if (!validTarget(courseSlug, stageKey)) return null;
   try {
+    if (!(await targetKind(courseSlug, stageKey)).ok) return null;
     const lesson = await prisma.lesson.findFirst({
       where: { projectId: PROJECT, courseSlug, stageKey },
       select: { structure: true, structureDraft: true },
@@ -89,6 +110,45 @@ async function isCmsCourse(courseSlug: string) {
 const isStructureStage = (key: unknown): key is StructureStageKey =>
   typeof key === "string" && Object.hasOwn(KIND_FOR_STAGE, key);
 
+/** A standard exercise lesson, or a lesson of the course's own (G6). */
+type Target = StructureStageKey | CustomSectionId;
+type Kind = StoredStructure["kind"];
+
+/** Why a lesson of the course's own can't take an exercise, or its kind. */
+function ownLessonKind(
+  course: { meta: unknown; outline: unknown } | null,
+  lessons: { stageKey: string; structure?: unknown; parts?: unknown }[],
+  id: CustomSectionId
+):
+  | { ok: true; kind: Kind }
+  | { ok: false; error: "not-cms-course" | "outline-unreadable" | "not-a-section" | "kind-mismatch" } {
+  if (!course?.meta) return { ok: false, error: "not-cms-course" };
+  const outline = resolveOutline("cms", course.outline ?? null, lessons);
+  if (outline.unreadable) return { ok: false, error: "outline-unreadable" };
+  const section = outline.sections.find((s) => s.id === id);
+  if (!section) return { ok: false, error: "not-a-section" };
+  const kind = mainKindOf(section);
+  return isStructureStage(kind)
+    ? { ok: true, kind: KIND_FOR_STAGE[kind] }
+    : { ok: false, error: "kind-mismatch" };
+}
+
+/** The lesson's exercise kind: a standard key's own, or (read, not locked) a lesson of the course's own. */
+async function targetKind(courseSlug: string, key: Target) {
+  if (isStructureStage(key)) return { ok: true as const, kind: KIND_FOR_STAGE[key] };
+  const course = await prisma.course.findFirst({
+    where: { projectId: PROJECT, slug: courseSlug },
+    select: { meta: true, outline: true },
+  });
+  const lessons = course?.meta
+    ? await prisma.lesson.findMany({
+        where: { projectId: PROJECT, courseSlug },
+        select: { stageKey: true, structure: true, parts: true },
+      })
+    : [];
+  return ownLessonKind(course, lessons, key);
+}
+
 const isObject = (v: unknown): v is object =>
   typeof v === "object" && v !== null && !Array.isArray(v);
 
@@ -100,11 +160,11 @@ const isBase = (base: unknown): base is StructureState =>
   isObjectOrNull((base as StructureState).draft);
 
 /** Server-action arguments come straight from the client. */
-const validTarget = (courseSlug: unknown, stageKey: unknown) =>
+const validTarget = (courseSlug: unknown, stageKey: unknown): stageKey is Target =>
   typeof courseSlug === "string" &&
   Boolean(courseSlug) &&
   courseSlug.length <= 80 &&
-  isStructureStage(stageKey);
+  (isStructureStage(stageKey) || isCustomSectionId(stageKey));
 
 /**
  * What may be stored for this stage: the structure rebuilt by
@@ -118,23 +178,28 @@ const validTarget = (courseSlug: unknown, stageKey: unknown) =>
  */
 async function storable(
   courseSlug: string,
-  stageKey: StructureStageKey,
+  stageKey: Target,
   input: unknown,
   base: StructureState
 ) {
-  if (isObject(input) && (input as { kind?: unknown }).kind !== KIND_FOR_STAGE[stageKey]) {
+  const target = await targetKind(courseSlug, stageKey);
+  if (!target.ok) return target;
+  if (isObject(input) && (input as { kind?: unknown }).kind !== target.kind) {
     return { ok: false as const, error: "kind-mismatch" as const };
   }
-  const clean = sanitizeStructure(input, KIND_FOR_STAGE[stageKey], [
-    base.structure,
-    base.draft,
-  ]);
+  const clean = sanitizeStructure(input, target.kind, [base.structure, base.draft]);
   if (!clean.ok) return clean;
   if (!(await isCmsCourse(courseSlug))) {
     return { ok: false as const, error: "not-cms-course" as const };
   }
-  return clean;
+  return { ...clean, kind: target.kind };
 }
+
+/** Why a write was refused under its locks (G5, G6); the transaction rolled back. */
+type WriteRefused =
+  | { ok: false; error: "changed-elsewhere" }
+  | { ok: false; error: "not-cms-course" | "outline-unreadable" | "not-a-section" | "kind-mismatch" }
+  | { ok: false; error: "has-learners"; count: number };
 
 /**
  * Write to one lesson row, only if its structure and draft are still the
@@ -142,39 +207,81 @@ async function storable(
  * page shows one language at a time — so a write from a page opened before a
  * colleague's save would silently wipe their translation (D33). The row is
  * locked until the write commits, so a second save can't slip in between the
- * check and the write. Throws ChangedElsewhere when the base is stale.
+ * check and the write. Refused ("changed-elsewhere") when the base is stale.
+ *
+ * A lesson of the course's own (`kind` given) is checked again under the
+ * Course row's FOR SHARE, taken before the Lesson row: it must still be in
+ * the lesson list with that kind (G6). Removing a stage (`guardLearners`)
+ * locks the Course row FOR UPDATE first — an enrolment's foreign-key check
+ * takes FOR KEY SHARE, which FOR SHARE wouldn't hold off — and is refused
+ * on a published course while learners are enrolled and have the stage
+ * (G5).
  */
 async function writeIfUnchanged(
   courseSlug: string,
-  stageKey: StructureStageKey,
+  stageKey: Target,
   base: StructureState,
-  data: Prisma.LessonUpdateInput
-) {
+  data: Prisma.LessonUpdateInput,
+  opts: { kind?: Kind; guardLearners?: boolean } = {}
+): Promise<{ ok: true } | WriteRefused> {
   const where = {
     projectId_courseSlug_stageKey: { projectId: PROJECT, courseSlug, stageKey },
   };
-  await prisma.$transaction(async (tx) => {
-    // Make sure the row exists, so there is something to lock.
-    await tx.lesson.upsert({
-      where,
-      create: { projectId: PROJECT, courseSlug, stageKey },
-      update: {},
+  try {
+    await prisma.$transaction(async (tx) => {
+      const own = isCustomSectionId(stageKey);
+      const course =
+        opts.guardLearners || own
+          ? await lockCourse(tx, courseSlug, opts.guardLearners ? "update" : "share")
+          : null;
+      if (own) {
+        const lessons = await tx.lesson.findMany({
+          where: { projectId: PROJECT, courseSlug },
+          select: { stageKey: true, structure: true, parts: true },
+        });
+        const target = ownLessonKind(course, lessons, stageKey);
+        if (!target.ok) throw new Refusal(target);
+        if (opts.kind && target.kind !== opts.kind) {
+          throw new Refusal({ ok: false, error: "kind-mismatch" });
+        }
+      }
+      // Make sure the row exists, so there is something to lock.
+      await tx.lesson.upsert({
+        where,
+        create: { projectId: PROJECT, courseSlug, stageKey },
+        update: {},
+      });
+      await tx.$queryRaw`SELECT id FROM "Lesson" WHERE "projectId" = ${PROJECT} AND "courseSlug" = ${courseSlug} AND "stageKey" = ${stageKey} FOR UPDATE`;
+      const current = await tx.lesson.findUnique({
+        where,
+        select: { structure: true, structureDraft: true },
+      });
+      // Compare the stored JSON itself, not Lesson.updatedAt: a video or text
+      // saved on the same lesson isn't a clash.
+      if (
+        !sameStoredJson(current?.structure ?? null, base.structure) ||
+        !sameStoredJson(current?.structureDraft ?? null, base.draft)
+      ) {
+        throw new ChangedElsewhere();
+      }
+      if (
+        opts.guardLearners &&
+        course?.status === "published" &&
+        (current?.structure ?? null) !== null
+      ) {
+        const count = await learnerCount(tx, course.id);
+        if (count > 0) throw new Refusal({ ok: false, error: "has-learners", count });
+      }
+      await tx.lesson.update({ where, data });
     });
-    await tx.$queryRaw`SELECT id FROM "Lesson" WHERE "projectId" = ${PROJECT} AND "courseSlug" = ${courseSlug} AND "stageKey" = ${stageKey} FOR UPDATE`;
-    const current = await tx.lesson.findUnique({
-      where,
-      select: { structure: true, structureDraft: true },
-    });
-    // Compare the stored JSON itself, not Lesson.updatedAt: a video or text
-    // saved on the same lesson isn't a clash.
-    if (
-      !sameStoredJson(current?.structure ?? null, base.structure) ||
-      !sameStoredJson(current?.structureDraft ?? null, base.draft)
-    ) {
-      throw new ChangedElsewhere();
+  } catch (error) {
+    if (error instanceof ChangedElsewhere) {
+      return { ok: false, error: "changed-elsewhere" };
     }
-    await tx.lesson.update({ where, data });
-  });
+    if (error instanceof Refusal) return error.result as WriteRefused;
+    throw error;
+  }
+  return { ok: true };
 }
 
 async function audit(
@@ -185,7 +292,7 @@ async function audit(
     | "structure.draft_saved"
     | "structure.draft_discarded",
   courseSlug: string,
-  stageKey: StructureStageKey,
+  stageKey: Target,
   metadata?: Prisma.InputJsonValue
 ) {
   await prisma.auditLog.create({
@@ -215,7 +322,7 @@ async function audit(
  */
 export async function saveStructure(
   courseSlug: string,
-  stageKey: StructureStageKey,
+  stageKey: Target,
   structure: StoredStructure,
   base: StructureState
 ) {
@@ -232,17 +339,17 @@ export async function saveStructure(
     return { ok: false as const, error: "invalid" as const, issues };
   }
 
-  try {
-    await writeIfUnchanged(courseSlug, stageKey, base, {
+  const written = await writeIfUnchanged(
+    courseSlug,
+    stageKey,
+    base,
+    {
       structure: clean.structure as unknown as Prisma.InputJsonValue,
       structureDraft: Prisma.DbNull,
-    });
-  } catch (error) {
-    if (error instanceof ChangedElsewhere) {
-      return { ok: false as const, error: "changed-elsewhere" as const };
-    }
-    throw error;
-  }
+    },
+    { kind: clean.kind }
+  );
+  if (!written.ok) return written;
 
   await audit(editor.id, "structure.saved", courseSlug, stageKey, {
     kind: clean.structure.kind,
@@ -261,7 +368,7 @@ export async function saveStructure(
  */
 export async function saveStructureDraft(
   courseSlug: string,
-  stageKey: StructureStageKey,
+  stageKey: Target,
   draft: StoredStructure,
   base: StructureState
 ) {
@@ -273,16 +380,14 @@ export async function saveStructureDraft(
   const clean = await storable(courseSlug, stageKey, draft, base);
   if (!clean.ok) return clean;
 
-  try {
-    await writeIfUnchanged(courseSlug, stageKey, base, {
-      structureDraft: clean.structure as unknown as Prisma.InputJsonValue,
-    });
-  } catch (error) {
-    if (error instanceof ChangedElsewhere) {
-      return { ok: false as const, error: "changed-elsewhere" as const };
-    }
-    throw error;
-  }
+  const written = await writeIfUnchanged(
+    courseSlug,
+    stageKey,
+    base,
+    { structureDraft: clean.structure as unknown as Prisma.InputJsonValue },
+    { kind: clean.kind }
+  );
+  if (!written.ok) return written;
 
   await audit(editor.id, "structure.draft_saved", courseSlug, stageKey, {
     kind: clean.structure.kind,
@@ -301,7 +406,7 @@ export async function saveStructureDraft(
  */
 export async function discardStructureDraft(
   courseSlug: string,
-  stageKey: StructureStageKey,
+  stageKey: Target,
   base: StructureState
 ) {
   const editor = await requireEditor();
@@ -312,16 +417,10 @@ export async function discardStructureDraft(
   if (!(await isCmsCourse(courseSlug))) {
     return { ok: false as const, error: "not-cms-course" as const };
   }
-  try {
-    await writeIfUnchanged(courseSlug, stageKey, base, {
-      structureDraft: Prisma.DbNull,
-    });
-  } catch (error) {
-    if (error instanceof ChangedElsewhere) {
-      return { ok: false as const, error: "changed-elsewhere" as const };
-    }
-    throw error;
-  }
+  const written = await writeIfUnchanged(courseSlug, stageKey, base, {
+    structureDraft: Prisma.DbNull,
+  });
+  if (!written.ok) return written;
   await audit(editor.id, "structure.draft_discarded", courseSlug, stageKey);
   return { ok: true as const };
 }
@@ -334,10 +433,14 @@ export async function discardStructureDraft(
  * changed since the editor opened the stage: a draft a colleague saved in
  * the meantime was never shown on this page, and removing the stage must
  * not delete it unseen.
+ *
+ * Refused with "has-learners" on a published course while learners are
+ * enrolled and the stage is one they have (G5): they would lose it. A stage
+ * that is only a draft can always go.
  */
 export async function clearStructure(
   courseSlug: string,
-  stageKey: StructureStageKey,
+  stageKey: Target,
   base: StructureState
 ) {
   const editor = await requireEditor();
@@ -345,17 +448,18 @@ export async function clearStructure(
   if (!validTarget(courseSlug, stageKey) || !isBase(base)) {
     return { ok: false as const, error: "bad-input" as const };
   }
-  try {
-    await writeIfUnchanged(courseSlug, stageKey, base, {
-      structure: Prisma.DbNull,
-      structureDraft: Prisma.DbNull,
-    });
-  } catch (error) {
-    if (error instanceof ChangedElsewhere) {
-      return { ok: false as const, error: "changed-elsewhere" as const };
-    }
-    throw error;
+  // Like every other write here, only on a course created here.
+  if (!(await isCmsCourse(courseSlug))) {
+    return { ok: false as const, error: "not-cms-course" as const };
   }
+  const written = await writeIfUnchanged(
+    courseSlug,
+    stageKey,
+    base,
+    { structure: Prisma.DbNull, structureDraft: Prisma.DbNull },
+    { guardLearners: true }
+  );
+  if (!written.ok) return written;
   await audit(editor.id, "structure.cleared", courseSlug, stageKey, {
     draftCleared: base.draft !== null,
   });

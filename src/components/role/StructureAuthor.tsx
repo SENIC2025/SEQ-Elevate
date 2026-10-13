@@ -163,7 +163,15 @@ const FieldIssuesContext = React.createContext<FieldIssues>({
   refused: new Map(),
 });
 
-type WriteError = "forbidden" | "bad-input" | "kind-mismatch" | "not-cms-course";
+type WriteError =
+  | "forbidden"
+  | "bad-input"
+  | "kind-mismatch"
+  | "not-cms-course"
+  // Release 1: a lesson of the course's own (G6), and "Remove stage" (G5).
+  | "not-a-section"
+  | "outline-unreadable"
+  | "has-learners";
 
 /** A save refused for size: what was sent, and where it was over. */
 interface OverLimit {
@@ -357,7 +365,11 @@ export function StructureAuthor({
           ? t("errors.notCms")
           : code === "kind-mismatch" || code === "bad-input"
             ? t("errors.mismatch")
-            : t("errors.generic")
+            : code === "not-a-section"
+              ? t("errors.notASection")
+              : code === "outline-unreadable"
+                ? t("errors.outlineUnreadable")
+                : t("errors.generic")
     );
   }
 
@@ -472,7 +484,9 @@ export function StructureAuthor({
       if (!res.ok) {
         setStatus("error");
         if (res.error === "changed-elsewhere") setConflict("remove");
-        else setError(t("errors.removeFailed"));
+        else if (res.error === "has-learners") {
+          setError(t("errors.hasLearners", { count: res.count }));
+        } else setError(t("errors.removeFailed"));
         return;
       }
     } catch {

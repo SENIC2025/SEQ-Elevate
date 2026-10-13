@@ -13,16 +13,39 @@ const db: {
   roles: string[];
   signedIn: boolean;
   courseMeta: unknown;
+  courseStatus: string;
+  courseOutline: unknown;
+  enrolled: number;
   lesson: Row | null;
   audit: { action: string }[];
-} = { roles: [], signedIn: true, courseMeta: null, lesson: null, audit: [] };
+  /** The raw queries (locks), in call order. */
+  locks: string[];
+} = {
+  roles: [],
+  signedIn: true,
+  courseMeta: null,
+  courseStatus: "draft",
+  courseOutline: null,
+  enrolled: 0,
+  lesson: null,
+  audit: [],
+  locks: [],
+};
 
 const stored = (v: unknown) =>
   v === Prisma.DbNull ? null : JSON.parse(JSON.stringify(v));
 
 const prisma = {
-  course: { findFirst: vi.fn(async () => (db.courseMeta ? { meta: db.courseMeta } : null)) },
+  course: {
+    findFirst: vi.fn(async () =>
+      db.courseMeta
+        ? { id: "course-1", meta: db.courseMeta, outline: db.courseOutline, status: db.courseStatus }
+        : null
+    ),
+  },
+  courseEnrollment: { count: vi.fn(async () => db.enrolled) },
   lesson: {
+    findMany: vi.fn(async () => []),
     findFirst: vi.fn(async () => db.lesson),
     findUnique: vi.fn(async () => db.lesson),
     upsert: vi.fn(async () => {
@@ -48,7 +71,10 @@ const prisma = {
       db.audit.push(data);
     }),
   },
-  $queryRaw: vi.fn(async () => []),
+  $queryRaw: vi.fn(async (strings: TemplateStringsArray) => {
+    db.locks.push(strings.join("?"));
+    return [];
+  }),
   // A failed transaction leaves no trace, as in Postgres.
   $transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => {
     const before = db.lesson ? { ...db.lesson } : null;
@@ -61,6 +87,7 @@ const prisma = {
   }),
 };
 
+vi.mock("server-only", () => ({}));
 vi.mock("@/lib/prisma", () => ({ prisma }));
 vi.mock("@/lib/auth-helpers", () => ({
   getCurrentUser: async () => (db.signedIn ? { id: "editor-1" } : null),
@@ -114,8 +141,12 @@ beforeEach(() => {
   db.roles = ["CONTENT_EDITOR"];
   db.signedIn = true;
   db.courseMeta = { en: { title: "My course" } };
+  db.courseStatus = "draft";
+  db.courseOutline = null;
+  db.enrolled = 0;
   db.lesson = null;
   db.audit = [];
+  db.locks = [];
 });
 
 describe("saveStructureDraft", () => {
@@ -325,5 +356,126 @@ describe("getStructure", () => {
     });
     db.lesson = null;
     expect(await getStructure(SLUG, "scenario")).toEqual(nothing);
+  });
+});
+
+/*
+ * Release 1 (G6): a lesson of a created course's own ("s-…") whose main
+ * content is an exercise is edited with these same actions — only while it
+ * is in the course's lesson list, and only with its own kind. Standard
+ * lessons keep exactly the Release 0 path: no Course lock.
+ */
+const COURSE_SHARE = 'SELECT id FROM "Course" WHERE "projectId" = ? AND "slug" = ? FOR SHARE';
+const COURSE_UPDATE = 'SELECT id FROM "Course" WHERE "projectId" = ? AND "slug" = ? FOR UPDATE';
+const LESSON_LOCK =
+  'SELECT id FROM "Lesson" WHERE "projectId" = ? AND "courseSlug" = ? AND "stageKey" = ? FOR UPDATE';
+const OWN = "s-abcdefgh";
+
+describe("a lesson of the course's own", () => {
+  beforeEach(() => {
+    db.courseOutline = {
+      v: 1,
+      sections: [
+        { id: "context", template: "context" },
+        { id: OWN, template: "scenario" },
+        { id: "s-text0000", template: "text" },
+      ],
+    };
+  });
+
+  it("saves its exercise when it is in the list with that kind, the course locked first", async () => {
+    const res = await saveStructure(SLUG, OWN as never, complete, nothing);
+    expect(res).toEqual({ ok: true, structure: complete });
+    expect(db.lesson).toEqual({ structure: complete, structureDraft: null });
+    expect(db.locks).toEqual([COURSE_SHARE, LESSON_LOCK]);
+    expect(await getStructure(SLUG, OWN as never)).toEqual({ structure: complete, draft: null });
+  });
+
+  it("refuses a lesson that isn't in the list, or isn't an exercise of that kind", async () => {
+    expect(await saveStructureDraft(SLUG, "s-zzzzzzzz" as never, unfinished, nothing)).toEqual({
+      ok: false,
+      error: "not-a-section",
+    });
+    expect(await saveStructureDraft(SLUG, "s-text0000" as never, unfinished, nothing)).toEqual({
+      ok: false,
+      error: "kind-mismatch",
+    });
+    expect(
+      await saveStructureDraft(SLUG, OWN as never, { ...complete, kind: "simulation" } as never, nothing)
+    ).toEqual({ ok: false, error: "kind-mismatch" });
+    expect(await getStructure(SLUG, "s-zzzzzzzz" as never)).toBeNull();
+    expect(db.lesson).toBeNull();
+  });
+
+  it("refuses when the lesson left the list before the write", async () => {
+    // The list is read twice: before the checks (the lesson is there), and
+    // again under the Course lock (a colleague has deleted it since).
+    const before = db.courseOutline;
+    prisma.course.findFirst.mockImplementationOnce(
+      async () => ({ id: "course-1", meta: db.courseMeta, outline: before, status: "draft" }) as never
+    );
+    db.courseOutline = { v: 1, sections: [{ id: "context", template: "context" }] };
+    expect(await saveStructureDraft(SLUG, OWN as never, unfinished, nothing)).toEqual({
+      ok: false,
+      error: "not-a-section",
+    });
+    expect(db.lesson).toBeNull();
+  });
+
+  it("leaves the standard lessons' path as it was: no Course lock", async () => {
+    await saveStructureDraft(SLUG, "scenario", unfinished, nothing);
+    expect(db.locks).toEqual([LESSON_LOCK]);
+  });
+});
+
+/*
+ * G5: "Remove stage" takes away an exercise learners have now. On a
+ * published course with learners enrolled it is refused: they would lose
+ * what they have. The Course row is locked FOR UPDATE first, which an
+ * enrolment's foreign-key check (FOR KEY SHARE) waits for (addendum 7).
+ */
+describe("clearStructure and learners (G5)", () => {
+  beforeEach(() => {
+    db.lesson = { structure: complete, structureDraft: null };
+  });
+  const base = () => ({ structure: complete, draft: null });
+
+  it("is refused on a published course with learners, and changes nothing", async () => {
+    db.courseStatus = "published";
+    db.enrolled = 3;
+    expect(await clearStructure(SLUG, "scenario", base())).toEqual({
+      ok: false,
+      error: "has-learners",
+      count: 3,
+    });
+    expect(db.lesson).toEqual({ structure: complete, structureDraft: null });
+    expect(db.locks[0]).toBe(COURSE_UPDATE);
+    expect(db.audit).toEqual([]);
+  });
+
+  it("is allowed with no learners, on a draft, or when learners have nothing of it", async () => {
+    db.courseStatus = "published";
+    expect(await clearStructure(SLUG, "scenario", base())).toEqual({ ok: true });
+
+    db.lesson = { structure: complete, structureDraft: null };
+    db.courseStatus = "draft";
+    db.enrolled = 3;
+    expect(await clearStructure(SLUG, "scenario", base())).toEqual({ ok: true });
+
+    // Only a draft: learners have nothing of it to lose.
+    db.lesson = { structure: null, structureDraft: unfinished };
+    db.courseStatus = "published";
+    expect(await clearStructure(SLUG, "scenario", { structure: null, draft: unfinished })).toEqual({
+      ok: true,
+    });
+  });
+
+  it("refuses a course not created here, which it used to write to", async () => {
+    db.courseMeta = null;
+    expect(await clearStructure(SLUG, "scenario", base())).toEqual({
+      ok: false,
+      error: "not-cms-course",
+    });
+    expect(db.lesson).toEqual({ structure: complete, structureDraft: null });
   });
 });
