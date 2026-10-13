@@ -7,14 +7,16 @@ import { cn } from "@/lib/utils";
 import { LinkedText } from "@/components/rich-text/RichTextView";
 import { FormattedText } from "../FormattedText";
 import type { PartProps } from "./part-props";
+import { focusThen } from "./focus";
 
 /**
  * A practice question (choose a response), as the learner player's guided
  * practice shows it, but answered into the preview's own state: picking an
- * option shows its feedback, "Try another" clears it. No Continue here —
+ * option shows its feedback, "Try another" clears it (focus goes to the
+ * heading first: the button goes). No Continue here —
  * the lesson has one for all its content.
  */
-export function PracticePart({ part, answer, onAnswer }: PartProps<"practice">) {
+export function PracticePart({ part, answer, onAnswer, headingId }: PartProps<"practice">) {
   const t = useTranslations("coursePlayer");
   const tHint = useTranslations("continueHint");
   const sim = part.simulation;
@@ -88,7 +90,7 @@ export function PracticePart({ part, answer, onAnswer }: PartProps<"practice">) 
 
       {showFeedback ? (
         <div className="mt-4">
-          <Button variant="outline" size="md" onClick={() => onAnswer(undefined)}>
+          <Button variant="outline" size="md" onClick={() => focusThen(headingId, () => onAnswer(undefined))}>
             <RotateCcw aria-hidden className="h-4 w-4" />
             {t("tryAnother")}
           </Button>

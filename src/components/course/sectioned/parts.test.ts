@@ -84,6 +84,24 @@ describe("ScenarioPart", () => {
     expect(text).toContain("Answer the follow-up question to continue.");
   });
 
+  it("lets the follow-up's outcome take focus, where the follow-up buttons were", () => {
+    const followup = scenarioPart.scenario.choices.find((c) => c.id === "private")!.followups![0];
+    const html = renderIn(
+      createElement(ScenarioPart, {
+        ...base,
+        part: scenarioPart,
+        answer: { type: "scenario", rootId: "private", followupId: followup.id },
+      })
+    );
+    const outcomes = elements(html, "div").filter((d) => /mt-4 rounded-lg border/.test(d.attrs));
+    // The first choice's outcome announces itself; the follow-up's takes
+    // focus instead (focus reads it), so it isn't announced twice.
+    expect(outcomes.map((o) => attr(o.attrs, "role"))).toEqual(["status", undefined]);
+    expect(attr(outcomes[1].attrs, "tabindex")).toBe("-1");
+    expect(attr(outcomes[1].attrs, "id")).toBeTruthy();
+    expect(html).not.toContain("And then?");
+  });
+
   it("starts with the first question only", () => {
     const text = textOf(
       renderIn(createElement(ScenarioPart, { ...base, part: scenarioPart, answer: undefined }))
@@ -132,6 +150,53 @@ describe("QuizPart", () => {
     expect(textOf(html)).toContain("You got 1 out of 2 right.");
     expect(textOf(html)).toContain("Try again");
     expect(textOf(html)).not.toContain("Check answers");
+  });
+
+  // q1: "b" is right; q2: "b" is wrong, "a" was the answer.
+  const checkedHtml = (locale: "en" | "de" | "el" = "en") =>
+    renderIn(
+      createElement(QuizPart, {
+        ...base,
+        part: quizPart,
+        answer: { type: "quiz", answers: { q1: "b", q2: "b" }, checked: true },
+      }),
+      locale
+    );
+  const optionButtons = (html: string) =>
+    elements(html, "button").filter((b) => /aria-pressed=/.test(b.attrs));
+
+  it("says in words which answer was right, not by colour alone", () => {
+    const [, i, early, never] = optionButtons(checkedHtml()).map((b) => b.inner);
+    // Every result has its own mark: a tick or a cross, never only a tint.
+    expect(i).toContain("lucide-circle-check");
+    expect(never).toContain("lucide-circle-x");
+    expect(early).toContain("lucide-circle-check");
+    // And assistive technology hears it, as part of the option's name.
+    expect(textOf(i)).toBe("I feel sidelined (your answer, correct)");
+    expect(textOf(never)).toBe("Never (your answer, not correct)");
+    expect(textOf(early)).toBe("Early (the correct answer)");
+    expect(early).toMatch(/<span class="sr-only"> \(the correct answer\)<\/span>/);
+  });
+
+  it("marks nothing before the answers are checked", () => {
+    const html = renderIn(
+      createElement(QuizPart, {
+        ...base,
+        part: quizPart,
+        answer: { type: "quiz", answers: { q1: "b", q2: "b" }, checked: false },
+      })
+    );
+    expect(optionButtons(html).map((b) => textOf(b.inner))).toEqual([
+      "AYou always ignore me",
+      "BI feel sidelined",
+      "AEarly",
+      "BNever",
+    ]);
+  });
+
+  it("names the results in the page's language", () => {
+    expect(textOf(checkedHtml("de"))).toContain("Early (die richtige Antwort)");
+    expect(textOf(checkedHtml("el"))).toContain("Early (η σωστή απάντηση)");
   });
 });
 

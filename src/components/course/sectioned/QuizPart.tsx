@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import { answerQuestion, checkedQuiz } from "@/lib/assessment-progress";
 import { LinkedText } from "@/components/rich-text/RichTextView";
 import type { PartProps } from "./part-props";
+import { focusThen } from "./focus";
 
 /**
  * A quick check, as the learner player shows one: choose an answer per
@@ -16,10 +17,15 @@ import type { PartProps } from "./part-props";
  * in one lesson never share them, even with the same question ids. A
  * quick check with no questions yet shows its intro and nothing to check
  * — no score of 0 out of 0.
+ *
+ * Once checked, every result is marked by shape (a tick or a cross) and in
+ * words for assistive technology, never by colour alone: the editor's
+ * answer, right or not, and the right one when theirs wasn't.
  */
 export function QuizPart({ part, answer, onAnswer, headingId }: PartProps<"quiz">) {
   const t = useTranslations("coursePlayer");
   const tHint = useTranslations("continueHint");
+  const tResult = useTranslations("sectionPreview.quizResult");
   const hintId = useId();
   const groupId = useId();
   const a = part.assessment;
@@ -74,6 +80,13 @@ export function QuizPart({ part, answer, onAnswer, headingId }: PartProps<"quiz"
                     const showResult = checked && isSelected;
                     const showCorrectAfterWrong =
                       checked && !isSelected && isCorrect && progress.answers[q.id] !== q.correctOptionId;
+                    const result = showResult
+                      ? isCorrect
+                        ? tResult("yoursCorrect")
+                        : tResult("yoursWrong")
+                      : showCorrectAfterWrong
+                        ? tResult("correct")
+                        : null;
                     return (
                       <button
                         key={opt.id}
@@ -90,7 +103,7 @@ export function QuizPart({ part, answer, onAnswer, headingId }: PartProps<"quiz"
                           showCorrectAfterWrong && "border-[var(--success)]/60 bg-[var(--success)]/5"
                         )}
                       >
-                        {showResult ? (
+                        {showResult || showCorrectAfterWrong ? (
                           isCorrect ? (
                             <CheckCircle2 aria-hidden className="h-5 w-5 mt-0.5 text-[var(--success)] flex-shrink-0" />
                           ) : (
@@ -109,7 +122,10 @@ export function QuizPart({ part, answer, onAnswer, headingId }: PartProps<"quiz"
                             {String.fromCharCode(65 + i)}
                           </span>
                         )}
-                        <span>{opt.text}</span>
+                        <span>
+                          {opt.text}
+                          {result ? <span className="sr-only"> {result}</span> : null}
+                        </span>
                       </button>
                     );
                   })}
@@ -136,12 +152,11 @@ export function QuizPart({ part, answer, onAnswer, headingId }: PartProps<"quiz"
           <Button
             variant="outline"
             size="md"
-            onClick={() => {
+            onClick={() =>
               // Focus first, while this button still has it: it goes once
               // the quiz reopens. The editor starts again from the top.
-              document.getElementById(headingId)?.focus();
-              onAnswer({ type: "quiz", answers: {}, checked: false });
-            }}
+              focusThen(headingId, () => onAnswer({ type: "quiz", answers: {}, checked: false }))
+            }
           >
             <RotateCcw aria-hidden className="h-4 w-4" />
             {t("tryAgain")}
@@ -154,7 +169,13 @@ export function QuizPart({ part, answer, onAnswer, headingId }: PartProps<"quiz"
             variant="outline"
             disabled={!allAnswered}
             aria-describedby={hintId}
-            onClick={() => onAnswer({ type: "quiz", answers: progress.answers, checked: true })}
+            onClick={() =>
+              // The button goes once checked: focus the heading first. The
+              // score that follows is announced politely.
+              focusThen(headingId, () =>
+                onAnswer({ type: "quiz", answers: progress.answers, checked: true })
+              )
+            }
           >
             {t("checkAnswers")}
           </Button>
