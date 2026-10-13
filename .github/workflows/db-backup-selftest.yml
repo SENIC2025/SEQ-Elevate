@@ -68,12 +68,11 @@ jobs:
       - name: Start a throwaway S3 store
         run: |
           set -euo pipefail
-          docker run -d --name s3 -p 9000:9000 \
-            -e MINIO_ROOT_USER="$AWS_ACCESS_KEY_ID" -e MINIO_ROOT_PASSWORD="$AWS_SECRET_ACCESS_KEY" \
-            minio/minio:RELEASE.2025-04-22T22-12-26Z server /data
-          for i in $(seq 60); do curl -fsS http://localhost:9000/minio/health/live && break; sleep 1; done
+          # Adobe's S3Mock: an in-memory S3 API for tests (any credentials accepted).
+          docker run -d --name s3 -p 9000:9090 adobe/s3mock:5.2.3
           # Only the local store needs path-style addresses; real providers use the default.
           aws configure set default.s3.addressing_style path
+          for i in $(seq 60); do aws s3api list-buckets --endpoint-url "$ENDPOINT" > /dev/null 2>&1 && break; sleep 2; done
           aws s3api create-bucket --endpoint-url "$ENDPOINT" --bucket "$BUCKET" > /dev/null
 
       - name: Seed an app-like database and the read-only role
