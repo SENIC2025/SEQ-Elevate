@@ -474,11 +474,14 @@ describe("Release 1 — standard-layout courses are unchanged for learners", () 
     await useSession(context, de.sessionToken);
     await walkCreated(page, "de", "created");
 
-    // Progress was saved, in Release 0's stage keys only.
+    // Progress was saved, in Release 0's stage keys only (the StageKey enum
+    // stores them in capitals: CONTEXT …).
     for (const userId of [en.userId, de.userId]) {
       const done = await stagesCompletedOf(userId);
       expect(done.length).toBeGreaterThan(0);
-      expect(done.every((k) => (STANDARD_IDS as readonly string[]).includes(k))).toBe(true);
+      expect(
+        done.every((k) => (STANDARD_IDS as readonly string[]).includes(k.toLowerCase()))
+      ).toBe(true);
     }
   });
 });
