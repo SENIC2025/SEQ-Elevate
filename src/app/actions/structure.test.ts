@@ -218,6 +218,57 @@ describe("saveStructure", () => {
   });
 });
 
+/*
+ * A stage saved before Release 0 had no size limits. One that is over a
+ * limit must still save — as a draft and for learners — or an editor
+ * couldn't even fix a typo in it.
+ */
+describe("a stage stored before the limits", () => {
+  const longDe = "Lang. ".repeat(400).trim(); // over the 2,000-character limit
+  const legacy: StoredScenario = { ...complete, setup: { ...complete.setup, de: longDe } };
+  const typoFixed: StoredScenario = {
+    ...legacy,
+    question: { en: "What do you do now?" },
+  };
+
+  it("saves for learners with an edit elsewhere, keeping the long text", async () => {
+    db.lesson = { structure: legacy, structureDraft: null };
+    const res = await saveStructure(SLUG, "scenario", typoFixed, { structure: legacy, draft: null });
+    expect(res).toEqual({ ok: true, structure: typoFixed });
+    expect(db.lesson).toEqual({ structure: typoFixed, structureDraft: null });
+  });
+
+  it("saves as a draft too", async () => {
+    db.lesson = { structure: legacy, structureDraft: null };
+    const res = await saveStructureDraft(SLUG, "scenario", typoFixed, {
+      structure: legacy,
+      draft: null,
+    });
+    expect(res.ok).toBe(true);
+    expect(db.lesson?.structureDraft).toEqual(typoFixed);
+  });
+
+  it("refuses the long text grown, saying which box and language, and writes nothing", async () => {
+    db.lesson = { structure: legacy, structureDraft: null };
+    const grown = { ...legacy, setup: { ...legacy.setup, de: `${longDe} Mehr.` } };
+    const res = await saveStructureDraft(SLUG, "scenario", grown, { structure: legacy, draft: null });
+    expect(res).toEqual({
+      ok: false,
+      error: "too-large",
+      at: { limit: "text", field: "scenarioSetup", locale: "de", max: 2_000 },
+    });
+    expect(db.lesson).toEqual({ structure: legacy, structureDraft: null });
+  });
+
+  it("gains nothing from a made-up base: the row must still hold it", async () => {
+    // The request claims the long text is stored; the row says otherwise.
+    db.lesson = { structure: complete, structureDraft: null };
+    const res = await saveStructure(SLUG, "scenario", legacy, { structure: legacy, draft: null });
+    expect(res).toEqual({ ok: false, error: "changed-elsewhere" });
+    expect(db.lesson).toEqual({ structure: complete, structureDraft: null });
+  });
+});
+
 describe("discardStructureDraft", () => {
   it("drops the draft and keeps what learners see", async () => {
     db.lesson = { structure: complete, structureDraft: unfinished };
