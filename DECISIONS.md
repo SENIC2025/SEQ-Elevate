@@ -194,6 +194,7 @@ Single source of truth for decisions made, decisions still open, and the rationa
 ### D36 · Rich text format for lesson paragraphs and key messages
 **Decided**: 29 September 2026 · *Decider: SENIC principal ("Bold, italic, bullet points, numbering, and indent" — "the same as you see it as a learner"); format: SENIC (build decision)*
 - Paragraphs and key messages can use **bold, italic, bulleted and numbered lists (up to three levels) and indent** — nothing else: no links, images, colours, fonts or headings, so every lesson keeps the platform's look and can't carry anything unsafe. Editor and learner view use the same styles, so what authors see is what learners get.
+  - *Amended by D55 (13 October 2026): web and email addresses typed in the text show to learners as links, found when the page is drawn; the stored format is unchanged.*
 - **Stored as structured JSON, never HTML:** a block keeps `rich = { v: 1, doc }` next to its plain `text`. The server rebuilds every saved doc from that whitelist (anything else is dropped) and derives `text` from it itself — older code, the reflection intro and a rollback keep working from `text`. The learner view checks the doc again on every render and only ever outputs a fixed set of elements. No migration: `Lesson.narrative` is already JSON.
 - **Existing text isn't converted in bulk.** A block becomes rich only when an author edits it, converted by the rules learners already see (Round 1's list detection), so nothing changes for learners until someone changes the text.
 - **Limits are refused, not cut:** a block over 10,000 characters (or with extreme formatting), a list over 50 points or a lesson over 100 blocks is not saved, and the author is told which block to split — silently losing the end of a text would be worse. Lists pasted deeper than three levels are kept at the third level instead of refused; no text is lost.
@@ -208,6 +209,7 @@ Single source of truth for decisions made, decisions still open, and the rationa
 - **Merging, not replacing.** What the learner did while their data loaded is kept: new lessons are added to the saved ones, answers they gave win, fields they didn't touch keep the saved value, badges are a union, the first completion date stays.
 - **A session that can't be read is held, not dropped.** The page keeps the learner's data (saving nothing new, writing nothing to the browser's guest store) and reads the session again after 1 s and 3 s; found again, what's on screen is saved; still no one, it's let go of. Another account signing in lets go at once. Every save carries the learner it was made for, and the server refuses it for anyone else, so nothing lands in the next account on a shared computer.
 - **On sign-in, the account wins.** A guest's progress moves to the account only where the account has nothing (per course, Comp Card, badge) — the same whether the sign-in link opens in this tab or in another one.
+- *Added 13 October 2026 (Release 0):* saves wait out a short pause (~0.7 s) so quick clicks go together, except the save that **finishes a course**, which is sent at once; and when the tab is hidden or closed, whatever save is already waiting is sent then. Only saves these rules had scheduled are sent. (Server actions run one at a time, so such a save can still wait behind one already on its way; sending it outside that queue would need its own endpoint — not done.)
 
 ### D38 · Reading-help settings: the account's own are never reset or overwritten
 **Decided**: 30 September 2026 · *Decider: SENIC principal ("fix the reading-help settings bug too"); rules: SENIC (build decision)*
@@ -221,6 +223,51 @@ Single source of truth for decisions made, decisions still open, and the rationa
 - In Next.js 16 a `router.refresh()` after a change sometimes doesn't show until the next router update; the data is saved, the screen looks unchanged. Upgrading to 16.2.12 didn't change this, so we work around it instead of changing framework versions in a fix release. It existed on the live site too; a settings save sent after every page load happened to hide it for changes made in the first half-second.
 - The **people** and **organisations & cohorts** screens now show the list each action returns, until the page's own list is rendered again.
 - **Learner pages** that must stop showing a learner's progress after a sign-out elsewhere check that the page was rendered for whoever holds the session now; if not, they refresh again (a later refresh brings a stalled one in) every 2 s and reload after the third try.
+
+*D40–D48 are kept for the consortium's answers to the October 2026 change-request document; they are recorded once confirmed.*
+
+### D49 · Quick-check answers are saved, and a learner can try again
+**Decided**: 13 October 2026 · *Decider: SENIC principal ("Start Release 0", plan §4); rules: SENIC (build decision)*
+- A learner's quick-check answers and whether they pressed *Check answers* are saved with the course (`CourseEnrollment.assessment = { answers: { questionId: optionId }, checked }`; the guest store for guests), by question id, so quick checks made in the editor — any number of questions, their own ids — work like the built-in ones. No migration: the column was already JSON and only ever held empty slots.
+- A checked quick check comes back as it was left: answers, score, Continue — and **Try again**, which clears it; only the latest check is saved and shown to facilitators. A quiz whose questions were changed after the learner checked counts as not checked again.
+- D37 holds: nothing is saved before the course's saved progress has loaded and been merged; an answer chosen while it loads wins over the saved one; a retake made meanwhile wins over an older saved check. A page from before the release keeps sending the old empty slots, which the server ignores rather than letting them wipe saved answers; anything else malformed is refused.
+- Facilitators and statistics count a quick check only once it is checked, scored against the questions the quiz has now.
+
+### D50 · Progress is counted against each course's own lessons
+**Decided**: 13 October 2026 · *Decider: SENIC (build decision, plan §4)*
+- A course's progress is its completed lessons out of the lessons it actually has: seven for built-in courses, four narrative lessons plus the interactive ones an editor added for created courses — the same list the player plays. Used by the dashboard, "Your journey", the facilitator's view and the statistics (`src/lib/course-progress.ts`).
+- A completed course is 100% with every step ticked, even if a lesson was added after the learner finished. Completed steps a course no longer has don't count. A course that can't be resolved counts as the full seven.
+
+### D51 · A blank translation counts as not written
+**Decided**: 13 October 2026 · *Decider: SENIC (build decision, plan §4)*
+- Text that is empty or only spaces is treated as missing wherever a created course's text is chosen for learners: field by field for exercises and titles, title/subtitle/blocks for lessons, the course title and subtitle. Learners get the English, then the first language written, never a blank.
+- The publishing warnings count a language version with no non-blank text as not written; a partly written one (say, a German title with an empty body) counts as written, and learners get the English body under the German title. The lesson editor says which language it shows when the lesson isn't written in the one being edited.
+
+### D52 · Unfinished exercises are saved as drafts; "Save stage" stays checked
+**Decided**: 13 October 2026 · *Decider: SENIC principal (partners' change request: save unfinished exercises); rules: SENIC (build decision)*
+- An editor can always **save a draft** of a practice, scenario or quick check (`Lesson.structureDraft`, a separate column); learners only ever get `Lesson.structure`, written by **Save stage**, which still requires a complete exercise and clears the draft. On a published course *Save stage* goes live at once, as before.
+- *Save stage* also refuses an exercise learners could get stuck in: a scenario choice with follow-ups needs the follow-up question and each follow-up's text and outcome; quick-check answers can't be blank. The reasons name the choice, question and box, in the editor's language.
+- Every exercise write (draft, stage, discard, remove) sends the stage and draft the editor started from; if either changed meanwhile, the write is refused, so a colleague's translation or draft is never overwritten unseen.
+- Size limits (titles 200 characters, texts 2,000; 10 options, 8 choices, 6 follow-ups, 20 questions, 8 answers) are **refused, not cut**, like D36. What was stored before the limits may stay as it is — only growth is refused — so no live exercise becomes unsaveable.
+
+### D53 · Who counts as a learner
+**Decided**: 13 October 2026 · *Decider: SENIC (build decision, plan §4 "staff no longer turned into learners")*
+- A learner role is given automatically only to a signed-in person with **no role at all** in the project (new people; someone whose roles were all removed). Staff are never given one.
+- For everything that lists, counts, analyses or writes about learners — the facilitator roster, the admin *Learners* figure, statistics, "learners enrolled", facilitator notes and validations — a learner is someone with the learner role and **no staff role** (facilitator, admin, content editor) in the project. One rule, in `src/lib/learner-scope.ts`.
+- Nothing is deleted: staff who were given the learner role before this release keep it in the database and on the People screen, where an admin can remove it. Every learner feature still works for staff (they need a sign-in, not a learner role).
+- Facilitator notes and validations: written only by a facilitator or admin of the project, about a learner of the project by this rule, never about themselves; refused otherwise (fail closed). Organisation and cohort scoping stays with the partner-separation work in the plan (D25's open sub-decision).
+
+### D54 · Every course created in the platform has its badge
+**Decided**: 13 October 2026 · *Decider: SENIC (build decision, plan §4)*
+- A course gets its badge (`Badge` row, slug `<course slug>-complete`, named after the course) when it is created. Courses created before this release got one from a migration, which also awarded it to everyone who had finished.
+- Because the old version keeps serving while a new one builds, the same idempotent backfill also runs on **every deploy**, after the migrations (`prisma/backfill-course-badges.mjs`, reading the migration's own SQL), and publishing, rewording or finishing a course that still has no badge gives it one on the spot.
+- The badge row's name is in one language (English, else the first written); learners see badge names from the course's own copy in their language.
+
+### D55 · Quick links in lesson text (amends D36)
+**Decided**: 13 October 2026 · *Decider: SENIC principal (partners' change request: links in lessons); rules: SENIC (build decision)*
+- Web addresses with `https://` or `http://` and email addresses (bare or `mailto:`) typed in lesson text become links **when the page is drawn**; nothing stored changes, and the editor keeps plain text. Only http(s) and mailto are ever linked — never `javascript:`, `data:` or anything else — and addresses with a user name or password are left as text.
+- Links open in a new tab with `rel="noopener noreferrer"` and a spoken "(opens in a new tab)" in the interface language; they're underlined (not colour alone), have a solid focus ring, and long ones wrap on a 320 px phone. Text without an address renders exactly as before.
+- A *Link* button in the editor is a later release.
 
 ---
 
