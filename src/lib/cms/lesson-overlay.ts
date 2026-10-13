@@ -22,11 +22,25 @@ export async function applyLessonMedia(
   try {
     const lessons = await prisma.lesson.findMany({
       where: { projectId, courseSlug: slug },
-      include: {
+      // Only what learners see (spec 9.4): never a lesson's extra content
+      // (Lesson.parts, up to 600,000 characters, which no learner reads
+      // before Release 2) or an editor's draft.
+      select: {
+        stageKey: true,
+        narrative: true,
+        video: true,
         // Learners only ever see published documents.
         documents: {
           where: { published: true },
           orderBy: [{ order: "asc" }, { createdAt: "asc" }],
+          select: {
+            id: true,
+            name: true,
+            url: true,
+            mimeType: true,
+            sizeBytes: true,
+            published: true,
+          },
         },
       },
     });

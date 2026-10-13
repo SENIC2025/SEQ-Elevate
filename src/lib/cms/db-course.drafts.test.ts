@@ -74,8 +74,14 @@ describe("getDbCourse and drafts", () => {
   it("doesn't even read the draft column", async () => {
     await getDbCourse("seq-elevate", "my-course", "en");
     const args = findMany.mock.calls[0][0];
-    expect(args.select, "only the columns learners need").toBeDefined();
-    expect(args.select?.structureDraft).toBeFalsy();
+    // Exactly the columns learners need (spec 3.4): never the draft, nor a
+    // lesson's extra content (Lesson.parts), which no learner reads before
+    // Release 2.
+    expect(args.select, "only the columns learners need").toEqual({
+      stageKey: true,
+      narrative: true,
+      structure: true,
+    });
   });
 
   it("leaves out a stage that only has a draft", async () => {
