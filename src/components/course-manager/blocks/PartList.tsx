@@ -20,6 +20,7 @@ import {
   type PartId,
   type PartType,
   type PartView,
+  type PartsView,
   type SectionId,
 } from "@/lib/cms/sections/contract";
 import type { Locale } from "@/lib/cms/types";
@@ -44,6 +45,9 @@ import {
 /** The first box an author types in, once a new content's editor has loaded. */
 const FIELD = 'input:not([type="hidden"]), textarea, select, [contenteditable="true"]';
 
+/** A lesson not in the list yet: only its main content (see `listed`). */
+const MAIN_ONLY: PartsView = { items: [{ id: MAIN_PART_ID, type: "main" }], order: "" };
+
 /**
  * A lesson's content on the course page, in learner order (spec 11.2): the
  * main content in exactly today's editor (`main`), and the extra content
@@ -67,6 +71,7 @@ const FIELD = 'input:not([type="hidden"]), textarea, select, [contenteditable="t
  * someone else had changed it.
  */
 export function PartList({
+  listed = true,
   lesson,
   label,
   slug,
@@ -78,6 +83,11 @@ export function PartList({
   onOutline,
   announce,
 }: {
+  /**
+   * False for a lesson not in the course's lesson list yet: only its main
+   * content, in the same wrappers, with nothing to add, move or remove.
+   */
+  listed?: boolean;
   lesson: LessonOutline;
   /** The lesson's heading ("2. Skill concept"), for unsaved-changes prompts. */
   label: string;
@@ -100,7 +110,7 @@ export function PartList({
   const [refreshing, startTransition] = React.useTransition();
   const ids = React.useId();
   const sectionId = lesson.key as SectionId;
-  const parts = lesson.parts;
+  const parts = listed ? lesson.parts : MAIN_ONLY;
 
   const [picker, setPicker] = React.useState<PartId | null>(null);
   const [busy, setBusy] = React.useState(false);
@@ -375,7 +385,7 @@ export function PartList({
     );
   }
 
-  const lockedAny = addLocked || moveLocked || removeLocked;
+  const lockedAny = listed && (addLocked || moveLocked || removeLocked);
   // Locked because something in the course can't be read (G8), not because it is live.
   const unreadableCourse = reasons.some((r) => r.code === "unreadable");
 
@@ -435,6 +445,7 @@ export function PartList({
                 {editorFor(item, position)}
               </PartCard>
 
+              {listed ? (
               <div className="mt-3 space-y-2">
                 <Button
                   id={addId(item.id)}
@@ -472,6 +483,7 @@ export function PartList({
                   </p>
                 ) : null}
               </div>
+              ) : null}
             </li>
           );
         })}

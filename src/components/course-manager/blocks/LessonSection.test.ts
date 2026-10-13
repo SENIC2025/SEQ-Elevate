@@ -126,6 +126,43 @@ describe("LessonSection — the lesson's editors", () => {
   });
 });
 
+describe("LessonSection — a lesson not in the lesson list yet", () => {
+  // An "Add an applied scenario" lesson, or one with only a draft: not in the
+  // list until its first "Save stage". Its editor already sits where the
+  // content list puts it, so that save doesn't remount it — which would wipe
+  // "Saved" and drop focus to the page.
+  const unlisted: LessonOutline = {
+    ...lesson([MAIN]),
+    key: "scenario",
+    present: false,
+    addable: true,
+    body: "interactive",
+    mainKind: "scenario",
+    section: null,
+    parts: null,
+  };
+
+  it("renders the editor inside the content list, with no list controls", () => {
+    const html = render(unlisted, true);
+    const listed = render(
+      { ...unlisted, present: true, addable: false, section: section("scenario"), parts: lesson([MAIN]).parts },
+      true
+    );
+    const editorAt = (h: string) => h.indexOf("Interactive stage");
+    expect(editorAt(html)).toBeGreaterThan(-1);
+    // The same wrappers lead to the editor either way.
+    const wrapper = '<ol class="space-y-4"><li><div class="scroll-mt-24 space-y-2"><div id=';
+    expect(html).toContain(wrapper);
+    expect(listed).toContain(wrapper);
+    expect(html.indexOf(wrapper)).toBeLessThan(editorAt(html));
+    // Nothing to add, move or remove until it is in the list.
+    expect(html).not.toContain(">Add content<");
+    expect(html).not.toContain(en.lessonBlocks.unreadable);
+    expect(html).not.toContain(en.lessonBlocks.liveLocked);
+    expect(listed).toContain(">Add content<");
+  });
+});
+
 describe("LessonSection — closed", () => {
   const stage: SectionStage = {
     key: "concept",

@@ -180,10 +180,14 @@ export function LessonSection(props: LessonSectionProps) {
   }
 
   // A lesson of the course's list: its content as a list, the main content
-  // first among equals.
+  // first among equals. A created course's lesson that isn't in the list yet
+  // (an "Add …" lesson, or one with only a draft) gets the same wrappers
+  // without the list's controls, so its first "Save stage", which puts it in
+  // the list, doesn't remount the editor (and wipe "Saved" and focus).
   const content =
-    lesson.section && lesson.editable.body ? (
+    kind === "cms" && lesson.editable.body ? (
       <PartList
+        listed={lesson.section !== null}
         lesson={lesson}
         label={label}
         slug={slug}

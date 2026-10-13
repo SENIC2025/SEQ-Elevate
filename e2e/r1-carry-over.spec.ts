@@ -382,4 +382,32 @@ describe("Release 1 — a Release 0 course carries over", () => {
       { name: DOCS[1], published: false },
     ]);
   });
+
+  test("the first Save stage of the missing practice keeps its editor in place", async ({
+    page,
+    context,
+  }) => {
+    // "Add guided practice": not in the lesson list until its first save,
+    // which puts it there. The editor must stay the same element through the
+    // refresh that follows, or "Saved" and focus would be lost.
+    await useSession(context, editorSession);
+    const lesson = await openLesson(page, "simulation");
+    const panel = lesson.getByRole("region", { name: /^interactive stage — /i });
+    const prompt = panel.getByRole("textbox", { name: /^prompt/i });
+    await expect(prompt).toBeVisible({ timeout: 15000 });
+    await panel.evaluate((el) => el.setAttribute("data-e2e-same", "1"));
+
+    await prompt.fill("E2E carry-over: a colleague asks for help.");
+    await panel.getByRole("textbox", { name: /^option 1 option text$/i }).fill("Ask what they tried");
+    await panel.getByRole("textbox", { name: /^option 2 option text$/i }).fill("Do it for them");
+    await panel.getByRole("button", { name: /^save stage$/i }).click();
+
+    // The refreshed page lists it as a lesson…
+    await expect(lessonList(page).getByRole("link", { name: /^4\. Guided practice$/ })).toBeVisible({
+      timeout: 15000,
+    });
+    // …and the editor is the one the author pressed Save in.
+    await expect(page.locator('#lesson-simulation [data-e2e-same="1"]')).toHaveCount(1);
+    expect((await rows()).simulation?.structure).toBeTruthy();
+  });
 });
