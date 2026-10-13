@@ -100,3 +100,51 @@ describe.each(both)("%s", (_name, call) => {
     expect(wroteAnything()).toBe(false);
   });
 });
+
+describe("who a note or validation may be about", () => {
+  afterEach(() => vi.clearAllMocks());
+
+  // Staff who opened a learner page before Release 0 still hold a LEARNER
+  // role, so the learner check alone would let them validate themselves.
+  it.each(both)("%s refuses a writer writing about themselves", async (_name, call) => {
+    given(["FACILITATOR", "LEARNER"], ["FACILITATOR", "LEARNER"]);
+    getCurrentUser.mockResolvedValue({ ...STAFF, id: "learner-1" });
+    await expect(call()).resolves.toEqual({ ok: false });
+    expect(wroteAnything()).toBe(false);
+  });
+});
+
+describe("what a note or validation may hold", () => {
+  afterEach(() => vi.clearAllMocks());
+
+  const refused = async (call: () => Promise<unknown>) => {
+    given(["FACILITATOR"], ["LEARNER"]);
+    await expect(call()).resolves.toEqual({ ok: false });
+    expect(wroteAnything()).toBe(false);
+  };
+
+  it("refuses a note that is too long", () =>
+    refused(() => saveObservation("learner-1", "a".repeat(2001))));
+
+  it("refuses a note that isn't text", () =>
+    refused(() => saveObservation("learner-1", 5 as unknown as string)));
+
+  it("refuses evidence that isn't text, instead of failing with an error", () =>
+    refused(() => recordValidation("learner-1", "communicationEi", 5 as unknown as string)));
+
+  it("refuses evidence that is too long", () =>
+    refused(() => recordValidation("learner-1", "communicationEi", "a".repeat(2001))));
+
+  it("refuses a cluster that isn't one of the skill clusters", () =>
+    refused(() => recordValidation("learner-1", "<anything>")));
+
+  it("takes a note at the length limit, and a validation with no evidence", async () => {
+    given(["FACILITATOR"], ["LEARNER"]);
+    await expect(saveObservation("learner-1", "a".repeat(2000))).resolves.toEqual({ ok: true });
+    await expect(recordValidation("learner-1", "teamwork")).resolves.toEqual({ ok: true });
+    expect(prisma.validation.create.mock.calls[0][0].data).toMatchObject({
+      cluster: "teamwork",
+      evidence: null,
+    });
+  });
+});
