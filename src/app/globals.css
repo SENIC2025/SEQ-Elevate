@@ -113,6 +113,16 @@ body {
   border-radius: 4px;
 }
 
+/* A quick link in lesson text (.seq-link, below) gets a solid ring in its
+   own colour: around a few words of text the soft ring above is hard to
+   see. Outside the components layer, like the rule above, which a layered
+   rule could never override. */
+a.seq-link:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
 /* Skip-to-content link — hidden until focused (WCAG 2.4.1 Bypass Blocks) */
 .skip-link {
   position: absolute;
@@ -247,13 +257,6 @@ body {
   }
   a.seq-link:hover {
     text-decoration-thickness: 2px;
-  }
-  /* A solid ring in the link's own colour, clearer than the soft global
-     one around a few words of text. */
-  a.seq-link:focus-visible {
-    outline: 2px solid currentColor;
-    outline-offset: 2px;
-    border-radius: 2px;
   }
   html[data-contrast="true"] .seq-link {
     text-decoration-thickness: 2px;
