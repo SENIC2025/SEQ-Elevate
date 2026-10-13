@@ -34,6 +34,9 @@ export function hasCourseProgress(course: CourseProgress): boolean {
     answered(r.p2) ||
     answered(r.p3) ||
     hasAssessmentProgress(course.assessment) ||
+    // A quick check tried again: its empty answers are saved over the old
+    // check, which would otherwise come back on the next visit.
+    course.assessment.retaken === true ||
     course.completedAt !== null
   );
 }
@@ -45,7 +48,8 @@ export function hasCourseProgress(course: CourseProgress): boolean {
  * - stages: the saved ones in their order, then any new local ones;
  * - simulation, quick-check answers (by question id): the local choice,
  *   else the saved one; a check from either side holds unless a local
- *   answer differs from the saved one, which opens the quiz again (see
+ *   answer differs from the saved one, which opens the quiz again, and a
+ *   quiz tried again locally keeps only what was chosen since (see
  *   assessment-progress.ts);
  * - scenario: the local path if one was started (root and follow-up belong
  *   together), else the saved path;

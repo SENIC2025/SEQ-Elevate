@@ -1,13 +1,19 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { useId } from "react";
+import { useId, useRef } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useDemoState } from "@/store/demo-state";
 import { checkedQuiz } from "@/lib/assessment-progress";
 import type { CourseStage } from "@/lib/cms/types";
-import { CheckCircle2, XCircle, ArrowRight, Award } from "lucide-react";
+import {
+  CheckCircle2,
+  XCircle,
+  ArrowRight,
+  Award,
+  RotateCcw,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { LinkedText } from "@/components/rich-text/RichTextView";
 
@@ -17,8 +23,9 @@ import { LinkedText } from "@/components/rich-text/RichTextView";
  * whether the learner checked them, live in the learner store, which saves
  * them with the course (the account's, or this browser's for a guest): a
  * learner who comes back finds their checked answers locked, their score
- * and Continue. In an editor's preview the store is the preview's own,
- * which saves nothing.
+ * and Continue. "Try again" clears them, as the other practice steps let
+ * the learner try again, and the new check is the one saved. In an
+ * editor's preview the store is the preview's own, which saves nothing.
  */
 export function AssessmentStage({
   stage,
@@ -31,6 +38,7 @@ export function AssessmentStage({
   const tHint = useTranslations("continueHint");
   const tCommon = useTranslations("common");
   const hintId = useId();
+  const headingRef = useRef<HTMLHeadingElement>(null);
   const { state, dispatch } = useDemoState();
   const progress = state.course.assessment;
   const answers = progress.answers;
@@ -62,7 +70,15 @@ export function AssessmentStage({
           <Award className="h-3.5 w-3.5" />
           {t("quickCheck")}
         </div>
-        <h2 className="text-2xl font-bold tracking-tight">{stage.title}</h2>
+        {/* Focused after "Try again" (below), whose button goes once
+            pressed: the learner starts again from the top of the quiz. */}
+        <h2
+          ref={headingRef}
+          tabIndex={-1}
+          className="text-2xl font-bold tracking-tight outline-none"
+        >
+          {stage.title}
+        </h2>
         {/* Addresses in the intro are links, as the course page's read
             view shows them to editors (quick links). */}
         <p className="mt-2 text-sm text-[var(--muted-foreground)]">
@@ -79,7 +95,7 @@ export function AssessmentStage({
                 {q.question}
               </p>
               <div className="space-y-1.5">
-                {q.options.map((opt) => {
+                {q.options.map((opt, i) => {
                   const isSelected = answers[q.id] === opt.id;
                   const isCorrect = opt.id === q.correctOptionId;
                   const showResult = checked && isSelected;
@@ -127,7 +143,12 @@ export function AssessmentStage({
                           <XCircle className="h-5 w-5 mt-0.5 text-[var(--warning)] flex-shrink-0" />
                         )
                       ) : (
+                        // A, B, C… by position: the option's id is internal
+                        // (the course editor makes ids like "a0k3f"). Hidden
+                        // from screen readers, so the button's name is the
+                        // answer itself.
                         <span
+                          aria-hidden="true"
                           className={cn(
                             "mt-0.5 h-5 w-5 rounded-full border flex items-center justify-center flex-shrink-0 text-[10px] font-semibold uppercase",
                             isSelected
@@ -135,7 +156,7 @@ export function AssessmentStage({
                               : "border-[var(--border)] text-[var(--muted-foreground)]"
                           )}
                         >
-                          {opt.id}
+                          {String.fromCharCode(65 + i)}
                         </span>
                       )}
                       <span>{opt.text}</span>
@@ -161,7 +182,20 @@ export function AssessmentStage({
         ) : null}
 
         {checked ? (
-          <div className="mt-6 flex justify-end">
+          <div className="mt-6 flex flex-wrap gap-3 justify-between">
+            <Button
+              variant="outline"
+              size="md"
+              onClick={() => {
+                // Focus first, while the heading is there and this button
+                // still has it: the button is gone once the quiz reopens.
+                headingRef.current?.focus();
+                dispatch({ type: "retakeAssessment" });
+              }}
+            >
+              <RotateCcw className="h-4 w-4" />
+              {t("tryAgain")}
+            </Button>
             <Button size="md" onClick={onContinue}>
               {tCommon("continue")}
               <ArrowRight className="h-4 w-4" />

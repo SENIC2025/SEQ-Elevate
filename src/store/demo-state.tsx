@@ -15,6 +15,8 @@ import {
 import type { Locale } from "@/lib/cms/types";
 import {
   answerQuestion,
+  assessmentToSave,
+  retakeQuiz,
   type AssessmentProgress,
 } from "@/lib/assessment-progress";
 import {
@@ -144,6 +146,7 @@ type Action =
   | { type: "updateReflection"; patch: Partial<ReflectionAnswers> }
   | { type: "answerAssessment"; questionId: string; optionId: string }
   | { type: "checkAssessment" }
+  | { type: "retakeAssessment" }
   | { type: "completeCourse" }
   | { type: "awardBadge"; badge: string }
   | { type: "updateCompCard"; patch: Partial<CompCardData> }
@@ -262,6 +265,15 @@ function reducer(state: DemoState, action: Action): DemoState {
               assessment: { ...state.course.assessment, checked: true },
             },
           };
+    case "retakeAssessment":
+      // "Try again" on a checked quick check: answered and checked afresh,
+      // and saved like any change, so the latest check is the one the
+      // facilitator sees. It's never merged away by the saved check if
+      // that arrives later (see assessment-progress.ts).
+      return {
+        ...state,
+        course: { ...state.course, assessment: retakeQuiz() },
+      };
     case "completeCourse":
       return {
         ...state,
@@ -582,7 +594,7 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
                         followup: gc.scenario.followup,
                       },
                       reflection: gc.reflection,
-                      assessment: gc.assessment,
+                      assessment: assessmentToSave(gc.assessment),
                       completedAt: gc.completedAt,
                     },
                     forUser
@@ -733,7 +745,9 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
             simulation: snap.simulation,
             scenario: { root: snap.scenario.root, followup: snap.scenario.followup },
             reflection: snap.reflection,
-            assessment: snap.assessment,
+            // Without the store's own retake mark: the server refuses a
+            // quick check with anything else in it.
+            assessment: assessmentToSave(snap.assessment),
             completedAt: snap.completedAt,
           },
           forUser
