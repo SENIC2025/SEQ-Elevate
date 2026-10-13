@@ -134,7 +134,16 @@ describe("the lesson list of a created course", () => {
     expect(actions).toContain('aria-expanded="false"');
     const controls = /aria-controls="([^"]+)"/.exec(actions)![1];
     expect(html).toContain(`id="${controls}" hidden=""`);
-    expect(html).toContain('<span class="sr-only">Learners get this lesson</span>');
+    // Its icon has a tooltip and the words, and the link is described by them.
+    const status = /<span id="([^"]+-concept-status)" role="img" aria-label="Learners get this lesson" title="Learners get this lesson"/.exec(
+      html
+    );
+    expect(status).toBeTruthy();
+    expect(status![1]).toMatch(/-concept-status$/);
+    const link = /<a ([^>]*href="#lesson-concept"[^>]*)>/.exec(html)![1];
+    expect(link).toContain(`aria-describedby="${status![1]}"`);
+    // The name is marked with the content language.
+    expect(html).toContain('<span lang="en" class="min-w-0 break-words font-medium">2. Skill concept</span>');
     // Narrow screens: "Lessons (5)" opens the list.
     expect(button(html, "Lessons (5)")).toContain('aria-expanded="false"');
     expect(html).toContain(">Add lesson</button>");
@@ -153,9 +162,15 @@ describe("the lesson list of a created course", () => {
       ],
     };
     const html = panel(createdOutline(stored, { rows: [...STANDARD_ROWS, { stageKey: "s-abcdefgh", narrative: TEXT }] }));
-    expect(html).toContain(">Hidden</span>");
-    // Not numbered: learners wouldn't see it.
-    expect(html).toMatch(/href="#lesson-context"[^>]*><span aria-hidden="true"[^>]*>–<\/span>/);
+    // "Hidden" is part of the link's name, and no "Learners get this lesson" beside it.
+    const link = /<a [^>]*href="#lesson-context"[^>]*>(.*?)<\/a>/.exec(html)![0];
+    expect(link).toContain(">Hidden</span>");
+    // Not numbered: learners wouldn't see it. The dash has a tooltip, the link a description.
+    expect(link).toMatch(/<span aria-hidden="true" title="Not numbered: learners wouldn&#x27;t see it"[^>]*>–<\/span>/);
+    const described = /aria-describedby="([^"]+)"/.exec(link)![1];
+    expect(described.split(" ")).toHaveLength(1);
+    expect(html).toContain(`<span id="${described}" hidden="">Not numbered: learners wouldn&#x27;t see it</span>`);
+    expect(html).not.toMatch(/id="[^"]*-context-status"/);
     // A lesson of the course's own with text is numbered like any other.
     expect(html).toContain('aria-label="Actions for 2. Wrap-up"');
   });
@@ -169,10 +184,44 @@ describe("a lesson's actions", () => {
     expect(button(html, "Move up")).toContain('disabled=""');
     const down = button(html, "Move down");
     expect(down).not.toContain('disabled=""');
-    expect(button(html, "Hide")).toContain('aria-pressed="false"');
+    expect(button(html, "Hide")).not.toContain("aria-pressed");
     for (const name of ["Rename", "Add lesson after", "Delete"]) {
       expect(button(html, name)).not.toContain('aria-disabled="true"');
     }
+  });
+
+  it("on a draft, says first which changes make the course one for Release 2", () => {
+    const html = row(createdOutline(null), "concept");
+    expect(html).toContain(
+      '<p id="r-concept-nonStandard" class="flex items-start gap-1.5 text-xs">' +
+        '<svg'
+    );
+    expect(html).toContain(
+      "These change the course so it can be published only from Release 2: Move up, Move down, Hide, and Delete. Preview works now."
+    );
+    for (const name of ["Move up", "Move down", "Hide", "Delete"]) {
+      expect(button(html, name), name).toContain('aria-describedby="r-concept-nonStandard"');
+    }
+    expect(button(html, "Rename")).not.toContain("aria-describedby");
+  });
+
+  it("offers Show for a hidden lesson, in words", () => {
+    const stored: StoredOutline = {
+      v: 1,
+      sections: [
+        { id: "context", template: "context" },
+        { id: "concept", template: "concept", hidden: true },
+        { id: "behaviour", template: "behaviour" },
+        { id: "simulation", template: "simulation" },
+        { id: "reflection", template: "reflection" },
+      ],
+    };
+    const html = row(createdOutline(stored), "concept");
+    const show = button(html, "Show");
+    expect(show).not.toContain("aria-pressed");
+    // Showing it again puts the standard back: nothing to warn about.
+    expect(show).not.toContain("aria-describedby");
+    expect(html).not.toContain(">Hide</button>");
   });
 
   it("on a live course: refused changes stay focusable, aria-disabled with the reason", () => {
@@ -205,7 +254,9 @@ describe("a lesson's actions", () => {
 
   it("confirms a delete by listing everything that goes", () => {
     const html = row(createdOutline(null), "concept", "delete");
-    expect(html).toMatch(/<h3 [^>]*tabindex="-1"[^>]*>Delete “Skill concept” in all languages\?<\/h3>/);
+    expect(html).toMatch(
+      /<h3 [^>]*tabindex="-1"[^>]*>Delete “<span lang="en">Skill concept<\/span>” in all languages\?<\/h3>/
+    );
     expect(html).toContain("<li>Its text in English</li>");
     expect(html).toContain("<li>1 text</li>");
     expect(html).toContain("<li>Its video</li>");
@@ -257,14 +308,20 @@ describe("Add a lesson", () => {
     expect(html).toContain(">Where</span><select");
     expect(html).toContain('<option value="0">At the start</option>');
     expect(html).toContain('<option value="2">After 2. Behaviour model</option>');
-    // Nothing chosen yet: Add says so by doing nothing but pointing at the list.
-    expect(button(html, "Add this lesson")).toContain('aria-disabled="true"');
+    // One choice of several: native radios in a group with its question.
+    expect(html).toContain('<fieldset class="mt-1"><legend class="text-xs text-[var(--muted-foreground)]">Choose what to add:</legend>');
+    expect([...html.matchAll(/<input type="radio"/g)]).toHaveLength(7);
+    // Nothing chosen yet: Add says so.
+    const add = button(html, "Add this lesson");
+    expect(add).toContain('aria-disabled="true"');
+    const why = /aria-describedby="([^"]+)"/.exec(add)![1];
+    expect(html).toContain(`<p id="${why}" hidden="">Choose what to add first.</p>`);
   });
 
   it("on a live course, only the choices that keep it standard are offered", () => {
     const html = picker(createdOutline(null, { status: "published" }));
     const choice = (n: number) => {
-      const all = [...html.matchAll(/<button([^>]*aria-pressed[^>]*)>/g)];
+      const all = [...html.matchAll(/<input([^>]*type="radio"[^>]*)\/>/g)];
       return all[n][1];
     };
     // Blank, Text: refused, with the reason.

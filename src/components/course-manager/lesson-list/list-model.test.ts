@@ -6,6 +6,8 @@ import el from "@/messages/el.json";
 import { STAGES } from "@/data/course";
 import { NEW_SECTION_TEMPLATES, type SectionsError } from "@/lib/cms/sections/contract";
 import {
+  NAME_SLOT,
+  aroundName,
   choiceKey,
   defaultWhere,
   fallbackName,
@@ -14,7 +16,9 @@ import {
   nameIn,
   parseWhere,
   reasonText,
+  refusalGone,
   refusalKey,
+  usualOrder,
   whereToAt,
   whereValue,
   type ContentNames,
@@ -92,18 +96,54 @@ describe("words", () => {
 
   it("names each publishing blocker, linking to the lesson when it is on the page", () => {
     const t = tr("en", "lessonList.publish.reason");
-    expect(reasonText({ code: "custom-section", sectionId: "s-abcdefgh" }, nameOf, t)).toEqual({
+    expect(reasonText({ code: "custom-section", sectionId: "s-abcdefgh" }, nameOf, t)).toMatchObject({
       text: "“Wrap-up” is a new lesson",
       href: "#lesson-s-abcdefgh",
+      name: "Wrap-up",
     });
-    expect(reasonText({ code: "removed-section", sectionId: "concept" }, nameOf, t)).toEqual({
+    expect(reasonText({ code: "removed-section", sectionId: "concept" }, nameOf, t)).toMatchObject({
       text: "“Skill concept” was deleted",
       href: null,
     });
-    expect(reasonText({ code: "reordered" }, nameOf, t)).toEqual({
-      text: "The lessons are in a new order",
-      href: null,
-    });
+  });
+
+  it("says what the usual order is when the lessons are in a new one", () => {
+    const t = tr("en", "lessonList.publish.reason");
+    const r = reasonText({ code: "reordered" }, nameOf, t, "Context, Skill concept, Reflection");
+    expect(r.text).toBe("The lessons are in a new order. Usually: Context, Skill concept, Reflection");
+    expect(r.href).toBeNull();
+    // The order is the part in the content language.
+    expect(r.name).toBe("Context, Skill concept, Reflection");
+    expect(aroundName(r.format)).toEqual({ before: "The lessons are in a new order. Usually: ", after: "" });
+  });
+
+  it("puts the usual order of the standard lessons back together, hidden ones too", () => {
+    expect(usualOrder(["reflection", "s-abcdefgh", "context", "simulation", "concept"])).toEqual([
+      "context",
+      "concept",
+      "simulation",
+      "reflection",
+    ]);
+  });
+
+  it("finds the name in a sentence in every language, so it can carry the content language", () => {
+    for (const locale of ["en", "de", "el"] as const) {
+      const t = tr(locale, "lessonList");
+      const parts = aroundName((name) => t("delete.title", { name }));
+      expect(parts, locale).not.toBeNull();
+      expect(`${parts!.before}${NAME_SLOT}${parts!.after}`).toBe(t("delete.title", { name: NAME_SLOT }));
+    }
+    expect(aroundName(() => "no name here")).toBeNull();
+  });
+
+  it("says a refusal for the whole list when its lesson is gone from the fresh list", () => {
+    // A colleague deleted it: the row (and its message box) is gone.
+    expect(refusalGone("s-abcdefgh", "changed-elsewhere", ["context", "concept"])).toBe(true);
+    expect(refusalGone("s-abcdefgh", "not-a-section", null)).toBe(true);
+    // Still there: said in its row.
+    expect(refusalGone("concept", "changed-elsewhere", ["context", "concept"])).toBe(false);
+    expect(refusalGone("concept", "has-learners", null)).toBe(false);
+    expect(refusalGone("picker", "changed-elsewhere", [])).toBe(false);
   });
 
   it("has words for every refusal and every picker choice in every language", () => {

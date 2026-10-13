@@ -5,6 +5,7 @@ import { useTranslations } from "next-intl";
 import { AlertTriangle, Info, Loader2, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { AddSectionChoice, NarrativeKey } from "@/lib/cms/sections/contract";
+import type { Locale } from "@/lib/cms/types";
 import {
   addChoices,
   addControl,
@@ -21,11 +22,13 @@ import {
   whereValue,
   type Where,
 } from "./list-model";
+import { Named } from "./Named";
 
 /**
- * "Add a lesson": what kind (a plain list of buttons, as the block picker —
- * not an ARIA menu; the first takes focus when it opens, Escape closes it),
- * where it goes, and "Add this lesson".
+ * "Add a lesson": what kind (one choice of several, so a group of native
+ * radio buttons — the dot shows the choice without colour, also in forced
+ * colours; the first takes focus when it opens, Escape closes it), where it
+ * goes, and "Add this lesson" (which says to choose first until then).
  *
  * Before anything is added it says whether the choice makes the course one
  * that can only be published from Release 2 (a lesson of the course's own, or
@@ -40,6 +43,7 @@ export function AddLessonPicker({
   busy,
   lessonLabel,
   restoreName,
+  nameLang,
   descriptions,
   error,
   onAdd,
@@ -54,6 +58,8 @@ export function AddLessonPicker({
   lessonLabel: (id: string) => string;
   /** A deleted standard lesson's name in the content language. */
   restoreName: (key: NarrativeKey) => string;
+  /** The content language of those names. */
+  nameLang?: Locale;
   /** Ids of the shared reason texts, for aria-describedby. */
   descriptions: (c: Control) => string | undefined;
   error: string | null;
@@ -64,7 +70,7 @@ export function AddLessonPicker({
 }) {
   const t = useTranslations("lessonList");
   const ids = React.useId();
-  const firstRef = React.useRef<HTMLButtonElement>(null);
+  const firstRef = React.useRef<HTMLInputElement>(null);
   const sections = ctx.sections.resolved.sections;
   const count = sections.length;
 
@@ -104,9 +110,11 @@ export function AddLessonPicker({
 
   const addLocked = addState.kind !== "enabled" || choice === null;
   const hintId = `${ids}-hint`;
+  const chooseFirstId = `${ids}-choose-first`;
   const addDescribedBy =
-    [nonStandard ? hintId : null, choice ? descriptions(addState) : null].filter(Boolean).join(" ") ||
-    undefined;
+    [choice ? null : chooseFirstId, nonStandard ? hintId : null, choice ? descriptions(addState) : null]
+      .filter(Boolean)
+      .join(" ") || undefined;
 
   return (
     <div
@@ -123,53 +131,63 @@ export function AddLessonPicker({
       <h3 id={`${ids}-title`} className="text-sm font-semibold">
         {t("picker.title")}
       </h3>
-      <p id={`${ids}-choose`} className="mt-1 text-xs text-[var(--muted-foreground)]">
-        {t("picker.choose")}
-      </p>
-      <ul aria-labelledby={`${ids}-choose`} className="mt-1.5 space-y-1.5">
-        {addChoices(ctx.sections).map((c, i) => {
-          const keys = choiceKey(c);
-          const name = c.startsWith("restore:")
-            ? t(keys.label, { name: restoreName(c.slice("restore:".length) as NarrativeKey) })
-            : t(keys.label);
-          const own = choiceState(ctx, c, null).control;
-          const locked = own.kind !== "enabled";
-          const selected = choice === c;
-          return (
-            <li key={c}>
-              <button
-                ref={i === 0 ? firstRef : undefined}
-                type="button"
-                aria-pressed={selected}
-                aria-disabled={locked || undefined}
-                // Named by the label alone; the hint (and why it's refused) is the description.
-                aria-labelledby={`${ids}-${i}-label`}
-                aria-describedby={[`${ids}-${i}-hint`, locked ? descriptions(own) : null]
-                  .filter(Boolean)
-                  .join(" ")}
-                onClick={() => {
-                  if (!locked) pick(c);
-                }}
-                className={`min-h-11 w-full rounded-md border px-3 py-2 text-left ${
-                  selected
-                    ? "border-[var(--accent)] bg-[var(--accent)]/10"
-                    : "border-[var(--border)] bg-[var(--surface)] hover:border-[var(--accent)]/50"
-                } ${locked ? "cursor-not-allowed opacity-60" : ""}`}
-              >
-                <span id={`${ids}-${i}-label`} className="block text-sm font-medium">
-                  {name}
-                </span>
-                <span
-                  id={`${ids}-${i}-hint`}
-                  className="mt-0.5 block text-xs text-[var(--muted-foreground)]"
+      <fieldset className="mt-1">
+        <legend className="text-xs text-[var(--muted-foreground)]">{t("picker.choose")}</legend>
+        <ul className="mt-1.5 space-y-1.5">
+          {addChoices(ctx.sections).map((c, i) => {
+            const keys = choiceKey(c);
+            const name = c.startsWith("restore:") ? (
+              <Named
+                format={(n) => t(keys.label, { name: n })}
+                name={restoreName(c.slice("restore:".length) as NarrativeKey)}
+                lang={nameLang}
+              />
+            ) : (
+              t(keys.label)
+            );
+            const own = choiceState(ctx, c, null).control;
+            const locked = own.kind !== "enabled";
+            const selected = choice === c;
+            return (
+              <li key={c}>
+                <label
+                  className={`flex min-h-11 items-start gap-2 rounded-md border px-3 py-2 ${
+                    selected
+                      ? "border-[var(--accent)] bg-[var(--accent)]/10 ring-1 ring-[var(--accent)]"
+                      : "border-[var(--border)] bg-[var(--surface)] hover:border-[var(--accent)]/50"
+                  } ${locked ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}
                 >
-                  {t(keys.hint)}
-                </span>
-              </button>
-            </li>
-          );
-        })}
-      </ul>
+                  <input
+                    ref={i === 0 ? firstRef : undefined}
+                    type="radio"
+                    name={`${ids}-kind`}
+                    value={c}
+                    checked={selected}
+                    aria-disabled={locked || undefined}
+                    // Named by the label alone; the hint (and why it's refused) is the description.
+                    aria-labelledby={`${ids}-${i}-label`}
+                    aria-describedby={[`${ids}-${i}-hint`, locked ? descriptions(own) : null]
+                      .filter(Boolean)
+                      .join(" ")}
+                    onChange={() => {
+                      if (!locked) pick(c);
+                    }}
+                    className="mt-0.5 h-4 w-4 flex-shrink-0 accent-[var(--accent)]"
+                  />
+                  <span className="min-w-0">
+                    <span id={`${ids}-${i}-label`} className="block text-sm font-medium">
+                      {name}
+                    </span>
+                    <span id={`${ids}-${i}-hint`} className="mt-0.5 block text-xs text-[var(--muted-foreground)]">
+                      {t(keys.hint)}
+                    </span>
+                  </span>
+                </label>
+              </li>
+            );
+          })}
+        </ul>
+      </fieldset>
 
       <label className="mt-3 block text-xs text-[var(--muted-foreground)]">
         <span className="mb-1 block font-medium text-[var(--foreground)]">{t("where")}</span>
@@ -199,6 +217,9 @@ export function AddLessonPicker({
         </p>
       ) : null}
 
+      <p id={chooseFirstId} hidden>
+        {t("picker.chooseFirst")}
+      </p>
       <div className="mt-3 flex flex-wrap gap-2">
         <Button
           type="button"

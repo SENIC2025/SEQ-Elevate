@@ -65,14 +65,43 @@ describe("a draft course: everything is offered", () => {
     const c = ctx(STANDARD);
     expect(rowControls(c, "context")).toEqual({
       moveUp: { kind: "edge" },
-      moveDown: { kind: "enabled" },
-      hide: { kind: "enabled" },
+      moveDown: { kind: "enabled", nonStandard: true },
+      hide: { kind: "enabled", nonStandard: true },
       rename: { kind: "enabled" },
       addAfter: { kind: "enabled" },
-      delete: { kind: "enabled" },
+      delete: { kind: "enabled", nonStandard: true },
     });
     expect(rowControls(c, "reflection").moveDown).toEqual({ kind: "edge" });
-    expect(rowControls(c, "reflection").moveUp).toEqual({ kind: "enabled" });
+    expect(rowControls(c, "reflection").moveUp).toEqual({ kind: "enabled", nonStandard: true });
+  });
+
+  it("marks the changes that would make it a course for Release 2, so the page can say so first", () => {
+    const row = rowControls(ctx(STANDARD), "concept");
+    // Out of the standard order, hidden, deleted: each one a publishing blocker.
+    expect(row.moveUp).toEqual({ kind: "enabled", nonStandard: true });
+    expect(row.hide).toEqual({ kind: "enabled", nonStandard: true });
+    expect(row.delete).toEqual({ kind: "enabled", nonStandard: true });
+    // A name never is (D58).
+    expect(row.rename).toEqual({ kind: "enabled" });
+  });
+
+  it("doesn't mark a change that puts the standard back", () => {
+    const reordered = meta({
+      v: 1,
+      sections: [
+        { id: "concept", template: "concept" },
+        { id: "context", template: "context" },
+        { id: "behaviour", template: "behaviour" },
+        { id: "simulation", template: "simulation" },
+        { id: "reflection", template: "reflection", hidden: true },
+        { id: "s-abcdefgh", template: "text" },
+      ],
+    });
+    const c = ctx(reordered);
+    expect(rowControls(c, "context").moveUp).toEqual({ kind: "enabled" });
+    expect(rowControls(c, "reflection").hide).toEqual({ kind: "enabled" });
+    // A lesson of the course's own goes without adding a reason.
+    expect(rowControls(c, "s-abcdefgh").delete).toEqual({ kind: "enabled" });
   });
 
   it("says when an addition makes the course one to publish from Release 2", () => {

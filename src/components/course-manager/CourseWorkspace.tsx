@@ -17,7 +17,7 @@ import { CourseCopyEditor } from "./CourseCopyEditor";
 import { LessonNav } from "./LessonNav";
 import { LessonSection } from "./LessonSection";
 import { LessonListPanel, type RenameRequest } from "./lesson-list/LessonListPanel";
-import type { ContentNames } from "./lesson-list/list-model";
+import { usualOrder, type ContentNames } from "./lesson-list/list-model";
 import { initWorkspace, lessonContentCallbacks, pair, workspaceReducer } from "./workspace-reducer";
 
 const NO_REASONS = [] as const;
@@ -217,6 +217,9 @@ function Workspace({
         previewLesson={previewLesson}
         labelsLater={sections?.hasLabels ?? false}
         lessonName={sections ? nameById : undefined}
+        usualOrder={
+          sections ? usualOrder(sections.resolved.sections.map((s) => s.id)).map(nameById) : undefined
+        }
         onLangChange={switchLang}
         onStatusChange={(next) => {
           dispatch({ type: "statusChanged", status: next });
@@ -299,7 +302,9 @@ function Workspace({
                       >
                         <Pencil className="h-4 w-4" aria-hidden />
                         {tList("rename.action")}
-                        <span className="sr-only">: {lessonLabel(lesson.key)}</span>
+                        <span className="sr-only">
+                          : <span lang={lang}>{lessonLabel(lesson.key)}</span>
+                        </span>
                       </button>
                     ) : undefined
                   }

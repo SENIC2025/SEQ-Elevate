@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useTranslations } from "next-intl";
-import { ChevronDown, FilePenLine, PenLine, Plus } from "lucide-react";
+import { AlertTriangle, ChevronDown, FilePenLine, PenLine, Plus } from "lucide-react";
 import {
   addSection,
   deleteSection,
@@ -36,11 +36,12 @@ import {
   focusAfterDelete,
   focusAfterMove,
   nameIn,
+  refusalGone,
   refusalKey,
   refusalRefreshes,
   type ContentNames,
 } from "./list-model";
-import { SectionRow, type RowMode, type RowPart, type RowStatus } from "./SectionRow";
+import { SectionRow, type RowElement, type RowMode, type RowStatus } from "./SectionRow";
 
 /** Ask the panel to open a lesson's rename box (the lesson card's Rename). */
 export interface RenameRequest {
@@ -51,6 +52,7 @@ export interface RenameRequest {
 
 type Where = { row: string; mode: RowMode } | null;
 type Picker = { from: number | null } | null;
+/** Where a refusal is said: a lesson's row, the picker, or the list as a whole ("list"). */
 type ErrorAt = { at: string; text: string } | null;
 
 /**
@@ -126,7 +128,7 @@ export function LessonListPanel({
   const [error, setError] = React.useState<ErrorAt>(null);
   const [focus, setFocus] = React.useState<{ id: string; n: number } | null>(null);
 
-  const elId = React.useCallback((row: string, part: RowPart | "panel") => `${uid}-${row}-${part}`, [uid]);
+  const elId = React.useCallback((row: string, part: RowElement) => `${uid}-${row}-${part}`, [uid]);
   const openerId = `${uid}-add`;
   const listId = `${uid}-list`;
   const focusEl = (id: string) => setFocus((f) => ({ id, n: (f?.n ?? 0) + 1 }));
@@ -158,20 +160,42 @@ export function LessonListPanel({
     return undefined;
   };
 
-  /** A refusal in words, where it happened; a page that is behind re-reads the course. */
-  function refused(res: Refused, at: string) {
-    if (res.error === "changed-elsewhere" && res.outline) onOutline(res.outline);
+  /**
+   * A refusal in words, where it happened; a page that is behind re-reads
+   * the course. When the lesson it was about is gone from the fresh list (a
+   * colleague deleted it), its row goes too: the refusal is then said above
+   * "Add lesson", and focus moves to the next lesson (or "Add lesson").
+   */
+  function refused(res: Refused, at: string, key = refusalKey(res.error)) {
+    const fresh = res.error === "changed-elsewhere" && res.outline ? res.outline : null;
+    if (fresh) onOutline(fresh);
     else if (refusalRefreshes(res.error)) refresh();
     const count = res.error === "has-learners" ? res.count : enrolled;
     const max = res.error === "label-too-long" ? SECTION_LIMITS.labelChars : sections.max;
-    setError({ at, text: t(refusalKey(res.error), { count, max }) });
+    const after = fresh ? (fresh.sections?.resolved.sections ?? []).map((s): string => s.id) : null;
+    if (refusalGone(at, res.error, after)) {
+      setWhere(null);
+      setError({ at: "list", text: t(refusalKey(res.error), { count, max }) });
+      const next = focusAfterDelete(
+        list.map((s) => s.id),
+        at
+      );
+      focusEl(next && (after === null || after.includes(next)) ? elId(next, "link") : openerId);
+      return;
+    }
+    setError({ at, text: t(key, { count, max }) });
   }
+
+  /** "… The course can now be published only from Release 2." after a change that made it so. */
+  const withLater = (text: string, nonStandard: boolean) => (nonStandard ? `${text} ${t("nowLater")}` : text);
+  const marks = (c: Control) => c.kind === "enabled" && c.nonStandard === true;
 
   /** Run one structural change; true when it was stored. */
   async function run(
     at: string,
     call: () => Promise<OutlineResult>,
-    done: (outline: CourseOutline, id: string | undefined) => void
+    done: (outline: CourseOutline, id: string | undefined) => void,
+    refusedKey?: (res: Refused) => string | undefined
   ): Promise<boolean> {
     if (busy) return false;
     setBusy(true);
@@ -183,7 +207,7 @@ export function LessonListPanel({
         done(res.outline, res.id);
         return true;
       }
-      refused(res, at);
+      refused(res, at, refusedKey?.(res));
     } catch {
       setError({ at, text: t("errors.generic") });
     } finally {
@@ -197,18 +221,21 @@ export function LessonListPanel({
 
   function move(id: SectionId, dir: -1 | 1) {
     const index = list.findIndex((s) => s.id === id);
+    const controls = rowControls(ctx, id);
+    const later = marks(dir === -1 ? controls.moveUp : controls.moveDown);
     void run(id, () => moveSection(slug, id, dir, sections.version), (outline) => {
       const after = outline.sections?.resolved.sections ?? [];
       const position = after.findIndex((s) => s.id === id) + 1;
-      announce(t("moved", { name: sectionName(outline, id), position, total: after.length }));
+      announce(withLater(t("moved", { name: sectionName(outline, id), position, total: after.length }), later));
       focusEl(elId(id, focusAfterMove(index, dir, list.length)));
     });
   }
 
   function hide(id: SectionId, hidden: boolean) {
+    const later = marks(rowControls(ctx, id).hide);
     void run(id, () => setSectionHidden(slug, id, hidden, sections.version), (outline) => {
       const name = sectionName(outline, id);
-      announce(hidden ? t("hiddenDone", { name }) : t("shownDone", { name }));
+      announce(withLater(hidden ? t("hiddenDone", { name }) : t("shownDone", { name }), later));
       focusEl(elId(id, "hide"));
     });
   }
@@ -216,15 +243,22 @@ export function LessonListPanel({
   function remove(lesson: LessonOutline) {
     const id = lesson.key as SectionId;
     const name = nameOf(id);
+    const later = marks(rowControls(ctx, id).delete);
     const next = focusAfterDelete(
       list.map((s) => s.id),
       id
     );
-    void run(id, () => deleteSection(slug, id, sections.version, lesson.contentVersion), () => {
-      setWhere(null);
-      announce(t("delete.deleted", { name }));
-      focusEl(next ? elId(next, "link") : openerId);
-    });
+    void run(
+      id,
+      () => deleteSection(slug, id, sections.version, lesson.contentVersion),
+      () => {
+        setWhere(null);
+        announce(withLater(t("delete.deleted", { name }), later));
+        focusEl(next ? elId(next, "link") : openerId);
+      },
+      // The lesson's content changed too (its base covers it): say so, not only the list.
+      (res) => (res.error === "changed-elsewhere" ? "delete.changed" : undefined)
+    );
   }
 
   function add(choice: AddSectionChoice, at: number | null) {
@@ -289,7 +323,9 @@ export function LessonListPanel({
     focusEl(row ? elId(row.id, "addAfter") : openerId);
   }
 
-  const rowStatus = (lesson: LessonOutline): RowStatus => {
+  const rowStatus = (lesson: LessonOutline): RowStatus | null => {
+    // Hidden: its "Hidden" says it (learners don't get it as it stands).
+    if (lesson.section?.hidden) return null;
     if (lesson.section?.custom) return "later";
     if (lesson.live) return "live";
     return "empty";
@@ -303,6 +339,7 @@ export function LessonListPanel({
       busy={busy}
       lessonLabel={lessonLabel}
       restoreName={restoreName}
+      nameLang={lang}
       descriptions={describe}
       error={error?.at === "picker" ? error.text : null}
       onAdd={add}
@@ -421,6 +458,12 @@ export function LessonListPanel({
         </ol>
 
         <div className="mt-3">
+          {error?.at === "list" ? (
+            <p role="alert" className="mb-2 flex items-start gap-1.5 text-xs text-[var(--danger)]">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" aria-hidden />
+              {error.text}
+            </p>
+          ) : null}
           {picker && picker.from === null ? (
             pickerFor(null)
           ) : (

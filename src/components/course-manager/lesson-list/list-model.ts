@@ -8,13 +8,15 @@
 import type { Locale } from "@/lib/cms/types";
 import type { StageKey } from "@/lib/cms/types";
 import { sectionLabel } from "@/lib/cms/sections/label";
-import type {
-  AddSectionChoice,
-  LabelSource,
-  NewOnlyReason,
-  NewSectionTemplate,
-  SectionsError,
-  StoredSection,
+import {
+  LEGACY_ORDER,
+  isLegacySectionId,
+  type AddSectionChoice,
+  type LabelSource,
+  type NewOnlyReason,
+  type NewSectionTemplate,
+  type SectionsError,
+  type StoredSection,
 } from "@/lib/cms/sections/contract";
 
 /* ---------------------------------- names ---------------------------------- */
@@ -117,20 +119,62 @@ const REASON_KEY: Record<NewOnlyReason["code"], string> = {
   unreadable: "unreadable",
 };
 
+/** Where a lesson's name goes in a sentence, so it can be marked as content-language text. */
+export const NAME_SLOT = "\uE000";
+
+/**
+ * A sentence around one name: the words before and after it, from a
+ * formatter given a stand-in for the name (null if the name isn't in it).
+ * The course page marks the name with the content language (WCAG 3.1.2)
+ * while the sentence is in the menu language.
+ */
+export function aroundName(format: (name: string) => string): { before: string; after: string } | null {
+  const s = format(NAME_SLOT);
+  const i = s.indexOf(NAME_SLOT);
+  if (i === -1) return null;
+  return { before: s.slice(0, i), after: s.slice(i + NAME_SLOT.length) };
+}
+
+/**
+ * The standard lessons of a list in their usual (Release 0) order, hidden
+ * ones included: the order "The lessons are in a new order" asks for back.
+ */
+export function usualOrder(ids: readonly string[]): StageKey[] {
+  return ids.filter(isLegacySectionId).sort((a, b) => LEGACY_ORDER.indexOf(a) - LEGACY_ORDER.indexOf(b));
+}
+
 /**
  * One publishing blocker in words ("“Wrap-up” is a new lesson"), with the
- * lesson to link to when it is on the page (a deleted one isn't).
- * `t` is the lessonList.publish.reason translator.
+ * lesson to link to when it is on the page (a deleted one isn't). `format`
+ * gives the same words for a given name (the lesson's, or for a new order
+ * the usual order), and `name` is that name: the page marks it with the
+ * content language. `t` is the lessonList.publish.reason translator.
  */
 export function reasonText(
   reason: NewOnlyReason,
   nameOf: (id: string) => string,
-  t: T
-): { text: string; href: string | null } {
+  t: T,
+  /** The usual order of the standard lessons, by name ("Context, Skill concept, …"). */
+  order = ""
+): { text: string; href: string | null; name: string; format: (name: string) => string } {
   const id = reason.sectionId;
-  const text = t(REASON_KEY[reason.code], { name: id ? nameOf(id) : "" });
+  const key = REASON_KEY[reason.code];
+  const name = reason.code === "reordered" ? order : id ? nameOf(id) : "";
+  const format = (n: string) => t(key, reason.code === "reordered" ? { order: n } : { name: n });
   const linked = id && reason.code !== "removed-section";
-  return { text, href: linked ? `#lesson-${id}` : null };
+  return { text: format(name), href: linked ? `#lesson-${id}` : null, name, format };
+}
+
+/**
+ * Whether a refused change was about a lesson that the page's fresh list
+ * no longer has (a colleague deleted it): then the refusal is said for the
+ * whole list, since the lesson's row and its message box are gone.
+ * `after` is the fresh list's ids, when the refusal brought them.
+ */
+export function refusalGone(at: string, error: SectionsError | "invalid", after: readonly string[] | null): boolean {
+  if (at === "picker" || at === "list") return false;
+  if (error === "not-a-section") return true;
+  return after !== null && !after.includes(at);
 }
 
 /** The lessonList message key that explains a refused lesson-list change. */

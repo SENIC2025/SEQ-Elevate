@@ -28,7 +28,12 @@ import {
 
 /** One control's state. */
 export type Control =
-  | { kind: "enabled" }
+  /**
+   * Offered. `nonStandard`: on a draft, this change makes the course one
+   * that can only be published from Release 2 (predictOutlineOp's
+   * `introduced`), which the page says before and after it is made.
+   */
+  | { kind: "enabled"; nonStandard?: true }
   /** A move at the top or bottom: natively disabled. */
   | { kind: "edge" }
   /** Refused as things stand: aria-disabled, described by `why`. */
@@ -83,10 +88,15 @@ export function predict(ctx: ListContext, op: OutlineOp): { allowed: boolean; in
   });
 }
 
-/** A change the rules allow: enabled, or locked with the reason. */
+/**
+ * A change the rules allow: enabled (marked when it would make the course
+ * one for Release 2), or locked with the reason.
+ */
 function gate(ctx: ListContext, op: OutlineOp): Control {
   if (listUnreadable(ctx.sections)) return { kind: "locked", why: "unreadable" };
-  return predict(ctx, op).allowed ? ENABLED : { kind: "locked", why: "live" };
+  const p = predict(ctx, op);
+  if (!p.allowed) return { kind: "locked", why: "live" };
+  return p.introduced.length > 0 ? { kind: "enabled", nonStandard: true } : ENABLED;
 }
 
 /** Does this choice reuse a standard lesson (a free practice / scenario / quick check, or one added back)? */

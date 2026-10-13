@@ -10,7 +10,9 @@ import type {
   ReadinessIssue,
 } from "@/lib/cms/course-admin-types";
 import { SECTION_LIMITS, type NewOnlyReason } from "@/lib/cms/sections/contract";
+import type { Locale } from "@/lib/cms/types";
 import { reasonText } from "./lesson-list/list-model";
+import { Named } from "./lesson-list/Named";
 import {
   AlertTriangle,
   Archive,
@@ -38,7 +40,8 @@ const STATUS_ICON = { published: Eye, draft: PenLine, archived: Archive };
  * list, and pressing it takes focus there. A page that didn't know yet (the
  * server refused with "needs-release-2") says why the same way. A course
  * that is live although it has some (published past the guard) says what
- * learners don't get yet.
+ * learners don't get yet. Lesson names are marked with the content language,
+ * and "a new order" says what the usual order is.
  */
 export function PublishControls({
   slug,
@@ -47,6 +50,8 @@ export function PublishControls({
   readiness,
   onStatusChange,
   lessonName,
+  nameLang,
+  usualOrder,
   onRefresh,
 }: {
   slug: string;
@@ -59,6 +64,10 @@ export function PublishControls({
    * standard name in the menu language (a built-in course).
    */
   lessonName?: (id: string) => string;
+  /** The content language those names are in. */
+  nameLang?: Locale;
+  /** The standard lessons' names in their usual order, for "The lessons are in a new order". */
+  usualOrder?: readonly string[];
   /** Re-read the page (after a refusal that shows it was out of date). */
   onRefresh?: () => void;
 }) {
@@ -79,6 +88,7 @@ export function PublishControls({
   const [refusedReasons, setRefusedReasons] = React.useState<NewOnlyReason[]>([]);
 
   const nameOf = (id: string) => (lessonName ? lessonName(id) : tStage(id));
+  const order = (usualOrder ?? []).join(", ");
   const blockers = readiness.flatMap((issue) =>
     issue.level === "blocker" && issue.code === "needs-release-2" && issue.reason ? [issue.reason] : []
   );
@@ -163,7 +173,7 @@ export function PublishControls({
       case "labels-later":
         return tList("labelsLater");
       case "needs-release-2":
-        return issue.reason ? reasonText(issue.reason, nameOf, tReason).text : "";
+        return issue.reason ? reasonText(issue.reason, nameOf, tReason, order).text : "";
     }
   };
 
@@ -171,7 +181,8 @@ export function PublishControls({
   const reasonList = (reasons: NewOnlyReason[]) => (
     <ul className="mt-1.5 space-y-1">
       {reasons.map((reason, i) => {
-        const { text, href } = reasonText(reason, nameOf, tReason);
+        const { href, name, format } = reasonText(reason, nameOf, tReason, order);
+        const text = <Named format={format} name={name} lang={nameLang} />;
         return (
           <li key={i} className="flex items-start gap-1.5 text-xs">
             <Ban className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-[var(--danger)]" aria-hidden />

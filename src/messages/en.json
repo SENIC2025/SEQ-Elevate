@@ -797,7 +797,8 @@
       "deleted": "“{name}” deleted.",
       "blockedLearners": "{count, plural, one {# learner is} other {# learners are}} enrolled in this course, so this lesson can't be deleted.",
       "removes": "This removes:",
-      "nothing": "Nothing is written in it yet."
+      "nothing": "Nothing is written in it yet.",
+      "changed": "This lesson or the lesson list changed since you opened it, so nothing was deleted. Check what would be removed now, then try again."
     },
     "picker": {
       "open": "Add lesson",
@@ -822,7 +823,8 @@
       "whereAuto": "Its usual place",
       "whereStart": "At the start",
       "whereAfter": "After {label}",
-      "add": "Add this lesson"
+      "add": "Add this lesson",
+      "chooseFirst": "Choose what to add first."
     },
     "where": "Where",
     "many": "This course has more than {count} lessons. Check that learners need them all.",
@@ -839,7 +841,7 @@
         "customSection": "“{name}” is a new lesson",
         "hiddenSection": "“{name}” is hidden",
         "removedSection": "“{name}” was deleted",
-        "reordered": "The lessons are in a new order",
+        "reordered": "The lessons are in a new order. Usually: {order}",
         "extraParts": "“{name}” has added content",
         "unreadable": "The lesson list can't be read"
       },
@@ -864,7 +866,9 @@
       "liveLocked": "This course is live, so this change has to wait: learners get changes like this from Release 2. Nothing was changed.",
       "notASection": "This lesson isn't in the lesson list any more. The list now shows it as it is.",
       "unreadable": "This course's lesson list can't be read, so it can't be changed until an admin repairs it."
-    }
+    },
+    "rowNonStandard": "These change the course so it can be published only from Release 2: {actions}. Preview works now.",
+    "nowLater": "The course can now be published only from Release 2: see Publishing."
   },
   "lesson": {
     "resourcesTitle": "Resources",

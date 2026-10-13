@@ -5,6 +5,8 @@ import { useLocale, useTranslations } from "next-intl";
 import { AlertTriangle, Loader2, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { DeleteSummary } from "@/lib/cms/sections/contract";
+import type { Locale } from "@/lib/cms/types";
+import { Named } from "./Named";
 
 /** The lines of "This removes:", from what the server counted (deleteSummary). */
 export function deleteLines(
@@ -32,6 +34,7 @@ export function deleteLines(
  */
 export function DeleteConfirm({
   name,
+  nameLang,
   summary,
   busy,
   error,
@@ -39,6 +42,8 @@ export function DeleteConfirm({
   onKeep,
 }: {
   name: string;
+  /** The content language the name is in. */
+  nameLang?: Locale;
   summary: DeleteSummary;
   busy: boolean;
   error: string | null;
@@ -82,7 +87,7 @@ export function DeleteConfirm({
       }}
     >
       <h3 id={`${ids}-h`} ref={headingRef} tabIndex={-1} className="text-sm font-semibold">
-        {t("delete.title", { name })}
+        <Named format={(n) => t("delete.title", { name: n })} name={name} lang={nameLang} />
       </h3>
       {lines.length ? (
         <>

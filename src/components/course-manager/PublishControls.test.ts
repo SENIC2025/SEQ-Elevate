@@ -28,7 +28,8 @@ function render(
   readiness: ReadinessIssue[],
   status: CourseStatus = "draft",
   /** null: no names given (a built-in course). */
-  lessonName: ((id: string) => string) | null = (id) => NAMES[id] ?? id
+  lessonName: ((id: string) => string) | null = (id) => NAMES[id] ?? id,
+  extra: { nameLang?: "en" | "de" | "el"; usualOrder?: string[] } = { usualOrder: ["Context", "Die Idee"] }
 ): string {
   return renderToStaticMarkup(
     createElement(
@@ -41,6 +42,7 @@ function render(
         readiness,
         onStatusChange: () => {},
         lessonName: lessonName ?? undefined,
+        ...extra,
       })
     )
   ).replaceAll("<!-- -->", "");
@@ -67,9 +69,20 @@ describe("PublishControls", () => {
     expect(html).toContain(">“Wrap-up” is a new lesson</a>");
     // A deleted lesson isn't on the page: named, not linked.
     expect(html).toContain("<span>“Die Idee” was deleted</span>");
-    expect(html).toContain("<span>The lessons are in a new order</span>");
+    expect(html).toContain("<span>The lessons are in a new order. Usually: Context, Die Idee</span>");
     // The warning still shows, after them.
     expect(html).toContain("No German title and subtitle yet.");
+  });
+
+  it("says the usual order, and marks lesson names with the content language", () => {
+    const html = render(BLOCKERS, "draft", (id) => NAMES[id] ?? id, {
+      nameLang: "de",
+      usualOrder: ["Context", "Die Idee", "Reflexion"],
+    });
+    expect(html).toContain(
+      '<span>The lessons are in a new order. Usually: <span lang="de">Context, Die Idee, Reflexion</span></span>'
+    );
+    expect(html).toContain('>“<span lang="de">Wrap-up</span>” is a new lesson</a>');
   });
 
   it("keeps Publish focusable but aria-disabled, described by the list", () => {

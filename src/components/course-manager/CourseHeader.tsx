@@ -108,6 +108,7 @@ export function CourseHeader({
   previewLesson,
   labelsLater = false,
   lessonName,
+  usualOrder,
   onLangChange,
   onStatusChange,
   onRefresh,
@@ -127,6 +128,8 @@ export function CourseHeader({
   labelsLater?: boolean;
   /** A lesson's name in the content language (created courses). */
   lessonName?: (id: string) => string;
+  /** The standard lessons' names in their usual order (created courses). */
+  usualOrder?: readonly string[];
   onLangChange: (next: Locale) => void;
   onStatusChange: (next: CourseStatus) => void;
   /** Re-read the page from the server. */
@@ -213,6 +216,8 @@ export function CourseHeader({
             readiness={readiness}
             onStatusChange={onStatusChange}
             lessonName={lessonName}
+            nameLang={lessonName ? lang : undefined}
+            usualOrder={usualOrder}
             onRefresh={onRefresh}
           />
         </div>

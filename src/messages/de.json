@@ -797,7 +797,8 @@
       "deleted": "„{name}“ gelöscht.",
       "blockedLearners": "In diesem Kurs {count, plural, one {ist # lernende Person} other {sind # Lernende}} eingeschrieben, deshalb lässt sich diese Lektion nicht löschen.",
       "removes": "Damit wird gelöscht:",
-      "nothing": "Darin ist noch nichts geschrieben."
+      "nothing": "Darin ist noch nichts geschrieben.",
+      "changed": "Diese Lektion oder die Lektionsliste hat sich geändert, seit du sie geöffnet hast, deshalb wurde nichts gelöscht. Prüfe, was jetzt entfernt würde, und versuche es dann noch einmal."
     },
     "picker": {
       "open": "Lektion hinzufügen",
@@ -822,7 +823,8 @@
       "whereAuto": "An ihrer üblichen Stelle",
       "whereStart": "Am Anfang",
       "whereAfter": "Nach {label}",
-      "add": "Diese Lektion hinzufügen"
+      "add": "Diese Lektion hinzufügen",
+      "chooseFirst": "Wähle zuerst, was du hinzufügen möchtest."
     },
     "where": "Wo",
     "many": "Dieser Kurs hat mehr als {count} Lektionen. Prüfe, ob Lernende alle brauchen.",
@@ -839,7 +841,7 @@
         "customSection": "„{name}“ ist eine neue Lektion",
         "hiddenSection": "„{name}“ ist ausgeblendet",
         "removedSection": "„{name}“ wurde gelöscht",
-        "reordered": "Die Lektionen sind neu angeordnet",
+        "reordered": "Die Lektionen sind neu angeordnet. Üblich ist: {order}",
         "extraParts": "„{name}“ hat zusätzlichen Inhalt",
         "unreadable": "Die Lektionsliste lässt sich nicht lesen"
       },
@@ -864,7 +866,9 @@
       "liveLocked": "Dieser Kurs ist live, deshalb muss diese Änderung warten: Solche Änderungen bekommen Lernende ab Release 2. Es wurde nichts geändert.",
       "notASection": "Diese Lektion steht nicht mehr in der Lektionsliste. Die Liste zeigt jetzt den aktuellen Stand.",
       "unreadable": "Die Lektionsliste dieses Kurses lässt sich nicht lesen, deshalb kann sie nicht geändert werden, bis ein Admin sie repariert."
-    }
+    },
+    "rowNonStandard": "Damit lässt sich der Kurs erst ab Release 2 veröffentlichen: {actions}. Die Vorschau funktioniert schon jetzt.",
+    "nowLater": "Der Kurs lässt sich jetzt erst ab Release 2 veröffentlichen: siehe „Veröffentlichung“."
   },
   "lesson": {
     "resourcesTitle": "Materialien",
