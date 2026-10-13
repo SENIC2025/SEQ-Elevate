@@ -32,6 +32,7 @@ import type { CourseStatus } from "@/lib/cms/course-status";
 import type { LabelSource, SectionsMeta } from "@/lib/cms/sections/contract";
 import type { StoredStructure } from "@/lib/cms/structure";
 import type { LessonDocumentRef, Locale, VideoContent } from "@/lib/cms/types";
+import type { LessonSectionProps } from "./lesson-section-props";
 
 export interface WorkspaceState {
   /**
@@ -99,6 +100,49 @@ export type WorkspaceAction =
   | { type: "structureCleared"; key: string }
   | { type: "videoSaved"; key: string; video: VideoContent | null }
   | { type: "documentsChanged"; key: string; documents: LessonDocumentRef[] };
+
+/** The content callbacks the page gives each lesson (LessonSectionProps). */
+export type LessonContentCallbacks = Pick<
+  LessonSectionProps,
+  | "onNarrativeSaved"
+  | "onReread"
+  | "onStructureSaved"
+  | "onStructureDraftChanged"
+  | "onStructureCleared"
+  | "onVideoSaved"
+  | "onDocumentsChanged"
+>;
+
+/**
+ * One lesson's content callbacks: each takes the editor's news into the
+ * page at once, then re-reads the page. The re-read is what brings the
+ * lesson's server-built facts up to date — its content base
+ * (`contentVersion`, which deleteSection checks and which counts its
+ * documents), what Delete would remove (`deleteSummary`), the publishing
+ * warnings and the read views — so every change of content, a document
+ * added or removed included, asks for it.
+ */
+export function lessonContentCallbacks(
+  key: string,
+  lang: Locale,
+  dispatch: (action: WorkspaceAction) => void,
+  refresh: () => void
+): LessonContentCallbacks {
+  const then = (action: WorkspaceAction) => {
+    dispatch(action);
+    refresh();
+  };
+  return {
+    onNarrativeSaved: (value) => then({ type: "narrativeSaved", key, lang, value }),
+    onReread: (stale) => then({ type: "reread", key, lang, stale }),
+    onStructureSaved: (structure) => then({ type: "structureSaved", key, structure }),
+    // The publishing warnings list lessons with a draft.
+    onStructureDraftChanged: (draft) => then({ type: "draftChanged", key, draft }),
+    onStructureCleared: () => then({ type: "structureCleared", key }),
+    onVideoSaved: (video) => then({ type: "videoSaved", key, video }),
+    onDocumentsChanged: (documents) => then({ type: "documentsChanged", key, documents }),
+  };
+}
 
 /** The revs / pending key of one lesson's text in one language. */
 export const pair = (key: string, lang: Locale) => `${key}:${lang}`;

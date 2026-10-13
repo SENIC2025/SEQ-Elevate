@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import type {
   CourseOutline,
   LessonOutline,
@@ -7,7 +7,13 @@ import type {
 import { mainKindOf, type SectionsMeta, type SectionView } from "@/lib/cms/sections/contract";
 import type { StageKey } from "@/lib/cms/types";
 import type { StoredStructure } from "@/lib/cms/structure";
-import { initWorkspace, workspaceReducer, type WorkspaceState } from "./workspace-reducer";
+import {
+  initWorkspace,
+  lessonContentCallbacks,
+  workspaceReducer,
+  type WorkspaceAction,
+  type WorkspaceState,
+} from "./workspace-reducer";
 
 /* -------------------------------- fixtures -------------------------------- */
 
@@ -432,5 +438,38 @@ describe("renamed (a step name saved in one language)", () => {
       name: { text: "X", source: "own" },
     });
     expect(next.lessons[0]).toBe(state.lessons[0]);
+  });
+});
+
+describe("a lesson's content callbacks", () => {
+  it("take each change in and re-read the page, a document added or removed included", () => {
+    const actions: WorkspaceAction[] = [];
+    const refresh = vi.fn();
+    const cb = lessonContentCallbacks("concept", "de", (a) => actions.push(a), refresh);
+    const doc = { id: "d1", title: "Handout" } as never;
+
+    // A document changes the lesson's content base and what Delete removes:
+    // without the re-read, Delete would list old documents and be refused.
+    cb.onDocumentsChanged([doc]);
+    expect(actions).toEqual([{ type: "documentsChanged", key: "concept", documents: [doc] }]);
+    expect(refresh).toHaveBeenCalledTimes(1);
+
+    cb.onVideoSaved(null);
+    cb.onStructureCleared();
+    cb.onStructureDraftChanged(null);
+    cb.onStructureSaved({ kind: "simulation" } as never);
+    cb.onReread("v1");
+    cb.onNarrativeSaved(text("v2"));
+    expect(actions.map((a) => a.type)).toEqual([
+      "documentsChanged",
+      "videoSaved",
+      "structureCleared",
+      "draftChanged",
+      "structureSaved",
+      "reread",
+      "narrativeSaved",
+    ]);
+    expect(actions.at(-1)).toMatchObject({ key: "concept", lang: "de" });
+    expect(refresh).toHaveBeenCalledTimes(7);
   });
 });

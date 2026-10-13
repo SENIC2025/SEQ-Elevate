@@ -18,7 +18,7 @@ import { LessonNav } from "./LessonNav";
 import { LessonSection } from "./LessonSection";
 import { LessonListPanel, type RenameRequest } from "./lesson-list/LessonListPanel";
 import type { ContentNames } from "./lesson-list/list-model";
-import { initWorkspace, pair, workspaceReducer } from "./workspace-reducer";
+import { initWorkspace, lessonContentCallbacks, pair, workspaceReducer } from "./workspace-reducer";
 
 const NO_REASONS = [] as const;
 
@@ -305,47 +305,7 @@ function Workspace({
                   }
                   onOpen={() => openLesson(lesson.key)}
                   onClose={() => closeLesson(lesson.key)}
-                  onNarrativeSaved={(value) => {
-                    dispatch({
-                      type: "narrativeSaved",
-                      key: lesson.key,
-                      lang,
-                      value,
-                    });
-                    refresh();
-                  }}
-                  onReread={(stale) => {
-                    dispatch({ type: "reread", key: lesson.key, lang, stale });
-                    refresh();
-                  }}
-                  onStructureSaved={(structure) => {
-                    dispatch({
-                      type: "structureSaved",
-                      key: lesson.key,
-                      structure,
-                    });
-                    refresh();
-                  }}
-                  onStructureDraftChanged={(draft) => {
-                    dispatch({ type: "draftChanged", key: lesson.key, draft });
-                    // The publishing warnings list lessons with a draft.
-                    refresh();
-                  }}
-                  onStructureCleared={() => {
-                    dispatch({ type: "structureCleared", key: lesson.key });
-                    refresh();
-                  }}
-                  onVideoSaved={(video) => {
-                    dispatch({ type: "videoSaved", key: lesson.key, video });
-                    refresh();
-                  }}
-                  onDocumentsChanged={(documents) =>
-                    dispatch({
-                      type: "documentsChanged",
-                      key: lesson.key,
-                      documents,
-                    })
-                  }
+                  {...lessonContentCallbacks(lesson.key, lang, dispatch, refresh)}
                   onOutline={takeOutline}
                 />
               </li>
