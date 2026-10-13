@@ -9,6 +9,7 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentUser, getProjectMemberships } from "@/lib/auth-helpers";
 import { getCourse } from "@/lib/cms";
 import { readAssessment, scoreAssessment } from "@/lib/assessment-progress";
+import { learnerMembershipWhere } from "@/lib/learner-scope";
 import {
   courseProgress,
   nextStage,
@@ -99,7 +100,9 @@ export interface FacilitatorLearner {
  * Real learners in the project, for the facilitator workspace. RBAC-gated:
  * returns null unless the current user is a FACILITATOR or ADMIN. Comp Card
  * privacy is respected at the field level in the UI; scenario evidence is
- * resolved from the CMS.
+ * resolved from the CMS. Staff who still hold the LEARNER role an older
+ * release gave them aren't listed (learnerMembershipWhere): a note or
+ * validation about them would be refused anyway (canRecordForLearner).
  */
 export async function getProjectLearners(
   locale: Locale
@@ -118,7 +121,7 @@ async function loadLearners(
   locale: Locale
 ): Promise<FacilitatorLearner[]> {
   const memberships = await prisma.membership.findMany({
-    where: { projectId: PROJECT, role: "LEARNER" },
+    where: learnerMembershipWhere(PROJECT),
     include: {
       user: {
         include: {
@@ -290,13 +293,15 @@ async function loadLearners(
   });
 }
 
-/** Aggregate counts for the admin dashboard (anonymised). */
+/**
+ * Aggregate counts for the admin dashboard (anonymised). `users` is the
+ * Learners figure: people who are learners of the project, so not staff who
+ * still hold the LEARNER role an older release gave them.
+ */
 export async function getAdminCounts() {
   try {
     const [users, cohorts, organisations, courses] = await Promise.all([
-      prisma.membership.count({
-        where: { projectId: PROJECT, role: "LEARNER" },
-      }),
+      prisma.membership.count({ where: learnerMembershipWhere(PROJECT) }),
       prisma.cohort.count({ where: { projectId: PROJECT } }),
       prisma.organisation.count({ where: { projectId: PROJECT } }),
       prisma.course.count({

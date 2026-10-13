@@ -32,7 +32,8 @@ export function AdminDashboard({ counts }: { counts?: AdminCounts }) {
       </h1>
 
       <div className="mt-6 grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* counts.users counts LEARNER memberships only (getAdminCounts) */}
+        {/* counts.users counts learners only, not staff who still hold an
+            old LEARNER role (getAdminCounts) */}
         <Stat
           icon={<Users className="h-5 w-5" />}
           label={t("learners")}

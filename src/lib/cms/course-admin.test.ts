@@ -20,10 +20,13 @@ const at = new Date("2026-10-01T10:00:00.000Z");
 let meta: unknown;
 let lessons: { stageKey: string; narrative?: unknown; structure?: unknown }[];
 
+const courseFindFirst = vi.fn();
+const courseFindMany = vi.fn(async () => []);
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     course: {
-      findFirst: async () => ({
+      findMany: courseFindMany,
+      findFirst: courseFindFirst.mockImplementation(async () => ({
         slug: "asking-for-help",
         cluster: "communicationEi",
         durationMinutes: 15,
@@ -33,7 +36,7 @@ vi.mock("@/lib/prisma", () => ({
         publishedAt: null,
         updatedAt: at,
         _count: { enrollments: 0 },
-      }),
+      })),
     },
     lesson: {
       findMany: async () =>
@@ -57,7 +60,7 @@ vi.mock("@/lib/cms", async () => {
   };
 });
 
-const { getCourseOutline } = await import("./course-admin");
+const { getCourseGrid, getCourseOutline } = await import("./course-admin");
 
 const EN = { title: "Asking for help", tagline: "Short and real", clusterLabel: "Communication" };
 const written = (title: string, text: string) => ({ title, blocks: [para(text)] });
@@ -170,5 +173,55 @@ describe("getCourseOutline with a cleared translation", () => {
       title: "Titel",
       blocks: [],
     });
+  });
+});
+
+/*
+ * "N learners enrolled" counts learners: people with a LEARNER membership
+ * and no staff role in the project. Staff who opened a learner page before
+ * Release 0 still hold the LEARNER role it gave everyone, and a course they
+ * tried out isn't a learner's enrolment.
+ */
+const ENROLLED_LEARNERS = {
+  _count: {
+    select: {
+      enrollments: {
+        where: {
+          user: {
+            memberships: {
+              some: { projectId: "seq-elevate", role: "LEARNER" },
+              none: {
+                projectId: "seq-elevate",
+                role: {
+                  in: expect.arrayContaining(["FACILITATOR", "ADMIN", "CONTENT_EDITOR"]),
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+};
+
+describe("who a course's enrolment count counts", () => {
+  it("counts learners only on the course page", async () => {
+    courseFindFirst.mockClear();
+    await getCourseOutline("asking-for-help");
+    // The course is also read for what learners see; only one read counts.
+    const counting = courseFindFirst.mock.calls
+      .map(([args]) => args as { select?: { _count?: unknown } })
+      .filter((args) => args?.select?._count);
+    expect(counting).toHaveLength(1);
+    expect(counting[0].select).toMatchObject(ENROLLED_LEARNERS);
+  });
+
+  it("counts learners only on the course grid", async () => {
+    courseFindMany.mockClear();
+    await getCourseGrid("en");
+    expect(courseFindMany).toHaveBeenCalledTimes(1);
+    expect(
+      (courseFindMany.mock.calls[0] as unknown as [{ select: unknown }])[0].select
+    ).toMatchObject(ENROLLED_LEARNERS);
   });
 });

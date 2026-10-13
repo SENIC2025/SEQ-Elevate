@@ -10,7 +10,7 @@ describe("canRecordForLearner", () => {
   it("lets a facilitator or an admin write about a learner", () => {
     expect(canRecordForLearner(["FACILITATOR"], ["LEARNER"])).toBe(true);
     expect(canRecordForLearner(["ADMIN"], ["LEARNER"])).toBe(true);
-    expect(canRecordForLearner(["ADMIN", "CONTENT_EDITOR"], ["LEARNER", "FACILITATOR"])).toBe(true);
+    expect(canRecordForLearner(["ADMIN", "CONTENT_EDITOR"], ["LEARNER"])).toBe(true);
   });
 
   it("refuses anyone else as the writer", () => {
@@ -23,6 +23,14 @@ describe("canRecordForLearner", () => {
     expect(canRecordForLearner(["FACILITATOR"], [])).toBe(false);
     expect(canRecordForLearner(["FACILITATOR"], ["CONTENT_EDITOR"])).toBe(false);
     expect(canRecordForLearner(["ADMIN"], ["FACILITATOR", "ADMIN"])).toBe(false);
+  });
+
+  // Staff who opened a learner page before Release 0 still hold the LEARNER
+  // role it gave everyone; that old row doesn't make them a learner.
+  it("refuses staff who still hold an old LEARNER role", () => {
+    expect(canRecordForLearner(["FACILITATOR"], ["LEARNER", "FACILITATOR"])).toBe(false);
+    expect(canRecordForLearner(["FACILITATOR"], ["LEARNER", "ADMIN"])).toBe(false);
+    expect(canRecordForLearner(["ADMIN"], ["LEARNER", "CONTENT_EDITOR"])).toBe(false);
   });
 });
 

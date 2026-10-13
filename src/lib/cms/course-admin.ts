@@ -17,6 +17,7 @@ import "server-only";
 
 import { prisma } from "@/lib/prisma";
 import { viewerCanEditContent } from "@/lib/editor-gate";
+import { learnerUserWhere } from "@/lib/learner-scope";
 import { STAGES } from "@/data/course";
 import { getBaseCourseCopy, getCourse, listCourses } from "@/lib/cms";
 import { normaliseStatus } from "./course-status";
@@ -66,6 +67,17 @@ const isInteractive = (key: StageKey) =>
 
 type NarrativeJson = Partial<Record<Locale, NarrativeVersion>>;
 
+/*
+ * "N learners enrolled" (and the unpublish warning) counts learners only.
+ * Staff who still hold the LEARNER role an older release gave them, and
+ * editors trying out their own course, aren't learners of it.
+ */
+const enrolledLearners = {
+  _count: {
+    select: { enrollments: { where: { user: learnerUserWhere(PROJECT) } } },
+  },
+};
+
 /** Every course (drafts and archived included) as a card, in catalogue order. */
 export async function getCourseGrid(locale: Locale): Promise<CourseGridEntry[]> {
   if (!(await viewerCanEditContent())) return [];
@@ -82,7 +94,7 @@ export async function getCourseGrid(locale: Locale): Promise<CourseGridEntry[]> 
         slug: true,
         meta: true,
         updatedAt: true,
-        _count: { select: { enrollments: true } },
+        ...enrolledLearners,
       },
     }),
     prisma.lesson.findMany({
@@ -159,7 +171,7 @@ export async function getCourseOutline(
         status: true,
         publishedAt: true,
         updatedAt: true,
-        _count: { select: { enrollments: true } },
+        ...enrolledLearners,
       },
     }),
     prisma.lesson.findMany({
