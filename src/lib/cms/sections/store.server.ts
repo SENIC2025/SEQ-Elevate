@@ -26,8 +26,10 @@ import { normaliseStatus, type CourseStatus } from "../course-status";
 import { ChangedElsewhere } from "../stored-json";
 import { introducedReasons, liveWriteAllowed, newOnlyReasons } from "./guard";
 import { resolveOutline } from "./outline";
+import { mainKindOf } from "./contract";
 import type {
   CustomSectionId,
+  MainKind,
   ExtraPartId,
   NewOnlyReason,
   Refused,
@@ -299,4 +301,33 @@ export async function settle<T, R = Refused>(run: () => Promise<T>): Promise<Set
     if (error instanceof Refusal) return { ok: false, refused: error.result as R };
     throw error;
   }
+}
+
+/**
+ * A lesson of the course's own ("s-…") as the Release 0 actions see it
+ * (G6): its main content's kind while it is in the course's lesson list,
+ * else why not. A built-in course has no such lessons. Reads with the
+ * client it is given; a write's caller takes the Course lock first.
+ */
+export async function ownSectionKind(
+  client: Pick<Prisma.TransactionClient, "course" | "lesson">,
+  slug: string,
+  id: string
+): Promise<
+  { ok: true; kind: MainKind } | { ok: false; error: "not-a-section" | "outline-unreadable" }
+> {
+  const course = await client.course.findFirst({
+    where: { projectId: PROJECT, slug },
+    select: { meta: true, outline: true },
+  });
+  const lessons = course?.meta
+    ? await client.lesson.findMany({
+        where: { projectId: PROJECT, courseSlug: slug },
+        select: { stageKey: true, structure: true, parts: true },
+      })
+    : [];
+  const outline = resolveOutline(course?.meta ? "cms" : "bundled", course?.outline ?? null, lessons);
+  if (outline.unreadable) return { ok: false, error: "outline-unreadable" };
+  const section = outline.sections.find((s) => s.id === id);
+  return section ? { ok: true, kind: mainKindOf(section) } : { ok: false, error: "not-a-section" };
 }

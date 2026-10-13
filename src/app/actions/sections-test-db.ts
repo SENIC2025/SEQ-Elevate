@@ -103,15 +103,36 @@ export const prisma = {
       const r = find(where);
       return r ? pick(structuredClone(r), select) : null;
     }),
-    upsert: vi.fn(async ({ where }: { where: Where }) => {
-      const key = keyOf(where)!;
-      db.log.push(`upsert Lesson:${key}`);
-      let r = find(where);
-      if (!r) {
-        r = row(key);
-        db.lessons.push(r);
+    upsert: vi.fn(
+      async ({
+        where,
+        create = {},
+        update = {},
+      }: {
+        where: Where;
+        create?: Record<string, unknown>;
+        update?: Record<string, unknown>;
+      }) => {
+        const key = keyOf(where)!;
+        db.log.push(`upsert Lesson:${key}`);
+        let r = find(where);
+        const data = r ? update : create;
+        if (!r) {
+          r = row(key);
+          db.lessons.push(r);
+        }
+        for (const [k, v] of Object.entries(data)) {
+          if (k === "projectId" || k === "courseSlug" || k === "stageKey") continue;
+          (r as Record<string, unknown>)[k] = stored(v);
+        }
+        return r;
       }
-      return r;
+    ),
+    updateMany: vi.fn(async ({ where, data }: { where: Where; data: Record<string, unknown> }) => {
+      const r = find(where);
+      if (!r) return { count: 0 };
+      for (const [k, v] of Object.entries(data)) (r as Record<string, unknown>)[k] = stored(v);
+      return { count: 1 };
     }),
     update: vi.fn(async ({ where, data }: { where: Where; data: Record<string, unknown> }) => {
       const r = find(where);
@@ -125,6 +146,15 @@ export const prisma = {
       db.lessons = db.lessons.filter((l) => l.stageKey !== keyOf(where));
       db.log.push(`delete Lesson:${keyOf(where)}`);
       return { count: before - db.lessons.length };
+    }),
+  },
+  lessonDocument: {
+    findFirst: vi.fn(async () => null),
+    create: vi.fn(async ({ data }: { data: { lessonId: string; url: string } }) => {
+      const r = db.lessons.find((l) => l.id === data.lessonId);
+      const id = `doc-${(r?.documents.length ?? 0) + 1}`;
+      r?.documents.push({ id, url: data.url });
+      return { id };
     }),
   },
   courseEnrollment: {

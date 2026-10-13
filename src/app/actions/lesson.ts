@@ -12,7 +12,14 @@ import { Prisma } from "@prisma/client";
 import { getCurrentUser, getProjectMemberships } from "@/lib/auth-helpers";
 import { canEditContent } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
-import { isContentLocale, isStageKey } from "@/lib/cms/course-admin-types";
+import { isContentLocale } from "@/lib/cms/course-admin-types";
+import { isCustomSectionId, isSectionId } from "@/lib/cms/sections/contract";
+import {
+  Refusal,
+  SLUG,
+  lockCourse,
+  ownSectionKind,
+} from "@/lib/cms/sections/store.server";
 import { unstorableVideoMessage } from "@/lib/media-url";
 import { ChangedElsewhere, fingerprint } from "@/lib/cms/stored-json";
 import {
@@ -68,6 +75,26 @@ function lessonKey(courseSlug: string, stageKey: string) {
   };
 }
 
+/**
+ * Which lesson a video or document action targets, checked before anything
+ * is written (Release 1): a course slug and a lesson id of the right form,
+ * and a lesson of a created course's own only while it is in the course's
+ * lesson list. These actions upsert the row, so without the check any key
+ * a request named became a stray Lesson row. A standard lesson is accepted
+ * as before (built-in courses included).
+ */
+async function mediaTargetError(
+  courseSlug: unknown,
+  stageKey: unknown
+): Promise<"bad-input" | "not-a-section" | "outline-unreadable" | null> {
+  if (typeof courseSlug !== "string" || !SLUG.test(courseSlug) || !isSectionId(stageKey)) {
+    return "bad-input";
+  }
+  if (!isCustomSectionId(stageKey)) return null;
+  const own = await ownSectionKind(prisma, courseSlug, stageKey);
+  return own.ok ? null : own.error;
+}
+
 export async function saveLessonVideo(
   courseSlug: string,
   stageKey: string,
@@ -75,6 +102,8 @@ export async function saveLessonVideo(
 ) {
   const editor = await requireEditor();
   if (!editor) return { ok: false as const, error: "forbidden" as const };
+  const bad = await mediaTargetError(courseSlug, stageKey);
+  if (bad) return { ok: false as const, error: bad };
   // Only web links load for learners — never an upload still in the author's
   // browser (blob:), which would save a broken video or captions.
   const unstorable = unstorableVideoMessage(video);
@@ -101,6 +130,8 @@ export async function saveLessonVideo(
 export async function clearLessonVideo(courseSlug: string, stageKey: string) {
   const editor = await requireEditor();
   if (!editor) return { ok: false as const, error: "forbidden" };
+  const bad = await mediaTargetError(courseSlug, stageKey);
+  if (bad) return { ok: false as const, error: bad };
   await prisma.lesson.updateMany({
     where: { projectId: PROJECT, courseSlug, stageKey },
     data: { video: Prisma.DbNull },
@@ -115,6 +146,8 @@ export async function addLessonDocument(
 ) {
   const editor = await requireEditor();
   if (!editor) return { ok: false as const, error: "forbidden" };
+  const bad = await mediaTargetError(courseSlug, stageKey);
+  if (bad) return { ok: false as const, error: bad };
   const lesson = await prisma.lesson.upsert({
     where: lessonKey(courseSlug, stageKey),
     create: { projectId: PROJECT, courseSlug, stageKey },
@@ -180,7 +213,9 @@ function narrativeTargetError(
   if (typeof courseSlug !== "string" || !courseSlug || courseSlug.length > 80) {
     return "bad-input";
   }
-  if (!isStageKey(stageKey)) return "bad-stage";
+  // A standard lesson, or one of a created course's own (G6, checked under
+  // the Course lock by ownTextLesson).
+  if (!isSectionId(stageKey)) return "bad-stage";
   if (!isContentLocale(locale)) return "bad-locale";
   return null;
 }
@@ -198,6 +233,34 @@ async function lockLesson(
 ) {
   await tx.$queryRaw`SELECT id FROM "Lesson" WHERE "projectId" = ${PROJECT} AND "courseSlug" = ${courseSlug} AND "stageKey" = ${stageKey} FOR UPDATE`;
 }
+
+/**
+ * G6: a lesson of a created course's own takes text only while it is in the
+ * course's lesson list and its main content is text (mainKindOf). Checked
+ * under the Course row's FOR SHARE, taken before the Lesson row, so a
+ * lesson deleted meanwhile is refused; throws a Refusal, which rolls back.
+ * A standard lesson's save never asks for the Course lock, as before.
+ */
+async function ownTextLesson(
+  tx: Prisma.TransactionClient,
+  courseSlug: string,
+  stageKey: string
+) {
+  if (!isCustomSectionId(stageKey)) return;
+  await lockCourse(tx, courseSlug, "share");
+  const own = await ownSectionKind(tx, courseSlug, stageKey);
+  if (!own.ok) throw new Refusal(own);
+  if (own.kind !== "narrative" && own.kind !== "reflection") {
+    throw new Refusal({ ok: false, error: "kind-mismatch" });
+  }
+}
+
+/** A refusal of G6 as the narrative actions return it. */
+const g6Error = (error: Refusal) =>
+  ({ ok: false, error: error.result.error }) as {
+    ok: false;
+    error: "not-a-section" | "outline-unreadable" | "kind-mismatch";
+  };
 
 /**
  * `base` is the fingerprint of this language's stored text when the editor
@@ -254,6 +317,7 @@ export async function saveLessonNarrative(
   };
   try {
     await prisma.$transaction(async (tx) => {
+      await ownTextLesson(tx, courseSlug, stageKey);
       // Make sure the row exists, so there is something to lock.
       await tx.lesson.upsert({
         where: lessonKey(courseSlug, stageKey),
@@ -278,6 +342,7 @@ export async function saveLessonNarrative(
     if (error instanceof ChangedElsewhere) {
       return { ok: false as const, error: "changed-elsewhere" as const };
     }
+    if (error instanceof Refusal) return g6Error(error);
     throw error;
   }
   await auditNarrative(
@@ -330,6 +395,7 @@ export async function clearLessonNarrative(
   let removed: boolean;
   try {
     removed = await prisma.$transaction(async (tx) => {
+      await ownTextLesson(tx, courseSlug, stageKey);
       // No row means nothing to clear — don't create one just to empty it.
       await lockLesson(tx, courseSlug, stageKey);
       const existing = await tx.lesson.findUnique({
@@ -359,6 +425,7 @@ export async function clearLessonNarrative(
     if (error instanceof ChangedElsewhere) {
       return { ok: false as const, error: "changed-elsewhere" as const };
     }
+    if (error instanceof Refusal) return g6Error(error);
     throw error;
   }
   if (removed) {
@@ -380,6 +447,7 @@ export async function getLessonMedia(
 ): Promise<{ video: VideoContent | null; documents: LessonDocumentRef[] }> {
   const editor = await requireEditor();
   if (!editor) return { video: null, documents: [] };
+  if (await mediaTargetError(courseSlug, stageKey)) return { video: null, documents: [] };
   const lesson = await prisma.lesson.findUnique({
     where: lessonKey(courseSlug, stageKey),
     include: {
