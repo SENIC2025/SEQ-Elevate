@@ -283,6 +283,7 @@ function Workspace({
                 <LessonSection
                   lesson={lesson}
                   label={lessonLabel(lesson.key)}
+                  labelLang={sections ? lang : undefined}
                   slug={outline.slug}
                   kind={outline.kind}
                   status={status}

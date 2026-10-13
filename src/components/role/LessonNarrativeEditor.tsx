@@ -198,6 +198,10 @@ export function LessonNarrativeEditor({
   const lang = LANGUAGE[locale];
   // The language as the heading and the translated words name it.
   const shownLang = languageName(locale);
+  // Blocks mode (a text in a lesson's added content) speaks the menu
+  // language; the lesson's main text keeps Release 0's English copy.
+  const say = (key: string, english: string, values?: Record<string, string>) =>
+    blocksOnly ? tBlocks(`textEditor.${key}`, values) : english;
 
   const [title, setTitle] = React.useState(initial.title);
   const [subtitle, setSubtitle] = React.useState(initial.subtitle);
@@ -389,7 +393,7 @@ export function LessonNarrativeEditor({
   }
 
   function handleDiscard() {
-    if (!window.confirm("Discard your unsaved changes to this lesson?")) return;
+    if (!window.confirm(say("discardConfirm", "Discard your unsaved changes to this lesson?"))) return;
     load(baseline);
     // "Discard changes" goes away with the changes: keep focus in the editor.
     headingRef.current?.focus();
@@ -400,7 +404,11 @@ export function LessonNarrativeEditor({
     if (
       dirty &&
       !window.confirm(
-        `Load the saved ${lang} text of this lesson? Your unsaved edits here will be replaced.`
+        say(
+          "reloadConfirm",
+          `Load the saved ${lang} text of this lesson? Your unsaved edits here will be replaced.`,
+          { language: shownLang }
+        )
       )
     ) {
       return;
@@ -621,7 +629,7 @@ export function LessonNarrativeEditor({
         ) : null
       ) : (
         <div ref={blocksRef} className={blocksOnly ? "" : "mt-4"}>
-          <p className="mb-2 text-sm font-semibold">Content blocks</p>
+          <p className="mb-2 text-sm font-semibold">{say("blocksHeading", "Content blocks")}</p>
           <BlockList
             blocks={blocks}
             onBlocksChange={(next) => {
@@ -640,7 +648,7 @@ export function LessonNarrativeEditor({
         >
           <p className="flex items-center gap-1.5 font-medium text-[var(--danger)]">
             <AlertTriangle className="h-4 w-4 flex-shrink-0" aria-hidden />
-            Not saved — please fix:
+            {say("issuesTitle", "Not saved — please fix:")}
           </p>
           <ul className="mt-1 ml-6 list-disc">
             {saveIssues.map((issue, i) => (
@@ -661,10 +669,11 @@ export function LessonNarrativeEditor({
               aria-hidden
             />
             <span>
-              Someone else saved the {lang} text of this lesson since you
-              opened it, so nothing was changed. Load their version to see it —
-              your edits stay here until you do, so you can copy anything you
-              want to keep.
+              {say(
+                "conflict",
+                `Someone else saved the ${lang} text of this lesson since you opened it, so nothing was changed. Load their version to see it — your edits stay here until you do, so you can copy anything you want to keep.`,
+                { language: shownLang }
+              )}
             </span>
           </p>
           <Button
@@ -675,7 +684,7 @@ export function LessonNarrativeEditor({
             onClick={handleReload}
           >
             <RefreshCw className="h-4 w-4" aria-hidden />
-            Load the saved version
+            {say("reload", "Load the saved version")}
           </Button>
         </div>
       ) : null}
@@ -687,7 +696,7 @@ export function LessonNarrativeEditor({
           ) : (
             <Save className="h-4 w-4" aria-hidden />
           )}
-          Save {lang}
+          {say("save", `Save ${lang}`, { language: shownLang })}
         </Button>
         {dirty ? (
           <Button
@@ -697,7 +706,7 @@ export function LessonNarrativeEditor({
             onClick={handleDiscard}
           >
             <Undo2 className="h-4 w-4" aria-hidden />
-            Discard changes
+            {say("discard", "Discard changes")}
           </Button>
         ) : null}
         {hasOverride && !blocksOnly ? (
@@ -715,11 +724,11 @@ export function LessonNarrativeEditor({
         ) : null}
         <span role="status" aria-live="polite" className="text-xs">
           {status === "saving" ? (
-            <span className="text-[var(--muted-foreground)]">Saving…</span>
+            <span className="text-[var(--muted-foreground)]">{say("saving", "Saving…")}</span>
           ) : status === "saved" ? (
             <span className="inline-flex items-center gap-1 text-[var(--success)]">
               <CheckCircle2 className="h-3.5 w-3.5" aria-hidden />
-              Saved
+              {say("saved", "Saved")}
             </span>
           ) : status === "reverting" ? (
             <span className="text-[var(--muted-foreground)]">
@@ -732,16 +741,16 @@ export function LessonNarrativeEditor({
             </span>
           ) : status === "reloading" ? (
             <span className="text-[var(--muted-foreground)]">
-              Loading the saved version…
+              {say("reloading", "Loading the saved version…")}
             </span>
           ) : status === "reloaded" ? (
             <span className="inline-flex items-center gap-1 text-[var(--success)]">
               <CheckCircle2 className="h-3.5 w-3.5" aria-hidden />
-              Loaded the saved version.
+              {say("reloaded", "Loaded the saved version.")}
             </span>
           ) : status === "discarded" ? (
             <span className="text-[var(--muted-foreground)]">
-              Changes discarded.
+              {say("discarded", "Changes discarded.")}
             </span>
           ) : status === "error" ? (
             <span className="inline-flex items-start gap-1 text-[var(--danger)]">
@@ -753,7 +762,7 @@ export function LessonNarrativeEditor({
             </span>
           ) : dirty ? (
             <span className="text-[var(--muted-foreground)]">
-              Unsaved changes
+              {say("unsaved", "Unsaved changes")}
             </span>
           ) : null}
         </span>

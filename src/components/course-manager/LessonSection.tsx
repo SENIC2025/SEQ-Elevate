@@ -36,6 +36,7 @@ export function LessonSection(props: LessonSectionProps) {
   const {
     lesson,
     label,
+    labelLang,
     slug,
     kind,
     status,
@@ -216,6 +217,7 @@ export function LessonSection(props: LessonSectionProps) {
           <h2
             id={headingId}
             tabIndex={-1}
+            lang={labelLang}
             className="text-base font-semibold sm:text-lg"
           >
             {label}

@@ -28,6 +28,11 @@ export interface LessonSectionProps {
    * get, such as an "Add …" slot.
    */
   label: string;
+  /**
+   * The language `label` is in, when it isn't the menu's: a created course
+   * names its lessons in the content language (WCAG 3.1.2).
+   */
+  labelLang?: Locale;
   slug: string;
   kind: CourseKind;
   /** The course's status: whether a save for learners goes live at once. */

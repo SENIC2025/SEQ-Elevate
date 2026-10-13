@@ -214,4 +214,11 @@ describe("PartList — a text in the added content, in German", () => {
     expect(html).not.toContain("Text learners read here");
     expect(html).toContain(de.lessonBlocks.textEditor.description);
   });
+
+  it("has its controls in German too, naming the language in German", () => {
+    expect(html).toContain("Inhaltsblöcke");
+    expect(html).toContain("Auf Deutsch speichern");
+    expect(html).not.toContain("Content blocks");
+    expect(html).not.toContain("Save German");
+  });
 });

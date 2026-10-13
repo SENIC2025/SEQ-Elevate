@@ -121,6 +121,20 @@ describe("PublishControls", () => {
     expect(html).toContain("This course has more than 12 lessons.");
   });
 
+  it("marks the lesson names in the warnings with the content language", () => {
+    const html = render(
+      [
+        { level: "warning", code: "lesson-empty", stage: "concept" },
+        { level: "warning", code: "part-draft", stage: "concept", part: "p-abcdefgh" },
+      ],
+      "draft",
+      undefined,
+      { nameLang: "de" }
+    );
+    expect(html).toContain('The “<span lang="de">Die Idee</span>” lesson has no content yet.');
+    expect(html).toContain('“<span lang="de">Die Idee</span>” has content with a draft');
+  });
+
   it("a built-in course is named as before (standard names)", () => {
     const html = render([{ level: "warning", code: "lesson-empty", stage: "concept" }], "draft", null);
     expect(html).toContain("The “Skill concept” lesson has no content yet.");

@@ -32,10 +32,16 @@ const IntlProvider = NextIntlClientProvider as FC<{
 
 const noop = () => {};
 
-function render(l: LessonOutline, open: boolean, lang: "en" | "de" | "el" = "en") {
+function render(
+  l: LessonOutline,
+  open: boolean,
+  lang: "en" | "de" | "el" = "en",
+  labelLang?: "en" | "de" | "el"
+) {
   const props: LessonSectionProps = {
     lesson: l,
     label: "2. Skill concept",
+    labelLang,
     slug: "my-course",
     kind: "cms",
     status: "draft",
@@ -126,6 +132,13 @@ describe("LessonSection — the lesson's editors", () => {
   });
 });
 
+describe("LessonSection — the heading's language", () => {
+  it("marks a name in the content language, and leaves the menu's unmarked", () => {
+    expect(render(lesson([MAIN]), false, "de", "de")).toMatch(/<h2 id="lesson-concept-h" tabindex="-1" lang="de"/);
+    expect(render(lesson([MAIN]), false)).toMatch(/<h2 id="lesson-concept-h" tabindex="-1" class=/);
+  });
+});
+
 describe("LessonSection — a lesson not in the lesson list yet", () => {
   // An "Add an applied scenario" lesson, or one with only a draft: not in the
   // list until its first "Save stage". Its editor already sits where the
@@ -194,6 +207,61 @@ describe("LessonSection — closed", () => {
     expect(html).toContain(en.lessonBlocks.notShown);
     // The content is marked with its language; the headings (menu language) aren't.
     expect(html).toMatch(/<div lang="en">(?:(?!<\/li>).)*Extra words/);
+  });
+
+  it("keeps the interface's words in the menu language inside content marked with its own", () => {
+    const practice: SectionStage = {
+      key: "concept",
+      label: "Skill concept",
+      title: "Skill concept",
+      parts: [
+        {
+          id: "p-prac0001",
+          type: "practice",
+          simulation: {
+            prompt: "Ein Kollege bittet um Hilfe.",
+            instruction: "",
+            options: [
+              { id: "a", text: "Fragen, was er versucht hat", feedback: "", isBest: true },
+              { id: "b", text: "Es selbst machen", feedback: "", isBest: false },
+            ],
+          },
+        },
+      ],
+      skipped: 0,
+    };
+    const practiceView: PartView = {
+      id: "p-prac0001",
+      type: "practice",
+      data: {
+        kind: "simulation",
+        title: {},
+        prompt: { de: "Ein Kollege bittet um Hilfe." },
+        instruction: {},
+        options: [
+          { id: "a", isBest: true, text: { de: "Fragen, was er versucht hat" }, feedback: {} },
+          { id: "b", isBest: false, text: { de: "Es selbst machen" }, feedback: {} },
+        ],
+      },
+      draft: null,
+      versions: { data: "d", draft: null },
+      itemVersion: "i-prac",
+      issues: [],
+    };
+    const html = render(
+      lesson([MAIN, practiceView], {
+        byLang: {
+          en: { stage: null, narrative: null, sectioned: null },
+          de: { stage: null, narrative: null, sectioned: practice },
+          el: { stage: null, narrative: null, sectioned: null },
+        },
+      }),
+      false,
+      "de"
+    );
+    // Menu in English, content in German: the badge says "Best response" in English.
+    expect(html).toMatch(/<div lang="de">(?:(?!<\/li>).)*Fragen, was er versucht hat/);
+    expect(html).toMatch(/<span [^>]*lang="en"><svg(?:(?!<\/span>).)*Best response<\/span>/);
   });
 
   it("reads a standard lesson as today", () => {

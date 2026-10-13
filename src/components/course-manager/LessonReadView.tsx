@@ -1,6 +1,6 @@
 "use client";
 
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { Badge } from "@/components/ui/badge";
 import { NarrativeBlocks } from "@/components/course/NarrativeStage";
 import { FormattedText } from "@/components/course/FormattedText";
@@ -223,6 +223,9 @@ function SectionedBody({
 /** One piece of content as the preview resolves it, summarised like a lesson. */
 function PartBody({ part }: { part: ResolvedPart }) {
   const t = useTranslations("courseManager.page.read");
+  // The content around it is marked with its own language; the words of
+  // the interface keep the menu's (WCAG 3.1.2).
+  const ui = useLocale();
   const tBlocks = useTranslations("lessonBlocks");
   const title =
     part.type !== "text" && part.title ? <p className="text-sm font-semibold">{part.title}</p> : null;
@@ -259,7 +262,9 @@ function PartBody({ part }: { part: ResolvedPart }) {
         <div className="space-y-2 text-sm">
           {title}
           <ReflectionIntro reflection={{ intro: part.intro ?? "", introRich: part.introRich }} />
-          <p className="font-medium">{t("prompts")}</p>
+          <p className="font-medium" lang={ui}>
+            {t("prompts")}
+          </p>
           <ol className="list-decimal space-y-1 pl-5">
             {part.prompts.map((p) => (
               <li key={p.id}>{p.label}</li>
@@ -333,6 +338,7 @@ function SimulationSummary({
   simulation: Pick<NonNullable<CourseStage["simulation"]>, "prompt" | "instruction" | "options">;
 }) {
   const t = useTranslations("courseManager.page.read");
+  const ui = useLocale();
   return (
     <div className="space-y-2 text-sm">
       <FormattedText text={s.prompt} className="font-medium" />
@@ -348,7 +354,7 @@ function SimulationSummary({
           >
             <span className="min-w-0 flex-1">{o.text}</span>
             {o.isBest ? (
-              <Badge variant="success" className="text-[10px]">
+              <Badge variant="success" className="text-[10px]" lang={ui}>
                 <Star className="h-3 w-3" aria-hidden />
                 {t("bestResponse")}
               </Badge>
@@ -367,6 +373,7 @@ function ScenarioSummary({
   scenario: NonNullable<CourseStage["scenario"]>;
 }) {
   const tPlayer = useTranslations("coursePlayer");
+  const ui = useLocale();
   return (
     <div className="space-y-2 text-sm">
       <FormattedText text={s.setup} />
@@ -381,6 +388,7 @@ function ScenarioSummary({
               <span className="min-w-0 flex-1">{c.text}</span>
               <Badge
                 variant={c.quality === "best" ? "success" : "muted"}
+                lang={ui}
                 className="text-[10px]"
               >
                 {tPlayer(QUALITY_KEY[c.quality])}
@@ -400,6 +408,7 @@ function ScenarioSummary({
                       <span className="min-w-0 flex-1">{f.text}</span>
                       <Badge
                         variant={f.quality === "best" ? "success" : "muted"}
+                        lang={ui}
                         className="text-[10px]"
                       >
                         {tPlayer(QUALITY_KEY[f.quality])}
@@ -423,6 +432,7 @@ function AssessmentSummary({
   assessment: NonNullable<CourseStage["assessment"]>;
 }) {
   const t = useTranslations("courseManager.page.read");
+  const ui = useLocale();
   return (
     <div className="space-y-2 text-sm">
       <FormattedText text={a.intro} />
@@ -437,7 +447,7 @@ function AssessmentSummary({
                   <li key={o.id} className="flex flex-wrap items-start gap-2">
                     <span className="min-w-0 flex-1">{o.text}</span>
                     {correct ? (
-                      <Badge variant="success" className="text-[10px]">
+                      <Badge variant="success" className="text-[10px]" lang={ui}>
                         <Check className="h-3 w-3" aria-hidden />
                         {t("correctAnswer")}
                       </Badge>

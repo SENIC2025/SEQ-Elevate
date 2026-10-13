@@ -146,6 +146,20 @@ export function PublishControls({
       <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
     ) : null;
 
+  /**
+   * A warning naming one lesson: the name in the content language carries
+   * `lang` inside the menu-language sentence (WCAG 3.1.2), as the blockers do.
+   */
+  const lessonLine = (issue: ReadinessIssue) => {
+    const format = (name: string) =>
+      issue.code === "lesson-empty"
+        ? t("page.readiness.lessonEmpty", { stage: name })
+        : issue.code === "lesson-draft"
+          ? tDraft("readinessDraft", { stage: name })
+          : tList("publish.partDraft", { name });
+    return <Named format={format} name={issue.stage ? nameOf(issue.stage) : ""} lang={nameLang} />;
+  };
+
   const readinessText = (issue: ReadinessIssue) => {
     const language = issue.locale ? t(`languageName.${issue.locale}`) : "";
     switch (issue.code) {
@@ -270,7 +284,7 @@ export function PublishControls({
                       href={`#lesson-${issue.stage}`}
                       className="underline underline-offset-2 hover:text-[var(--accent)]"
                     >
-                      {text}
+                      {lessonLine(issue)}
                     </a>
                   ) : (
                     <span>{text}</span>

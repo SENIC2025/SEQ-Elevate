@@ -1212,7 +1212,21 @@
       "description": "Text learners read here, between the lesson's other content.",
       "notWritten": "Not written yet",
       "fallback": "Not written in {language} yet — showing the {from} text, which is what learners see. Saving creates the {language} version.",
-      "invalid": "Not saved — see the problems above."
+      "invalid": "Not saved — see the problems above.",
+      "blocksHeading": "Content blocks",
+      "issuesTitle": "Not saved — please fix:",
+      "conflict": "Someone else saved the {language} text of this content since you opened it, so nothing was changed. Load their version to see it — your edits stay here until you do, so you can copy anything you want to keep.",
+      "reload": "Load the saved version",
+      "reloadConfirm": "Load the saved {language} text of this content? Your unsaved edits here will be replaced.",
+      "discardConfirm": "Discard your unsaved changes to this content?",
+      "save": "Save {language}",
+      "discard": "Discard changes",
+      "saving": "Saving…",
+      "saved": "Saved",
+      "reloading": "Loading the saved version…",
+      "reloaded": "Loaded the saved version.",
+      "discarded": "Changes discarded.",
+      "unsaved": "Unsaved changes"
     }
   },
   "accounts": {

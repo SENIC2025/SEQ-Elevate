@@ -1212,7 +1212,21 @@
       "description": "Text, den Lernende hier lesen, zwischen den anderen Inhalten der Lektion.",
       "notWritten": "Noch nicht geschrieben",
       "fallback": "Auf {language} noch nicht geschrieben — hier steht der Text auf {from}, den Lernende jetzt sehen. Beim Speichern entsteht die Fassung auf {language}.",
-      "invalid": "Nicht gespeichert — sieh dir die Probleme oben an."
+      "invalid": "Nicht gespeichert — sieh dir die Probleme oben an.",
+      "blocksHeading": "Inhaltsblöcke",
+      "issuesTitle": "Nicht gespeichert — bitte korrigieren:",
+      "conflict": "Jemand anderes hat den Text auf {language} in diesem Inhalt gespeichert, seit du ihn geöffnet hast, deshalb wurde nichts geändert. Lade die gespeicherte Fassung, um sie zu sehen — deine Änderungen bleiben hier, bis du das tust, damit du kopieren kannst, was du behalten möchtest.",
+      "reload": "Gespeicherte Fassung laden",
+      "reloadConfirm": "Den gespeicherten Text auf {language} in diesem Inhalt laden? Deine nicht gespeicherten Änderungen hier werden ersetzt.",
+      "discardConfirm": "Deine nicht gespeicherten Änderungen an diesem Inhalt verwerfen?",
+      "save": "Auf {language} speichern",
+      "discard": "Änderungen verwerfen",
+      "saving": "Wird gespeichert…",
+      "saved": "Gespeichert",
+      "reloading": "Gespeicherte Fassung wird geladen…",
+      "reloaded": "Gespeicherte Fassung geladen.",
+      "discarded": "Änderungen verworfen.",
+      "unsaved": "Nicht gespeicherte Änderungen"
     }
   },
   "accounts": {
