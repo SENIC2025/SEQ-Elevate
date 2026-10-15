@@ -301,6 +301,13 @@ Single source of truth for decisions made, decisions still open, and the rationa
 - *Preview* of a standard course gives the very same course object learners get. A draft course using new features is previewed in a separate sectioned player, which becomes the learner player in Release 2.
 - Extra exercise content follows D52 item by item: a draft per item, *Save* checks it, *Save draft* always works, *Discard*, and a write is refused if a colleague changed it meanwhile. Extra text is saved per language, live, without a draft.
 
+### D61 · Off-site backups: Scaleway (Paris), a read-only login, verified every night
+**Decided**: 15 October 2026 · *Decider: SENIC principal (provider); rules: SENIC (build decision)*
+- The daily off-site backup (Contract Item 2 §7) goes to **Scaleway Object Storage, Paris (`fr-par`)**: an EU company, so no third-country transfer of the learner data in the dumps; a private bucket with encryption at rest (SSE-ONE, set at creation); a key limited to one Scaleway project that can only read, write and delete objects; about €0.03 a month. Rejected: Hetzner (no encryption at rest), and US providers (Cloudflare, Backblaze, AWS) because the US CLOUD Act reaches data wherever it is stored.
+- The backup reads the database with a **read-only role** made with SQL (`scripts/db-backup-role.sql`); it refuses to run with any login that can change the database, so the owner's credentials never sit in GitHub. Sign-in session and sign-in-link tokens are left out of dumps.
+- Every run verifies the dump and reads the stored copy back before pruning; dumps are kept 30 days, but the newest 7 always stay. Client-side encryption with `age` is optional (public key in a repo variable, private key offline with named key holders); Neon's point-in-time window is raised from the default 1 day to 7.
+- Scaleway is added to the sub-processors (DATA-PROTECTION.md §1 and §7, DPA Annex III); under the DPA (3c) the controller is informed before it processes personal data.
+
 ---
 
 ## 🟡 Open — must close before kickoff or Week 1

@@ -7,7 +7,7 @@ Arbeit's processing register. It is not legal advice. Fields that belong to the
 marked **[Controller]** and must be completed by the consortium's counsel /
 data-protection officer.
 
-_Last updated: 2026-06 · maintained by SENIC (developer & operator)._
+_Last updated: 2026-10 · maintained by SENIC (developer & operator)._
 
 ---
 
@@ -25,6 +25,7 @@ managed-cloud providers (sub-processors):
 | File/media storage (uploaded documents & lesson videos) | **Vercel Blob** | **EU — Frankfurt (`fra1`, AWS eu-central-1)** | **Staff-authored course media only** — learners upload nothing |
 | Transactional email (sign-in links, invitations) | **Resend** (Resend Inc., US) | US | Recipient email address; for invitations also their optional name, role, and the inviting admin's name (or email) |
 | Web analytics | **Plausible** (Plausible Insights OÜ, Estonia, EU) | EU | **None** — cookieless, no personal data, no IP retention |
+| Off-site database backups (daily, kept 30 days) | **Scaleway** (Scaleway SAS, France, EU) | **EU — Paris (`fr-par`)** | A copy of the database (all stored personal data except sign-in tokens), in a private bucket encrypted at rest; optionally also encrypted before upload (see §6) |
 
 > **File storage residency (D13):** file uploads use the Vercel Blob store
 > `seq-elevate-demo-blob`, region **`FRA1` (Frankfurt → AWS eu-central-1,
@@ -43,7 +44,7 @@ Because Vercel, Neon and Resend are US companies, transfers to them are
 | Operation | Applies | Where / how |
 |---|---|---|
 | Organisation & sorting | ✅ | Learners grouped into organisations & cohorts; courses/documents ordered |
-| Storage | ✅ | PostgreSQL (Neon, EU) + file storage (Blob) |
+| Storage | ✅ | PostgreSQL (Neon, EU) + file storage (Blob) + daily off-site backup copies (Scaleway, Paris; kept 30 days) |
 | Provision / making available | ✅ | Serving content and a learner's own data back to them and to authorised staff |
 | Retention | ✅ | Records kept in the database while a learner is active (period **[Controller]**) |
 | Retrieval | ✅ | Reading a learner's progress / Comp Card |
@@ -103,8 +104,9 @@ privacy choice. It is **not** an active push of data.
 > consortium requires strict siloing.
 
 **(b) Sub-processors — _active storage/processing on SENIC's instruction_.**
-The providers in §1 (Vercel, Neon, Resend; Plausible processes no personal
-data) store and process data solely to run the service, under Art. 28 DPAs.
+The providers in §1 (Vercel, Neon, Resend, Scaleway; Plausible processes no
+personal data) store and process data solely to run the service, under Art. 28
+DPAs.
 
 **Transfer method:** (online) retrieval by authorised third parties (a);
 processing by sub-processors under contract (b). No bulk export or sale; no
@@ -122,11 +124,12 @@ advertising or third-party trackers.
    patching, database administration, deployment/release management, monitoring,
    troubleshooting.
 3. **Person/company commissioned:** **SENIC** (developer & operator). Underlying
-   infrastructure sub-processors: Vercel, Neon, Resend, Plausible.
+   infrastructure sub-processors: Vercel, Neon, Resend, Scaleway, Plausible.
 4. **Registered office in a third country?** **[SENIC to confirm its own legal
    seat.]** The infrastructure sub-processors **Vercel Inc.** and **Neon Inc.**
    and **Resend Inc.** are **US-based (third country)** → SCCs required; the
-   database itself is hosted in the **EU**. **Plausible** is EU (Estonia).
+   database itself is hosted in the **EU**. **Plausible** (Estonia) and
+   **Scaleway** (France, backups) are EU companies.
 5. **Access rights of the maintainer:** **Administrative / maximum privileges**
    to the hosting environment (necessary to operate it). Day-to-day the app's
    own RBAC governs in-app data access.
@@ -155,6 +158,11 @@ advertising or third-party trackers.
   (GDPR self-service), so the policy can be enforced once defined. SENIC can add
   a scheduled auto-purge (e.g. "delete N months after a cohort ends") once the
   retention rule is agreed.
+- **Backups:** daily off-site copies are kept **30 days**, then deleted
+  automatically; Neon's own point-in-time history is kept up to 7 days. Data a
+  learner erases therefore leaves the backups within 30 days. A backup is never
+  restored without re-applying the erasures and corrections made after its date
+  (BACKUP.md, R10).
 
 ---
 
@@ -182,13 +190,13 @@ unless marked _planned_.
 
 **Encryption & residency**
 - **Encryption in transit** (HTTPS/TLS everywhere).
-- **Encryption at rest** for the database and file storage (provider-managed).
-- Primary learner records hosted in the **EU (Frankfurt)**.
+- **Encryption at rest** for the database, file storage and off-site backups (provider-managed; backups optionally also encrypted before upload, with a key only SENIC's named key holders have).
+- Primary learner records hosted in the **EU (Frankfurt)**; backups in the **EU (Paris)**.
 
 **Integrity, availability & operations**
 - Version-controlled code; automated CI (type-check, lint, unit + end-to-end tests, automated accessibility checks) gating every change.
 - Database schema changes via reviewed, versioned migrations.
-- Managed-provider backups (retention tier **[to confirm]**).
+- **Backups:** Neon point-in-time restore (history window 7 days **[to confirm once set]**) and a **daily off-site backup** to Scaleway (Paris), kept 30 days: taken with a **read-only** database role, sign-in tokens left out, verified on every run (size, tables, every data block; the stored copy read back and compared), with a restore procedure and quarterly test restores (BACKUP.md). **[Active from: date of the first successful run.]**
 - **Audit log** of security-relevant actions.
 - **WCAG 2.2 AA** accessibility (relevant for equitable access; internally tested).
 
@@ -207,6 +215,8 @@ For the controller's file:
    - **Neon** (database) — US company, EU-hosted data → DPA + SCCs.
    - **Resend** (email) — US → SCCs.
    - **Plausible** — EU (Estonia); processes no personal data (DPA still advisable).
+   - **Scaleway** (off-site backups) — EU (France), data in Paris → Scaleway's
+     standard DPA (accepted with its terms); no third-country transfer.
 3. Confirm the **Vercel Blob region/DPA** (or migrate to an EU bucket) before
    real learner uploads (D13).
 

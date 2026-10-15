@@ -157,9 +157,9 @@ learner-initiated erasure today.]`
 
 **Confidentiality, integrity, availability & resilience (Art. 32(1)(b))**
 - **Encryption in transit** (TLS/HTTPS) throughout.
-- **Encryption at rest** for the database and file storage (provider-managed).
-- Data hosted in the **EU**: database in **Neon, Frankfurt (AWS eu-central-1)**; file storage in **Vercel Blob, Frankfurt (`fra1`, AWS eu-central-1)**.
-- Managed-provider **backups**; retention tier `[to confirm]`.
+- **Encryption at rest** for the database, file storage and off-site backups (provider-managed; backups optionally also encrypted before upload).
+- Data hosted in the **EU**: database in **Neon, Frankfurt (AWS eu-central-1)**; file storage in **Vercel Blob, Frankfurt (`fra1`, AWS eu-central-1)**; backups in **Scaleway, Paris (`fr-par`)**.
+- **Backups:** Neon point-in-time restore (7 days `[to confirm once set]`) and a **daily off-site backup** to Scaleway (Paris), kept **30 days**, taken with a read-only database role, sign-in tokens excluded, verified on every run.
 - Version-controlled code; automated CI (type-check, lint, unit + end-to-end tests, automated accessibility checks) gating every change; reviewed, versioned database migrations.
 
 **Accountability & monitoring**
@@ -170,7 +170,7 @@ learner-initiated erasure today.]`
 - Self-service **data export** (JSON/CSV) and **account deletion** (cascading erasure); consent-withdrawal recorded.
 
 **Ability to restore / test measures (Art. 32(1)(c),(d))**
-- Provider-level redundancy and backups; the measures above are reviewed as the platform evolves. `[External penetration test: planned / on request.]`
+- Provider-level redundancy; daily verified off-site backups with a documented restore procedure, test-restored quarterly; erasures and corrections made after a backup's date are re-applied before any restored data is used. The measures above are reviewed as the platform evolves. `[External penetration test: planned / on request.]`
 
 ---
 
@@ -182,6 +182,7 @@ learner-initiated erasure today.]`
 | **Neon Inc.** | PostgreSQL database (learner records) | USA | **EU — Frankfurt** (AWS eu-central-1) | DPA + **SCCs** |
 | **Resend Inc.** | Transactional email (sign-in links) | USA | USA | DPA + **SCCs** |
 | **Plausible Insights OÜ** | Web analytics | Estonia (**EU**) | EU | Processes **no personal data**; DPA advisable |
+| **Scaleway SAS** | Off-site database backups (daily, kept 30 days) | France (**EU**) | **EU — Paris** (`fr-par`) | Scaleway's DPA; no third-country transfer |
 
 The Controller authorises the above as sub-processors. SENIC will hold the
 executed sub-processor DPAs and make them available to the Controller on

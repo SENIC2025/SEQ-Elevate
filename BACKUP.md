@@ -38,7 +38,7 @@ version, never a secret, host or password.
 Never send a password, key or connection string by email, chat or ticket — paste them
 only where these steps say. Keep them in a password manager.
 
-### A. Storage — Scaleway Object Storage, Paris (recommended)
+### A. Storage — Scaleway Object Storage, Paris (chosen, D61)
 
 Why Scaleway: an EU company (Paris), encryption at rest, keys limited to one project by
 clicking only, about €0.03 a month at this size. Hetzner (Germany) also works but
