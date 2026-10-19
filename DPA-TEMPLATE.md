@@ -159,7 +159,7 @@ learner-initiated erasure today.]`
 - **Encryption in transit** (TLS/HTTPS) throughout.
 - **Encryption at rest** for the database, file storage and off-site backups (provider-managed; backups optionally also encrypted before upload).
 - Data hosted in the **EU**: database in **Neon, Frankfurt (AWS eu-central-1)**; file storage in **Vercel Blob, Frankfurt (`fra1`, AWS eu-central-1)**; backups in **Scaleway, Paris (`fr-par`)**.
-- **Backups:** Neon point-in-time restore (7 days `[to confirm once set]`) and a **daily off-site backup** to Scaleway (Paris), kept **30 days**, taken with a read-only database role, sign-in tokens excluded, verified on every run.
+- **Backups:** Neon point-in-time restore (7 days `[to confirm once set; 6 hours while on Neon's Free plan]`) and a **daily off-site backup** to Scaleway (Paris), kept **30 days**, taken with a read-only database role, sign-in tokens excluded, verified on every run.
 - Version-controlled code; automated CI (type-check, lint, unit + end-to-end tests, automated accessibility checks) gating every change; reviewed, versioned database migrations.
 
 **Accountability & monitoring**

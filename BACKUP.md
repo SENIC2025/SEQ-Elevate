@@ -9,8 +9,9 @@ retained 30 days"** (Contract Item 2 §7). Implemented as
 ## Two layers
 
 1. **Neon point-in-time restore** — continuous, to any second, inside Neon. The
-   history window is **1 day by default** on the Launch plan; set it to **7 days**
-   (Setup, step B1). It lives inside the same Neon account.
+   history window is **6 hours, fixed,** on the Free plan, and **1 day by default** on
+   the Launch plan (the pilot's plan, D24), where you set it to **7 days** (Setup, step
+   B1). It lives inside the same Neon account.
 2. **This off-site daily dump** — a `pg_dump` copied to a private, EU bucket **you**
    control, kept **30 days**. Protects against losing the Neon project or account,
    and is the layer the contract's §7 refers to.
@@ -71,7 +72,9 @@ AWS Frankfurt `https://s3.eu-central-1.amazonaws.com` + `eu-central-1`.
 
 ### B. Neon — a longer restore window and a read-only login
 
-1. Project → **Settings → Postgres** (history window): set **7 days**, save (pennies).
+1. Project → **Settings → History window**: on the Launch plan set **7 days**, save
+   (pennies). On the Free plan the slider stops at **6 hours**: nothing to set; come
+   back to this step after the move to Launch (D24).
 2. **SQL Editor** on the **production** branch and the app's database. Open
    [`scripts/db-backup-role.sql`](scripts/db-backup-role.sql): run **CHECK 1**, note
    `db_name` and `table_owner`.
