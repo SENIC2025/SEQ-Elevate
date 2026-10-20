@@ -516,11 +516,9 @@
     "notSaved": "This answer couldn't be saved. You can carry on, but it won't be there after a reload or on another device."
   },
   "sectionPreview": {
-    "answerFirst": "Answer this first to continue.",
     "skippedNote": "For editors: {count, plural, one {one piece of content isn't shown} other {# pieces of content aren't shown}} here — only a draft so far, or not ready yet.",
     "ratingOption": "{n} of 5",
     "ratingScale": "1 = {min} · 5 = {max}",
-    "editLesson": "Edit this lesson",
     "quizResult": {
       "yoursCorrect": "(your answer, correct)",
       "yoursWrong": "(your answer, not correct)",

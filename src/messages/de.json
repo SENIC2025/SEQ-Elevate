@@ -516,11 +516,9 @@
     "notSaved": "Diese Antwort konnte nicht gespeichert werden. Du kannst weitermachen, aber nach dem Neuladen oder auf einem anderen Gerät ist sie nicht mehr da."
   },
   "sectionPreview": {
-    "answerFirst": "Beantworte das zuerst, um weiterzumachen.",
     "skippedNote": "Für die Redaktion: {count, plural, one {Ein Inhalt wird} other {# Inhalte werden}} hier nicht gezeigt — bisher nur ein Entwurf oder noch nicht fertig.",
     "ratingOption": "{n} von 5",
     "ratingScale": "1 = {min} · 5 = {max}",
-    "editLesson": "Diese Lektion bearbeiten",
     "quizResult": {
       "yoursCorrect": "(deine Antwort, richtig)",
       "yoursWrong": "(deine Antwort, nicht richtig)",

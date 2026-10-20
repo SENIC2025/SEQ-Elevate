@@ -563,7 +563,6 @@ export type PartAnswer =
   | { type: "quiz"; answers: Record<string, string>; checked: boolean }
   | { type: "reflection"; text: Record<string, string> }
   | { type: "rating"; values: Record<string, 1 | 2 | 3 | 4 | 5> };
-export type SectionContinueState = { ready: true } | { ready: false; firstMissing: PartId };
 
 /* ====================================================================== */
 /* Pure functions. Each is implemented in the named module as             */
@@ -706,11 +705,3 @@ export type ResolveSectionStage = (input: {
   standardTitle: string;
   defaults: PartDefaults & { reflectionTitle: string; reflectionIntro: string };
 }) => SectionStage | null;
-
-/** sectioned/section-continue.ts (Stream C) — practice chosen; scenario root (+follow-up
- *  when the root has follow-ups); quiz checked. Reflection and rating never gate. */
-export type SectionContinue = (
-  sectionId: SectionId,
-  parts: readonly ResolvedPart[],
-  answers: Readonly<Partial<Record<PartKey, PartAnswer>>>
-) => SectionContinueState;

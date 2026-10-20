@@ -187,9 +187,11 @@ describe("result mapping", () => {
       error: "has-learners",
       count: 2,
     });
+    // (Release 1's "live-course-standard-only" is retired, D66: a refusal
+    // with a payload of today's kind instead.)
     expect(
-      toSaveResult({ ok: false, error: "live-course-standard-only", reasons: [{ code: "extra-parts" }] })
-    ).toEqual({ ok: false, error: "live-course-standard-only" });
+      toSaveResult({ ok: false, error: "restructure-closed", from: "2026-11-30T23:00:00.000Z" })
+    ).toEqual({ ok: false, error: "restructure-closed" });
     expect(toDraftResult({ ok: false, error: "forbidden" })).toEqual({ ok: false, error: "forbidden" });
   });
 });

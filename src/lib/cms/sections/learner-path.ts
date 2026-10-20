@@ -75,6 +75,11 @@ export interface PlanLesson {
    * The language `label` is written in, when it isn't the plan's: a lesson
    * of the course's own named, or titled, only in another language. Shown
    * with it as its lang attribute (WCAG 3.1.2). Absent otherwise.
+   *
+   * Worked out here only (labelLang). Each reader carries it next to the
+   * name it got from the same plan: the player as LearnerLesson.lang, the
+   * dashboard as CourseSummary.stageLabelLangs, the facilitator view as
+   * FacilitatorLearner.currentStageLabelLang.
    */
   lang?: Locale;
 }

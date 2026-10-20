@@ -197,15 +197,10 @@ describe("Release 1 stream namespaces", () => {
 
   const SEEDED: Record<(typeof PLACES)[number][0], string[]> = {
     // Release 2 deleted the preview's "learners get this from Release 2"
-    // banner: preview shows what learners get (D63).
-    sectionPreview: [
-      "answerFirst",
-      "skippedNote",
-      "ratingOption",
-      "ratingScale",
-      "editLesson",
-      "partHeading",
-    ],
+    // banner: preview shows what learners get (D63). The player's own
+    // Continue rule and "Edit this lesson" link replaced answerFirst and
+    // editLesson, deleted at integration.
+    sectionPreview: ["skippedNote", "ratingOption", "ratingScale", "partHeading"],
     lessonList: [
       "heading",
       "count",
@@ -326,6 +321,20 @@ describe("no release names or the release date in the editor's words", () => {
         .filter(([path, text]) => OLD.test(text) && !LEFT_TO_THE_OLD_PREVIEW.has(path))
         .map(([path]) => path);
       expect(found, locale).toEqual([]);
+    }
+  });
+
+  it("drops the old preview's words the one player no longer uses", () => {
+    // The banner went with the old preview (spec 9.1); "Answer this first to
+    // continue." with its Continue rule (continue-gate.ts names the item and
+    // the need), and its own "Edit this lesson" with it (the player's
+    // coursePlayer.editLesson is the one link).
+    const GONE = ["sectionPreview.banner", "sectionPreview.answerFirst", "sectionPreview.editLesson"];
+    for (const [locale, messages] of Object.entries(FILES)) {
+      expect(
+        GONE.filter((key) => at(messages, key) !== undefined),
+        locale
+      ).toEqual([]);
     }
   });
 

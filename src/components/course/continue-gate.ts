@@ -14,10 +14,11 @@
  *
  * Text, reflection questions and self-assessments never hold a learner up,
  * nor does a question with nothing to answer (no options, no questions):
- * nobody could get past it (the Release 1 rule, section-continue.ts). A
- * practice question or scenario the learner chose to try again ("Try
- * another", `retrying`) counts as unanswered on this visit — its saved
- * answer stays (D65, owner default 8) — as Release 0's "Try another" did.
+ * nobody could get past it (the Release 1 preview's rule, which this
+ * replaces). A practice question or scenario the learner chose to try
+ * again ("Try another", `retrying`) counts as unanswered on this visit —
+ * its saved answer stays (D65, owner default 8) — as Release 0's "Try
+ * another" did.
  *
  * Pure, no React.
  */
