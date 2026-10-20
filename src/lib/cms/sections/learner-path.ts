@@ -36,10 +36,12 @@
 import { STAGES } from "@/data/course";
 import type { CourseKind } from "../course-admin-types";
 import { presentStageKeys } from "../course-derive";
+import { fallbackOrder, hasText } from "../text-fallback";
 import type { Locale } from "../types";
 import {
   isLegacySectionId,
   mainKindOf,
+  type LabelSource,
   type ResolvedSection,
   type SectionFacts,
   type SectionId,
@@ -69,6 +71,12 @@ export interface PlanLesson {
   id: SectionId;
   kind: RenderKind;
   label: string;
+  /**
+   * The language `label` is written in, when it isn't the plan's: a lesson
+   * of the course's own named, or titled, only in another language. Shown
+   * with it as its lang attribute (WCAG 3.1.2). Absent otherwise.
+   */
+  lang?: Locale;
 }
 export interface LessonPlan {
   /** The lessons learners get, in their order. */
@@ -102,6 +110,34 @@ const noRow = (stageKey: string): LessonFacts => ({
 function stageShown(section: ResolvedSection, row: LessonFacts): boolean {
   const kind = mainKindOf(section);
   return kind === "narrative" || kind === "reflection" || row.structure != null;
+}
+
+const isRecord = (v: unknown): v is Record<string, unknown> =>
+  !!v && typeof v === "object" && !Array.isArray(v);
+
+/**
+ * The language a step name came from when it isn't `locale` (see
+ * PlanLesson.lang): the first language with text, in the order the name or
+ * title was read in (fallbackOrder, as sectionLabel and sectionTitle read
+ * them). A standard, template or generic name is always in `locale`.
+ */
+function labelLang(
+  section: ResolvedSection,
+  row: LessonFacts,
+  locale: Locale,
+  source: LabelSource
+): Locale | undefined {
+  const firstWritten = (byLang: unknown, read: (v: unknown) => unknown) => {
+    if (!isRecord(byLang)) return undefined;
+    const lang = fallbackOrder(byLang, locale).find((k) => hasText(read(byLang[k])));
+    return lang && lang !== locale ? (lang as Locale) : undefined;
+  };
+  if (source === "other-language") return firstWritten(section.label, (v) => v);
+  if (source !== "title") return undefined;
+  const kind = mainKindOf(section);
+  return kind === "narrative" || kind === "reflection"
+    ? firstWritten(row.narrative, (v) => (isRecord(v) ? v.title : undefined))
+    : firstWritten(isRecord(row.structure) ? row.structure.title : undefined, (v) => v);
 }
 
 const standardLesson = (id: (typeof STAGES)[number], locale: Locale): PlanLesson => ({
@@ -140,12 +176,13 @@ export function lessonPlanOf(
       unseen.push(section.id);
       continue;
     }
-    const label = nameSection(section, locale, {
+    const name = nameSection(section, locale, {
       // Never the draft: learners don't get it, so it can't name their step.
       title: sectionTitle({ narrative: row.narrative, structure: row.structure }, mainKindOf(section), locale),
       n: lessons.length + 1,
-    }).text;
-    lessons.push({ id: section.id, kind: render, label });
+    });
+    const lang = labelLang(section, row, locale, name.source);
+    lessons.push({ id: section.id, kind: render, label: name.text, ...(lang ? { lang } : {}) });
   }
   return { lessons, unseen };
 }

@@ -145,7 +145,8 @@ describe("lessonPlanOf: created courses", () => {
     const en = lessonPlanOf("cms", outline, rows, "en");
     expect(en.lessons).toEqual([
       { id: "concept", kind: "stage", label: "The idea" },
-      { id: OWN, kind: "section", label: "Eigene" },
+      // Named in German only: said so (see "the language of a step name").
+      { id: OWN, kind: "section", label: "Eigene", lang: "de" },
       { id: "behaviour", kind: "section", label: "Behaviour model" },
       { id: "reflection", kind: "stage", label: "Reflection" },
     ]);
@@ -161,6 +162,49 @@ describe("lessonPlanOf: created courses", () => {
     const own = (rows: LessonFacts[]) => lessonPlanOf("cms", outline, rows, "en").lessons.find((l) => l.id === OWN);
     expect(own([facts(OWN, { hasVideo: true })])).toEqual({ id: OWN, kind: "section", label: "Blank lesson" });
     expect(own([facts(OWN, { hasVideo: true, narrative: { en: { title: "Own" } } })])?.label).toBe("Own");
+  });
+
+  it("says the language of a step name that isn't in the plan's (WCAG 3.1.2), and only then", () => {
+    // Review finding 7a: a lesson of the course's own named only in English
+    // was shown on German pages with nothing to say it is English.
+    const outline = {
+      v: 1,
+      sections: [
+        { id: "concept", template: "concept", label: { en: "The idea" } },
+        { id: OWN, template: "text", label: { en: "Your own story" } },
+        { id: OWN2, template: "blank" },
+        { id: "reflection", template: "reflection", label: { de: "Nachdenken", el: "Σκέψη" } },
+      ],
+      removed: ["context", "behaviour"],
+    };
+    const rows = [
+      facts(OWN, { narrative: { en: { title: "A story", blocks: [para("Text")] } } }),
+      // No step name in any language: its title, written in English only.
+      facts(OWN2, { hasVideo: true, narrative: { en: { title: "Only in English" } } }),
+    ];
+    const langs = (locale: Locale) =>
+      lessonPlanOf("cms", outline, rows, locale).lessons.map((l) => [l.label, l.lang]);
+    expect(langs("de")).toEqual([
+      // A standard lesson not renamed in German has its German name.
+      ["Skill-Konzept", undefined],
+      ["Your own story", "en"],
+      ["Only in English", "en"],
+      ["Nachdenken", undefined],
+    ]);
+    expect(langs("en")).toEqual([
+      ["The idea", undefined],
+      ["Your own story", undefined],
+      ["Only in English", undefined],
+      ["Reflection", undefined],
+    ]);
+    expect(langs("el")).toEqual([
+      ["Έννοια δεξιότητας", undefined],
+      ["Your own story", "en"],
+      ["Only in English", "en"],
+      ["Σκέψη", undefined],
+    ]);
+    // A built-in course's names are always the plan's language.
+    expect(lessonPlanOf("bundled", null, [], "de").lessons.every((l) => l.lang === undefined)).toBe(true);
   });
 
   it("gives the derived list when the outline can't be read (fails open, D18)", () => {
