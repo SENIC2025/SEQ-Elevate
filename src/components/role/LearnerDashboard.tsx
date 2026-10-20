@@ -40,10 +40,15 @@ const CLUSTER_ICONS: Record<string, typeof MessageCircle> = {
 
 export interface EnrollmentSummary {
   slug: string;
-  /** Lowercased stage keys completed in this course (real DB data). */
+  /**
+   * The lessons completed in this course (real DB data): lowercased stage
+   * keys, then the course's own ("s-…").
+   */
   stages: string[];
   stagesCompleted: number;
   completed: boolean;
+  /** When the learner was last in the course (ISO); getLearnerEnrollments sets it. */
+  updatedAt?: string;
 }
 
 export function LearnerDashboard({

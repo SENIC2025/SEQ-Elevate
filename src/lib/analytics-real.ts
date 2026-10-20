@@ -6,7 +6,8 @@ import "server-only";
  *     assessment scoring against the CMS answers); staff who still hold the
  *     LEARNER role an older release gave them are left out
  *     (learnerMembershipWhere), so their test runs don't count,
- *   - `stage.time` AuditLog events (time per stage / total),
+ *   - `stage.time` AuditLog events (time per stage / total; time in a
+ *     course's own lessons is in the total, as secondsOther),
  *   - `course.opened` AuditLog events (activity over time + when-they-open),
  *   - UserBadge (badges earned).
  * Returns null when no learner has started yet, so the page can fall back to
@@ -20,6 +21,8 @@ import { readAssessment, scoreAssessment } from "@/lib/assessment-progress";
 import { learnerMembershipWhere } from "@/lib/learner-scope";
 import { STAGES } from "@/data/course";
 import { courseProgress, nextStage } from "@/lib/course-progress";
+import { getLessonPlans } from "@/lib/cms/lesson-plans";
+import { completedLessonIds } from "@/lib/learner-progress/enrolment-read";
 import type { Locale } from "@/lib/cms/types";
 import {
   STAGE_LABELS,
@@ -70,9 +73,21 @@ export async function buildRealAnalytics(
       const c = await getCourse(PROJECT, slug, locale as Locale);
       if (c) contentBySlug.set(slug, c);
     }
+    // The lessons learners get in each course created in the CMS (D64),
+    // which progress and position are counted against. Plans that can't be
+    // read leave each course counted by the stages it shows, as before.
+    let plans: Awaited<ReturnType<typeof getLessonPlans>> | null = null;
+    try {
+      plans = await getLessonPlans(PROJECT, locale);
+    } catch (err) {
+      console.error("Couldn't read the lesson plans; counting the stages shown.", err);
+    }
 
     // Aggregate events.
     const timeByUser = new Map<string, number[]>(); // userId -> [7] seconds
+    // Time in lessons not on the seven steps: a course's own (D70: one
+    // figure, statistics per lesson come after launch).
+    const otherByUser = new Map<string, number>();
     const lastEventMs = new Map<string, number>();
     const opens: Date[] = [];
     for (const ev of events) {
@@ -86,6 +101,9 @@ export async function buildRealAnalytics(
           const arr = timeByUser.get(ev.actorId) ?? new Array(7).fill(0);
           arr[idx] += md?.seconds ?? 0;
           timeByUser.set(ev.actorId, arr);
+        } else {
+          // As the facilitator's view counts it: every event in the total.
+          otherByUser.set(ev.actorId, (otherByUser.get(ev.actorId) ?? 0) + (md?.seconds ?? 0));
         }
       } else if (ev.action === "course.opened") {
         opens.push(ev.createdAt);
@@ -99,21 +117,22 @@ export async function buildRealAnalytics(
         (a, b) => b.updatedAt.getTime() - a.updatedAt.getTime()
       )[0];
       const completed = !!recent.completedAt;
-      // Counted against the course's own lessons (a course created in the
-      // CMS can have four, not seven); a course that no longer resolves
-      // counts as the full seven.
-      const ownKeys = contentBySlug
-        .get(recent.course.slug)
-        ?.stages.map((s) => s.key);
-      const progress = courseProgress(
-        ownKeys,
-        recent.stagesCompleted,
-        completed
-      );
-      // Where they are, on the seven-step funnel: the course's next lesson.
-      const next = nextStage(ownKeys, recent.stagesCompleted, completed);
+      // Counted against the course's own lessons: a course created in the
+      // CMS by its lesson plan (its own lessons included; a finished lesson
+      // it no longer shows still counts), else by the stages it shows; a
+      // course that no longer resolves counts as the full seven.
+      const plan = plans?.get(recent.course.slug);
+      const ownKeys =
+        plan?.lessons.map((l) => l.id) ??
+        contentBySlug.get(recent.course.slug)?.stages.map((s) => s.key);
+      const done = completedLessonIds(recent);
+      const progress = courseProgress(ownKeys, done, completed, plan?.unseen ?? []);
+      // Where they are, on the seven-step funnel: the course's next lesson
+      // (-1, beside the funnel, for one of the course's own).
+      const next = nextStage(ownKeys, done, completed);
       const secondsByStage = timeByUser.get(u.id) ?? new Array(7).fill(0);
-      const secondsTotal = secondsByStage.reduce((a, b) => a + b, 0);
+      const secondsOther = otherByUser.get(u.id) ?? 0;
+      const secondsTotal = secondsByStage.reduce((a, b) => a + b, 0) + secondsOther;
       const lastMs = Math.max(
         recent.updatedAt.getTime(),
         lastEventMs.get(u.id) ?? 0
@@ -143,6 +162,7 @@ export async function buildRealAnalytics(
         completed,
         progressPct: progress.pct,
         secondsByStage,
+        secondsOther,
         secondsTotal,
         lastActiveHoursAgo,
         assessmentCorrect,
@@ -166,6 +186,9 @@ export async function buildRealAnalytics(
       reached: completedCount,
       pct: Math.round((completedCount / N) * 100),
     });
+    // Learners on a lesson of their course's own: on none of the steps.
+    const onOther = learners.filter((l) => !l.completed && l.currentStageIndex < 0).length;
+    const funnelOther = { reached: onOther, pct: Math.round((onOther / N) * 100) };
 
     let stuckStageIndex = 0;
     let maxDrop = -1;
@@ -240,6 +263,7 @@ export async function buildRealAnalytics(
         badges,
       },
       funnel,
+      funnelOther,
       timePerStage,
       stuckStageIndex,
       slowestStageIndex,

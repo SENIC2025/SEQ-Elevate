@@ -52,6 +52,11 @@ export async function collectUserData(userId: string) {
     courses: user.enrollments.map((e) => ({
       course: e.course.slug,
       stagesCompleted: e.stagesCompleted,
+      // Release 2 (D62): lessons of the course's own finished, and every
+      // answer without a field of its own, by "lessonId/contentId" — by
+      // name, as stored.
+      sectionsCompleted: e.sectionsCompleted ?? [],
+      responses: e.responses ?? null,
       completedAt: e.completedAt?.toISOString() ?? null,
       simulation:
         e.simulationChoice != null

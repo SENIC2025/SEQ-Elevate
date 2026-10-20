@@ -21,11 +21,13 @@ export interface LearnerRow {
   id: string;
   name: string;
   cohort: string;
-  currentStageIndex: number; // 0..6, or 7 = completed
+  currentStageIndex: number; // 0..6, or 7 = completed; -1 = a lesson of the course's own
   completed: boolean;
   progressPct: number;
   secondsByStage: number[]; // length 7 (0 if not reached)
-  secondsTotal: number;
+  /** Release 2: time in lessons of a course's own ("s-…"), not on the seven steps. */
+  secondsOther?: number;
+  secondsTotal: number; // the seven steps plus secondsOther
   lastActiveHoursAgo: number;
   assessmentCorrect: number;
   assessmentTotal: number;
@@ -43,6 +45,12 @@ export interface AnalyticsData {
     badges: number;
   };
   funnel: { label: string; reached: number; pct: number }[]; // 7 stages + Completed
+  /**
+   * Release 2: learners whose next lesson is one of their course's own, so
+   * on none of the seven steps (real data only; statistics per lesson come
+   * after launch).
+   */
+  funnelOther?: { reached: number; pct: number };
   timePerStage: { label: string; avgSeconds: number }[]; // 7 stages
   stuckStageIndex: number; // biggest funnel drop-off
   slowestStageIndex: number; // longest average time

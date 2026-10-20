@@ -15,6 +15,9 @@ import {
   nextStage,
   overallProgress,
 } from "@/lib/course-progress";
+import { getLessonPlans } from "@/lib/cms/lesson-plans";
+import type { LessonPlan } from "@/lib/cms/sections/learner-path";
+import { completedLessonIds } from "@/lib/learner-progress/enrolment-read";
 import type { Locale, CourseContent } from "@/lib/cms/types";
 import type { Role } from "@prisma/client";
 
@@ -38,16 +41,23 @@ export async function getLearnerEnrollments() {
       where: { userId: user.id },
       include: { course: true },
     });
-    return rows.map((e) => ({
-      slug: e.course.slug,
-      // Lowercased stage keys, so the dashboard checklist can show *which*
-      // stages are done (not just the count) without re-querying.
-      // The dashboard counts these against each course's own lessons
-      // (CourseSummary.stageKeys), which it already has from the catalogue.
-      stages: e.stagesCompleted.map((s) => s.toLowerCase()),
-      stagesCompleted: e.stagesCompleted.length,
-      completed: !!e.completedAt,
-    }));
+    return rows.map((e) => {
+      // The lessons done — standard keys lowercased, then the course's own
+      // ("s-…") — so the dashboard checklist can show *which* are done (not
+      // just the count) without re-querying. The dashboard counts these
+      // against each course's own lessons (CourseSummary.stageKeys), which
+      // it already has from the catalogue.
+      const stages = completedLessonIds(e);
+      return {
+        slug: e.course.slug,
+        stages,
+        stagesCompleted: stages.length,
+        completed: !!e.completedAt,
+        // When the learner was last in the course (spec 6: the dashboard's
+        // hero follows the course they are in).
+        updatedAt: e.updatedAt.toISOString(),
+      };
+    });
   } catch {
     return null;
   }
@@ -84,9 +94,18 @@ export interface FacilitatorLearner {
   videoCorrect: number;
   /** Where the learner is right now. */
   currentCourse: string | null;
-  currentStage: string | null; // stage key, or "complete"
+  currentStage: string | null; // lesson id, or "complete"
+  /**
+   * The current lesson's step name (D58) in a course created in the CMS;
+   * null for a bundled course's lesson (its standard name, tStage) or
+   * "complete".
+   */
+  currentStageLabel: string | null;
   lastActiveAt: string | null; // ISO
-  /** Active time on task (seconds): total + per stage key. */
+  /**
+   * Active time on task (seconds): total + per lesson id. The total holds
+   * time in every lesson, the course's own included.
+   */
   secondsTotal: number;
   secondsByStage: Record<string, number>;
   /** Quiz performance across the learner's courses. */
@@ -194,11 +213,18 @@ async function loadLearners(
     return f ? `${r.text} → ${f.text}` : r.text;
   };
 
-  // Each course's own lessons, as the player shows them: a course created in
-  // the CMS can have four rather than seven. A course that no longer
-  // resolves counts as the full seven (courseStageKeys' default).
+  // Each course's own lessons, as learners get them (D64): a course created
+  // in the CMS by its lesson plan — its own lessons included, in its order,
+  // with the finished lessons it no longer shows still counted — a bundled
+  // one by its seven stages. Plans that can't be read leave each course
+  // counted by the stages it shows, as before Release 2. A course that no
+  // longer resolves counts as the full seven (courseStageKeys' default).
+  const plans = await lessonPlansOrNull(locale);
+  const planOf = (slug: string) => plans?.get(slug);
   const stageKeysOf = (slug: string) =>
+    planOf(slug)?.lessons.map((l) => l.id) ??
     contentBySlug.get(slug)?.stages.map((s) => s.key);
+  const unseenOf = (slug: string) => planOf(slug)?.unseen ?? [];
 
   return memberships.map((m): FacilitatorLearner => {
     const u = m.user;
@@ -207,8 +233,9 @@ async function loadLearners(
       enr.map((e) =>
         courseProgress(
           stageKeysOf(e.course.slug),
-          e.stagesCompleted,
-          !!e.completedAt
+          completedLessonIds(e),
+          !!e.completedAt,
+          unseenOf(e.course.slug)
         )
       )
     );
@@ -224,6 +251,7 @@ async function loadLearners(
       (a, b) => b.updatedAt.getTime() - a.updatedAt.getTime()
     )[0];
     let currentStage: string | null = null;
+    let currentStageLabel: string | null = null;
     let currentCourse: string | null = null;
     let lastActiveAt: string | null = null;
     if (recent) {
@@ -232,9 +260,12 @@ async function loadLearners(
         contentBySlug.get(recent.course.slug)?.title ?? recent.course.slug;
       currentStage = nextStage(
         stageKeysOf(recent.course.slug),
-        recent.stagesCompleted,
+        completedLessonIds(recent),
         !!recent.completedAt
       );
+      currentStageLabel =
+        planOf(recent.course.slug)?.lessons.find((l) => l.id === currentStage)
+          ?.label ?? null;
     }
 
     // Quiz performance across enrollments.
@@ -282,6 +313,7 @@ async function loadLearners(
       videoCorrect: video.correct,
       currentCourse,
       currentStage,
+      currentStageLabel,
       lastActiveAt,
       secondsTotal: time.total,
       secondsByStage: time.byStage,
@@ -291,6 +323,22 @@ async function loadLearners(
       simulationTotal,
     };
   });
+}
+
+/**
+ * The lesson plans of the courses created in the CMS, or null when they
+ * can't be read: the caller then counts each course by the stages it shows,
+ * as before Release 2, rather than show nothing.
+ */
+async function lessonPlansOrNull(
+  locale: Locale
+): Promise<Map<string, LessonPlan> | null> {
+  try {
+    return await getLessonPlans(PROJECT, locale);
+  } catch (err) {
+    console.error("Couldn't read the lesson plans; counting the stages shown.", err);
+    return null;
+  }
 }
 
 /**

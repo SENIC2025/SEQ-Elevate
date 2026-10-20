@@ -1,5 +1,6 @@
-import { describe, it, expect, vi } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import type { CourseContent, StageKey } from "@/lib/cms/types";
+import type { LessonPlan } from "@/lib/cms/sections/learner-path";
 
 /*
  * The staff analytics from captured data, with the database and the course
@@ -10,45 +11,65 @@ import type { CourseContent, StageKey } from "@/lib/cms/types";
 vi.mock("server-only", () => ({}));
 
 const now = new Date();
-const enrolment = (stagesCompleted: string[], completedAt: Date | null) => ({
+const enrolment = (
+  stagesCompleted: string[],
+  completedAt: Date | null,
+  sectionsCompleted: string[] | null = null
+) => ({
   course: { slug: "asking-for-help" },
   stagesCompleted,
+  sectionsCompleted,
   completedAt,
   updatedAt: now,
   assessment: null,
 });
 
+const learnersOf = vi.fn(() => [
+  {
+    cohort: null,
+    user: {
+      id: "finished",
+      name: "Ana",
+      email: null,
+      enrollments: [enrolment(["CONTEXT", "CONCEPT", "BEHAVIOUR", "REFLECTION"], now)],
+    },
+  },
+  {
+    cohort: null,
+    user: {
+      id: "halfway",
+      name: "Ben",
+      email: null,
+      enrollments: [enrolment(["CONTEXT", "CONCEPT", "BEHAVIOUR"], null)],
+    },
+  },
+]);
 const membershipFindMany = vi.fn();
+const auditFindMany = vi.fn(async (): Promise<unknown[]> => []);
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     membership: {
-      findMany: membershipFindMany.mockImplementation(async () => [
-        {
-          cohort: null,
-          user: {
-            id: "finished",
-            name: "Ana",
-            email: null,
-            enrollments: [
-              enrolment(["CONTEXT", "CONCEPT", "BEHAVIOUR", "REFLECTION"], now),
-            ],
-          },
-        },
-        {
-          cohort: null,
-          user: {
-            id: "halfway",
-            name: "Ben",
-            email: null,
-            enrollments: [enrolment(["CONTEXT", "CONCEPT", "BEHAVIOUR"], null)],
-          },
-        },
-      ]),
+      findMany: membershipFindMany.mockImplementation(async () => learnersOf()),
     },
-    auditLog: { findMany: async () => [] },
+    auditLog: { findMany: auditFindMany },
     userBadge: { count: async () => 1 },
   },
 }));
+
+// The lesson plans of the courses created in the CMS (spec 3.3): none by
+// default, as for the bundled courses.
+const lessonPlans = vi.fn(async (): Promise<Map<string, LessonPlan>> => new Map());
+vi.mock("@/lib/cms/lesson-plans", () => ({
+  getLessonPlans: () => lessonPlans(),
+}));
+
+const defaultLearners = learnersOf.getMockImplementation()!;
+afterEach(() => {
+  learnersOf.mockImplementation(defaultLearners);
+  auditFindMany.mockImplementation(async () => []);
+  lessonPlans.mockImplementation(async () => new Map());
+  vi.restoreAllMocks();
+});
 
 const NARRATIVE: StageKey[] = ["context", "concept", "behaviour", "reflection"];
 vi.mock("@/lib/cms", () => ({
@@ -77,6 +98,82 @@ describe("buildRealAnalytics", () => {
     const halfway = data?.learners.find((l) => l.id === "halfway");
     // Reflection (index 5 of the seven-step list), not Guided practice (3).
     expect(halfway?.currentStageIndex).toBe(5);
+  });
+});
+
+/*
+ * U11 (spec 6, D64, D70): a course created in the CMS is counted against
+ * its lesson plan, its own lessons ("s-…") included; a learner whose next
+ * lesson is one of those is counted beside the seven-step funnel
+ * (funnelOther); time in them is in the total (secondsOther).
+ */
+const OWN = "s-abcdefgh";
+const OWN2 = "s-ijklmnop";
+const plan: LessonPlan = {
+  lessons: [
+    { id: "context", kind: "stage", label: "Context" },
+    { id: OWN, kind: "section", label: "Your own" },
+    { id: "concept", kind: "stage", label: "Concept" },
+    { id: OWN2, kind: "section", label: "Try it" },
+  ],
+  unseen: ["reflection"],
+};
+const one = (id: string, enrollments: ReturnType<typeof enrolment>[]) => ({
+  cohort: null,
+  user: { id, name: id, email: null, enrollments },
+});
+
+describe("buildRealAnalytics, for a course with lessons of its own", () => {
+  it("counts progress against the lesson plan, its own lessons and a finished hidden one included", async () => {
+    lessonPlans.mockImplementation(async () => new Map([["asking-for-help", plan]]));
+    learnersOf.mockImplementation(() => [
+      one("own", [enrolment(["CONTEXT", "REFLECTION"], null, [OWN])]),
+    ]);
+    const data = await buildRealAnalytics("en");
+    // context, OWN and the hidden reflection: 3 of 4 shown + reflection.
+    expect(data?.learners[0].progressPct).toBe(60);
+  });
+
+  it("counts a learner whose next lesson is one of the course's own beside the funnel", async () => {
+    lessonPlans.mockImplementation(async () => new Map([["asking-for-help", plan]]));
+    learnersOf.mockImplementation(() => [
+      one("onOwn", [enrolment(["CONTEXT"], null)]),
+      one("onConcept", [enrolment(["CONTEXT"], null, [OWN])]),
+    ]);
+    const data = await buildRealAnalytics("en");
+    const byId = new Map(data?.learners.map((l) => [l.id, l]));
+    // Not a step of the seven: no index on it.
+    expect(byId.get("onOwn")?.currentStageIndex).toBe(-1);
+    expect(byId.get("onConcept")?.currentStageIndex).toBe(1);
+    expect(data?.funnelOther).toEqual({ reached: 1, pct: 50 });
+  });
+
+  it("has nobody beside the funnel when every learner is on a standard lesson", async () => {
+    const data = await buildRealAnalytics("en");
+    expect(data?.funnelOther).toEqual({ reached: 0, pct: 0 });
+  });
+
+  it("adds time in lessons of the course's own to the total, as secondsOther", async () => {
+    auditFindMany.mockImplementation(async () => [
+      { actorId: "halfway", action: "stage.time", metadata: { stage: "context", seconds: 60 }, createdAt: now },
+      { actorId: "halfway", action: "stage.time", metadata: { stage: OWN, seconds: 90 }, createdAt: now },
+    ]);
+    const data = await buildRealAnalytics("en");
+    const halfway = data?.learners.find((l) => l.id === "halfway");
+    expect(halfway?.secondsByStage).toEqual([60, 0, 0, 0, 0, 0, 0]);
+    expect(halfway?.secondsOther).toBe(90);
+    // The same total as the facilitator's view.
+    expect(halfway?.secondsTotal).toBe(150);
+  });
+
+  it("counts by the stages each course shows when the plans can't be read", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    lessonPlans.mockImplementation(async () => {
+      throw new Error("database down");
+    });
+    const data = await buildRealAnalytics("en");
+    expect(data?.learners.find((l) => l.id === "halfway")?.progressPct).toBe(75);
+    expect(console.error).toHaveBeenCalled();
   });
 });
 
