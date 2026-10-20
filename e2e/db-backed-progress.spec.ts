@@ -455,10 +455,11 @@ describe("progress made before the learner's data has loaded", () => {
 
     await walkWorkplaceConflict(page);
     // …and looks back at the first lesson, leaving the completion screen
-    // (which would otherwise hand out the badge again).
+    // (which would otherwise hand out the badge again). Release 2: a done
+    // step is named "<name>, done" (spec 5.12, D2).
     await page
       .getByRole("navigation", { name: "Course stages" })
-      .getByRole("button", { name: "Context", exact: true })
+      .getByRole("button", { name: "Context, done", exact: true })
       .click();
     await expect(
       page.getByRole("heading", { name: /course complete/i })
