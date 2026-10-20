@@ -465,7 +465,7 @@ describe("Release 1 — the publish guard", () => {
     );
   });
 
-  test("a standard course renamed in the list publishes; learners get the new names (Release 2, D58)", async ({
+  test("a standard course renamed in the list publishes; learners keep the standard names", async ({
     page,
     context,
   }) => {
@@ -494,27 +494,26 @@ describe("Release 1 — the publish guard", () => {
     const { sessionToken } = await signedInUser(LEARNER, "LEARNER");
     await useSession(context, sessionToken);
     await page.goto(`/en/learner/course/${NAMED}`);
-    // Release 2 (Stream A, D58): learners see the step names.
     expect(await stepNames(page)).toEqual([
-      "Where we start",
+      "Context",
       "Skill concept",
       "Behaviour model",
       "Applied scenario",
       "Reflection",
     ]);
-    await expect(page.getByText(/^1 \/ 5 · Where we start$/).filter({ visible: true })).toBeVisible();
+    await expect(page.getByText("Where we start")).toHaveCount(0);
   });
 
-  test("a course published past the guard: learners get it as built (Release 2); editors are told", async ({
+  test("a course published past the guard: learners get the standard lessons; editors are told", async ({
     page,
     context,
   }) => {
     const learner = await signedInUser(LEARNER_BYPASS, "LEARNER");
     await useSession(context, learner.sessionToken);
-    // Release 2 (Stream A, D63): the course as built — its own lesson in its
-    // place, the hidden one left out.
+    // The four standard lessons in their order, the hidden one included;
+    // nothing of the lesson of its own.
     expect(await learnerLessonCount(page, BYPASS)).toBe(4);
-    expect(await stepNames(page)).toEqual(["Context", "Skill concept", "Wrap-up", "Reflection"]);
+    expect(await stepNames(page)).toEqual(["Context", "Skill concept", "Behaviour model", "Reflection"]);
     await expect(page.getByText(OWN_TEXT)).toHaveCount(0);
 
     // Progress saves, in Release 0's lesson keys.
