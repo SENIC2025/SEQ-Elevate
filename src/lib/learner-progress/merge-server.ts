@@ -148,6 +148,10 @@ function nextResponse(key: PartKey, stored: unknown, answer: PatchAnswer, fill: 
   return answer;
 }
 
+/** `"key":value` as it stands in the stored JSON. */
+const entryLength = (key: string, value: unknown) =>
+  JSON.stringify(key).length + 1 + (JSON.stringify(value)?.length ?? 0);
+
 /** CourseEnrollment.responses' items, or null when the column holds something else. */
 function storedItems(raw: unknown): Rec | null {
   if (raw === null || raw === undefined) return {};
@@ -229,8 +233,13 @@ export function mergeIntoEnrollment(
     if (value === null) continue;
     if (isRecord(stored) && same({ ...stored, at: undefined }, { ...value, at: undefined })) continue;
     const entry = { ...value, at };
-    const candidate = { ...items, [key]: entry };
-    const length = JSON.stringify({ v: 1, items: candidate }).length;
+    // The stored JSON's length after this entry, without writing it all out again.
+    const had = key in items;
+    const length =
+      itemsLength +
+      entryLength(key, entry) -
+      (had ? entryLength(key, stored) : 0) +
+      (!had && Object.keys(items).length > 0 ? 1 : 0);
     if (length > RESPONSE_LIMITS.rowJsonChars && length > itemsLength) {
       refused.push({ key, reason: "row-full" });
       continue;

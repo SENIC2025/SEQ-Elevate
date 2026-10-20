@@ -368,3 +368,23 @@ describe("mergeIntoEnrollment: as a whole", () => {
     expect(m.refused).toEqual([{ key: "x", reason: "invalid" }]);
   });
 });
+
+describe("mergeIntoEnrollment: the stored answers' length", () => {
+  it("is counted exactly as the JSON written, entry by entry", () => {
+    // Just under the limit, a new entry that fits exactly is taken; one
+    // character more is refused.
+    const base = { v: 1, items: { [`${OWN}/p-big00001`]: { type: "reflection", text: { a: "" }, at: NOW.toISOString() } } };
+    const entry = (n: number) => ({ type: "reflection" as const, text: { a: "y".repeat(n) } });
+    const added = (n: number) =>
+      JSON.stringify({ ...base, items: { ...base.items, [`${OWN}/${PART}`]: { ...entry(n), at: NOW.toISOString() } } }).length;
+    const room = RESPONSE_LIMITS.rowJsonChars - added(0);
+    const fill = "x".repeat(room - 10);
+    const stored = row({ responses: { v: 1, items: { [`${OWN}/p-big00001`]: { type: "reflection", text: { a: fill }, at: NOW.toISOString() } } } });
+    expect(merge(stored, { answers: { [`${OWN}/${PART}`]: entry(10) } }).refused).toEqual([]);
+    expect(merge(stored, { answers: { [`${OWN}/${PART}`]: entry(11) } }).refused).toEqual([
+      { key: `${OWN}/${PART}`, reason: "row-full" },
+    ]);
+    const ok = merge(stored, { answers: { [`${OWN}/${PART}`]: entry(10) } });
+    expect(JSON.stringify(ok.next.responses).length).toBe(RESPONSE_LIMITS.rowJsonChars);
+  });
+});
