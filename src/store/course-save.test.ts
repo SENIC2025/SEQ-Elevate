@@ -14,7 +14,7 @@ import {
   saveCourse,
   type CourseSaveDeps,
 } from "./course-save";
-import { putInOutbox, readOutbox, type OutboxStorage } from "./outbox";
+import { putInOutbox, readOutbox, restoreOutbox, type OutboxStorage } from "./outbox";
 
 /*
  * One save of a course's progress as the learner store sends it (spec 5.4,
@@ -266,6 +266,27 @@ describe("saveCourse", () => {
     await t.save();
     expect(t.outbox()).toBeNull();
     expect(t.calls.stale).toBe(2);
+  });
+
+  it("an answer kept while the server held Y0 never comes back over the Y saved elsewhere since (finding 4)", async () => {
+    // A stale tab answers X (the server held Y0) and its save finds a newer
+    // build: X goes to the outbox. The learner's phone saves Y. The tab
+    // reloads: what loads is Y, and X must not be sent over it.
+    const t = setup(state({ simulation: practice("y0") }), state({ simulation: practice("x") }));
+    t.answerWith(async () => {
+      throw unknownAction();
+    });
+    await t.save();
+    expect(t.outbox()?.answers).toEqual({ "simulation/main": { type: "practice", optionId: "x", correct: false } });
+
+    const loaded = state({ simulation: practice("y") });
+    const reloaded = courseSaveRefs();
+    reloaded.acked.set(SLUG, loaded);
+    const kept = restoreOutbox(t.deps.outbox, ANA, SLUG, loaded);
+    const restored = kept ? applyPatch(loaded, kept) : loaded;
+    reloaded.latest.set(SLUG, restored);
+    expect(outstandingPatch(reloaded, SLUG)?.answers?.["simulation/main"]).toBeUndefined();
+    expect(restored.simulation).toEqual(practice("y"));
   });
 
   it("a confirmed save with nothing left clears the outbox, though nothing was restored from it on this page", async () => {

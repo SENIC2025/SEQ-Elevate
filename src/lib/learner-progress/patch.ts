@@ -161,6 +161,65 @@ export function withoutRefused(patch: ProgressPatch, refused: readonly RefusedKe
   return out;
 }
 
+/**
+ * What the server held of each answer `patch` carries, in `acked`: the
+ * base an outbox entry keeps beside the patch (outbox.ts), so the patch is
+ * never brought back over an answer saved elsewhere since. Null for an
+ * answer the server didn't have.
+ */
+export function baseOf(patch: ProgressPatch, acked: ProgressState): Record<string, StoredAnswer | null> {
+  const had = sendable(acked);
+  return Object.fromEntries(Object.keys(patch.answers ?? {}).map((key) => [key, had.get(key as PartKey) ?? null]));
+}
+
+/**
+ * The part of a kept `patch` that may be applied over what the server
+ * holds now (`server`): finished lessons and the completion always (they
+ * only grow); an answer only where the server still holds what it held
+ * when the patch was kept (`base`, from baseOf) — a reflection or rating
+ * question by question. Anything else was saved elsewhere since (another
+ * device, a tab of an older build) and is newer than the kept answer.
+ * An answer with no base comes back only where the server has none. Null
+ * when nothing is left.
+ */
+export function restorablePatch(
+  patch: ProgressPatch,
+  base: Readonly<Record<string, StoredAnswer | null | undefined>>,
+  server: ProgressState
+): ProgressPatch | null {
+  const now = sendable(server);
+  const textOf = (a: StoredAnswer | null | undefined, field: string) =>
+    a?.type === "reflection" ? (a.text[field] ?? "") : "";
+  const valueOf = (a: StoredAnswer | null | undefined, field: string) =>
+    a?.type === "rating" ? a.values[field] : undefined;
+  const answers: Record<string, PatchAnswer> = {};
+  for (const [key, answer] of Object.entries(patch.answers ?? {})) {
+    const was = base[key] ?? undefined;
+    const is = now.get(key as PartKey);
+    if (answer.type === "reflection") {
+      const text = Object.fromEntries(
+        Object.entries(answer.text).filter(([field]) => textOf(is, field) === textOf(was, field))
+      );
+      if (Object.keys(text).length) answers[key] = { type: "reflection", text };
+    } else if (answer.type === "rating") {
+      const values = Object.fromEntries(
+        Object.entries(answer.values).filter(([field]) => valueOf(is, field) === valueOf(was, field))
+      ) as Record<string, 1 | 2 | 3 | 4 | 5>;
+      if (Object.keys(values).length) answers[key] = { type: "rating", values };
+    } else if (same(is, was)) {
+      answers[key] = answer;
+    }
+  }
+  const completed = patch.completed ?? [];
+  if (!completed.length && !Object.keys(answers).length && !patch.completedAt) return null;
+  return {
+    v: 2,
+    ...(completed.length ? { completed: [...completed] } : {}),
+    ...(Object.keys(answers).length ? { answers } : {}),
+    ...(patch.completedAt ? { completedAt: patch.completedAt } : {}),
+  };
+}
+
 export interface FittedPatch {
   /** What to send now; null when nothing can be. */
   patch: ProgressPatch | null;

@@ -16,13 +16,23 @@
  * newer progress on a later load. Another learner's entry (an account
  * signed in after a sign-out on this tab) is never read.
  *
+ * Each entry keeps beside its patch what the server held of each answer
+ * when it was kept (its base), and only what the server still holds as it
+ * was comes back (restoreOutbox): an answer saved since on another device
+ * — or by a page of an older build after a rollback, which never reads
+ * the outbox — is newer, and stays. Nothing of a learner stays in the tab
+ * once the store lets go of them (signed out, another account, erased):
+ * every entry is cleared then (clearEveryOutbox), at the cost of what a
+ * page from a build that was gone hadn't sent yet.
+ *
  * Pure but for the storage handed in, and never throws: a browser that
  * blocks storage keeps nothing here, which leaves the answers on the page.
  */
 
 import { isSectionId } from "@/lib/cms/sections/contract";
-import type { PatchAnswer, ProgressPatch } from "@/lib/learner-progress/contract";
+import type { PatchAnswer, ProgressPatch, ProgressState, StoredAnswer } from "@/lib/learner-progress/contract";
 import { readAnswer } from "@/lib/learner-progress/parse";
+import { baseOf, restorablePatch } from "@/lib/learner-progress/patch";
 
 export const OUTBOX_PREFIX = "seq-elevate-outbox-v1:";
 
@@ -65,50 +75,129 @@ function readPatch(raw: unknown): ProgressPatch | null {
   };
 }
 
-/** The patch waiting for `forUser` in `slug`, or null: none, unreadable, or no storage. */
-export function readOutbox(
-  storage: OutboxStorage | null,
-  forUser: string,
-  slug: string
-): ProgressPatch | null {
+/** What the server held of each answer of an entry's patch, as kept beside it: what reads as an answer, else none. */
+function readBase(raw: unknown, patch: ProgressPatch): Record<string, StoredAnswer | null> {
+  const base = isRecord(raw) && isRecord(raw.base) ? raw.base : {};
+  return Object.fromEntries(
+    Object.keys(patch.answers ?? {}).map((key) => [key, (readAnswer(key, base[key]) as StoredAnswer | null) ?? null])
+  );
+}
+
+interface Entry {
+  patch: ProgressPatch;
+  base: Record<string, StoredAnswer | null>;
+}
+
+function readEntry(storage: OutboxStorage | null, forUser: string, slug: string): Entry | null {
   try {
     const raw = storage?.getItem(outboxKey(forUser, slug));
-    return raw ? readPatch(JSON.parse(raw)) : null;
+    if (!raw) return null;
+    const parsed: unknown = JSON.parse(raw);
+    const patch = readPatch(parsed);
+    return patch ? { patch, base: readBase(parsed, patch) } : null;
   } catch {
     return null;
   }
 }
 
-/**
- * Keeps `patch` as what waits for `forUser` in `slug`: all the page sending
- * it has that the server hasn't confirmed. It takes the place of what
- * waited, which that page took in when it loaded the course, or which it
- * changed since — merged in, an answer changed since would come back after
- * the reload. Fill mode is never kept: only the move of a guest's progress
- * sends it. False when it couldn't be kept (no storage, or the browser
- * refused it): the answers are then only on the page.
- */
-export function putInOutbox(
-  storage: OutboxStorage | null,
-  forUser: string,
-  slug: string,
-  patch: ProgressPatch
-): boolean {
-  if (!storage) return false;
+function writeEntry(storage: OutboxStorage, forUser: string, slug: string, entry: Entry): boolean {
   try {
-    const { fill: _fill, ...own } = patch;
-    void _fill;
-    storage.setItem(outboxKey(forUser, slug), JSON.stringify(own));
+    storage.setItem(outboxKey(forUser, slug), JSON.stringify({ ...entry.patch, base: entry.base }));
     return true;
   } catch {
     return false;
   }
 }
 
+/** The patch waiting for `forUser` in `slug`, or null: none, unreadable, or no storage. */
+export function readOutbox(
+  storage: OutboxStorage | null,
+  forUser: string,
+  slug: string
+): ProgressPatch | null {
+  return readEntry(storage, forUser, slug)?.patch ?? null;
+}
+
+/**
+ * What the outbox brings back for `forUser` in `slug` over what the server
+ * holds now (`server`, the progress just loaded): its finished lessons and
+ * completion, and each answer the server still holds as it was when the
+ * entry was kept (restorablePatch) — never one over an answer saved
+ * elsewhere since. What can't come back is dropped from the entry for
+ * good, and an entry with nothing left is cleared. Null when nothing
+ * comes back.
+ */
+export function restoreOutbox(
+  storage: OutboxStorage | null,
+  forUser: string,
+  slug: string,
+  server: ProgressState
+): ProgressPatch | null {
+  const entry = readEntry(storage, forUser, slug);
+  if (!entry || !storage) return null;
+  const patch = restorablePatch(entry.patch, entry.base, server);
+  if (!patch) {
+    clearOutbox(storage, forUser, slug);
+    return null;
+  }
+  if (JSON.stringify(patch) !== JSON.stringify(entry.patch)) {
+    const keys = Object.keys(patch.answers ?? {});
+    writeEntry(storage, forUser, slug, {
+      patch,
+      base: Object.fromEntries(keys.map((key) => [key, entry.base[key] ?? null])),
+    });
+  }
+  return patch;
+}
+
+/**
+ * Keeps `patch` as what waits for `forUser` in `slug`: all the page sending
+ * it has that the server hasn't confirmed, worked out against `acked`
+ * (what the server is known to hold), which is kept beside it as each
+ * answer's base (baseOf). It takes the place of what waited, which that
+ * page took in when it loaded the course, or which it changed since —
+ * merged in, an answer changed since would come back after the reload.
+ * Fill mode is never kept: only the move of a guest's progress sends it.
+ * False when it couldn't be kept (no storage, or the browser refused it):
+ * the answers are then only on the page.
+ */
+export function putInOutbox(
+  storage: OutboxStorage | null,
+  forUser: string,
+  slug: string,
+  patch: ProgressPatch,
+  acked?: ProgressState
+): boolean {
+  if (!storage) return false;
+  const { fill: _fill, ...own } = patch;
+  void _fill;
+  return writeEntry(storage, forUser, slug, { patch: own, base: acked ? baseOf(own, acked) : {} });
+}
+
 /** Forgets what waits for `forUser` in `slug`: the server has it, or the learner changed it since. */
 export function clearOutbox(storage: OutboxStorage | null, forUser: string, slug: string): void {
   try {
     storage?.removeItem(outboxKey(forUser, slug));
+  } catch {
+    /* nothing kept, nothing to clear */
+  }
+}
+
+/**
+ * Forgets every entry in the tab, whoever's: the learner store has let go
+ * of its learner (signed out, another account signed in, the account
+ * erased), and nothing of theirs — reflection text included — stays in the
+ * tab for whoever uses it next. Never throws.
+ */
+export function clearEveryOutbox(storage: Pick<Storage, "length" | "key" | "removeItem"> | null): void {
+  if (!storage) return;
+  try {
+    const keys: string[] = [];
+    for (let i = 0; i < storage.length; i++) {
+      const key = storage.key(i);
+      if (key?.startsWith(OUTBOX_PREFIX)) keys.push(key);
+    }
+    for (const key of keys) storage.removeItem(key);
   } catch {
     /* nothing kept, nothing to clear */
   }

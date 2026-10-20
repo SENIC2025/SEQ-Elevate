@@ -1,11 +1,16 @@
 import { describe, it, expect } from "vitest";
-import { RESPONSE_LIMITS, type ProgressPatch } from "@/lib/learner-progress/contract";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { RESPONSE_LIMITS, type ProgressPatch, type ProgressState } from "@/lib/learner-progress/contract";
+import { EMPTY_PROGRESS } from "@/lib/learner-progress/patch";
 import {
   OUTBOX_PREFIX,
+  clearEveryOutbox,
   clearOutbox,
   outboxKey,
   putInOutbox,
   readOutbox,
+  restoreOutbox,
   type OutboxStorage,
 } from "./outbox";
 
@@ -17,13 +22,17 @@ import {
  */
 
 /** sessionStorage, in memory. */
-function storage(): OutboxStorage & { items: Map<string, string> } {
+function storage(): OutboxStorage & { items: Map<string, string>; readonly length: number; key(i: number): string | null } {
   const items = new Map<string, string>();
   return {
     items,
     getItem: (k) => items.get(k) ?? null,
     setItem: (k, v) => void items.set(k, String(v)),
     removeItem: (k) => void items.delete(k),
+    get length() {
+      return items.size;
+    },
+    key: (i) => [...items.keys()][i] ?? null,
   };
 }
 
@@ -171,5 +180,127 @@ describe("putInOutbox and readOutbox", () => {
     expect(() => clearOutbox(broken, ANA, SLUG)).not.toThrow();
     expect(putInOutbox(null, ANA, SLUG, first)).toBe(false);
     expect(readOutbox(null, ANA, SLUG)).toBeNull();
+  });
+});
+
+/*
+ * Found at integration review (finding 4: data #2 with security #5). The
+ * outbox was applied over whatever the server held when the page loaded
+ * again: a stale tab answers X (kept, the build gone), the learner's phone
+ * saves Y, the tab reloads — and X replaced Y. The same after a rollback
+ * and roll-forward, since Release 1 never reads or clears the outbox. And
+ * it outlived the learner: after a sign-out (or the account's erasure) the
+ * tab still held their answers, reflection text included.
+ */
+const server = (p: Partial<ProgressState>): ProgressState => ({ ...EMPTY_PROGRESS, ...p });
+const practiceOf = (optionId: string) => ({ choice: optionId, correct: false });
+
+describe("restoreOutbox: what the outbox brings back over what the server holds now", () => {
+  const kept: ProgressPatch = {
+    v: 2,
+    completed: ["context", OWN],
+    answers: {
+      "simulation/main": { type: "practice", optionId: "x", correct: false },
+      [`${OWN}/${PART}`]: { type: "reflection", text: { q1: "Tab", q2: "Tab two" } },
+      [`concept/${PART}`]: { type: "rating", values: { s1: 2, s2: 4 } },
+    },
+    completedAt: "2026-11-10T09:00:00.000Z",
+  };
+  // What the server held when the tab's save failed.
+  const base = server({
+    simulation: practiceOf("y0"),
+    responses: { [`${OWN}/${PART}`]: { type: "reflection", text: { q1: "Before", q2: "Before two" } } },
+  });
+
+  it("brings back every answer the server still holds as it was when the tab kept it", () => {
+    const s = storage();
+    putInOutbox(s, ANA, SLUG, kept, base);
+    expect(restoreOutbox(s, ANA, SLUG, base)).toEqual(kept);
+    // Kept until a save of it is confirmed (course-save.ts).
+    expect(readOutbox(s, ANA, SLUG)).toEqual(kept);
+  });
+
+  it("never brings an answer back over a newer one saved elsewhere since, field by field", () => {
+    const s = storage();
+    putInOutbox(s, ANA, SLUG, kept, base);
+    const now = server({
+      // The phone saved Y; and the first reflection question, and a rating.
+      simulation: practiceOf("y"),
+      responses: {
+        [`${OWN}/${PART}`]: { type: "reflection", text: { q1: "Phone", q2: "Before two" } },
+        [`concept/${PART}`]: { type: "rating", values: { s1: 5 } },
+      },
+    });
+    const restored = {
+      v: 2,
+      completed: ["context", OWN],
+      answers: {
+        [`${OWN}/${PART}`]: { type: "reflection", text: { q2: "Tab two" } },
+        [`concept/${PART}`]: { type: "rating", values: { s2: 4 } },
+      },
+      completedAt: "2026-11-10T09:00:00.000Z",
+    };
+    expect(restoreOutbox(s, ANA, SLUG, now)).toEqual(restored);
+    // What the server moved past is gone from the outbox for good.
+    expect(readOutbox(s, ANA, SLUG)).toEqual(restored);
+  });
+
+  it("clears the outbox when nothing in it can come back", () => {
+    const s = storage();
+    putInOutbox(s, ANA, SLUG, { v: 2, answers: { "simulation/main": kept.answers!["simulation/main"] } }, base);
+    expect(restoreOutbox(s, ANA, SLUG, server({ simulation: practiceOf("y") }))).toBeNull();
+    expect(readOutbox(s, ANA, SLUG)).toBeNull();
+  });
+
+  it("brings back an answer kept with no record of the server's only where the server has none", () => {
+    const s = storage();
+    putInOutbox(s, ANA, SLUG, { v: 2, answers: { "simulation/main": kept.answers!["simulation/main"] } });
+    expect(restoreOutbox(s, ANA, SLUG, server({ simulation: practiceOf("y") }))).toBeNull();
+    putInOutbox(s, ANA, SLUG, { v: 2, answers: { "simulation/main": kept.answers!["simulation/main"] } });
+    expect(restoreOutbox(s, ANA, SLUG, EMPTY_PROGRESS)).toEqual({
+      v: 2,
+      answers: { "simulation/main": kept.answers!["simulation/main"] },
+    });
+  });
+
+  it("is null for another learner, or with no storage", () => {
+    const s = storage();
+    putInOutbox(s, ANA, SLUG, kept, base);
+    expect(restoreOutbox(s, BEN, SLUG, base)).toBeNull();
+    expect(restoreOutbox(null, ANA, SLUG, base)).toBeNull();
+  });
+});
+
+describe("clearEveryOutbox: nothing of a learner stays in the tab once the store lets go of them", () => {
+  it("forgets every outbox entry in the tab, and nothing else", () => {
+    const s = storage();
+    putInOutbox(s, ANA, SLUG, first);
+    putInOutbox(s, ANA, "receiving-feedback", second);
+    putInOutbox(s, BEN, SLUG, second);
+    s.setItem("someone-else's-key", "kept");
+    clearEveryOutbox(s);
+    expect([...s.items.keys()]).toEqual(["someone-else's-key"]);
+  });
+
+  it("never throws, with no storage or a storage that does", () => {
+    expect(() => clearEveryOutbox(null)).not.toThrow();
+    expect(() =>
+      clearEveryOutbox({
+        get length(): number {
+          throw new Error("blocked");
+        },
+        key: () => null,
+        removeItem: () => undefined,
+      })
+    ).not.toThrow();
+  });
+
+  it("is what the learner store does when it lets go of a learner (signed out, another account, erased)", () => {
+    const source = readFileSync(fileURLToPath(new URL("./demo-state.tsx", import.meta.url)), "utf8");
+    const letGo = source.slice(source.indexOf("const letGo = React.useCallback("));
+    expect(letGo.slice(0, letGo.indexOf("}, ["))).toMatch(/clearEveryOutbox\(tabStorage\(\)\)/);
+    // And a course's outbox is brought back against what the server holds now.
+    expect(source).toMatch(/restoreOutbox\(tabStorage\(\), forUser, slug, /);
+    expect(source).not.toMatch(/readOutbox\(/);
   });
 });

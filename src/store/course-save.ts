@@ -128,7 +128,9 @@ function keepUnconfirmed(refs: CourseSaveRefs, slug: string, forUser: string, ou
   const acked = refs.acked.get(slug);
   const latest = refs.latest.get(slug);
   const unconfirmed = acked && latest ? patchSince(acked, latest) : null;
-  if (unconfirmed) putInOutbox(outbox, forUser, slug, unconfirmed);
+  // With what the server holds, so the patch never comes back over an
+  // answer saved elsewhere meanwhile (outbox.ts restoreOutbox).
+  if (unconfirmed) putInOutbox(outbox, forUser, slug, unconfirmed, acked);
   else clearOutbox(outbox, forUser, slug);
 }
 

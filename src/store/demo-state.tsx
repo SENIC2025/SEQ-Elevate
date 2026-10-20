@@ -45,7 +45,7 @@ import {
 } from "./progress-merge";
 import { migrateGuest } from "./guest-migration";
 import { courseChanged, courseSaveRefs, saveCourse } from "./course-save";
-import { readOutbox, type OutboxStorage } from "./outbox";
+import { clearEveryOutbox, restoreOutbox } from "./outbox";
 import { pendingSave } from "./pending-save";
 import { RETRY_DELAYS_MS, wait, withRetry } from "./retry";
 import { isRefusedAward } from "@/lib/badge-award";
@@ -183,7 +183,7 @@ export const DEFAULT_STATE: DemoState = {
 };
 
 /** This tab's sessionStorage, for the outbox; null where the browser has none or blocks it. */
-function tabStorage(): OutboxStorage | null {
+function tabStorage(): Storage | null {
   try {
     return window.sessionStorage;
   } catch {
@@ -593,6 +593,9 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
   const letGo = React.useCallback(() => {
     courseSave.drop();
     cardSave.drop();
+    // Nor in the tab: what a page from a gone build kept for them (D68)
+    // holds their answers, reflection text included (outbox.ts).
+    clearEveryOutbox(tabStorage());
     loadedCourseRef.current = null;
     setLoadedCourse(null);
     progressRefs.current = courseSaveRefs();
@@ -884,7 +887,8 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
       setLoadedCourse(slug);
       const saved = prog as CourseProgress | null;
       const refs = progressRefs.current;
-      refs.acked.set(slug, savedProgress(saved));
+      const server = savedProgress(saved);
+      refs.acked.set(slug, server);
       refs.latest.delete(slug);
       refs.refused.delete(slug);
       const migrated = migratedRef.current?.courseSlug === slug ? migratedRef.current : null;
@@ -893,8 +897,10 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
       // What this tab kept for this learner when a save of the course found
       // a newer build (D68): applied as changes made here, so it's saved
       // like any, in the same render as the merge — and the outbox cleared
-      // once nothing is left to send (course-save.ts).
-      const kept = forUser ? readOutbox(tabStorage(), forUser, slug) : null;
+      // once nothing is left to send (course-save.ts). Only what the server
+      // still holds as it was when it was kept: an answer saved elsewhere
+      // since is newer (outbox.ts restoreOutbox).
+      const kept = forUser ? restoreOutbox(tabStorage(), forUser, slug, server) : null;
       if (kept) dispatch({ type: "outboxRestored", slug, patch: kept });
     })();
     return () => abort.abort();
