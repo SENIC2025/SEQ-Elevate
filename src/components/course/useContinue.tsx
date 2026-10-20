@@ -5,7 +5,7 @@ import { flushSync } from "react-dom";
 import { useTranslations } from "next-intl";
 import { CircleAlert } from "lucide-react";
 import type { PartId, PartKey, ResolvedPart, SectionId } from "@/lib/cms/sections/contract";
-import { lessonContinue, type ContinueGate, type LessonAnswers, type Missing, type Need } from "./continue-gate";
+import { lessonContinue, questionsLeft, type ContinueGate, type LessonAnswers, type Missing, type Need } from "./continue-gate";
 import { useAnnounce } from "./PlayerAnnouncer";
 import { focusTarget, stickyHeaderBottom } from "./step-focus";
 
@@ -138,12 +138,16 @@ export function useContinue({
     focusTarget(document.getElementById(targetOf(ids, first)), window, stickyHeaderBottom(document));
   };
 
+  // Several items: how many questions they still need answered (never the
+  // number of items, which "questions" would misname); with none left to
+  // answer, only quick checks waiting for "Check answers": what that needs.
+  const left = questionsLeft(missing);
   const hint =
     missing.length === 0
       ? null
-      : missing.length === 1
+      : missing.length === 1 || left === 0
         ? needText(missing[0].need)
-        : tHint("several", { count: missing.length });
+        : tHint("several", { count: left });
 
   return {
     gate,

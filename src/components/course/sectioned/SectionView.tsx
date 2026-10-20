@@ -30,8 +30,9 @@ import type { PartTargets } from "./part-props";
 /**
  * One lesson drawn piece by piece (D63, spec 5.3): a lesson of the course's
  * own, or a standard lesson with extra content. Top to bottom: its video,
- * its documents, its title, then each piece of content in its own region
- * with an h3, the editors' note when content was left out (an editor's
+ * its documents, its title, then each piece of content in its own section
+ * with an h3 (a region named by it, unless another piece has the same
+ * heading), the editors' note when content was left out (an editor's
  * preview only), and one Continue for the whole lesson.
  *
  * The answers are the learner's (useLessonAnswers): restored when the
@@ -70,6 +71,7 @@ export function SectionView({
   replacedPrompts?: { id: "p1" | "p2" | "p3"; label: string }[];
 }) {
   const t = useTranslations("sectionPreview");
+  const tHeading = useTranslations("sectionPreview.partHeading");
   const tPlayer = useTranslations("coursePlayer");
   const tCommon = useTranslations("common");
   const { answers, answer, refused } = useLessonAnswers();
@@ -95,6 +97,13 @@ export function SectionView({
     const [stored, labels] = answerToStore(part, a);
     answer(key, stored, labels);
   };
+
+  // Each piece is a region named by its heading only while no other piece
+  // of the lesson has the same heading: every text piece is "Text", and two
+  // untitled quick checks are both "Quick check" — two landmarks named
+  // alike (axe landmark-unique). The headings themselves all stay.
+  const headings = stage.parts.map((part) => headingText(part, tHeading));
+  const unique = (i: number) => headings.indexOf(headings[i]) === headings.lastIndexOf(headings[i]);
 
   const earlier =
     replacedPrompts?.filter((p) => {
@@ -125,17 +134,17 @@ export function SectionView({
           <h2 className="text-2xl font-bold tracking-tight">{stage.title}</h2>
 
           <div className="mt-4 space-y-8">
-            {stage.parts.map((part) => {
+            {stage.parts.map((part, i) => {
               const key = partKey(stage.key, part.id);
               const hid = cont.ids.heading(part.id);
               const isFlagged = cont.flagged?.partId === part.id;
               return (
                 <section
                   key={part.id}
-                  aria-labelledby={hid}
+                  aria-labelledby={unique(i) ? hid : undefined}
                   className={cn(isFlagged && FLAGGED_CLASS)}
                 >
-                  <PartHeading part={part} id={hid} describedBy={cont.describedBy(hid)} />
+                  <PartHeading part={part} text={headings[i]} id={hid} describedBy={cont.describedBy(hid)} />
                   <ContinueNote api={cont} partId={part.id} />
                   <PartBody
                     part={part}
@@ -214,14 +223,20 @@ export function answerToStore(
   return [a, undefined];
 }
 
-/** The places inside `part` Continue may take focus to. */
+/** The places inside `part` Continue may take focus to, and the lesson's hint while there is one. */
 function targetsOf(cont: ContinueApi, part: ResolvedPart): PartTargets {
   return {
     followup: cont.ids.followup(part.id),
     question: (q) => cont.ids.question(part.id, q),
     check: cont.ids.check(part.id),
     describedBy: cont.describedBy,
+    ...(cont.hint ? { hint: cont.hintId } : {}),
   };
+}
+
+/** A part's heading: its own title, else what kind of content it is ("Text" for a text piece). */
+function headingText(part: ResolvedPart, t: (kind: ResolvedPart["type"]) => string): string {
+  return (part.type === "text" ? undefined : part.title) ?? t(part.type);
 }
 
 /**
@@ -230,7 +245,18 @@ function targetsOf(cont: ContinueApi, part: ResolvedPart): PartTargets {
  * says nothing to the eye. A question with a title of its own also shows
  * its kind above it. Continue pressed early may take focus here.
  */
-function PartHeading({ part, id, describedBy }: { part: ResolvedPart; id: string; describedBy?: string }) {
+function PartHeading({
+  part,
+  text,
+  id,
+  describedBy,
+}: {
+  part: ResolvedPart;
+  /** headingText(part). */
+  text: string;
+  id: string;
+  describedBy?: string;
+}) {
   const t = useTranslations("sectionPreview.partHeading");
   const title = part.type === "text" ? undefined : part.title;
   return (
@@ -249,7 +275,7 @@ function PartHeading({ part, id, describedBy }: { part: ResolvedPart; id: string
           part.type === "text" ? "sr-only" : "mb-3"
         )}
       >
-        {title ?? t(part.type)}
+        {text}
       </h3>
     </>
   );

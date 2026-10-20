@@ -21,12 +21,14 @@ import { focusThen } from "./focus";
  * Once checked, every result is marked by shape (a tick or a cross) and in
  * words for assistive technology, never by colour alone: the editor's
  * answer, right or not, and the right one when theirs wasn't.
+ *
+ * What it still needs before the lesson goes on is said once, above the
+ * lesson's Continue (useContinue), which also describes "Check answers"
+ * (`targets.hint`): a note of its own here said it twice.
  */
 export function QuizPart({ part, answer, onAnswer, headingId, targets }: PartProps<"quiz">) {
   const t = useTranslations("coursePlayer");
-  const tHint = useTranslations("continueHint");
   const tResult = useTranslations("sectionPreview.quizResult");
-  const hintId = useId();
   const groupId = useId();
   const a = part.assessment;
   const questions = a.questions;
@@ -179,7 +181,10 @@ export function QuizPart({ part, answer, onAnswer, headingId, targets }: PartPro
             size="md"
             variant="outline"
             disabled={!allAnswered}
-            aria-describedby={[hintId, targets?.check && targets.describedBy?.(targets.check)].filter(Boolean).join(" ")}
+            aria-describedby={
+              [targets?.hint, targets?.check && targets.describedBy?.(targets.check)].filter(Boolean).join(" ") ||
+              undefined
+            }
             onClick={() =>
               // The button goes once checked: focus the heading first. The
               // score that follows is announced politely.
@@ -190,9 +195,6 @@ export function QuizPart({ part, answer, onAnswer, headingId, targets }: PartPro
           >
             {t("checkAnswers")}
           </Button>
-          <p id={hintId} className="min-w-0 flex-1 basis-64 text-sm text-[var(--muted-foreground)]">
-            {tHint("assessment", { button: t("checkAnswers") })}
-          </p>
         </div>
       )}
     </div>

@@ -17,6 +17,11 @@ export interface PartTargets {
   question?: (questionId: string) => string;
   /** A quick check's "Check answers". */
   check?: string;
+  /**
+   * The id of the lesson's hint above Continue, while there is one: what
+   * "Check answers" is described by (the hint is said once, there).
+   */
+  hint?: string;
   /** The note's id for the place with `id`, when Continue marked it. */
   describedBy?: (id: string) => string | undefined;
 }

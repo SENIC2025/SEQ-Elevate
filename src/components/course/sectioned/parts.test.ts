@@ -132,9 +132,20 @@ describe("QuizPart", () => {
     );
     const check = elements(html, "button").find((b) => textOf(b.inner) === "Check answers");
     expect(check?.attrs).toMatch(/disabled=""/);
-    // Its hint is its description.
-    const hintId = attr(check!.attrs, "aria-describedby");
-    expect(html).toContain(`id="${hintId}"`);
+    // No note of its own (finding 8: the lesson's hint above Continue said
+    // the same again): it is described by the lesson's hint, when given.
+    expect(textOf(html)).not.toContain("Answer every question");
+    expect(attr(check!.attrs, "aria-describedby")).toBeUndefined();
+    const described = renderIn(
+      createElement(QuizPart, {
+        ...base,
+        part: quizPart,
+        answer: { type: "quiz", answers: { q1: "b" }, checked: false },
+        targets: { hint: "lesson-hint" },
+      })
+    );
+    const check2 = elements(described, "button").find((b) => textOf(b.inner) === "Check answers");
+    expect(attr(check2!.attrs, "aria-describedby")).toBe("lesson-hint");
     // Each question is a group named by the question.
     const groups = elements(html, "div").filter((d) => /role="group"/.test(d.attrs));
     expect(groups.length).toBeGreaterThan(0);

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { partKey, type PartKey } from "@/lib/cms/sections/contract";
 import type { CourseStage } from "@/lib/cms/types";
-import { lessonContinue, mainPartOf, needOf, type LessonAnswers } from "./continue-gate";
+import { lessonContinue, mainPartOf, needOf, questionsLeft, type LessonAnswers } from "./continue-gate";
 import {
   emptyQuizPart,
   practicePart,
@@ -120,6 +120,33 @@ const sim: CourseStage = {
     ],
   },
 };
+
+describe("questionsLeft: how many questions still need an answer (finding 7)", () => {
+  // The "several" hint says "N questions above still need an answer.": it
+  // counted items, so a quick check with every question answered but not
+  // checked, beside an unanswered practice question, made "2 questions".
+  it("counts each question of a quick check, one per practice or scenario step, none for a check", () => {
+    const missing = (parts: Parameters<typeof lessonContinue>[1], answers: LessonAnswers = {}) => {
+      const gate = lessonContinue(S, parts, answers);
+      return gate.ready ? [] : gate.missing;
+    };
+    expect(questionsLeft(missing([practicePart, quizPart]))).toBe(3);
+    expect(
+      questionsLeft(
+        missing([quizPart, practicePart], {
+          [key("p-quizaaaa")]: { type: "quiz" as const, answers: { q1: "b", q2: "a" }, checked: false },
+        })
+      )
+    ).toBe(1);
+    expect(questionsLeft(missing([scenarioPart]))).toBe(1);
+    expect(
+      questionsLeft(
+        missing([quizPart], { [key("p-quizaaaa")]: { type: "quiz" as const, answers: { q1: "b", q2: "a" }, checked: false } })
+      )
+    ).toBe(0);
+    expect(questionsLeft([])).toBe(0);
+  });
+});
 
 describe("mainPartOf: a standard lesson goes through the same rule", () => {
   it("makes guided practice a practice question named by the lesson's title", () => {

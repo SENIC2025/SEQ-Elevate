@@ -86,10 +86,29 @@ describe("SectionView", () => {
       "Reflection questions",
       "How you speak up",
     ]);
+    // Each one names its region by its heading (found at integration
+    // review, finding 9: only while no other piece has the same heading —
+    // see the next test).
     sections.forEach((s, i) => expect(attr(s, "aria-labelledby")).toBe(attr(h3s[i].attrs, "id")));
     // Every heading can take focus, for Continue.
     expect(h3s.every((h) => attr(h.attrs, "tabindex") === "-1")).toBe(true);
     expect(new Set(h3s.map((h) => attr(h.attrs, "id"))).size).toBe(6);
+  });
+
+  it("never names two regions alike: a piece whose heading another piece has too is no region (finding 9)", () => {
+    // Every text piece is headed "Text" (for screen readers only): two of
+    // them made two landmarks named "Text" (axe landmark-unique), and two
+    // untitled quick checks two named "Quick check".
+    const html = render({ ...sectionStage, parts: [textPart, { ...textPart, id: "p-textbbbb" }, quizPart, { ...quizPart2, title: undefined }, practicePart] });
+    const h3s = elements(html, "h3");
+    const named = [...html.matchAll(/<section([^>]*)>/g)]
+      .map((m) => attr(m[1], "aria-labelledby"))
+      .filter((id): id is string => !!id)
+      .map((id) => textOf(h3s.find((h) => attr(h.attrs, "id") === id)!.inner));
+    expect(named).toEqual(["Practice question"]);
+    expect(new Set(named).size).toBe(named.length);
+    // The headings stay, every one of them: only the landmarks go.
+    expect(h3s.map((h) => textOf(h.inner))).toEqual(["Text", "Text", "Quick check", "Quick check", "Practice question"]);
   });
 
   it("keeps a text heading for screen readers only, and shows a titled question's kind above it", () => {
@@ -109,9 +128,47 @@ describe("SectionView", () => {
     const buttons = elements(html, "button").filter((b) => textOf(b.inner) === "Continue");
     expect(buttons).toHaveLength(1);
     expect(buttons[0].attrs).not.toMatch(/\sdisabled=""|aria-disabled="true"/);
-    // Practice, two quick checks: three items still need an answer.
+    // Practice, two quick checks of two questions each: five questions
+    // still need an answer. (Release 2 as built counted the three items,
+    // and called them questions: finding 7, flipped on purpose.)
     const hintId = attr(buttons[0].attrs, "aria-describedby");
-    expect(html).toContain(`<p id="${hintId}" class="text-sm text-[var(--muted-foreground)] sm:text-right">3 questions above still need an answer.</p>`);
+    expect(html).toContain(`<p id="${hintId}" class="text-sm text-[var(--muted-foreground)] sm:text-right">5 questions above still need an answer.</p>`);
+  });
+
+  it("counts the questions left, not the items, in its hint (finding 7)", () => {
+    // Every question of the quick check answered, not checked; the
+    // practice question unanswered: one question needs an answer.
+    store.over = { responses: { "s-abcd1234/p-quizaaaa": { type: "quiz", answers: { q1: "b", q2: "a" }, checked: false } } };
+    const text = textOf(render({ ...sectionStage, parts: [textPart, quizPart, practicePart] }));
+    expect(text).not.toContain("2 questions above still need an answer.");
+    expect(text).toContain("1 question above still needs an answer.");
+    // Only checks left (two quick checks answered): what a check needs.
+    store.over = {
+      responses: {
+        "s-abcd1234/p-quizaaaa": { type: "quiz", answers: { q1: "b", q2: "a" }, checked: false },
+        "s-abcd1234/p-quizbbbb": { type: "quiz", answers: { q1: "b", q2: "a" }, checked: false },
+      },
+    };
+    const checks = textOf(render({ ...sectionStage, parts: [quizPart, quizPart2] }));
+    expect(checks).not.toContain("0 questions");
+    expect(checks).toContain("Select “Check answers” to see how you did.");
+  });
+
+  it("says once what a quick check waits for: no note of its own beside the lesson's hint (finding 8)", () => {
+    // The quick check kept Release 1's note by "Check answers" ("Answer
+    // every question, then…"), and the lesson's hint above Continue said
+    // it again ("Answer 2 more questions, then…"): twice, as the stage
+    // screen never does. "Check answers" is described by the lesson's hint.
+    const html = render({ ...sectionStage, parts: [textPart, quizPart] });
+    const text = textOf(html);
+    const both = [
+      "Answer every question, then select “Check answers” to continue.",
+      "Answer 2 more questions, then select “Check answers”.",
+    ].filter((sentence) => text.includes(sentence));
+    expect(both).toEqual(["Answer 2 more questions, then select “Check answers”."]);
+    const check = elements(html, "button").find((b) => textOf(b.inner) === "Check answers")!;
+    const cont = elements(html, "button").find((b) => textOf(b.inner) === "Continue")!;
+    expect(attr(check.attrs, "aria-describedby")).toBe(attr(cont.attrs, "aria-describedby"));
   });
 
   it("says what Continue waits for once, above it: a practice question or scenario has no hint of its own", () => {

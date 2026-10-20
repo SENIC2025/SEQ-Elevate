@@ -120,6 +120,26 @@ export function lessonContinue(
 }
 
 /**
+ * How many questions the missing items still need answered: each question
+ * of a quick check left, one for a practice question or a scenario's
+ * choice (or its follow-up), none for a quick check only waiting for
+ * "Check answers". What the "several" hint counts ("N questions above
+ * still need an answer"), so it never calls items questions.
+ */
+export function questionsLeft(missing: readonly Missing[]): number {
+  return missing.reduce((n, m) => {
+    switch (m.need.kind) {
+      case "quizLeft":
+        return n + m.need.left;
+      case "quizCheck":
+        return n;
+      default:
+        return n + 1;
+    }
+  }, 0);
+}
+
+/**
  * A standard lesson's main content as a piece of content, so its stage
  * screen goes through the same rule: guided practice as a practice
  * question, the applied scenario as a scenario, the quick check as a quick
