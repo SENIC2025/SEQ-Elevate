@@ -515,7 +515,6 @@
     "earlierAnswers": "Deine früheren Antworten"
   },
   "sectionPreview": {
-    "banner": "Diese Vorschau zeigt den neuen Aufbau. Lernende bekommen ihn ab Release 2, deshalb lässt sich der Kurs noch nicht veröffentlichen.",
     "answerFirst": "Beantworte das zuerst, um weiterzumachen.",
     "skippedNote": "Für die Redaktion: {count, plural, one {Ein Inhalt wird} other {# Inhalte werden}} hier nicht gezeigt — bisher nur ein Entwurf oder noch nicht fertig.",
     "ratingOption": "{n} von 5",

@@ -22,7 +22,7 @@ import { focusThen } from "./focus";
  * words for assistive technology, never by colour alone: the editor's
  * answer, right or not, and the right one when theirs wasn't.
  */
-export function QuizPart({ part, answer, onAnswer, headingId }: PartProps<"quiz">) {
+export function QuizPart({ part, answer, onAnswer, headingId, targets }: PartProps<"quiz">) {
   const t = useTranslations("coursePlayer");
   const tHint = useTranslations("continueHint");
   const tResult = useTranslations("sectionPreview.quizResult");
@@ -67,8 +67,18 @@ export function QuizPart({ part, answer, onAnswer, headingId }: PartProps<"quiz"
         <div className="mt-4 space-y-6">
           {questions.map((q, idx) => {
             const qId = `${groupId}-q${idx}`;
+            // Where Continue pressed early takes focus, while unanswered.
+            const target = targets?.question?.(q.id);
             return (
-              <div key={q.id} role="group" aria-labelledby={qId}>
+              <div
+                key={q.id}
+                id={target}
+                role="group"
+                aria-labelledby={qId}
+                aria-describedby={target ? targets?.describedBy?.(target) : undefined}
+                tabIndex={target ? -1 : undefined}
+                className="outline-none rounded-sm focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
+              >
                 <p id={qId} className="font-medium mb-3">
                   <span className="text-[var(--muted-foreground)] mr-2">{idx + 1}.</span>
                   {q.question}
@@ -165,10 +175,11 @@ export function QuizPart({ part, answer, onAnswer, headingId }: PartProps<"quiz"
       ) : (
         <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-3">
           <Button
+            id={targets?.check}
             size="md"
             variant="outline"
             disabled={!allAnswered}
-            aria-describedby={hintId}
+            aria-describedby={[hintId, targets?.check && targets.describedBy?.(targets.check)].filter(Boolean).join(" ")}
             onClick={() =>
               // The button goes once checked: focus the heading first. The
               // score that follows is announced politely.

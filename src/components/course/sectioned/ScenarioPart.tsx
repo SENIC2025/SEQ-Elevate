@@ -15,14 +15,15 @@ import { focusThen } from "./focus";
 /**
  * A branching scenario, as the learner player's applied scenario shows it:
  * a first choice and its outcome, then the follow-up question when that
- * choice has one. Answered into the preview's own state.
+ * choice has one. The path shown is the saved one (`answer`), until "Try
+ * different choices" starts again on screen.
  *
  * Focus never drops to the page when a pressed button goes: after a
  * follow-up choice it moves to that choice's outcome (shown where the
  * follow-up buttons were); "Try different choices" moves it to the part's
  * heading first.
  */
-export function ScenarioPart({ part, answer, onAnswer, headingId }: PartProps<"scenario">) {
+export function ScenarioPart({ part, answer, onAnswer, headingId, targets }: PartProps<"scenario">) {
   const t = useTranslations("coursePlayer");
   const tHint = useTranslations("continueHint");
   const sc = part.scenario;
@@ -89,7 +90,15 @@ export function ScenarioPart({ part, answer, onAnswer, headingId }: PartProps<"s
 
       {rootChoice && followups.length > 0 && !followupChoice ? (
         <div className="mt-4">
-          <p className="font-medium mb-3">{sc.followupQuestion}</p>
+          {/* Where Continue pressed early takes focus, while unanswered. */}
+          <p
+            id={targets?.followup}
+            tabIndex={targets?.followup ? -1 : undefined}
+            aria-describedby={targets?.followup ? targets.describedBy?.(targets.followup) : undefined}
+            className="font-medium mb-3 outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] rounded-sm"
+          >
+            {sc.followupQuestion}
+          </p>
           <div className="space-y-2">
             {followups.map((c) => (
               <button

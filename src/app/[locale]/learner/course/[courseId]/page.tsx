@@ -4,16 +4,20 @@ import { setRequestLocale } from "next-intl/server";
 import { notFound } from "next/navigation";
 import { getCourse } from "@/lib/cms";
 import { getCourseStatus } from "@/lib/cms/course-overlay";
-import { isStageKey } from "@/lib/cms/course-admin-types";
 import { getViewerRoles } from "@/lib/server-queries";
 import { canEditContent } from "@/lib/permissions";
-import type { CourseContent, Locale } from "@/lib/cms/types";
-import { getPreviewCourse } from "@/lib/cms/preview-course";
-import { isSectionId, isSectionedCourse } from "@/lib/cms/sections/contract";
+import { getCurrentUser } from "@/lib/auth-helpers";
+import { prisma } from "@/lib/prisma";
+import type { Locale } from "@/lib/cms/types";
+import { getLearnerCourse } from "@/lib/cms/learner-course";
+import { nextLesson } from "@/lib/cms/sections/learner-nav";
+import { isSectionId, type SectionId } from "@/lib/cms/sections/contract";
+import { completedLessonIds } from "@/lib/learner-progress/enrolment-read";
 import { routing } from "@/i18n/routing";
 import { CoursePlayer } from "@/components/course/CoursePlayer";
-import { SectionedPreviewPlayer } from "@/components/course/sectioned/SectionedPreviewPlayer";
 import { PreviewStateProvider } from "@/store/demo-state";
+
+const PROJECT = "seq-elevate";
 
 /**
  * The course, whether it's a draft, and whether the viewer may edit content —
@@ -24,10 +28,10 @@ import { PreviewStateProvider } from "@/store/demo-state";
  * hides drafts rather than showing them.
  */
 const loadCourse = cache(async (courseId: string, loc: Locale) => {
-  const course = await getCourse("seq-elevate", courseId, loc);
+  const course = await getCourse(PROJECT, courseId, loc);
   if (!course) return null;
   const [status, roles] = await Promise.all([
-    getCourseStatus("seq-elevate", courseId),
+    getCourseStatus(PROJECT, courseId),
     getViewerRoles(),
   ]);
   // No DB row yet → treat as published (a bundled course that predates seeding).
@@ -36,15 +40,31 @@ const loadCourse = cache(async (courseId: string, loc: Locale) => {
 });
 
 /**
- * What an editor's preview shows (Release 1, D56): the course just loaded
- * — the learner view itself — unless it's a draft built with lessons or
- * content learners don't get until Release 2; then the editor's layout,
- * for the sectioned preview player. Only ever called for an editor's
- * preview: learners never reach it. Fails open to the learner view.
+ * Where a signed-in learner opens the course (spec 5.5): the first lesson
+ * of the plan they haven't done, worked out from their enrolment here on
+ * the server, so the player never flashes lesson 1 first; the completion
+ * screen once they completed it; the last lesson when every lesson is done
+ * but the course isn't completed (never the completion screen, which would
+ * complete it). Null for a guest, with no lessons, or on any error: the
+ * player then opens at the first lesson, and checks again once the
+ * learner's progress has loaded.
  */
-const loadPreview = cache((courseId: string, loc: Locale, learner: CourseContent) =>
-  getPreviewCourse("seq-elevate", courseId, loc, learner)
-);
+async function resumeFor(courseId: string, ids: readonly SectionId[]): Promise<SectionId | "complete" | null> {
+  try {
+    const user = await getCurrentUser();
+    if (!user || !ids.length) return null;
+    const row = await prisma.courseEnrollment.findFirst({
+      where: { userId: user.id, course: { projectId: PROJECT, slug: courseId } },
+      select: { stagesCompleted: true, sectionsCompleted: true, completedAt: true },
+    });
+    if (!row) return null;
+    const at = nextLesson(ids, new Set(completedLessonIds(row)), row.completedAt?.toISOString() ?? null);
+    return at === "empty" ? null : at;
+  } catch (error) {
+    console.error(`Couldn't read where the learner left "${courseId}"; it opens at its first lesson.`, error);
+    return null;
+  }
+}
 
 function asLocale(locale: string): Locale {
   return (["en", "de", "el"].includes(locale) ? locale : "en") as Locale;
@@ -69,8 +89,10 @@ export async function generateMetadata({
 
 /**
  * Course route. Fetches the authored CourseContent from the CMS client
- * (local or strapi, per CMS_SOURCE) server-side and hands it to the
- * generic player. Any published course renders here — no per-course code.
+ * (local or strapi, per CMS_SOURCE) server-side, turns it into the lessons
+ * learners get (getLearnerCourse: the course's lesson plan, D63) and hands
+ * them to the one player. Any published course renders here — no
+ * per-course code.
  *
  * An unpublished course is a 404 for learners and guests. Editors and admins
  * still reach it so they can preview a draft before releasing it; the player
@@ -78,16 +100,12 @@ export async function generateMetadata({
  *
  * Preview (`?preview=1`, and always for an editor on a draft) plays the
  * course in a sandbox: nothing is saved — no enrolment, progress, badge or
- * statistics. Only preview honours `?lesson=` to start at a chosen lesson;
- * learners always start at the beginning and keep the step-by-step order.
- * A preview opened from the course page also says which menu language the
+ * statistics. It shows exactly what learners get, for every course and
+ * status (D35), plus the editors' note on content left out. Only preview
+ * honours `?lesson=`, to start at any lesson learners get; learners keep
+ * the step-by-step order (Q4) and open where they left off (spec 5.5). A
+ * preview opened from the course page also says which menu language the
  * editor works in (`?ui=`), so its links back to editing use that one.
- *
- * Release 1: an editor's preview of a draft built with the course's own
- * lessons or extra content (which learners don't get until Release 2)
- * plays in the sectioned preview player instead, from any lesson of its
- * own (`?lesson=s-…`). Everything else — every learner, every standard
- * course — gets the player exactly as before.
  */
 export default async function Page({
   params,
@@ -112,41 +130,29 @@ export default async function Page({
   // An editor on a draft is always previewing: their clicks must never
   // enrol them in a course learners can't see yet.
   const preview = canEdit && (isDraft || one(sp.preview) === "1");
-  const lesson = one(sp.lesson);
-  const initialStage = preview && isStageKey(lesson) ? lesson : undefined;
   const ui = one(sp.ui);
   const editLocale =
     preview && (routing.locales as readonly string[]).includes(ui ?? "")
       ? (ui as Locale)
       : undefined;
 
-  if (preview && canEdit) {
-    const shown = await loadPreview(courseId, asLocale(locale), course);
-    if (isSectionedCourse(shown)) {
-      const initialSection =
-        isSectionId(lesson) && shown.stages.some((s) => s.key === lesson) ? lesson : undefined;
-      return (
-        <PreviewStateProvider>
-          <SectionedPreviewPlayer
-            course={shown}
-            draftPreview={isDraft}
-            canEdit
-            initialSection={initialSection}
-            editLocale={editLocale}
-          />
-        </PreviewStateProvider>
-      );
-    }
-  }
+  const learner = await getLearnerCourse(PROJECT, courseId, asLocale(locale), course, { editor: preview });
+  const ids = learner.lessons.map((l) => l.id);
+  // Any lesson learners get, in a preview only: a hidden or unknown one
+  // opens the first.
+  const lesson = one(sp.lesson);
+  const initialLesson = preview && isSectionId(lesson) && ids.includes(lesson) ? lesson : undefined;
+  const serverResume = preview ? null : await resumeFor(courseId, ids);
 
   const player = (
     <CoursePlayer
-      course={course}
+      course={learner}
       draftPreview={isDraft}
       preview={preview}
       canEdit={canEdit}
-      initialStage={initialStage}
+      initialLesson={initialLesson}
       editLocale={editLocale}
+      serverResume={serverResume}
     />
   );
   return preview ? <PreviewStateProvider>{player}</PreviewStateProvider> : player;

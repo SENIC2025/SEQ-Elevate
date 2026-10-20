@@ -515,7 +515,6 @@
     "earlierAnswers": "Your earlier answers"
   },
   "sectionPreview": {
-    "banner": "This preview shows the new layout. Learners get it from Release 2, so the course can't be published yet.",
     "answerFirst": "Answer this first to continue.",
     "skippedNote": "For editors: {count, plural, one {one piece of content isn't shown} other {# pieces of content aren't shown}} here — only a draft so far, or not ready yet.",
     "ratingOption": "{n} of 5",

@@ -59,7 +59,7 @@ vi.mock("@/lib/prisma", () => ({
 }));
 
 const { getDbCourse } = await import("../db-course");
-const { getPreviewCourse } = await import("../preview-course");
+const { getLearnerCourse } = await import("../learner-course");
 
 const META = { en: { title: "Golden", tagline: "t", clusterLabel: "c" } };
 const ids = (lessons: SectionFacts[], raw: unknown = null) =>
@@ -247,7 +247,7 @@ describe("§3.2 a stored list that only differs in what learners don't see", () 
 
 /* ---------------------------------- §3.3 ---------------------------------- */
 
-const learner = (slug = "golden"): CourseContent => ({
+const builtIn = (slug = "workplace-conflict"): CourseContent => ({
   slug,
   locale: "en",
   cluster: "communication",
@@ -256,41 +256,71 @@ const learner = (slug = "golden"): CourseContent => ({
   tagline: "t",
   durationMinutes: 15,
   badge: { slug: `${slug}-complete`, name: "Golden", meaning: "t" },
-  stages: [],
+  stages: STAGES.map((key) => ({ key, title: key })),
   completion: { title: "Done", body: "t" },
 });
 
-describe("§3.3 the preview of a course learners get as built", () => {
+/** A lesson as the player draws it: id, kind and name; skipped content only for an editor. */
+const shape = (c: Awaited<ReturnType<typeof getLearnerCourse>>) =>
+  c.lessons.map((l) => ({ id: l.id, kind: l.kind, label: l.label }));
+
+/*
+ * Release 2 (D63, D35) flips this section on purpose: Release 1's preview
+ * was the learner view only for courses learners got as built, and the
+ * editor's own layout for the rest. Now an editor's preview is the very
+ * course learners get, for every course and status — the editors' note on
+ * content left out is the only difference.
+ */
+describe("§3.3 the preview is what learners get, for every course", () => {
   it.each(LEGACY_FIXTURES.map((f) => [f.name, f.lessons] as const))(
-    "is the learner view itself, for a standard draft course: %s",
+    "a standard course, draft or published: every lesson by its stage screen, the very stage getCourse built: %s",
     async (_name, lessons) => {
       for (const outline of [null, toStoredOutline(resolveOutline("cms", null, lessons))]) {
-        state.course = { meta: META, status: "draft", outline };
-        state.lessons = lessons;
-        const shown = learner();
-        for (const locale of ["en", "de", "el"] as const) {
-          await expect(getPreviewCourse("seq-elevate", "golden", locale, shown)).resolves.toBe(shown);
+        for (const status of ["draft", "published"]) {
+          for (const locale of ["en", "de", "el"] as const) {
+            state.course = { meta: META, status, outline };
+            state.lessons = lessons;
+            const base = await getDbCourse("seq-elevate", "golden", locale);
+            // No course for the reader at all (a 404 for everyone): nothing to play.
+            if (!base) continue;
+            const learnerView = await getLearnerCourse("seq-elevate", "golden", locale, base);
+            const editorView = await getLearnerCourse("seq-elevate", "golden", locale, base, { editor: true });
+            expect(shape(editorView)).toEqual(shape(learnerView));
+            expect(editorView.lessons.map((l) => l.id)).toEqual(base.stages.map((st) => st.key));
+            editorView.lessons.forEach((l, i) => {
+              expect(l.kind).toBe("stage");
+              if (l.kind === "stage") expect(l.stage).toBe(base.stages[i]);
+            });
+          }
         }
       }
     }
   );
 
-  it("is the learner view itself for a built-in course", async () => {
+  it("a built-in course: all seven stages, never the sectioned view", async () => {
     state.course = { meta: null, status: "published", outline: null };
-    const shown = learner("workplace-conflict");
-    await expect(getPreviewCourse("seq-elevate", "workplace-conflict", "en", shown)).resolves.toBe(shown);
+    const base = builtIn();
+    const editorView = await getLearnerCourse("seq-elevate", "workplace-conflict", "en", base, { editor: true });
+    expect(editorView.lessons.map((l) => [l.id, l.kind])).toEqual(STAGES.map((k) => [k, "stage"]));
+    expect(shape(editorView)).toEqual(shape(await getLearnerCourse("seq-elevate", "workplace-conflict", "en", base)));
     state.course = null;
-    await expect(getPreviewCourse("seq-elevate", "workplace-conflict", "de", shown)).resolves.toBe(shown);
+    const noRow = await getLearnerCourse("seq-elevate", "workplace-conflict", "de", base, { editor: true });
+    expect(noRow.lessons.map((l) => l.kind)).toEqual(STAGES.map(() => "stage"));
   });
 
-  it("is the learner view itself for a published course, even one published past the guard", async () => {
+  it("a published course built with its own lessons: the flexible course learners get, not Release 1's standard one", async () => {
     state.course = {
       meta: META,
       status: "published",
       outline: { v: 1, sections: [{ id: "s-abcdefgh", template: "text" }, { id: "concept", template: "concept", hidden: true }] },
     };
     state.lessons = [{ stageKey: "s-abcdefgh", narrative: { en: { title: "Own", blocks: [{ kind: "paragraph", text: "x" }] } } }];
-    const shown = learner();
-    await expect(getPreviewCourse("seq-elevate", "golden", "en", shown)).resolves.toBe(shown);
+    const base = (await getDbCourse("seq-elevate", "golden", "en"))!;
+    const learnerView = await getLearnerCourse("seq-elevate", "golden", "en", base);
+    const editorView = await getLearnerCourse("seq-elevate", "golden", "en", base, { editor: true });
+    expect(shape(editorView)).toEqual(shape(learnerView));
+    expect(editorView.lessons.map((l) => [l.id, l.kind])).toContainEqual(["s-abcdefgh", "section"]);
+    expect(editorView.lessons.map((l) => l.id)).not.toContain("concept");
+    expect(editorView.unseen).toContain("concept");
   });
 });

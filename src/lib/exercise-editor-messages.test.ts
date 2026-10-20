@@ -197,8 +197,9 @@ describe("Release 1 stream namespaces", () => {
   ] as const;
 
   const SEEDED: Record<(typeof PLACES)[number][0], string[]> = {
+    // Release 2 deleted the preview's "learners get this from Release 2"
+    // banner: preview shows what learners get (D63).
     sectionPreview: [
-      "banner",
       "answerFirst",
       "skippedNote",
       "ratingOption",
