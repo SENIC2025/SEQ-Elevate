@@ -138,7 +138,8 @@
     "comingSoonCourseTitle": "Feedback annehmen, ohne zusammenzuzucken",
     "comingSoonCourseTagline": "20 Minuten · etwas Schwieriges hören und es nutzen",
     "overallCompletion": "Gesamtfortschritt",
-    "coursesCompletedOf": "{done} von {total} Kursen abgeschlossen"
+    "coursesCompletedOf": "{done} von {total} Kursen abgeschlossen",
+    "lessonsNotShown": "{count, plural, one {und # abgeschlossene Lektion, die nicht mehr im Kurs ist} other {und # abgeschlossene Lektionen, die nicht mehr im Kurs sind}}"
   },
   "mission": {
     "workplaceConflictTitle": "Probiere eine kleine, aber echte Situation",
@@ -502,7 +503,16 @@
     "editLesson": "Diese Lektion bearbeiten",
     "draftPreview": "<b>Entwurfsvorschau.</b> Dieser Kurs ist nicht veröffentlicht — Lernende sehen ihn noch nicht. Nichts, was du in dieser Vorschau tust, wird gespeichert.",
     "preview": "<b>Vorschau.</b> Nichts, was du hier tust, wird gespeichert.",
-    "backToEditing": "Zurück zum Bearbeiten"
+    "backToEditing": "Zurück zum Bearbeiten",
+    "stepDone": ", erledigt",
+    "resumed": "Dort geöffnet, wo du aufgehört hast: Schritt {current} von {total}, {name}.",
+    "newLesson": "Neue Lektion: hinzugefügt, nachdem du angefangen hast.",
+    "noLessons": "Dieser Kurs hat noch keine Lektionen.",
+    "staleBuild": "Eine neue Version ist verfügbar. Lade die Seite neu, damit deine Antworten weiter gespeichert werden.",
+    "reload": "Neu laden",
+    "charsLeft": "Noch {count} Zeichen",
+    "answerTooLong": "Diese Antwort ist zu lang zum Speichern. Kürze sie auf {max} Zeichen.",
+    "earlierAnswers": "Deine früheren Antworten"
   },
   "sectionPreview": {
     "banner": "Diese Vorschau zeigt den neuen Aufbau. Lernende bekommen ihn ab Release 2, deshalb lässt sich der Kurs noch nicht veröffentlichen.",
@@ -529,7 +539,12 @@
     "simulation": "Wähle eine Antwort, um weiterzumachen.",
     "scenario": "Wähle, was du tun würdest, um weiterzumachen.",
     "scenarioFollowup": "Beantworte die Folgefrage, um weiterzumachen.",
-    "assessment": "Beantworte alle Fragen und wähle dann „{button}“, um weiterzumachen."
+    "assessment": "Beantworte alle Fragen und wähle dann „{button}“, um weiterzumachen.",
+    "several": "{count, plural, one {# Frage oben braucht noch eine Antwort.} other {# Fragen oben brauchen noch eine Antwort.}}",
+    "quizLeft": "Beantworte {count, plural, one {noch # Frage} other {noch # Fragen}} und wähle dann „{button}“.",
+    "quizCheck": "Wähle „{button}“, um zu sehen, wie du abgeschnitten hast.",
+    "announce": "{item}: {need}",
+    "stillToDo": "Bevor du abschließt: „{name}“ fehlt noch."
   },
   "video": {
     "regionLabel": "Lernvideo",
@@ -628,7 +643,8 @@
     "quizVideo": "Video",
     "statisticsLink": "Statistiken",
     "cohortCompletion": "Fortschritt der Gruppe",
-    "completedOf": "{done} von {total} Lernenden abgeschlossen"
+    "completedOf": "{done} von {total} Lernenden abgeschlossen",
+    "otherLessons": "Andere Lektionen"
   },
   "admin": {
     "title": "Admin-Dashboard",
@@ -1233,5 +1249,38 @@
     "facilitatorNotSaved": "Das wurde nicht gespeichert. Notizen und Bestätigungen kannst du nur für Lernende in diesem Projekt anlegen. Lade die Seite neu und versuch es noch einmal.",
     "facilitatorSaveError": "Das wurde nicht gespeichert. Prüf deine Verbindung und versuch es noch einmal.",
     "facilitatorNoteKept": "Deine Notiz ist gespeichert. Wenn du noch einmal speicherst, wird nur die Bestätigung gesendet."
+  },
+  "liveChanges": {
+    "title": {
+      "move": "„{name}“ in einem laufenden Kurs verschieben?",
+      "hide": "„{name}“ für Lernende ausblenden?",
+      "show": "„{name}“ für Lernende wieder einblenden?",
+      "addLesson": "Eine Lektion zu einem Kurs hinzufügen, den Lernende gerade machen?",
+      "addPart": "Inhalt zu „{name}“ hinzufügen?",
+      "movePart": "Diesen Inhalt in „{name}“ verschieben?",
+      "removeText": "Diesen Text aus „{name}“ entfernen?"
+    },
+    "learners": "{count, plural, one {# Person macht diesen Kurs} other {# Personen machen diesen Kurs}} ({finished} abgeschlossen).",
+    "effect": {
+      "move": "Ihr Fortschritt bleibt erhalten. Wer noch nicht fertig ist, sieht die neue Reihenfolge beim nächsten Öffnen des Kurses und macht bei der ersten Lektion weiter, die noch offen ist.",
+      "hide": "Sie sehen diese Lektion nicht mehr. Was sie darin gemacht haben, bleibt erhalten, zählt weiter zu ihrem Fortschritt und kommt zurück, wenn du die Lektion wieder einblendest.",
+      "show": "Wer noch nicht fertig ist, hat eine Lektion mehr zu machen; wer fertig ist, behält das Abzeichen und bleibt bei 100 %.",
+      "part": "Wer diese Lektion schon gemacht hat, behält sie als erledigt; alle anderen sehen die Änderung, wenn sie dort ankommen."
+    },
+    "confirm": {
+      "move": "Verschieben",
+      "hide": "Ausblenden",
+      "show": "Einblenden",
+      "add": "Hinzufügen",
+      "remove": "Entfernen"
+    },
+    "cancel": "Abbrechen",
+    "closed": "Ab dem {date} können in einem veröffentlichten Kurs mit Lernenden keine Lektionen und Inhalte mehr hinzugefügt, verschoben oder entfernt werden. Du kannst Lektionen weiterhin aus- und einblenden, umbenennen und Texte und Fragen bearbeiten.",
+    "hasLearners": {
+      "delete": "{count} Lernende haben diesen Kurs begonnen, deshalb kann diese Lektion nicht gelöscht werden. Du kannst sie stattdessen ausblenden.",
+      "part": "Lernende machen diesen Kurs, deshalb kann eine Frage, die sie vielleicht beantwortet haben, nicht entfernt werden. Du kannst sie weiterhin bearbeiten."
+    },
+    "lastLesson": "Ein veröffentlichter Kurs braucht mindestens eine Lektion, die Lernende sehen können.",
+    "emptyNote": "Lernende bekommen diese Lektion, sobald sie Inhalt hat."
   }
 }

@@ -138,7 +138,8 @@
     "comingSoonCourseTitle": "Receiving feedback without flinching",
     "comingSoonCourseTagline": "20 minutes · being told something hard, and using it",
     "overallCompletion": "Overall completion",
-    "coursesCompletedOf": "{done} of {total} courses completed"
+    "coursesCompletedOf": "{done} of {total} courses completed",
+    "lessonsNotShown": "{count, plural, one {and # completed lesson no longer in the course} other {and # completed lessons no longer in the course}}"
   },
   "mission": {
     "workplaceConflictTitle": "Try a small but real situation",
@@ -502,7 +503,16 @@
     "editLesson": "Edit this lesson",
     "draftPreview": "<b>Draft preview.</b> This course is not published — learners can't see it yet. Nothing you do in this preview is saved.",
     "preview": "<b>Preview.</b> Nothing you do here is saved.",
-    "backToEditing": "Back to editing"
+    "backToEditing": "Back to editing",
+    "stepDone": ", done",
+    "resumed": "Opened where you left off: step {current} of {total}, {name}.",
+    "newLesson": "New lesson: added after you started.",
+    "noLessons": "This course has no lessons yet.",
+    "staleBuild": "A new version is available. Reload the page to keep saving your answers.",
+    "reload": "Reload",
+    "charsLeft": "{count} characters left",
+    "answerTooLong": "This answer is too long to save. Shorten it to {max} characters.",
+    "earlierAnswers": "Your earlier answers"
   },
   "sectionPreview": {
     "banner": "This preview shows the new layout. Learners get it from Release 2, so the course can't be published yet.",
@@ -529,7 +539,12 @@
     "simulation": "Choose an answer to continue.",
     "scenario": "To continue, choose what you would do.",
     "scenarioFollowup": "Answer the follow-up question to continue.",
-    "assessment": "Answer every question, then select “{button}” to continue."
+    "assessment": "Answer every question, then select “{button}” to continue.",
+    "several": "{count, plural, one {# question above still needs an answer.} other {# questions above still need an answer.}}",
+    "quizLeft": "Answer {count, plural, one {# more question} other {# more questions}}, then select “{button}”.",
+    "quizCheck": "Select “{button}” to see how you did.",
+    "announce": "{item}: {need}",
+    "stillToDo": "Before you finish: “{name}” is still to do."
   },
   "video": {
     "regionLabel": "Lesson video",
@@ -628,7 +643,8 @@
     "quizVideo": "Video",
     "statisticsLink": "Statistics",
     "cohortCompletion": "Cohort completion",
-    "completedOf": "{done} of {total} learners completed"
+    "completedOf": "{done} of {total} learners completed",
+    "otherLessons": "Other lessons"
   },
   "admin": {
     "title": "Admin dashboard",
@@ -1233,5 +1249,38 @@
     "facilitatorNotSaved": "This wasn't saved. Notes and validations can only be added for learners in this project. Reload the page and try again.",
     "facilitatorSaveError": "This wasn't saved. Check your connection and try again.",
     "facilitatorNoteKept": "Your note is saved. Saving again only sends the validation."
+  },
+  "liveChanges": {
+    "title": {
+      "move": "Move “{name}” in a live course?",
+      "hide": "Hide “{name}” from learners?",
+      "show": "Show “{name}” to learners again?",
+      "addLesson": "Add a lesson to a course learners are taking?",
+      "addPart": "Add content to “{name}”?",
+      "movePart": "Move this content in “{name}”?",
+      "removeText": "Remove this text from “{name}”?"
+    },
+    "learners": "{count, plural, one {# learner is taking this course} other {# learners are taking this course}} ({finished} finished).",
+    "effect": {
+      "move": "Their progress is kept. Learners who haven't finished will see the new order the next time they open the course, and carry on from the first lesson they haven't done.",
+      "hide": "They won't see this lesson any more. What they did in it is kept, still counts towards their progress, and comes back if you show it again.",
+      "show": "Learners who haven't finished will have one more lesson to do; those who finished keep their badge and stay at 100%.",
+      "part": "Learners who have done this lesson keep it as done; others see the change when they reach it."
+    },
+    "confirm": {
+      "move": "Move it",
+      "hide": "Hide it",
+      "show": "Show it",
+      "add": "Add it",
+      "remove": "Remove it"
+    },
+    "cancel": "Cancel",
+    "closed": "From {date}, lessons and content in a published course with learners can't be added, moved or removed. You can still hide or show lessons, rename them, and edit text and questions.",
+    "hasLearners": {
+      "delete": "{count} learners have started this course, so this lesson can't be deleted. You can hide it instead.",
+      "part": "Learners are taking this course, so a question they may have answered can't be removed. You can still edit it."
+    },
+    "lastLesson": "A published course needs at least one lesson learners can see.",
+    "emptyNote": "Learners get this lesson as soon as it has content."
   }
 }
