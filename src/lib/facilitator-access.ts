@@ -65,3 +65,24 @@ export function isSkillCluster(cluster: unknown): cluster is SkillCluster {
     (SKILL_CLUSTERS as readonly string[]).includes(cluster)
   );
 }
+
+/** Letters only, lower case: "Problem solving" and "problem-solving" alike. */
+const letters = (text: string) => text.toLowerCase().replace(/[^a-z]/g, "");
+
+/**
+ * The skill cluster a course is about, from its `cluster` field, so a
+ * validation starts on the right one. A bundled course holds the cluster's
+ * key ("resilience"). A course created in the platform holds the key its
+ * free-text skill area made (createCourse: "Problem solving" →
+ * "problem-solving"; none at all → "communication"): read as letters only,
+ * it is a cluster's key in full or its start ("communication" →
+ * communicationEi). Null for any other skill area: the facilitator chooses.
+ */
+export function courseSkillCluster(cluster: unknown): SkillCluster | null {
+  if (typeof cluster !== "string") return null;
+  const area = letters(cluster);
+  // Too short to say which cluster it means.
+  if (area.length < 4) return null;
+  const named = SKILL_CLUSTERS.filter((c) => letters(c).startsWith(area));
+  return named.length === 1 ? named[0] : null;
+}

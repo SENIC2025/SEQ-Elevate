@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   canRecordForLearner,
+  courseSkillCluster,
   facilitatorText,
   FACILITATOR_TEXT_MAX,
   isSkillCluster,
@@ -55,5 +56,35 @@ describe("isSkillCluster", () => {
     expect(isSkillCluster("<anything>")).toBe(false);
     expect(isSkillCluster("")).toBe(false);
     expect(isSkillCluster(3)).toBe(false);
+  });
+});
+
+/*
+ * A validation is recorded for a skill cluster. The facilitator's choice
+ * starts on the one the learner's current course is about: a bundled
+ * course carries the cluster's key, a course created in the platform the
+ * key its free-text skill area made ("Problem solving" → "problem-solving").
+ */
+describe("courseSkillCluster", () => {
+  it("takes a bundled course's cluster as it is", () => {
+    expect(courseSkillCluster("communicationEi")).toBe("communicationEi");
+    expect(courseSkillCluster("resilience")).toBe("resilience");
+  });
+
+  it("reads the skill area of a course created in the platform", () => {
+    expect(courseSkillCluster("problem-solving")).toBe("problemSolving");
+    expect(courseSkillCluster("teamwork")).toBe("teamwork");
+    expect(courseSkillCluster("Leadership")).toBe("leadership");
+    // "Communication", and what a course gets with no skill area at all.
+    expect(courseSkillCluster("communication")).toBe("communicationEi");
+  });
+
+  it("knows no cluster for any other skill area, so the facilitator chooses", () => {
+    expect(courseSkillCluster("digital-skills")).toBeNull();
+    expect(courseSkillCluster("skill")).toBeNull();
+    expect(courseSkillCluster("com")).toBeNull();
+    expect(courseSkillCluster("")).toBeNull();
+    expect(courseSkillCluster(null)).toBeNull();
+    expect(courseSkillCluster(undefined)).toBeNull();
   });
 });

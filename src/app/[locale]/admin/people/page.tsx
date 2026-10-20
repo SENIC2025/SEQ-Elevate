@@ -1,5 +1,6 @@
 import { setRequestLocale } from "next-intl/server";
 import { getAdminMembers, getAdminOrgs } from "@/lib/admin-queries";
+import { getCurrentUser } from "@/lib/auth-helpers";
 import { PeopleManager } from "@/components/role/PeopleManager";
 import { Link } from "@/i18n/navigation";
 import { ChevronLeft, ShieldAlert } from "lucide-react";
@@ -14,9 +15,10 @@ export default async function Page({
 }) {
   const { locale } = await params;
   setRequestLocale(locale);
-  const [members, orgs] = await Promise.all([
+  const [members, orgs, me] = await Promise.all([
     getAdminMembers(),
     getAdminOrgs(),
+    getCurrentUser(),
   ]);
 
   if (!members) {
@@ -52,7 +54,7 @@ export default async function Page({
         Add people to the project, set what they can do, and put learners in a
         cohort.
       </p>
-      <PeopleManager members={members} cohorts={cohorts} />
+      <PeopleManager members={members} cohorts={cohorts} selfId={me?.id ?? null} />
     </div>
   );
 }

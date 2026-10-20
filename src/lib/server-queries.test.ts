@@ -11,7 +11,7 @@ const day = (n: number) => new Date(Date.UTC(2026, 9, n));
 
 const enrollments = [
   {
-    course: { slug: "asking-for-help" },
+    course: { slug: "asking-for-help", cluster: "communicationEi" },
     stagesCompleted: ["CONTEXT", "CONCEPT", "BEHAVIOUR", "REFLECTION"],
     completedAt: day(2),
     updatedAt: day(2),
@@ -21,7 +21,7 @@ const enrollments = [
     assessment: null,
   },
   {
-    course: { slug: "saying-no" },
+    course: { slug: "saying-no", cluster: "resilience" },
     stagesCompleted: ["CONTEXT", "CONCEPT", "BEHAVIOUR"],
     completedAt: null,
     updatedAt: day(3),
@@ -83,6 +83,12 @@ describe("getProjectLearners", () => {
     // Three lessons done in a four-lesson course: Reflection is next, not
     // "Guided practice", a step this course doesn't have.
     expect(learner.currentStage).toBe("reflection");
+  });
+
+  it("gives the skill cluster of the course they are on, for a validation", async () => {
+    const [learner] = (await getProjectLearners("en")) ?? [];
+    // The course they used last, not the first one or always Communication.
+    expect(learner.currentCluster).toBe("resilience");
   });
 });
 

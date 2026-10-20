@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useTranslations, useLocale } from "next-intl";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -17,7 +17,7 @@ import {
 } from "@/lib/facilitator-save";
 import { FACILITATOR_TEXT_MAX } from "@/lib/facilitator-access";
 import { Link } from "@/i18n/navigation";
-import { STAGES } from "@/data/course";
+import { SKILL_CLUSTERS, STAGES, type SkillCluster } from "@/data/course";
 import {
   Users,
   CheckCircle2,
@@ -58,10 +58,15 @@ export function RealFacilitatorView({
   const tCommon = useTranslations("common");
   const tCard = useTranslations("compCard");
   const tAccounts = useTranslations("accounts");
+  const tSkill = useTranslations("skillClusters");
+  const ids = useId();
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [observation, setObservation] = useState("");
   const [validated, setValidated] = useState(false);
+  // The skill area a validation is for: it starts on the one of the
+  // learner's current course, or on none when that names none.
+  const [skill, setSkill] = useState<SkillCluster | "">("");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   // What the server already has of this note and validation, so a Save
@@ -86,7 +91,9 @@ export function RealFacilitatorView({
   // that got through isn't sent again when the validation after it failed.
   async function handleSave() {
     if (!selected) return;
+    if (validated && !skill) return;
     const learnerId = selected.id;
+    const cluster = skill;
     setSaving(true);
     setFailure(null);
     const result = await saveFacilitatorEntry(
@@ -94,7 +101,7 @@ export function RealFacilitatorView({
       {
         saveObservation: (note) => saveObservation(learnerId, note),
         recordValidation: (evidence) =>
-          recordValidation(learnerId, "communicationEi", evidence),
+          recordValidation(learnerId, cluster, evidence),
       }
     );
     setDone(result.done);
@@ -123,6 +130,7 @@ export function RealFacilitatorView({
             setSelectedId(null);
             setObservation("");
             setValidated(false);
+            setSkill("");
             setSaved(false);
             setDone(NOTHING_SAVED);
             setFailure(null);
@@ -210,6 +218,43 @@ export function RealFacilitatorView({
                   </p>
                 </div>
               </label>
+              <div className="mt-3 pl-7">
+                <label
+                  htmlFor={`${ids}-skill`}
+                  className="block mb-1 text-xs font-medium text-[var(--muted-foreground)]"
+                >
+                  {t("skillArea")}
+                </label>
+                <select
+                  id={`${ids}-skill`}
+                  value={skill}
+                  onChange={(e) => {
+                    setSkill(e.target.value as SkillCluster | "");
+                    edited("validation");
+                  }}
+                  aria-describedby={`${ids}-skill-hint`}
+                  className="w-full max-w-sm rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--foreground)]"
+                >
+                  {skill === "" ? (
+                    <option value="">{t("skillAreaChoose")}</option>
+                  ) : null}
+                  {SKILL_CLUSTERS.map((c) => (
+                    <option key={c} value={c}>
+                      {tSkill(c)}
+                    </option>
+                  ))}
+                </select>
+                <p
+                  id={`${ids}-skill-hint`}
+                  className="mt-1 text-xs text-[var(--muted-foreground)]"
+                >
+                  {selected.currentCluster
+                    ? t("skillAreaFromCourse", {
+                        course: selected.currentCourse ?? "",
+                      })
+                    : t("skillAreaNone")}
+                </p>
+              </div>
             </div>
 
             <div className="mt-5 flex flex-wrap items-center justify-end gap-3">
@@ -234,7 +279,11 @@ export function RealFacilitatorView({
               ) : null}
               <Button
                 size="md"
-                disabled={(!observation.trim() && !validated) || saving}
+                disabled={
+                  (!observation.trim() && !validated) ||
+                  (validated && !skill) ||
+                  saving
+                }
                 onClick={handleSave}
               >
                 {tCommon("save")}
@@ -345,7 +394,10 @@ export function RealFacilitatorView({
                   <Button
                     size="sm"
                     variant="outline"
-                    onClick={() => setSelectedId(l.id)}
+                    onClick={() => {
+                      setSelectedId(l.id);
+                      setSkill(l.currentCluster ?? "");
+                    }}
                   >
                     {t("viewLearner")}
                   </Button>

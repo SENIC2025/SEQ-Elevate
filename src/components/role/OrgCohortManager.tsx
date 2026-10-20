@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { InlineConfirm } from "@/components/ui/inline-confirm";
 import {
   createOrganisation,
   deleteOrganisation,
@@ -25,6 +26,23 @@ import {
 const inputCls =
   "rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm";
 
+/** What a refused change means, in plain words. */
+function errorText(error?: string): string {
+  switch (error) {
+    case "forbidden":
+      return "Admins only.";
+    case "has-cohorts":
+      return "Delete the organisation's cohorts first.";
+    case "name-required":
+      return "A name is required.";
+    default:
+      return "Something went wrong.";
+  }
+}
+
+/** What is being asked about before it is deleted. */
+type Asking = { kind: "org" | "cohort"; id: string } | null;
+
 export function OrgCohortManager({ orgs }: { orgs: AdminOrg[] }) {
   const router = useRouter();
   const [orgName, setOrgName] = React.useState("");
@@ -39,6 +57,19 @@ export function OrgCohortManager({ orgs }: { orgs: AdminOrg[] }) {
     list: AdminOrg[];
   } | null>(null);
   const shown = fresh && fresh.from === orgs ? fresh.list : orgs;
+
+  const ids = React.useId();
+  const binId = (kind: "org" | "cohort", id: string) => `${ids}-del-${kind}-${id}`;
+  const [confirming, setConfirming] = React.useState<Asking>(null);
+  const [confirmError, setConfirmError] = React.useState<string | null>(null);
+  const isAsking = (kind: "org" | "cohort", id: string) =>
+    confirming?.kind === kind && confirming.id === id;
+  // Where focus goes once the list has changed (the counter repeats a move).
+  const [focus, setFocus] = React.useState<{ id: string; n: number } | null>(null);
+  const focusEl = (id: string) => setFocus((f) => ({ id, n: (f?.n ?? 0) + 1 }));
+  React.useEffect(() => {
+    if (focus) document.getElementById(focus.id)?.focus();
+  }, [focus]);
 
   // Per-organisation "new cohort" drafts.
   const [drafts, setDrafts] = React.useState<
@@ -57,17 +88,58 @@ export function OrgCohortManager({ orgs }: { orgs: AdminOrg[] }) {
       setError(null);
       router.refresh();
     } else {
-      setError(
-        res.error === "forbidden"
-          ? "Admins only."
-          : res.error === "has-cohorts"
-            ? "Delete the organisation's cohorts first."
-            : res.error === "name-required"
-              ? "A name is required."
-              : "Something went wrong."
-      );
+      setError(errorText(res.error));
     }
     setPending(null);
+  }
+
+  /**
+   * The bins ask first. An organisation that still has cohorts can't be
+   * deleted, so its bin says so instead of asking.
+   */
+  function ask(kind: "org" | "cohort", id: string) {
+    const org = kind === "org" ? shown.find((o) => o.id === id) : null;
+    if (org && org.cohorts.length > 0) {
+      setError(errorText("has-cohorts"));
+      return;
+    }
+    setError(null);
+    setConfirmError(null);
+    setConfirming({ kind, id });
+  }
+
+  function keep(kind: "org" | "cohort", id: string) {
+    setConfirming(null);
+    setConfirmError(null);
+    focusEl(binId(kind, id));
+  }
+
+  /**
+   * Deletes what was asked about. Focus then goes to the next one in its
+   * list (or the one before, at the end); with none left, to the field that
+   * adds one.
+   */
+  async function onDelete(kind: "org" | "cohort", id: string, org: AdminOrg) {
+    setPending(kind === "org" ? `delorg-${id}` : `delcohort-${id}`);
+    setConfirmError(null);
+    const list = kind === "org" ? shown : org.cohorts;
+    const at = list.findIndex((x) => x.id === id);
+    const near = list[at + 1] ?? list[at - 1];
+    const res = kind === "org" ? await deleteOrganisation(id) : await deleteCohort(id);
+    if (!res.ok) {
+      setConfirmError(errorText(res.error));
+      setPending(null);
+      return;
+    }
+    setConfirming(null);
+    report(res);
+    focusEl(
+      near && near.id !== id
+        ? binId(kind, near.id)
+        : kind === "org"
+          ? `${ids}-org-name`
+          : `${ids}-new-cohort-${org.id}`
+    );
   }
 
   async function onAddOrg() {
@@ -115,6 +187,7 @@ export function OrgCohortManager({ orgs }: { orgs: AdminOrg[] }) {
             <label className="text-xs text-[var(--muted-foreground)]">
               <span className="block mb-1">Name</span>
               <input
+                id={`${ids}-org-name`}
                 value={orgName}
                 onChange={(e) => setOrgName(e.target.value)}
                 placeholder="e.g. ProArbeit"
@@ -168,17 +241,35 @@ export function OrgCohortManager({ orgs }: { orgs: AdminOrg[] }) {
                   {org.cohorts.length === 1 ? "" : "s"}
                 </Badge>
                 <button
+                  id={binId("org", org.id)}
                   type="button"
-                  onClick={async () => {
-                    setPending(`delorg-${org.id}`);
-                    report(await deleteOrganisation(org.id));
-                  }}
+                  onClick={() => ask("org", org.id)}
                   aria-label={`Delete ${org.name}`}
                   className="ml-auto rounded-md p-1 text-[var(--muted-foreground)] hover:text-[var(--danger)]"
                 >
-                  <Trash2 className="h-4 w-4" />
+                  <Trash2 className="h-4 w-4" aria-hidden />
                 </button>
               </div>
+
+              {isAsking("org", org.id) ? (
+                <div className="mb-3">
+                  <InlineConfirm
+                    heading="h2"
+                    title={`Delete the organisation “${org.name}”?`}
+                    confirmLabel="Delete organisation"
+                    keepLabel="Keep it"
+                    busy={pending === `delorg-${org.id}`}
+                    error={confirmError}
+                    onConfirm={() => onDelete("org", org.id, org)}
+                    onKeep={() => keep("org", org.id)}
+                  >
+                    <p className="mt-1 text-xs">
+                      It has no cohorts. People linked to it keep their
+                      accounts and data.
+                    </p>
+                  </InlineConfirm>
+                </div>
+              ) : null}
 
               {org.cohorts.length ? (
                 <ul className="space-y-1.5 mb-3">
@@ -199,16 +290,36 @@ export function OrgCohortManager({ orgs }: { orgs: AdminOrg[] }) {
                         {c.memberCount} member{c.memberCount === 1 ? "" : "s"}
                       </Badge>
                       <button
+                        id={binId("cohort", c.id)}
                         type="button"
-                        onClick={async () => {
-                          setPending(`delcohort-${c.id}`);
-                          report(await deleteCohort(c.id));
-                        }}
+                        onClick={() => ask("cohort", c.id)}
                         aria-label={`Delete ${c.name}`}
                         className="ml-auto rounded-md p-1 text-[var(--muted-foreground)] hover:text-[var(--danger)]"
                       >
-                        <Trash2 className="h-4 w-4" />
+                        <Trash2 className="h-4 w-4" aria-hidden />
                       </button>
+                      {isAsking("cohort", c.id) ? (
+                        <div className="basis-full">
+                          <InlineConfirm
+                            heading="h2"
+                            title={`Delete the cohort “${c.name}”?`}
+                            confirmLabel="Delete cohort"
+                            keepLabel="Keep it"
+                            busy={pending === `delcohort-${c.id}`}
+                            error={confirmError}
+                            onConfirm={() => onDelete("cohort", c.id, org)}
+                            onKeep={() => keep("cohort", c.id)}
+                          >
+                            <p className="mt-1 text-xs">
+                              {c.memberCount === 0
+                                ? "Nobody is in it."
+                                : c.memberCount === 1
+                                  ? "Its 1 member will have no cohort. Their account and data stay."
+                                  : `Its ${c.memberCount} members will have no cohort. Their accounts and data stay.`}
+                            </p>
+                          </InlineConfirm>
+                        </div>
+                      ) : null}
                     </li>
                   ))}
                 </ul>
@@ -223,6 +334,7 @@ export function OrgCohortManager({ orgs }: { orgs: AdminOrg[] }) {
                 <label className="text-xs text-[var(--muted-foreground)]">
                   <span className="block mb-1">New cohort</span>
                   <input
+                    id={`${ids}-new-cohort-${org.id}`}
                     value={draftFor(org.id).name}
                     onChange={(e) => setDraft(org.id, { name: e.target.value })}
                     placeholder="e.g. Berlin Pilot · Autumn 2026"

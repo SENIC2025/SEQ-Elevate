@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useLocale } from "next-intl";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { InlineConfirm } from "@/components/ui/inline-confirm";
 import {
   addMember,
   setMemberRoles,
@@ -53,6 +54,24 @@ const inputCls =
 
 type Notice = { kind: "ok" | "warn"; text: string };
 
+/** What a refused change means, in plain words. */
+function errorText(error?: string): string {
+  switch (error) {
+    case "forbidden":
+      return "Admins only.";
+    case "bad-email":
+      return "That doesn't look like a valid email.";
+    case "no-roles":
+      return "Everyone needs at least one role.";
+    case "self":
+      return "You can't remove yourself. Another admin can.";
+    case "own-admin":
+      return "You can't switch off your own Admin role. Another admin can.";
+    default:
+      return "Something went wrong.";
+  }
+}
+
 /** Plain-language feedback for what happened to an invitation. */
 function inviteNotice(
   email: string,
@@ -98,9 +117,12 @@ function inviteNotice(
 export function PeopleManager({
   members,
   cohorts,
+  selfId,
 }: {
   members: AdminMember[];
   cohorts: { id: string; label: string }[];
+  /** The signed-in admin: their own Admin role and row can't be removed here. */
+  selfId: string | null;
 }) {
   const router = useRouter();
   const uiLocale = useLocale();
@@ -113,6 +135,18 @@ export function PeopleManager({
   const [error, setError] = React.useState<string | null>(null);
   const [notice, setNotice] = React.useState<Notice | null>(null);
   const roleHintId = React.useId();
+  const ids = React.useId();
+  const binId = (id: string) => `${ids}-rm-${id}`;
+  const selfHintId = `${ids}-self`;
+  // The person whose removal is being asked about, and why it failed.
+  const [confirming, setConfirming] = React.useState<string | null>(null);
+  const [confirmError, setConfirmError] = React.useState<string | null>(null);
+  // Where focus goes once the list has changed (the counter repeats a move).
+  const [focus, setFocus] = React.useState<{ id: string; n: number } | null>(null);
+  const focusEl = (id: string) => setFocus((f) => ({ id, n: (f?.n ?? 0) + 1 }));
+  React.useEffect(() => {
+    if (focus) document.getElementById(focus.id)?.focus();
+  }, [focus]);
   // The list the last change returned, shown until the page's own list
   // (`members`) is rendered again: the refresh after a change sometimes
   // doesn't show until the next router update (see actions/admin.ts).
@@ -133,17 +167,7 @@ export function PeopleManager({
       setError(null);
       router.refresh();
     } else {
-      setError(
-        res.error === "forbidden"
-          ? "Admins only."
-          : res.error === "bad-email"
-            ? "That doesn't look like a valid email."
-            : res.error === "no-roles"
-              ? "Everyone needs at least one role."
-              : res.error === "self"
-                ? "You can't remove yourself."
-                : "Something went wrong."
-      );
+      setError(errorText(res.error));
     }
     setPending(null);
   }
@@ -189,6 +213,10 @@ export function PeopleManager({
   }
 
   async function toggleRole(m: AdminMember, r: Role) {
+    if (m.id === selfId && r === "ADMIN") {
+      setError(errorText("own-admin"));
+      return;
+    }
     const next = m.roles.includes(r)
       ? m.roles.filter((x) => x !== r)
       : [...m.roles, r];
@@ -198,6 +226,46 @@ export function PeopleManager({
     }
     setPending(`roles-${m.id}`);
     report(await setMemberRoles(m.id, next));
+  }
+
+  /** The bin asks first; on your own row it says why it can't. */
+  function askRemove(m: AdminMember) {
+    if (m.id === selfId) {
+      setError(errorText("self"));
+      return;
+    }
+    setError(null);
+    setConfirmError(null);
+    setConfirming(m.id);
+  }
+
+  function keep(m: AdminMember) {
+    setConfirming(null);
+    setConfirmError(null);
+    focusEl(binId(m.id));
+  }
+
+  async function onRemove(m: AdminMember) {
+    setPending(`rm-${m.id}`);
+    setConfirmError(null);
+    setNotice(null);
+    // The person after them in the list (or before, at the end) takes
+    // focus once they've gone; the Email field when nobody is left.
+    const at = shown.findIndex((x) => x.id === m.id);
+    const near = shown[at + 1] ?? shown[at - 1];
+    const res = await removeMember(m.id);
+    if (!res.ok) {
+      setConfirmError(errorText(res.error));
+      setPending(null);
+      return;
+    }
+    setConfirming(null);
+    setNotice({
+      kind: "ok",
+      text: `Removed ${m.email} from the project. Their account and data stay.`,
+    });
+    report(res);
+    focusEl(near && near.id !== m.id ? binId(near.id) : `${ids}-email`);
   }
 
   return (
@@ -240,6 +308,7 @@ export function PeopleManager({
             <label className="text-xs text-[var(--muted-foreground)]">
               <span className="block mb-1">Email</span>
               <input
+                id={`${ids}-email`}
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
@@ -368,129 +437,176 @@ export function PeopleManager({
                 </tr>
               ) : (
                 shown.map((m) => (
-                  <tr
-                    key={m.id}
-                    className="border-b border-[var(--border)] last:border-0"
-                  >
-                    <td className="px-4 py-2.5">
-                      {m.name ? (
-                        <div className="font-medium">{m.name}</div>
-                      ) : null}
-                      <div className="text-[11px] text-[var(--muted-foreground)] break-all">
-                        {m.email}
-                      </div>
-                    </td>
-                    <td className="px-3 py-2.5">
-                      <div className="flex flex-wrap gap-1">
-                        {ROLES.map((r) => {
-                          // Held through another role (Admin includes
-                          // Editor): shown as on, but not separately
-                          // switchable while that role is held.
-                          const via = includedVia(m.roles, r.value);
-                          if (via) {
+                  <React.Fragment key={m.id}>
+                    <tr
+                      className={`border-b border-[var(--border)] ${
+                        confirming === m.id ? "" : "last:border-0"
+                      }`}
+                    >
+                      <td className="px-4 py-2.5">
+                        {m.name ? (
+                          <div className="font-medium">{m.name}</div>
+                        ) : null}
+                        <div className="text-[11px] text-[var(--muted-foreground)] break-all">
+                          {m.email}
+                        </div>
+                        {m.id === selfId ? (
+                          <p
+                            id={selfHintId}
+                            className="mt-1 max-w-56 text-[11px] text-[var(--muted-foreground)]"
+                          >
+                            This is you. You can&apos;t switch off your own Admin
+                            role or remove yourself. Another admin can.
+                          </p>
+                        ) : null}
+                      </td>
+                      <td className="px-3 py-2.5">
+                        {/* py-1: at least 24px high (WCAG 2.5.8), as the
+                            chips wrap onto two lines in a narrow column. */}
+                        <div className="flex flex-wrap gap-1">
+                          {ROLES.map((r) => {
+                            // Held through another role (Admin includes
+                            // Editor): shown as on, but not separately
+                            // switchable while that role is held.
+                            const via = includedVia(m.roles, r.value);
+                            if (via) {
+                              return (
+                                <button
+                                  key={r.value}
+                                  type="button"
+                                  disabled
+                                  aria-pressed
+                                  className="rounded-full border border-dashed border-[var(--accent)] bg-[var(--accent)]/10 px-2 py-1 text-[11px] text-[var(--accent)] cursor-default"
+                                >
+                                  <span className="font-medium">{r.label}</span>
+                                  <span aria-hidden="true"> ·</span> included
+                                  with {roleLabel(via)}
+                                </button>
+                              );
+                            }
+                            const on = m.roles.includes(r.value);
+                            // Your own Admin role stays on: focusable, so it
+                            // can say why (the line under your email).
+                            const locked =
+                              on && r.value === "ADMIN" && m.id === selfId;
                             return (
                               <button
                                 key={r.value}
                                 type="button"
-                                disabled
-                                aria-pressed
-                                className="rounded-full border border-dashed border-[var(--accent)] bg-[var(--accent)]/10 px-2 py-0.5 text-[11px] text-[var(--accent)] cursor-default"
+                                onClick={() => toggleRole(m, r.value)}
+                                disabled={pending === `roles-${m.id}`}
+                                aria-pressed={on}
+                                aria-disabled={locked || undefined}
+                                aria-describedby={locked ? selfHintId : undefined}
+                                className={`rounded-full border px-2 py-1 text-[11px] ${
+                                  on
+                                    ? "border-[var(--accent)] bg-[var(--accent)]/10 text-[var(--accent)] font-medium"
+                                    : "border-[var(--border)] text-[var(--muted-foreground)] hover:bg-[var(--surface-muted)]"
+                                }${locked ? " cursor-not-allowed" : ""}`}
                               >
-                                <span className="font-medium">{r.label}</span>
-                                <span aria-hidden="true"> ·</span> included
-                                with {roleLabel(via)}
+                                {r.label}
                               </button>
                             );
-                          }
-                          const on = m.roles.includes(r.value);
-                          return (
-                            <button
-                              key={r.value}
-                              type="button"
-                              onClick={() => toggleRole(m, r.value)}
-                              disabled={pending === `roles-${m.id}`}
-                              aria-pressed={on}
-                              className={`rounded-full border px-2 py-0.5 text-[11px] ${
-                                on
-                                  ? "border-[var(--accent)] bg-[var(--accent)]/10 text-[var(--accent)] font-medium"
-                                  : "border-[var(--border)] text-[var(--muted-foreground)] hover:bg-[var(--surface-muted)]"
-                              }`}
-                            >
-                              {r.label}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </td>
-                    <td className="px-3 py-2.5">
-                      <select
-                        value={m.cohortId ?? ""}
-                        onChange={async (e) => {
-                          setPending(`cohort-${m.id}`);
-                          report(
-                            await assignCohort(m.id, e.target.value || null)
-                          );
-                        }}
-                        disabled={pending === `cohort-${m.id}`}
-                        aria-label={`Cohort for ${m.email}`}
-                        className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs"
-                      >
-                        <option value="">— none —</option>
-                        {cohorts.map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {c.label}
-                          </option>
-                        ))}
-                      </select>
-                    </td>
-                    <td className="px-3 py-2.5">
-                      {m.status === "joined" ? (
-                        <span className="inline-flex items-center gap-1 text-xs text-[var(--foreground)]">
-                          <CheckCircle2 className="h-3.5 w-3.5 text-[var(--accent)]" aria-hidden />
-                          Joined
-                        </span>
-                      ) : (
-                        <div className="flex flex-col items-start gap-1">
-                          <span className="inline-flex items-center gap-1 text-xs text-[var(--muted-foreground)]">
-                            <Clock className="h-3.5 w-3.5" aria-hidden />
-                            {m.invitedAt
-                              ? `Invited ${m.invitedAt}`
-                              : "Not joined yet"}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => onResend(m)}
-                            disabled={pending === `inv-${m.id}`}
-                            aria-label={`${m.invitedAt ? "Resend invitation" : "Send invitation"} to ${m.email}`}
-                            className="inline-flex items-center gap-1 rounded-full border border-[var(--border)] px-2 py-0.5 text-[11px] text-[var(--accent)] hover:bg-[var(--surface-muted)] disabled:opacity-60"
-                          >
-                            {pending === `inv-${m.id}` ? (
-                              <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
-                            ) : (
-                              <Send className="h-3 w-3" aria-hidden />
-                            )}
-                            {m.invitedAt ? "Resend invitation" : "Send invitation"}
-                          </button>
+                          })}
                         </div>
-                      )}
-                    </td>
-                    <td className="px-3 py-2.5 text-[var(--muted-foreground)] tabular-nums">
-                      {m.joinedAt}
-                    </td>
-                    <td className="px-3 py-2.5 text-right">
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          setPending(`rm-${m.id}`);
-                          report(await removeMember(m.id));
-                        }}
-                        aria-label={`Remove ${m.email} from the project`}
-                        className="rounded-md p-1 text-[var(--muted-foreground)] hover:text-[var(--danger)]"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </td>
-                  </tr>
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <select
+                          value={m.cohortId ?? ""}
+                          onChange={async (e) => {
+                            setPending(`cohort-${m.id}`);
+                            report(
+                              await assignCohort(m.id, e.target.value || null)
+                            );
+                          }}
+                          disabled={pending === `cohort-${m.id}`}
+                          aria-label={`Cohort for ${m.email}`}
+                          className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs"
+                        >
+                          <option value="">— none —</option>
+                          {cohorts.map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {c.label}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td className="px-3 py-2.5">
+                        {m.status === "joined" ? (
+                          <span className="inline-flex items-center gap-1 text-xs text-[var(--foreground)]">
+                            <CheckCircle2 className="h-3.5 w-3.5 text-[var(--accent)]" aria-hidden />
+                            Joined
+                          </span>
+                        ) : (
+                          <div className="flex flex-col items-start gap-1">
+                            <span className="inline-flex items-center gap-1 text-xs text-[var(--muted-foreground)]">
+                              <Clock className="h-3.5 w-3.5" aria-hidden />
+                              {m.invitedAt
+                                ? `Invited ${m.invitedAt}`
+                                : "Not joined yet"}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => onResend(m)}
+                              disabled={pending === `inv-${m.id}`}
+                              aria-label={`${m.invitedAt ? "Resend invitation" : "Send invitation"} to ${m.email}`}
+                              className="inline-flex items-center gap-1 rounded-full border border-[var(--border)] px-2 py-0.5 text-[11px] text-[var(--accent)] hover:bg-[var(--surface-muted)] disabled:opacity-60"
+                            >
+                              {pending === `inv-${m.id}` ? (
+                                <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
+                              ) : (
+                                <Send className="h-3 w-3" aria-hidden />
+                              )}
+                              {m.invitedAt ? "Resend invitation" : "Send invitation"}
+                            </button>
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-3 py-2.5 text-[var(--muted-foreground)] tabular-nums">
+                        {m.joinedAt}
+                      </td>
+                      <td className="px-3 py-2.5 text-right">
+                        <button
+                          id={binId(m.id)}
+                          type="button"
+                          onClick={() => askRemove(m)}
+                          aria-label={`Remove ${m.email} from the project`}
+                          aria-disabled={m.id === selfId || undefined}
+                          aria-describedby={m.id === selfId ? selfHintId : undefined}
+                          className={
+                            m.id === selfId
+                              ? "rounded-md p-1 text-[var(--muted-foreground)] opacity-50 cursor-not-allowed"
+                              : "rounded-md p-1 text-[var(--muted-foreground)] hover:text-[var(--danger)]"
+                          }
+                        >
+                          <Trash2 className="h-4 w-4" aria-hidden />
+                        </button>
+                      </td>
+                    </tr>
+                    {confirming === m.id ? (
+                      <tr className="border-b border-[var(--border)] last:border-0">
+                        <td colSpan={6} className="px-4 pb-3">
+                          <InlineConfirm
+                            heading="h2"
+                            title={`Remove ${m.name || m.email} from the project?`}
+                            confirmLabel="Remove from project"
+                            keepLabel="Keep them"
+                            busy={pending === `rm-${m.id}`}
+                            error={confirmError}
+                            onConfirm={() => onRemove(m)}
+                            onKeep={() => keep(m)}
+                          >
+                            <p className="mt-1 text-xs">
+                              They lose their roles and their cohort, and leave
+                              this list. Their account and data stay: progress,
+                              Comp Card and notes about them are kept. They can
+                              still sign in, as a learner.
+                            </p>
+                          </InlineConfirm>
+                        </td>
+                      </tr>
+                    ) : null}
+                  </React.Fragment>
                 ))
               )}
             </tbody>
