@@ -541,7 +541,17 @@ export function LessonListPanel({
         <ol className="space-y-1 text-sm">
           {lessons.map((lesson) => {
             if (!lesson.section) {
-              return <AddSlot key={lesson.key} lesson={lesson} label={lessonLabel(lesson.key)} onAdd={onAddStage} tAdd={tNav} draft={tDraft("navDraft")} />;
+              return (
+                <AddSlot
+                  key={lesson.key}
+                  lesson={lesson}
+                  label={lessonLabel(lesson.key)}
+                  onAdd={onAddStage}
+                  tAdd={tNav}
+                  draft={tDraft("navDraft")}
+                  lockedBy={addOpener.kind === "locked" ? describe(addOpener) : undefined}
+                />
+              );
             }
             const section = lesson.section;
             const id = section.id;
@@ -647,7 +657,14 @@ function titleOf(lesson: LessonOutline, lang: Locale): string | null {
 /**
  * Today's "Add guided practice / an applied scenario / a quick check" for
  * an exercise the course doesn't have, or the lesson's name with "Draft"
- * when it so far exists only as a draft (Release 0's LessonNav, unchanged).
+ * when it so far exists only as a draft (Release 0's LessonNav).
+ *
+ * Its exercise's first "Save stage" adds the lesson to what learners get,
+ * so the slot follows "Add lesson" (finding 1 of the integration review):
+ * while the course takes no new lesson — at the limit, its list unreadable,
+ * or from the cut-off with learners — it is aria-disabled, described by why
+ * (`lockedBy`, the id of that text). With learners, the save asks first. A
+ * slot holding a draft still opens: editing a draft adds nothing.
  */
 function AddSlot({
   lesson,
@@ -655,19 +672,26 @@ function AddSlot({
   onAdd,
   tAdd,
   draft,
+  lockedBy,
 }: {
   lesson: LessonOutline;
   label: string;
   onAdd: (key: string) => void;
   tAdd: (key: string) => string;
   draft: string;
+  lockedBy?: string;
 }) {
   const key = lesson.key as "simulation" | "scenario" | "assessment";
+  const locked = offersAdd(lesson) && lockedBy !== undefined;
   return (
     <li>
       <button
         type="button"
-        onClick={() => onAdd(lesson.key)}
+        aria-disabled={locked || undefined}
+        aria-describedby={locked ? lockedBy : undefined}
+        onClick={() => {
+          if (!locked) onAdd(lesson.key);
+        }}
         className="inline-flex min-h-9 w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[var(--accent)] hover:bg-[var(--surface-muted)]"
       >
         {offersAdd(lesson) ? (

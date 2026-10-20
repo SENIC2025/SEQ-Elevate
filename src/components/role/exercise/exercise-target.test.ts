@@ -162,6 +162,16 @@ describe("lessonTarget", () => {
     expect(structure.clearStructure).toHaveBeenCalledWith("my-course", "scenario", base);
   });
 
+  it("sends a confirmed save with `confirm` (finding 1: a save that adds the lesson asks first with learners)", async () => {
+    const target = lessonTarget("my-course", "scenario", "scenario");
+    const base = { structure: null, draft: null };
+    structure.saveStructure.mockResolvedValue({ ok: false, error: "needs-confirmation", learners: 2, finished: 1 });
+    expect(await target.save(scenario, base)).toEqual({ ok: false, error: "needs-confirmation", learners: 2, finished: 1 });
+    structure.saveStructure.mockResolvedValue({ ok: true, structure: scenario });
+    expect(await target.save(scenario, base, true)).toEqual({ ok: true, value: scenario });
+    expect(structure.saveStructure).toHaveBeenLastCalledWith("my-course", "scenario", scenario, base, true);
+  });
+
   it("edits a lesson of the course's own by its id", async () => {
     const target = lessonTarget("my-course", "s-abcdefgh", "assessment");
     structure.getStructure.mockResolvedValue({ structure: null, draft: null });
@@ -181,17 +191,23 @@ describe("lessonTarget", () => {
 });
 
 describe("result mapping", () => {
-  it("keeps the learner count and nothing else of a refusal", () => {
+  it("keeps what the editor says of a refusal: the learners, those who finished, the cut-off, and nothing else", () => {
     expect(toDoneResult({ ok: false, error: "has-learners", count: 2 })).toEqual({
       ok: false,
       error: "has-learners",
       count: 2,
     });
-    // (Release 1's "live-course-standard-only" is retired, D66: a refusal
-    // with a payload of today's kind instead.)
+    // Flipped on purpose (finding 1): a save that adds a lesson can now be
+    // refused with the cut-off's date, or asked first with the counts.
     expect(
-      toSaveResult({ ok: false, error: "restructure-closed", from: "2026-11-30T23:00:00.000Z" })
-    ).toEqual({ ok: false, error: "restructure-closed" });
+      toSaveResult({ ok: false, error: "restructure-closed", from: "2026-11-30T23:00:00.000Z", extra: "x" })
+    ).toEqual({ ok: false, error: "restructure-closed", from: "2026-11-30T23:00:00.000Z" });
+    expect(toSaveResult({ ok: false, error: "needs-confirmation", learners: 3, finished: 1 })).toEqual({
+      ok: false,
+      error: "needs-confirmation",
+      learners: 3,
+      finished: 1,
+    });
     expect(toDraftResult({ ok: false, error: "forbidden" })).toEqual({ ok: false, error: "forbidden" });
   });
 });

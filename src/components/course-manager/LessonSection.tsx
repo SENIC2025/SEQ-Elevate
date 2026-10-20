@@ -55,6 +55,7 @@ export function LessonSection(props: LessonSectionProps) {
     onDocumentsChanged,
     reasons,
     live,
+    addLocked,
     onOutline,
     announce,
   } = props;
@@ -83,14 +84,19 @@ export function LessonSection(props: LessonSectionProps) {
       ? sectioned.title
       : undefined);
 
-  // A lesson that so far exists only as a draft is edited, not added.
+  // A lesson that so far exists only as a draft is edited, not added. One
+  // the course can't take now says why (`addLocked`); open, it still closes.
+  const addBlocked = !open && addLocked !== undefined;
+  const whyId = `lesson-${key}-why-add`;
   const toggle = offersAdd(lesson) ? (
     <Button
       size="sm"
       variant={open ? "outline" : "primary"}
       aria-expanded={open}
       aria-controls={panelId}
-      onClick={open ? onClose : onOpen}
+      aria-disabled={addBlocked || undefined}
+      aria-describedby={addBlocked ? whyId : undefined}
+      onClick={open ? onClose : addBlocked ? undefined : onOpen}
     >
       {open ? (
         <Check className="h-4 w-4" aria-hidden />
@@ -256,6 +262,11 @@ export function LessonSection(props: LessonSectionProps) {
           ) : null}
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {addBlocked && offersAdd(lesson) ? (
+            <p id={whyId} hidden>
+              {addLocked}
+            </p>
+          ) : null}
           {headerExtra}
           {lesson.present ? (
             <PreviewLink

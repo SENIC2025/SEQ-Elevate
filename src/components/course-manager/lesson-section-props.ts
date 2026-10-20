@@ -54,6 +54,14 @@ export interface LessonSectionProps {
    * (SectionsMeta; absent for a built-in course).
    */
   live?: { learners: number; finished: number; closed: boolean; closedFrom: string | null };
+  /**
+   * An "Add …" lesson whose first "Save stage" would add it while the
+   * course takes no new lesson (finding 1 of the integration review: at
+   * the limit, its list unreadable, or from the cut-off with learners): why,
+   * in words. Its Add button is then aria-disabled, described by this.
+   * Unset when it may be added (with learners, the save asks first).
+   */
+  addLocked?: string;
   /** Rendered in the lesson's header (the lesson list's Rename shortcut). */
   headerExtra?: ReactNode;
   onOpen(): void;

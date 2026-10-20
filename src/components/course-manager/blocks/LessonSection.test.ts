@@ -179,6 +179,25 @@ describe("LessonSection — a lesson not in the lesson list yet", () => {
     expect(listed).toContain(">Add content<");
   });
 
+  it("offers Add only while the course takes a new lesson, saying why not (finding 1)", () => {
+    // Its first "Save stage" adds the lesson, so its "Add …" follows the
+    // lesson list's "Add lesson": from the cut-off with learners, at the
+    // limit, or with the list unreadable, it is aria-disabled with why.
+    const why = "From 30 November 2026, lessons and content can't be added.";
+    const html = render(unlisted, false, "en", undefined, { status: "published", addLocked: why });
+    const add = html.match(/<button[^>]*aria-controls="lesson-scenario-panel"[^>]*>/)?.[0] ?? "";
+    expect(add).toContain('aria-disabled="true"');
+    const id = add.match(/aria-describedby="([^"]+)"/)?.[1];
+    expect(html).toMatch(new RegExp(`<p id="${id}" hidden(="")?>`));
+    expect(html).toContain(`>${html_(why)}</p>`);
+    // Open already (its editor in use): "Done" closes it as ever.
+    const open = render(unlisted, true, "en", undefined, { status: "published", addLocked: why });
+    expect(open.match(/<button[^>]*aria-controls="lesson-scenario-panel"[^>]*>/)?.[0]).not.toContain("aria-disabled");
+    // A course that takes it: offered as before.
+    const offered = render(unlisted, false, "en", undefined, { status: "published" });
+    expect(offered.match(/<button[^>]*aria-controls="lesson-scenario-panel"[^>]*>/)?.[0]).not.toContain("aria-disabled");
+  });
+
   it("says nothing about a live course's locks while it isn't in the list", () => {
     const html = render(unlisted, true, "en", undefined, { status: "published" });
     expect(html).toContain("Interactive stage");

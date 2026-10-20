@@ -1019,7 +1019,8 @@
       "outlineUnreadable": "Die Lektionsliste dieses Kurses lässt sich nicht lesen, deshalb kann nichts geändert werden, bis ein Admin sie repariert. Es wurde nichts gespeichert.",
       "partsTooLarge": "Die Inhalte dieser Lektion sind zusammen zu groß zum Speichern. Kürze einige Texte oder entferne Inhalte.",
       "useMainEditor": "Das ist der Hauptinhalt der Lektion. Bearbeite ihn im Editor der Lektion selbst.",
-      "unknownPart": "Diesen Inhalt gibt es in der Lektion nicht mehr. Lade die Seite neu, um die Lektion so zu sehen, wie sie jetzt ist."
+      "unknownPart": "Diesen Inhalt gibt es in der Lektion nicht mehr. Lade die Seite neu, um die Lektion so zu sehen, wie sie jetzt ist.",
+      "tooManyLessons": "Ein Kurs kann höchstens {max} Lektionen haben, ausgeblendete mitgezählt, deshalb kann diese nicht hinzugefügt werden. Lösche zuerst eine Lektion."
     },
     "loading": "Wird geladen …",
     "limits": {

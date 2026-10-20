@@ -1019,7 +1019,8 @@
       "outlineUnreadable": "This course's lesson list can't be read, so nothing can be changed until an admin repairs it. Nothing was saved.",
       "partsTooLarge": "This lesson's content is too large to save as a whole. Shorten some of its texts or remove some content.",
       "useMainEditor": "This is the lesson's main content. Edit it in the lesson's own editor.",
-      "unknownPart": "This content isn't in the lesson any more. Reload the page to see the lesson as it is now."
+      "unknownPart": "This content isn't in the lesson any more. Reload the page to see the lesson as it is now.",
+      "tooManyLessons": "A course can have at most {max} lessons, hidden ones included, so this one can't be added. Delete a lesson first."
     },
     "loading": "Loading…",
     "limits": {

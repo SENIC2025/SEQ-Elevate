@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -33,6 +33,8 @@ import { FieldIssuesContext, IssueList, LocField, newId, type FieldIssues } from
 import { ReflectionPromptsEditor } from "./exercise/ReflectionPromptsEditor";
 import { RatingEditor } from "./exercise/RatingEditor";
 import { removeErrorMessage, writeErrorMessage, type WriteRefusal } from "./exercise/write-errors";
+import { LiveChangeConfirm } from "@/components/course-manager/lesson-list/LiveChangeConfirm";
+import { closedDate } from "@/components/course-manager/lesson-list/list-model";
 import type { CourseStatus } from "@/lib/cms/course-status";
 import type { Locale, OutcomeQuality } from "@/lib/cms/types";
 import {
@@ -214,7 +216,10 @@ export function StructureAuthor({
 }) {
   const t = useTranslations("exerciseEditor");
   const tBlocks = useTranslations("lessonBlocks");
+  const tLive = useTranslations("liveChanges");
   const tLanguage = useTranslations("courseManager.languageName");
+  // The menu's language (dates), not the one being written (`locale`).
+  const uiLocale = useLocale();
   const headingId = React.useId();
   // Element ids for the text boxes and for the reasons a save was refused.
   const fieldsId = React.useId();
@@ -245,6 +250,11 @@ export function StructureAuthor({
   // save or a refused "Remove stage".
   const [conflict, setConflict] = React.useState<"save" | "remove" | null>(null);
   const [reloadKey, setReloadKey] = React.useState(0);
+  // "Save stage" that adds the lesson to a course people are taking: the
+  // server asked first, with its counts (finding 1 of the integration
+  // review; spec 7.3). Confirmed, the same save goes with `confirm`.
+  const [confirmAdd, setConfirmAdd] = React.useState<{ learners: number; finished: number } | null>(null);
+  const saveRef = React.useRef<HTMLButtonElement>(null);
 
   const setEdit = (next: ExerciseValue) => {
     setLoaded((l) => (l ? { ...l, edit: next } : l));
@@ -361,6 +371,12 @@ export function StructureAuthor({
       setConflict("save");
       return;
     }
+    if (refusal.error === "restructure-closed") {
+      // The save would add the lesson, and from the cut-off a course with
+      // learners takes none (D67): the lesson list's own words, its date.
+      setError(tLive("closed", { date: closedDate(refusal.from, uiLocale) }));
+      return;
+    }
     const message = writeErrorMessage(refusal);
     setError(t(message.key, message.values));
   }
@@ -373,13 +389,14 @@ export function StructureAuthor({
     setOverLimit(null);
   }
 
-  async function onSave() {
+  async function onSave(confirm?: true) {
     if (!edit || !ready) return;
     const savedKey = targetKey;
     const sent = edit;
     startWrite();
     try {
-      const res = await target.save(sent, loaded!.base);
+      const res = await target.save(sent, loaded!.base, confirm);
+      if (!(res.ok === false && res.error === "needs-confirmation")) setConfirmAdd(null);
       if (res.ok) {
         // Keep what's on screen rather than reloading: a reload resets the
         // status (the "Saved" confirmation would flash for ~25ms) and
@@ -396,12 +413,20 @@ export function StructureAuthor({
         onSaved?.(res.value);
         return;
       }
+      if (res.error === "needs-confirmation") {
+        // Nothing was written: the editor confirms, with the server's counts.
+        const asked = res as WriteRefusal;
+        setStatus("idle");
+        setConfirmAdd({ learners: asked.learners ?? 0, finished: asked.finished ?? 0 });
+        return;
+      }
       setStatus("error");
       if (res.error === "invalid") setNotReady((res as { issues: PartIssue[] }).issues);
       else if (res.error === "too-large") {
         setOverLimit({ sent, at: (res as { at: PartLimitBreach }).at });
       } else writeError(res);
     } catch {
+      setConfirmAdd(null);
       setStatus("error");
       writeError({ error: "generic" });
     }
@@ -655,7 +680,7 @@ export function StructureAuthor({
 
         <div className="mt-4 border-t border-[var(--border)] pt-3">
           <div className="flex flex-wrap items-center gap-2">
-            <Button size="sm" onClick={onSave} disabled={busy || !ready}>
+            <Button ref={saveRef} size="sm" onClick={() => void onSave()} disabled={busy || !ready}>
               {busy ? (
                 <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
               ) : (
@@ -712,6 +737,19 @@ export function StructureAuthor({
               ) : null}
             </span>
           </div>
+          {confirmAdd ? (
+            <LiveChangeConfirm
+              change={{ kind: "addLesson" }}
+              learners={confirmAdd.learners}
+              finished={confirmAdd.finished}
+              busy={busy}
+              onConfirm={() => void onSave(true)}
+              onCancel={() => {
+                setConfirmAdd(null);
+                saveRef.current?.focus();
+              }}
+            />
+          ) : null}
           {error ? (
             <p
               role="alert"

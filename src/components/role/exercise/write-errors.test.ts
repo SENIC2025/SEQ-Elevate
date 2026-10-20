@@ -68,6 +68,16 @@ describe("the exercise editors' refusal messages", () => {
     expect(writeErrorMessage({ error: "unknown-part" }).key).toBe("errors.unknownPart");
   });
 
+  it("says a lesson can't be added past the limit (finding 1: a save that adds the lesson)", () => {
+    expect(writeErrorMessage({ error: "too-many-sections" })).toEqual({
+      key: "errors.tooManyLessons",
+      values: { max: 15 },
+    });
+    for (const messages of Object.values(FILES)) {
+      expect(at(messages, "errors.tooManyLessons")).toMatch(/\{max\}/);
+    }
+  });
+
   it("keeps Release 0's wording for the refusals it already had", () => {
     expect(writeErrorMessage({ error: "forbidden" }).key).toBe("errors.forbidden");
     expect(writeErrorMessage({ error: "not-cms-course" }).key).toBe("errors.notCms");

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { Prisma } from "@prisma/client";
 import type { StoredScenario } from "@/lib/cms/structure";
 
@@ -512,5 +512,101 @@ describe("clearStructure and learners (G5)", () => {
       error: "not-cms-course",
     });
     expect(db.lesson).toEqual({ structure: complete, structureDraft: null });
+  });
+});
+
+/*
+ * Found at integration review (finding 1): "Add guided practice / an
+ * applied scenario / a quick check" — the course page's slot for a
+ * standard exercise the course doesn't list — opens the exercise editor,
+ * and its first "Save stage" puts the lesson in what learners get (the
+ * outline lists a standard exercise once it is saved, outline.ts). That
+ * save took no Course lock, counted no learners and asked no rule: with
+ * learners, a published course gained a lesson unasked, and from the
+ * cut-off at all (D67: lessons can't be added), past the limit of 15 too.
+ * Only a save that adds the lesson is held to the rules of "Add lesson";
+ * saving an exercise the course lists stays live at once (D33).
+ */
+describe("saving a standard exercise the course doesn't list adds a lesson (finding 1)", () => {
+  const NARRATIVE = ["context", "concept", "behaviour", "reflection"];
+  const listed = (...more: { id: string; template: string }[]) => ({
+    v: 1,
+    sections: [...NARRATIVE.map((id) => ({ id, template: id })), ...more],
+  });
+
+  beforeEach(() => {
+    db.courseStatus = "published";
+    db.courseOutline = listed();
+    db.enrolled = 2;
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("is refused from the cut-off on a published course with learners, writing nothing", async () => {
+    vi.stubEnv("RESTRUCTURE_CLOSED_FROM", "2020-01-01T00:00:00Z");
+    expect(await saveStructure(SLUG, "scenario", complete, nothing)).toEqual({
+      ok: false,
+      error: "restructure-closed",
+      from: "2020-01-01T00:00:00.000Z",
+    });
+    expect(db.lesson).toBeNull();
+    expect(db.audit).toEqual([]);
+    // Under the Course row's FOR UPDATE, which learner saves wait for.
+    expect(db.locks[0]).toBe(COURSE_UPDATE);
+  });
+
+  it("asks first before the cut-off, with the server's count, and is audited once confirmed", async () => {
+    vi.stubEnv("RESTRUCTURE_CLOSED_FROM", "off");
+    expect(await saveStructure(SLUG, "scenario", complete, nothing)).toEqual({
+      ok: false,
+      error: "needs-confirmation",
+      learners: 2,
+      finished: 2,
+    });
+    expect(db.lesson).toBeNull();
+    expect(await saveStructure(SLUG, "scenario", complete, nothing, true)).toEqual({ ok: true, structure: complete });
+    expect(db.lesson).toEqual({ structure: complete, structureDraft: null });
+    expect(db.audit).toEqual([
+      expect.objectContaining({
+        action: "structure.saved",
+        metadata: expect.objectContaining({ kind: "scenario", added: true, learners: 2, confirmed: true }),
+      }),
+    ]);
+  });
+
+  it("goes as before with no learners", async () => {
+    vi.stubEnv("RESTRUCTURE_CLOSED_FROM", "2020-01-01T00:00:00Z");
+    db.enrolled = 0;
+    expect(await saveStructure(SLUG, "scenario", complete, nothing)).toEqual({ ok: true, structure: complete });
+  });
+
+  it("stops at the limit of 15 lessons: the list never grows past it", async () => {
+    vi.stubEnv("RESTRUCTURE_CLOSED_FROM", "off");
+    db.enrolled = 0;
+    db.courseOutline = listed(
+      ...Array.from({ length: 11 }, (_, i) => ({ id: `s-0000000${i.toString(36)}`, template: "text" }))
+    );
+    expect(await saveStructure(SLUG, "scenario", complete, nothing)).toEqual({
+      ok: false,
+      error: "too-many-sections",
+    });
+    expect(db.lesson).toBeNull();
+  });
+
+  it("guard (D33): an exercise the course lists saves at once, with learners and from the cut-off, with no Course lock", async () => {
+    vi.stubEnv("RESTRUCTURE_CLOSED_FROM", "2020-01-01T00:00:00Z");
+    db.lesson = { structure: complete, structureDraft: null };
+    const edited = { ...complete, setup: { en: "A teammate snaps at you again." } };
+    expect(await saveStructure(SLUG, "scenario", edited, { structure: complete, draft: null })).toEqual({
+      ok: true,
+      structure: edited,
+    });
+    expect(db.locks).toEqual([LESSON_LOCK]);
+  });
+
+  it("guard: a draft of it adds nothing, so it is never asked", async () => {
+    vi.stubEnv("RESTRUCTURE_CLOSED_FROM", "2020-01-01T00:00:00Z");
+    expect((await saveStructureDraft(SLUG, "scenario", unfinished, nothing)).ok).toBe(true);
   });
 });

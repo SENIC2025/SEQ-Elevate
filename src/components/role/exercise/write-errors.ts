@@ -12,11 +12,18 @@
  * by the content list itself, in its own words (liveChanges).
  */
 
+import { SECTION_LIMITS } from "@/lib/cms/sections/contract";
+
 /** A refusal as the editors handle it: the action's error, with its count when it has one. */
 export interface WriteRefusal {
   error: string;
   /** has-learners: how many learners would lose what they have. */
   count?: number;
+  /** needs-confirmation: the learners the change meets, and how many of them finished. */
+  learners?: number;
+  finished?: number;
+  /** restructure-closed: the cut-off, an ISO date (D67). */
+  from?: string;
 }
 
 export interface MessageRef {
@@ -49,6 +56,10 @@ export function writeErrorMessage(r: WriteRefusal): MessageRef {
       return { key: "errors.useMainEditor" };
     case "unknown-part":
       return { key: "errors.unknownPart" };
+    // The first "Save stage" of a standard exercise the course doesn't list
+    // adds the lesson: not past the limit (hidden lessons count).
+    case "too-many-sections":
+      return { key: "errors.tooManyLessons", values: { max: SECTION_LIMITS.maxSections } };
     default:
       return { key: "errors.generic" };
   }

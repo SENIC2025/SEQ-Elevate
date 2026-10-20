@@ -67,7 +67,12 @@ export interface ExerciseTarget {
   scope: "main" | "part";
   /** Null when it couldn't be read (the editor says so, and offers nothing to save over it). */
   load(): Promise<ExerciseState | null>;
-  save(value: ExerciseValue, base: ExerciseState): Promise<TargetSaveResult>;
+  /**
+   * `confirm`: the editor confirmed what the save does to a course people
+   * are taking — the first save of a standard exercise the course doesn't
+   * list adds that lesson (actions/structure.ts saveStructure).
+   */
+  save(value: ExerciseValue, base: ExerciseState, confirm?: true): Promise<TargetSaveResult>;
   saveDraft(value: ExerciseValue, base: ExerciseState): Promise<TargetDraftResult>;
   discardDraft(base: ExerciseState): Promise<TargetDoneResult>;
   /** "Remove stage" — main content only. */
@@ -79,12 +84,25 @@ export function partBase(base: ExerciseState): PartBase {
   return { data: fingerprint(base.structure), draft: fingerprint(base.draft) };
 }
 
-/** Any action refusal, as the editor handles it (its count kept for has-learners). */
-export function refusalOf(res: { error: string; count?: unknown }): TargetRefused {
+/**
+ * Any action refusal, as the editor handles it: its count kept for
+ * has-learners, the learners and those who finished for
+ * needs-confirmation, the cut-off's date for restructure-closed.
+ */
+export function refusalOf(res: {
+  error: string;
+  count?: unknown;
+  learners?: unknown;
+  finished?: unknown;
+  from?: unknown;
+}): TargetRefused {
   return {
     ok: false,
     error: res.error,
     ...(typeof res.count === "number" ? { count: res.count } : {}),
+    ...(typeof res.learners === "number" ? { learners: res.learners } : {}),
+    ...(typeof res.finished === "number" ? { finished: res.finished } : {}),
+    ...(typeof res.from === "string" ? { from: res.from } : {}),
   };
 }
 
@@ -97,7 +115,7 @@ export function toSaveResult(
   if (res.ok) return { ok: true, value: res.structure as ExerciseValue };
   if (res.error === "invalid") return { ok: false, error: "invalid", issues: res.issues as PartIssue[] };
   if (res.error === "too-large") return { ok: false, error: "too-large", at: res.at as PartLimitBreach };
-  return refusalOf({ error: String(res.error), count: res.count });
+  return refusalOf({ ...res, error: String(res.error) });
 }
 
 /** A draft save's answer, from either kind of action. */
@@ -131,8 +149,12 @@ export function lessonTarget(
     kind,
     scope: "main",
     load: () => getStructure(slug, key) as Promise<ExerciseState | null>,
-    save: async (value, base) =>
-      toSaveResult(await saveStructure(slug, key, value as StoredStructure, state(base))),
+    save: async (value, base, confirm) =>
+      toSaveResult(
+        confirm
+          ? await saveStructure(slug, key, value as StoredStructure, state(base), true)
+          : await saveStructure(slug, key, value as StoredStructure, state(base))
+      ),
     saveDraft: async (value, base) =>
       toDraftResult(await saveStructureDraft(slug, key, value as StoredStructure, state(base))),
     discardDraft: async (base) => toDoneResult(await discardStructureDraft(slug, key, state(base))),

@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { useRouter } from "@/i18n/navigation";
 import { Pencil } from "lucide-react";
 import type {
@@ -17,7 +17,8 @@ import { CourseCopyEditor } from "./CourseCopyEditor";
 import { LessonNav } from "./LessonNav";
 import { LessonSection } from "./LessonSection";
 import { LessonListPanel, type RenameRequest } from "./lesson-list/LessonListPanel";
-import { usualOrder, type ContentNames } from "./lesson-list/list-model";
+import { closedDate, usualOrder, type ContentNames } from "./lesson-list/list-model";
+import { addControl } from "./lesson-list/live-controls";
 import { initWorkspace, lessonContentCallbacks, pair, workspaceReducer } from "./workspace-reducer";
 
 const NO_REASONS = [] as const;
@@ -65,6 +66,8 @@ function Workspace({
   const t = useTranslations("courseManager.page");
   const tStage = useTranslations("course.stageLabel");
   const tList = useTranslations("lessonList");
+  const tLive = useTranslations("liveChanges");
+  const locale = useLocale();
   const router = useRouter();
   const registry = useDirtyRegistry();
   const [, startTransition] = React.useTransition();
@@ -77,6 +80,20 @@ function Workspace({
   const { open, status } = state;
   // The lesson list of a course created here (null for a built-in course).
   const sections = outline.kind === "cms" ? state.sections : null;
+  // An "Add …" lesson's first "Save stage" adds it: why the course takes no
+  // new lesson now, as the lesson list's "Add lesson" says it (undefined
+  // when it may; with learners, the save asks first).
+  const addGate = sections
+    ? addControl({ kind: outline.kind, status, sections, enrolled: state.enrolled })
+    : null;
+  const addLocked =
+    addGate?.kind !== "locked"
+      ? undefined
+      : addGate.why === "closed"
+        ? tLive("closed", { date: closedDate(sections?.closedFrom, locale) })
+        : addGate.why === "max"
+          ? tList("max", { max: sections?.max ?? 0 })
+          : tList("errors.unreadable");
 
   // The page's one polite live region (moves, adds, deletes, names). Each
   // message gets a fresh node, so the same words twice are read twice.
@@ -297,6 +314,7 @@ function Workspace({
                   rev={state.revs[pair(lesson.key, lang)] ?? 0}
                   enrolled={state.enrolled}
                   reasons={state.sections?.reasons ?? NO_REASONS}
+                  addLocked={lesson.addable ? addLocked : undefined}
                   live={
                     state.sections
                       ? {

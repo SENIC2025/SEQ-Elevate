@@ -146,6 +146,44 @@ describe("the lesson list of a created course", () => {
     expect(html).toContain(">Add a quick check</button>");
   });
 
+  // Found at integration review (finding 1): the slot opens the exercise
+  // editor whose first "Save stage" adds the lesson, and it was offered
+  // whatever the rules said. It now says why, as "Add lesson" does, when
+  // the course takes no new lesson; with learners the save asks first.
+  it("from 1 December, a published course with learners takes no exercise through its Add slot either, saying why (finding 1)", () => {
+    const html = panel(createdOutline(null, { status: "published", enrolled: 1, closed: true }));
+    const add = button(html, "Add a quick check");
+    expect(add).toContain('aria-disabled="true"');
+    const why = add.match(/aria-describedby="([^"]+)"/)?.[1];
+    expect(why).toBeTruthy();
+    expect(html).toMatch(new RegExp(`<p id="${why}" hidden(="")?>From `));
+    // Before the cut-off, with learners, it opens: its save asks first.
+    expect(button(panel(createdOutline(null, { status: "published", enrolled: 1 })), "Add a quick check")).not.toContain(
+      "aria-disabled"
+    );
+    // A slot holding only a draft still opens: editing a draft adds nothing.
+    const drafted = createdOutline(null, {
+      status: "published",
+      enrolled: 1,
+      closed: true,
+      rows: [...STANDARD_ROWS, { stageKey: "scenario", structureDraft: { kind: "scenario" } }],
+    });
+    expect(panel(drafted)).toMatch(/<button type="button" class="[^"]*">.*?Applied scenario<\/span>.*?Draft<\/span><\/button>/);
+  });
+
+  it("at the limit of 15 lessons, the Add slots say why too (finding 1)", () => {
+    const own = Array.from({ length: 11 }, (_, i) => ({ id: `s-0000000${i.toString(36)}`, template: "text" as const }));
+    const full = createdOutline({
+      v: 1,
+      sections: [...["context", "concept", "behaviour", "reflection"].map((id) => ({ id, template: id })), ...own],
+    } as StoredOutline);
+    const html = panel(full);
+    const add = button(html, "Add a quick check");
+    expect(add).toContain('aria-disabled="true"');
+    const why = add.match(/aria-describedby="([^"]+)"/)?.[1];
+    expect(html).toMatch(new RegExp(`<p id="${why}" hidden(="")?>A course can have at most 15 lessons.</p>`));
+  });
+
   it("gives each lesson a disclosure named after it, and says whether learners get it in words", () => {
     const html = panel(draft);
     const actions = button(html, "Actions for 2. Skill concept");

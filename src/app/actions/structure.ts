@@ -21,7 +21,10 @@
  * lessons' path is unchanged and never asks for the Course lock — except
  * "Remove stage", which with learners enrolled is refused (G5; spec 7.2,
  * own lessons included from Release 2), with the Course row locked FOR
- * UPDATE first.
+ * UPDATE first; and the first "Save stage" of a standard exercise the
+ * course doesn't list, which adds that lesson to what learners get, and
+ * so is held to "Add lesson"'s rules under the same lock (the limit of 15;
+ * with learners, a confirmation, and from the cut-off a refusal: D66, D67).
  */
 
 import { Prisma } from "@prisma/client";
@@ -36,6 +39,7 @@ import {
 import { sanitizeStructure } from "@/lib/cms/structure-sanitize";
 import { ChangedElsewhere, sameStoredJson } from "@/lib/cms/stored-json";
 import {
+  SECTION_LIMITS,
   isCustomSectionId,
   mainKindOf,
   type CustomSectionId,
@@ -44,8 +48,12 @@ import { liveRule } from "@/lib/cms/sections/live-rules";
 import { resolveOutline } from "@/lib/cms/sections/outline";
 import {
   Refusal,
+  confirmedAudit,
+  guardStructure,
   learnerCount,
   lockCourse,
+  openCourse,
+  type Guarded,
 } from "@/lib/cms/sections/store.server";
 
 const PROJECT = "seq-elevate";
@@ -197,11 +205,19 @@ async function storable(
   return { ...clean, kind: target.kind };
 }
 
-/** Why a write was refused under its locks (G5, G6); the transaction rolled back. */
+/** Why a write was refused under its locks (G5, G6, D66, D67); the transaction rolled back. */
 type WriteRefused =
   | { ok: false; error: "changed-elsewhere" }
-  | { ok: false; error: "not-cms-course" | "outline-unreadable" | "not-a-section" | "kind-mismatch" }
-  | { ok: false; error: "has-learners"; count: number };
+  | {
+      ok: false;
+      error: "not-cms-course" | "outline-unreadable" | "not-a-section" | "kind-mismatch" | "too-many-sections";
+    }
+  | { ok: false; error: "has-learners"; count: number }
+  | { ok: false; error: "needs-confirmation"; learners: number; finished: number }
+  | { ok: false; error: "restructure-closed"; from: string };
+
+/** A write let through, and — when it added the lesson to the list — the learners it met. */
+type Written = { ok: true; added?: Guarded };
 
 /**
  * Write to one lesson row, only if its structure and draft are still the
@@ -218,20 +234,40 @@ type WriteRefused =
  * which FOR SHARE wouldn't hold off — and is refused while learners are
  * enrolled and the stage is one they get, whatever the course's status
  * and whatever the lesson (G5; live-rules.ts "remove-stage").
+ *
+ * A save for learners of a standard exercise with nothing saved for
+ * learners yet (`addsLesson`, base.structure null — the write goes ahead
+ * only if the row still holds none) may add the lesson: one the course
+ * doesn't list (resolveOutline) is listed once it is saved. Then the Course
+ * row is locked FOR UPDATE first (openCourse) and the save is held to
+ * "Add lesson"'s rules: refused at the limit of 15 lessons (hidden ones
+ * included), and with learners asked first (`confirm`) — from the cut-off
+ * refused (guardStructure "add-lesson"). One the course lists (the picker
+ * put it there) is a content save, live at once (D33).
  */
 async function writeIfUnchanged(
   courseSlug: string,
   stageKey: Target,
   base: StructureState,
   data: Prisma.LessonUpdateInput,
-  opts: { kind?: Kind; guardLearners?: boolean } = {}
-): Promise<{ ok: true } | WriteRefused> {
+  opts: { kind?: Kind; guardLearners?: boolean; addsLesson?: { confirm?: boolean } } = {}
+): Promise<Written | WriteRefused> {
   const where = {
     projectId_courseSlug_stageKey: { projectId: PROJECT, courseSlug, stageKey },
   };
+  let added: Guarded | undefined;
   try {
     await prisma.$transaction(async (tx) => {
       const own = isCustomSectionId(stageKey);
+      if (opts.addsLesson && !own && base.structure === null) {
+        const state = await openCourse(tx, courseSlug, "update");
+        if (!state.outline.sections.some((s) => s.id === stageKey)) {
+          if (state.outline.sections.length >= SECTION_LIMITS.maxSections) {
+            throw new Refusal({ ok: false, error: "too-many-sections" });
+          }
+          added = await guardStructure(tx, state, "add-lesson", { confirm: opts.addsLesson.confirm });
+        }
+      }
       const course =
         opts.guardLearners || own
           ? await lockCourse(tx, courseSlug, opts.guardLearners ? "update" : "share")
@@ -285,7 +321,7 @@ async function writeIfUnchanged(
     if (error instanceof Refusal) return error.result as WriteRefused;
     throw error;
   }
-  return { ok: true };
+  return added ? { ok: true, added } : { ok: true };
 }
 
 async function audit(
@@ -321,6 +357,14 @@ async function audit(
  * `base` is the structure and draft the editor started from; if either has
  * changed since, nothing is written ("changed-elsewhere").
  *
+ * The first save of a standard exercise the course doesn't list adds that
+ * lesson ("Add guided practice", "Add an applied scenario", "Add a quick
+ * check"): refused at the limit of 15 lessons ("too-many-sections"); with
+ * learners, "needs-confirmation" until it is sent again with `confirm`,
+ * and from the cut-off "restructure-closed" (D66, D67; a page from before
+ * Release 2 never sends `confirm`). Audited with `added`, and with
+ * `{learners, confirmed}` when confirmed.
+ *
  * Returns the structure as stored (rebuilt by sanitizeStructure), the base
  * for the next write.
  */
@@ -328,11 +372,17 @@ export async function saveStructure(
   courseSlug: string,
   stageKey: Target,
   structure: StoredStructure,
-  base: StructureState
+  base: StructureState,
+  confirm?: boolean
 ) {
   const editor = await requireEditor();
   if (!editor) return { ok: false as const, error: "forbidden" as const };
-  if (!validTarget(courseSlug, stageKey) || !isObject(structure) || !isBase(base)) {
+  if (
+    !validTarget(courseSlug, stageKey) ||
+    !isObject(structure) ||
+    !isBase(base) ||
+    !(confirm === undefined || typeof confirm === "boolean")
+  ) {
     return { ok: false as const, error: "bad-input" as const };
   }
   const clean = await storable(courseSlug, stageKey, structure, base);
@@ -351,13 +401,14 @@ export async function saveStructure(
       structure: clean.structure as unknown as Prisma.InputJsonValue,
       structureDraft: Prisma.DbNull,
     },
-    { kind: clean.kind }
+    { kind: clean.kind, addsLesson: { confirm } }
   );
   if (!written.ok) return written;
 
   await audit(editor.id, "structure.saved", courseSlug, stageKey, {
     kind: clean.structure.kind,
     draftCleared: base.draft !== null,
+    ...(written.added ? { added: true, ...confirmedAudit(written.added) } : {}),
   });
   return { ok: true as const, structure: clean.structure };
 }
