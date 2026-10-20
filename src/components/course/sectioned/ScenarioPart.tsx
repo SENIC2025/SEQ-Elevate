@@ -8,7 +8,6 @@ import { RotateCcw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { OutcomeQuality, ScenarioChoice } from "@/lib/cms/types";
 import { FormattedText } from "../FormattedText";
-import { scenarioContinueHint } from "../continue-hint";
 import type { PartProps } from "./part-props";
 import { focusThen } from "./focus";
 
@@ -22,21 +21,17 @@ import { focusThen } from "./focus";
  * follow-up choice it moves to that choice's outcome (shown where the
  * follow-up buttons were); "Try different choices" moves it to the part's
  * heading first.
+ *
+ * What it still needs before the lesson goes on is said once, above the
+ * lesson's Continue (useContinue), never again here.
  */
 export function ScenarioPart({ part, answer, onAnswer, headingId, targets }: PartProps<"scenario">) {
   const t = useTranslations("coursePlayer");
-  const tHint = useTranslations("continueHint");
   const sc = part.scenario;
   const picked = answer?.type === "scenario" ? answer : undefined;
   const rootChoice = sc.choices.find((c) => c.id === picked?.rootId);
   const followups = rootChoice?.followups ?? [];
   const followupChoice = followups.find((c) => c.id === picked?.followupId);
-  const hint = scenarioContinueHint({
-    rootChosen: !!rootChoice,
-    followups: followups.length,
-    followupChosen: !!followupChoice,
-  });
-
   const followupOutcomeId = useId();
   // Set by a follow-up choice; the outcome takes focus once it's there.
   const focusFollowupOutcome = useRef(false);
@@ -124,9 +119,6 @@ export function ScenarioPart({ part, answer, onAnswer, headingId, targets }: Par
         />
       ) : null}
 
-      {hint && sc.choices.length > 0 ? (
-        <p className="mt-4 text-sm text-[var(--muted-foreground)]">{tHint(hint)}</p>
-      ) : null}
       {rootChoice ? (
         <div className="mt-4">
           <Button variant="outline" size="md" onClick={() => focusThen(headingId, () => onAnswer(undefined))}>

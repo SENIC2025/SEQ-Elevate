@@ -39,9 +39,9 @@ describe("TextPart", () => {
 });
 
 describe("PracticePart", () => {
-  it("says what's needed while nothing is chosen, with no Continue of its own", () => {
+  it("has no Continue of its own, nor its hint: the lesson's Continue says once what it needs (SectionView)", () => {
     const html = renderIn(createElement(PracticePart, { ...base, part: practicePart, answer: undefined }));
-    expect(textOf(html)).toContain("Choose an answer to continue.");
+    expect(textOf(html)).not.toContain("Choose an answer to continue.");
     expect(textOf(html)).not.toContain("Continue");
     expect(html).not.toContain("Clear and calm.");
     expect(elements(html, "button")).toHaveLength(2);
@@ -81,7 +81,8 @@ describe("ScenarioPart", () => {
     expect(text).toContain("Calm.");
     expect(text).toContain("And then?");
     expect(text).toContain("Set a boundary");
-    expect(text).toContain("Answer the follow-up question to continue.");
+    // What it still needs is said above the lesson's Continue (SectionView).
+    expect(text).not.toContain("Answer the follow-up question to continue.");
   });
 
   it("lets the follow-up's outcome take focus, where the follow-up buttons were", () => {
@@ -108,7 +109,7 @@ describe("ScenarioPart", () => {
     );
     expect(text).toContain("What do you do?");
     expect(text).not.toContain("And then?");
-    expect(text).toContain("To continue, choose what you would do.");
+    expect(text).not.toContain("To continue, choose what you would do.");
   });
 });
 

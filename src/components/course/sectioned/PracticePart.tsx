@@ -14,11 +14,11 @@ import { focusThen } from "./focus";
  * practice shows it, but answered into the preview's own state: picking an
  * option shows its feedback, "Try another" clears it (focus goes to the
  * heading first: the button goes). No Continue here —
- * the lesson has one for all its content.
+ * the lesson has one for all its content, and says once, above it, what
+ * this question still needs (useContinue).
  */
 export function PracticePart({ part, answer, onAnswer, headingId }: PartProps<"practice">) {
   const t = useTranslations("coursePlayer");
-  const tHint = useTranslations("continueHint");
   const sim = part.simulation;
   const selected =
     answer?.type === "practice" && sim.options.some((o) => o.id === answer.optionId)
@@ -95,8 +95,6 @@ export function PracticePart({ part, answer, onAnswer, headingId }: PartProps<"p
             {t("tryAnother")}
           </Button>
         </div>
-      ) : sim.options.length > 0 ? (
-        <p className="mt-4 text-sm text-[var(--muted-foreground)]">{tHint("simulation")}</p>
       ) : null}
     </div>
   );

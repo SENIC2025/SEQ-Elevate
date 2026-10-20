@@ -114,6 +114,19 @@ describe("SectionView", () => {
     expect(html).toContain(`<p id="${hintId}" class="text-sm text-[var(--muted-foreground)] sm:text-right">3 questions above still need an answer.</p>`);
   });
 
+  it("says what Continue waits for once, above it: a practice question or scenario has no hint of its own", () => {
+    // Found at integration: the Release 1 preview's parts each said "…to
+    // continue." under themselves, and the player says it again above
+    // Continue — twice the same words for a lesson with one item, as a
+    // stage screen never does. (A quick check keeps its note by "Check
+    // answers": it describes that button, as the stage screen's does.)
+    const count = (text: string, part: string) => text.split(part).length - 1;
+    const practice = textOf(render({ ...sectionStage, parts: [textPart, practicePart] }));
+    expect(count(practice, "Choose an answer to continue.")).toBe(1);
+    const scenario = textOf(render({ ...sectionStage, parts: [scenarioPart] }));
+    expect(count(scenario, "To continue, choose what you would do.")).toBe(1);
+  });
+
   it("says what the one item left needs, in the page's language", () => {
     store.over = { responses: { "s-abcd1234/p-quizaaaa": { type: "quiz", answers: { q1: "b" }, checked: false } } };
     expect(textOf(render({ ...sectionStage, parts: [textPart, quizPart] }))).toContain(
