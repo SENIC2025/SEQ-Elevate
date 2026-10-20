@@ -1,8 +1,9 @@
 /**
- * The core of the pre-deploy derivation check (spec 12, addendum 4;
- * scripts/r1-derivation-check.ts runs it on a database's rows). For every
- * created course it answers: does Release 1's editor see exactly the
- * course its learners get?
+ * The core of the pre-deploy checks: Release 1's derivation check (spec
+ * 12, addendum 4; scripts/r1-derivation-check.ts) and Release 2's plan
+ * check (checkPlans below; scripts/r2-progress-check.ts). Release 1's
+ * answers, for every created course: does Release 1's editor see exactly
+ * the course its learners get?
  *
  *   derived  — the editor's lesson list (resolveOutline), less hidden
  *              lessons and exercise lessons with nothing saved for
@@ -19,9 +20,11 @@
  * Pure: no Prisma, no "server-only", so the script runs under plain Node.
  */
 
+import { normaliseStatus } from "../course-status";
 import { presentStageKeys } from "../course-derive";
 import { isLegacySectionId, mainKindOf, type NewOnlyReason, type SectionFacts } from "./contract";
 import { newOnlyReasons } from "./guard";
+import { lessonPlanOf } from "./learner-path";
 import { resolveOutline } from "./outline";
 
 export interface CheckedCourse {
@@ -84,4 +87,75 @@ export function formatReport(result: CheckResult): string {
   });
   const total = `${result.reports.length} created course${result.reports.length === 1 ? "" : "s"} checked, ${result.differences} difference${result.differences === 1 ? "" : "s"}`;
   return [...lines, total].join("\n");
+}
+
+/* ---------------------------------------------------- Release 2 plans --- */
+
+export interface PlanCheckResult {
+  /** Created courses checked. */
+  courses: number;
+  /** Of them, courses Release 1 could publish (no newOnlyReasons). */
+  standard: number;
+  /** Of them, published courses. */
+  published: number;
+  /** Courses that must match and don't. */
+  differences: number;
+  /** Their slugs, for the report's --list only. */
+  differing: string[];
+}
+
+/** A Lesson row as the plan reads it. */
+type PlanRow = SectionFacts & { courseSlug: string };
+
+/**
+ * Release 2's pre-deploy check (spec 6, 10.6): for every created course
+ * Release 1 could publish (no newOnlyReasons), and every published course
+ * — all of them, since D57 blocked the rest — the lesson plan Release 2's
+ * player plays (lessonPlanOf) is exactly what its learners get today
+ * (presentStageKeys), every lesson by its stage screen. So on deploy day no
+ * learner of a standard course gets a different lesson list.
+ */
+export function checkPlans(
+  courses: readonly { slug: string; outline: unknown; status: string }[],
+  lessons: readonly PlanRow[]
+): PlanCheckResult {
+  const result: PlanCheckResult = { courses: 0, standard: 0, published: 0, differences: 0, differing: [] };
+  for (const course of courses) {
+    const rows = lessons.filter((l) => l.courseSlug === course.slug);
+    const standard = newOnlyReasons("cms", resolveOutline("cms", course.outline, rows), rows).length === 0;
+    const published = normaliseStatus(course.status) === "published";
+    result.courses++;
+    if (standard) result.standard++;
+    if (published) result.published++;
+    if (!standard && !published) continue;
+
+    const facts = rows.map((l) => ({
+      stageKey: l.stageKey,
+      structure: l.structure ?? null,
+      parts: l.parts ?? null,
+      narrative: l.narrative ?? null,
+      hasVideo: typeof l.video === "object" && l.video !== null && !Array.isArray(l.video),
+      publishedDocuments: l.documentCount ?? 0,
+    }));
+    const plan = lessonPlanOf("cms", course.outline, facts, "en");
+    const present = presentStageKeys("cms", [...rows]) as string[];
+    const same =
+      plan.lessons.length === present.length &&
+      plan.lessons.every((l, i) => l.id === present[i] && l.kind === "stage");
+    if (!same) {
+      result.differences++;
+      result.differing.push(course.slug);
+    }
+  }
+  return result;
+}
+
+/** The plan check as the owner reads it: counts, and the differing courses' slugs only when asked. */
+export function formatPlanReport(result: PlanCheckResult, opts: { list?: boolean } = {}): string {
+  const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+  return [
+    `${plural(result.courses, "created course")}: ${result.standard} standard, ${result.published} published`,
+    `${plural(result.differences, "difference")} between Release 2's lesson plans and what learners get today`,
+    ...(opts.list ? result.differing.map((slug) => `  ✗ ${slug}`) : []),
+  ].join("\n");
 }
