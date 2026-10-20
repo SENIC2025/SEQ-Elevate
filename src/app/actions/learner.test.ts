@@ -16,7 +16,10 @@ vi.mock("@/lib/auth-helpers", () => ({ getCurrentUser, getProjectMemberships }))
 vi.mock("@/lib/admin-bootstrap", () => ({ isBootstrapAdmin }));
 const badge = { findUnique: vi.fn(), findMany: vi.fn(), create: vi.fn() };
 const userBadge = { upsert: vi.fn(), createMany: vi.fn(), findMany: vi.fn() };
-const course = { findUnique: vi.fn(), update: vi.fn() };
+const course = { findUnique: vi.fn(), findMany: vi.fn(async (): Promise<unknown[]> => []), update: vi.fn() };
+/** The course's lessons, as loadLessonFacts reads them (the kill switch's completion check). */
+let lessons: Record<string, unknown>[] = [];
+const lesson = { findMany: vi.fn(async () => lessons) };
 
 /**
  * The enrolment as stored, for the save actions: read, created and updated
@@ -55,6 +58,7 @@ const prisma = {
   badge,
   userBadge,
   course,
+  lesson,
   courseEnrollment,
   $queryRaw: vi.fn(async (strings: TemplateStringsArray) => {
     sql.push(strings.join("?").replace(/\s+/g, " ").trim());
@@ -557,6 +561,111 @@ describe("the save actions' transaction", () => {
       skipDuplicates: true,
     });
     expect(enrolment?.stagesCompleted).toEqual(["CONCEPT", "CONTEXT"]);
+  });
+});
+
+/*
+ * Found at integration review (finding 2, Major; an owner decision, taken
+ * here by default as the spec's own option: under the switch, a completion
+ * of such a course doesn't stand). Under R2_LEARNER_PLAYER=off learners
+ * play a created course as Release 1 did (spec 3.4): its standard lessons.
+ * A published course made only of lessons of its own was then finished
+ * with four presses of Continue through the four standard lessons it
+ * doesn't have, badge and all — and the trigger keeps a completion for
+ * good, so switching back (or rolling forward) couldn't take it back.
+ */
+describe("under R2_LEARNER_PLAYER=off, a course the Release 1 view doesn't hold", () => {
+  const OWN = "s-abcdefgh";
+  const NARRATIVE = ["context", "concept", "behaviour", "reflection"];
+  const OWN_ONLY = {
+    id: "course-1",
+    projectId: "seq-elevate",
+    slug: "speaking-up",
+    meta: { en: {} },
+    badgeId: "badge-1",
+    status: "published",
+    publishedAt: new Date("2026-11-10T00:00:00.000Z"),
+    outline: { v: 1, sections: [{ id: OWN, template: "text" }], removed: NARRATIVE },
+  };
+  const OWN_LESSON = {
+    stageKey: OWN,
+    narrative: { en: { title: "Own", blocks: [{ kind: "paragraph", text: "Mine" }] } },
+    structure: null,
+    structureDraft: null,
+    parts: null,
+    video: null,
+    documents: [],
+  };
+  const done = "2026-10-01T09:00:00.000Z";
+  const OLD = {
+    stagesCompleted: NARRATIVE,
+    simulation: null,
+    scenario: { root: null, followup: null },
+    reflection: { p1: "", p2: "", p3: "" },
+    assessment: { answers: {}, checked: false },
+    completedAt: done,
+  };
+
+  beforeEach(() => {
+    vi.stubEnv("R2_LEARNER_PLAYER", "off");
+    getCurrentUser.mockResolvedValue(USER);
+    course.findUnique.mockResolvedValue(OWN_ONLY);
+    course.findMany.mockResolvedValue([OWN_ONLY]);
+    badge.findUnique.mockResolvedValue({ id: "badge-1", slug: "speaking-up" });
+    userBadge.createMany.mockResolvedValue({ count: 1 });
+    lessons = [OWN_LESSON];
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.clearAllMocks();
+    enrolment = null;
+    lessons = [];
+    sql.length = 0;
+  });
+
+  it("four standard lessons don't finish it: no completion, no badge (the new action)", async () => {
+    await expect(
+      saveCourseProgressPatch("speaking-up", { v: 2, completed: NARRATIVE, completedAt: done }, "u1")
+    ).resolves.toEqual({ ok: true, refused: [] });
+    expect(enrolment?.completedAt).toBeNull();
+    expect(enrolment?.stagesCompleted).toEqual(["CONTEXT", "CONCEPT", "BEHAVIOUR", "REFLECTION"]);
+    expect(userBadge.createMany).not.toHaveBeenCalled();
+  });
+
+  it("nor through the old action", async () => {
+    await saveCourseProgress("speaking-up", OLD, "u1");
+    expect(enrolment?.completedAt).toBeNull();
+    expect(userBadge.createMany).not.toHaveBeenCalled();
+  });
+
+  it("nor through the badge award, while the course isn't finished", async () => {
+    await expect(awardBadgeAction("speaking-up", "u1")).resolves.toEqual({ ok: false, reason: "not-finished" });
+    expect(userBadge.createMany).not.toHaveBeenCalled();
+    // Finished for real (the server holds the completion): the badge stands.
+    enrolment = { ...EMPTY_ROW, sectionsCompleted: [OWN], completedAt: new Date(done) };
+    await expect(awardBadgeAction("speaking-up", "u1")).resolves.toEqual({ ok: true });
+  });
+
+  it("guard: finishing the course's own lessons finishes it, badge and all", async () => {
+    await saveCourseProgressPatch("speaking-up", { v: 2, completed: [...NARRATIVE, OWN], completedAt: done }, "u1");
+    expect(enrolment?.completedAt).toEqual(new Date(done));
+    expect(userBadge.createMany).toHaveBeenCalledTimes(1);
+  });
+
+  it("guard: a course the Release 1 view holds (its standard lessons) finishes as before", async () => {
+    course.findUnique.mockResolvedValue({ ...OWN_ONLY, outline: null });
+    course.findMany.mockResolvedValue([{ ...OWN_ONLY, outline: null }]);
+    lessons = [];
+    await saveCourseProgress("speaking-up", OLD, "u1");
+    expect(enrolment?.completedAt).toEqual(new Date(done));
+    await expect(awardBadgeAction("speaking-up", "u1")).resolves.toEqual({ ok: true });
+  });
+
+  it("guard: with the switch unset, a completion is trusted as before", async () => {
+    vi.unstubAllEnvs();
+    await saveCourseProgressPatch("speaking-up", { v: 2, completed: NARRATIVE, completedAt: done }, "u1");
+    expect(enrolment?.completedAt).toEqual(new Date(done));
+    expect(lesson.findMany).not.toHaveBeenCalled();
   });
 });
 

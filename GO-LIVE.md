@@ -214,6 +214,9 @@ Sign-in **is** sign-up (passwordless: the first magic-link click creates the acc
 - Vercel keeps every deployment — **Promote** a previous good deployment to roll back instantly.
 - DB migrations are additive; a code rollback does not require a DB rollback.
 - To disable demo artefacts without a deploy, toggle `DEMO_LOGIN_DISABLED` and redeploy.
+- **Release 2 (learners get courses as built), in this order:**
+  1. Set `R2_LEARNER_PLAYER=off` and redeploy the same build. Learners then get every course as Release 1 showed it: its standard lessons. A course whose lessons that view doesn't hold (lessons of its own, or none left to show) can't be finished under the switch: its completion and badge wait until the learner has done its real lessons, once the switch is unset again.
+  2. Only if that isn't enough: promote the Release 1 deployment. Release 1 can't hold that back — it lets learners finish such a course by going through its standard lessons, and the database keeps a completion for good (it never clears one). **Before promoting it, unpublish every published course with lessons of its own** (Manage courses), and publish them again after rolling forward; or accept that learners may finish them in Release 1's view. Answers saved meanwhile are kept either way.
 
 ---
 

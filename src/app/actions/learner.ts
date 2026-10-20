@@ -23,7 +23,9 @@ import { getCourse } from "@/lib/cms";
 import { normaliseStatus } from "@/lib/cms/course-status";
 import { ensureCourseBadge } from "@/lib/cms/ensure-course-badge";
 import { isLegacySectionId } from "@/lib/cms/sections/contract";
-import { SLUG } from "@/lib/cms/sections/store.server";
+import { lessonPlanOf } from "@/lib/cms/sections/learner-path";
+import { SLUG, loadLessonFacts, planFacts } from "@/lib/cms/sections/store.server";
+import { learnerPlayerOff } from "@/lib/cms/sections/switches";
 import type { Locale } from "@/lib/cms/types";
 import {
   parseAssessmentInput,
@@ -251,10 +253,66 @@ const PROGRESS_SELECT = {
 
 interface ProgressCourse {
   id: string;
+  slug: string;
   badgeId: string | null;
   meta: unknown;
   status: string;
   publishedAt: Date | null;
+}
+
+type Reader = Pick<Prisma.TransactionClient, "course" | "lesson">;
+
+/**
+ * Under R2_LEARNER_PLAYER=off (spec 3.4) learners play a created course as
+ * Release 1 did: its standard lessons (presentStageKeys). Null when that
+ * view holds every lesson Release 2's player gives the course — a course
+ * in the standard layout, renamed or reordered — and otherwise those
+ * lessons (none, for a course left with nothing to show). Null off the
+ * switch, and for a built-in course.
+ */
+async function lessonsTheSwitchHides(
+  client: Reader,
+  course: Pick<ProgressCourse, "id" | "slug" | "meta">
+): Promise<string[] | null> {
+  if (!learnerPlayerOff() || course.meta == null) return null;
+  const row = await client.course.findUnique({ where: { id: course.id }, select: { outline: true } });
+  const facts = (await loadLessonFacts(client as Prisma.TransactionClient, course.slug)).map(planFacts);
+  const ids = (legacyOnly: boolean) =>
+    lessonPlanOf("cms", row?.outline ?? null, facts, "en", { legacyOnly }).lessons.map((l) => l.id as string);
+  const plan = ids(false);
+  const view = new Set(ids(true));
+  return plan.length > 0 && plan.every((id) => view.has(id)) ? null : plan;
+}
+
+/**
+ * Does a completion of `course` stand, with the lessons `done`? Always,
+ * but under the switch for a course whose lessons the Release 1 view
+ * doesn't hold (finding 2 of the integration review): going through that
+ * view's standard lessons — four presses of Continue for a course made of
+ * its own lessons — would finish it, badge and all, and the trigger keeps
+ * a completion for good. There it stands only once the learner has done
+ * every lesson Release 2's player gives the course (never for a course
+ * with none). The rest of the save is kept either way.
+ */
+async function completionStands(
+  client: Reader,
+  course: Pick<ProgressCourse, "id" | "slug" | "meta">,
+  done: readonly string[]
+): Promise<boolean> {
+  const hidden = await lessonsTheSwitchHides(client, course);
+  if (hidden === null) return true;
+  const finished = new Set(done);
+  return hidden.length > 0 && hidden.every((id) => finished.has(id));
+}
+
+/** `m` with the course's completion left out: the enrolment stays as `before` had it. */
+function withoutCompletion(m: MergeResult, before: EnrollmentProgress): MergeResult {
+  return {
+    ...m,
+    next: { ...m.next, completedAt: before.completedAt },
+    changed: m.changed.filter((c) => c !== "completedAt"),
+    completedNow: false,
+  };
 }
 
 /**
@@ -334,19 +392,27 @@ async function saveProgress(
       await tx.$queryRaw`SELECT id FROM "CourseEnrollment" WHERE "userId" = ${userId} AND "courseId" = ${course.id} FOR UPDATE`;
       return tx.courseEnrollment.findUnique({ where, select: PROGRESS_SELECT });
     };
+    // A completion this save makes, checked once (the kill switch only).
+    let stands: Promise<boolean> | null = null;
+    const checked = async (m: MergeResult, before: EnrollmentProgress) => {
+      if (!m.completedNow) return m;
+      stands ??= completionStands(tx, course, completedLessonIds(m.next));
+      return (await stands) ? m : withoutCompletion(m, before);
+    };
+
     let row = await lockRow();
     if (!row) {
       // Nobody is enrolled in a course no learner could ever open; one
       // already enrolled keeps saving whatever its status (D62.f).
       if (!takesLearners(course)) return "not-open";
-      const fresh = merge(null);
+      const fresh = await checked(merge(null), EMPTY_ENROLLMENT);
       if (!fresh.changed.length) return fresh.refused;
       await tx.courseEnrollment.createMany({ data: [{ userId, courseId: course.id }], skipDuplicates: true });
       row = await lockRow();
       if (!row) throw new Error("The enrolment just created can't be read");
     }
 
-    const merged = merge(row);
+    const merged = await checked(merge(row), row);
     if (merged.changed.length) {
       await tx.courseEnrollment.update({ where, data: columnsOf(merged) });
     }
@@ -390,7 +456,7 @@ export async function saveCourseProgressPatch(
 
   const course = await prisma.course.findUnique({
     where: { projectId_slug: { projectId: PROJECT, slug } },
-    select: { id: true, badgeId: true, meta: true, status: true, publishedAt: true },
+    select: { id: true, slug: true, badgeId: true, meta: true, status: true, publishedAt: true },
   });
   if (!course) return { ok: false, error: "unknown-course" };
   const refused = await saveProgress(user.id, course, p.completedAt !== null, (row) =>
@@ -503,6 +569,23 @@ export async function awardBadgeAction(
     where: { projectId_slug: { projectId: PROJECT, slug } },
   });
   if (!badge) return { ok: false, reason: "no-badge" };
+  // Under the kill switch, a created course's badge whose lessons the
+  // Release 1 view doesn't hold follows the completion the server holds
+  // (completionStands): the save that completes it writes the badge too.
+  if (learnerPlayerOff()) {
+    const courses = await prisma.course.findMany({
+      where: { projectId: PROJECT, badgeId: badge.id, NOT: { meta: { equals: Prisma.DbNull } } },
+      select: { id: true, slug: true, meta: true },
+    });
+    for (const c of courses) {
+      if ((await lessonsTheSwitchHides(prisma, c)) === null) continue;
+      const enrolled = await prisma.courseEnrollment.findUnique({
+        where: { userId_courseId: { userId: user.id, courseId: c.id } },
+        select: { completedAt: true },
+      });
+      if (!enrolled?.completedAt) return { ok: false, reason: "not-finished" };
+    }
+  }
   await prisma.userBadge.createMany({
     data: [{ userId: user.id, badgeId: badge.id }],
     skipDuplicates: true,

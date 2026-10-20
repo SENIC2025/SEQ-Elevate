@@ -14,7 +14,12 @@
 
 export type BadgeAwardResult =
   | { ok: true }
-  | { ok: false; reason: "no-badge" | "other-account" };
+  /**
+   * not-finished: under R2_LEARNER_PLAYER=off, the badge of a course whose
+   * lessons the Release 1 view doesn't hold, which the learner hasn't
+   * finished as the server counts it (learner.ts completionStands).
+   */
+  | { ok: false; reason: "no-badge" | "other-account" | "not-finished" };
 
 /** Did the server answer the award with a refusal that a retry won't fix? */
 export function isRefusedAward(
