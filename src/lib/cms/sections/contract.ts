@@ -15,7 +15,6 @@
  */
 import { STAGES } from "@/data/course";
 import type { CourseKind, CourseOutline } from "@/lib/cms/course-admin-types";
-import type { CourseStatus } from "@/lib/cms/course-status";
 import type {
   CourseContent,
   CourseStage,
@@ -352,7 +351,6 @@ export type SectionsError =
   | "kind-mismatch"
   | "parts-too-large"
   | "changed-elsewhere"
-  | "live-course-standard-only"
   | "has-learners"
   /** Release 2 (D66, spec 4.7): the course has learners; send it again with `confirm`. */
   | "needs-confirmation"
@@ -364,14 +362,13 @@ export type SectionsError =
 /** The refusals that carry nothing but their code. */
 export type PlainSectionsError = Exclude<
   SectionsError,
-  "changed-elsewhere" | "live-course-standard-only" | "has-learners" | "needs-confirmation" | "restructure-closed"
+  "changed-elsewhere" | "has-learners" | "needs-confirmation" | "restructure-closed"
 >;
 
 export type Refused =
   | { ok: false; error: PlainSectionsError }
   /** Structural actions include the fresh outline so the page shows the colleague's change (D39). */
   | { ok: false; error: "changed-elsewhere"; outline?: CourseOutline }
-  | { ok: false; error: "live-course-standard-only"; reasons: NewOnlyReason[] }
   | { ok: false; error: "has-learners"; count: number }
   /** Learners (D53 count) and how many of them finished, counted under the Course lock. */
   | { ok: false; error: "needs-confirmation"; learners: number; finished: number }
@@ -664,29 +661,6 @@ export type NewOnlyReasons = (
 ) => NewOnlyReason[];
 /** Codes custom-section, hidden-section, removed-section, reordered, unreadable only. */
 export type OutlineReasons = (kind: CourseKind, o: ResolvedOutline) => NewOnlyReason[];
-/** Every reasonKey in `after` is already in `before`. */
-export type LiveWriteAllowed = (
-  before: readonly NewOnlyReason[],
-  after: readonly NewOnlyReason[]
-) => boolean;
-/** Client mirror of G3 for a lesson op (the server is authoritative). */
-export type PredictOutlineOp = (args: {
-  kind: CourseKind;
-  status: CourseStatus;
-  outline: ResolvedOutline;
-  reasons: readonly NewOnlyReason[];
-  freeKeys: readonly InteractiveKey[];
-  op: OutlineOp;
-}) => { allowed: boolean; introduced: NewOnlyReason[] };
-/** Client mirror of G3 for a content op inside lesson `sectionId`. */
-export type PredictPartOp = (args: {
-  status: CourseStatus;
-  reasons: readonly NewOnlyReason[];
-  sectionId: SectionId;
-  op: "add" | "move" | "remove";
-  extraPartsAfter: number;
-}) => { allowed: boolean };
-
 /** label.ts — §2.5 chain; never blank; never calls standardName with a custom id. */
 export type SectionLabel = (
   s: Pick<StoredSection, "id" | "template" | "label">,
