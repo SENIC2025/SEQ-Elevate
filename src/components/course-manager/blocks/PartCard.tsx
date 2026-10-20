@@ -17,9 +17,10 @@ const lockedCls = "aria-disabled:cursor-not-allowed aria-disabled:opacity-50";
  * Remove — then its editor. The main content has no Remove, and no header
  * at all while it is the lesson's only content.
  *
- * A change a live course would refuse is `aria-disabled` (still focusable,
- * so the reason is read with it) rather than missing: `lockedNoteId` names
- * the note that says why.
+ * A change the course would refuse is `aria-disabled` (still focusable, so
+ * the reason is read with it) rather than missing: `locked` names, per
+ * control, the note that says why (the 1 December cut-off, a question
+ * learners may have answered, something that can't be read).
  */
 export function PartCard({
   ids,
@@ -32,7 +33,6 @@ export function PartCard({
   total,
   removable,
   locked,
-  lockedNoteId,
   error,
   onMove,
   onRemove,
@@ -54,8 +54,8 @@ export function PartCard({
   index: number;
   total: number;
   removable: boolean;
-  locked: { move: boolean; remove: boolean };
-  lockedNoteId: string;
+  /** Per control, the id of the note saying why it is refused; null when it isn't. */
+  locked: { move: string | null; remove: string | null };
   /** Why the last change to this content was refused. */
   error?: string;
   onMove: (dir: -1 | 1) => void;
@@ -63,10 +63,10 @@ export function PartCard({
   children: React.ReactNode;
 }) {
   const t = useTranslations("lessonBlocks");
-  const lockedProps = (isLocked: boolean) =>
-    isLocked ? { "aria-disabled": true as const, "aria-describedby": lockedNoteId } : {};
-  const guard = (isLocked: boolean, action: () => void) => () => {
-    if (!isLocked) action();
+  const lockedProps = (why: string | null) =>
+    why ? { "aria-disabled": true as const, "aria-describedby": why } : {};
+  const guard = (why: string | null, action: () => void) => () => {
+    if (!why) action();
   };
 
   return (

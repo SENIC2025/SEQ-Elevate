@@ -816,7 +816,6 @@
       "confirm": "Delete lesson",
       "keep": "Keep it",
       "deleted": "“{name}” deleted.",
-      "blockedLearners": "{count, plural, one {# learner is} other {# learners are}} enrolled in this course, so this lesson can't be deleted.",
       "removes": "This removes:",
       "nothing": "Nothing is written in it yet.",
       "changed": "This lesson or the lesson list changed since you opened it, so nothing was deleted. Check what would be removed now, then try again."
@@ -850,26 +849,23 @@
     "where": "Where",
     "many": "This course has more than {count} lessons. Check that learners need them all.",
     "max": "A course can have at most {max} lessons.",
-    "liveLocked": "This course is live: learners get changes like this from Release 2.",
-    "nonStandardHint": "Courses with this can be published from Release 2. Preview works now.",
     "conflict": "Someone else changed the lesson list since you opened it, so nothing was changed. The list now shows their changes.",
     "publish": {
       "blockedTitle": "Can't publish yet",
-      "blockedIntro": "Learners get these from Release 2. Undo them to publish now, or keep them and use Preview as learner.",
-      "liveBypass": "Learners don't get all of this course yet: until Release 2 they see the standard lessons. Not shown to them:",
-      "needsRelease2": "This course has changes learners can't get until Release 2, so it wasn't published.",
+      "blockedIntro": "Learners couldn't take this course as it is:",
+      "needsRelease2": "This course can't be published as it is, so it wasn't published.",
       "reason": {
         "customSection": "“{name}” is a new lesson",
         "hiddenSection": "“{name}” is hidden",
         "removedSection": "“{name}” was deleted",
         "reordered": "The lessons are in a new order. Usually: {order}",
         "extraParts": "“{name}” has added content",
-        "unreadable": "The lesson list can't be read"
+        "unreadable": "The lesson list can't be read",
+        "noLessons": "No lesson has anything learners can see yet",
+        "unreadableLesson": "“{name}” has content that can't be read"
       },
       "partDraft": "“{name}” has content with a draft that learners don't see yet."
     },
-    "labelsLater": "Learners see your lesson names from Release 2.",
-    "laterNote": "Learners see this name from Release 2; until then they see “{standard}”.",
     "fullTemplate": "Start from the full template (all seven standard lessons)",
     "added": "“{name}” added.",
     "hiddenDone": "“{name}” is hidden.",
@@ -877,19 +873,15 @@
     "notNumbered": "Not numbered: learners wouldn't see it",
     "status": {
       "live": "Learners get this lesson",
-      "later": "Learners get this lesson from Release 2",
       "empty": "No content yet"
     },
     "errors": {
       "generic": "That didn't work. Check your connection and try again.",
       "forbidden": "Your account can't change courses right now. Sign in again, or ask your project administrator for the Editor role.",
       "unknownCourse": "This course no longer exists. Go back to All courses.",
-      "liveLocked": "This course is live, so this change has to wait: learners get changes like this from Release 2. Nothing was changed.",
       "notASection": "This lesson isn't in the lesson list any more. The list now shows it as it is.",
       "unreadable": "This course's lesson list can't be read, so it can't be changed until an admin repairs it."
-    },
-    "rowNonStandard": "These change the course so it can be published only from Release 2: {actions}. Preview works now.",
-    "nowLater": "The course can now be published only from Release 2: see Publishing."
+    }
   },
   "lesson": {
     "resourcesTitle": "Resources",
@@ -1025,7 +1017,6 @@
       "load": "Couldn't load this stage. Reload the page to try again.",
       "hasLearners": "{count, plural, one {# learner is} other {# learners are}} enrolled in this course, so this can't be removed: they would lose what they have now.",
       "notASection": "This lesson isn't in the course's lesson list any more. Reload the page to see the list as it is now.",
-      "liveCourseStandardOnly": "This course is live, so this change has to wait: learners get changes like this from Release 2. Nothing was saved.",
       "kindMismatch": "This content doesn't match the lesson any more. Reload the page and try again.",
       "outlineUnreadable": "This course's lesson list can't be read, so nothing can be changed until an admin repairs it. Nothing was saved.",
       "partsTooLarge": "This lesson's content is too large to save as a whole. Shorten some of its texts or remove some content.",
@@ -1187,8 +1178,6 @@
     "moveDown": "Move down",
     "remove": "Remove",
     "removeConfirm": "Remove this content? It is removed in all languages.",
-    "notInLearnerView": "Learners get the added content from Release 2. Preview as learner shows it now.",
-    "liveLocked": "This course is live, so you can't add content to this lesson yet. Lessons that already have added content can take more; learners get it from Release 2.",
     "ownQuestionsNote": "This lesson has its own reflection questions below, instead of the standard ones.",
     "draft": "Draft",
     "notReady": "Not ready ({count})",
@@ -1213,7 +1202,7 @@
     "changedElsewhere": "Someone else changed this lesson's content since you opened it, so nothing was changed. The lesson now shows their version.",
     "tooMany": "A lesson can hold at most {max} pieces of content, its main content included.",
     "unreadable": "This lesson's added content can't be read, so it can't be changed until an admin repairs it.",
-    "partHint": "“Save stage” makes this content ready: learners get it from Release 2, and Preview as learner shows it now. “Save draft” keeps unfinished work for editors only.",
+    "partHint": "“Save stage” makes this content ready: learners get it, and Preview as learner shows it. “Save draft” keeps unfinished work for editors only.",
     "notShown": "Not shown yet — only a draft so far, or not ready.",
     "scale": "1 = {min} · 5 = {max}",
     "noText": "No text written yet.",
@@ -1258,7 +1247,8 @@
       "addLesson": "Add a lesson to a course learners are taking?",
       "addPart": "Add content to “{name}”?",
       "movePart": "Move this content in “{name}”?",
-      "removeText": "Remove this text from “{name}”?"
+      "removeText": "Remove this text from “{name}”?",
+      "removeContent": "Remove this content from “{name}”?"
     },
     "learners": "{count, plural, one {# learner is taking this course} other {# learners are taking this course}} ({finished} finished).",
     "effect": {
@@ -1277,7 +1267,7 @@
     "cancel": "Cancel",
     "closed": "From {date}, lessons and content in a published course with learners can't be added, moved or removed. You can still hide or show lessons, rename them, and edit text and questions.",
     "hasLearners": {
-      "delete": "{count} learners have started this course, so this lesson can't be deleted. You can hide it instead.",
+      "delete": "{count, plural, one {# learner has} other {# learners have}} started this course, so this lesson can't be deleted. You can hide it instead.",
       "part": "Learners are taking this course, so a question they may have answered can't be removed. You can still edit it."
     },
     "lastLesson": "A published course needs at least one lesson learners can see.",

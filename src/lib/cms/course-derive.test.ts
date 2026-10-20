@@ -5,7 +5,9 @@ import {
   lessonCoveredIn,
   languageCoverage,
   lastEdited,
+  publishBlockerIssues,
   publishReadiness,
+  release1BlockerIssues,
   offersAdd,
   type LessonFacts,
 } from "./course-derive";
@@ -460,17 +462,33 @@ describe("publishReadiness with the lesson list", () => {
     expect(publishReadiness({ ...base(), sections: null })).toEqual(publishReadiness(base()));
   });
 
-  it("puts one blocker per reason first, naming the lesson", () => {
+  it("no longer blocks a course whose list differs from the standard one (D66)", () => {
     const reasons: NewOnlyReason[] = [
       { code: "custom-section", sectionId: "s-abcdefgh" },
       { code: "reordered" },
     ];
     const issues = publishReadiness({ ...base(), sections: meta({ reasons }) });
-    expect(issues.slice(0, 2)).toEqual([
+    expect(issues.filter((i) => i.level === "blocker")).toEqual([]);
+    expect(issues).toEqual(publishReadiness(base()));
+  });
+
+  it("puts the blockers it is given first, naming the lesson", () => {
+    const blockers = publishBlockerIssues([{ code: "unreadable", sectionId: "concept" }, { code: "no-lessons" }]);
+    expect(blockers).toEqual([
+      { level: "blocker", code: "cannot-publish", blocker: { code: "unreadable", sectionId: "concept" }, stage: "concept" },
+      { level: "blocker", code: "cannot-publish", blocker: { code: "no-lessons" } },
+    ]);
+    const issues = publishReadiness({ ...base(), sections: meta() }, blockers);
+    expect(issues.slice(0, 2)).toEqual(blockers);
+    expect(issues.slice(2)).toEqual(publishReadiness(base()));
+  });
+
+  it("under a kill switch, says Release 1's reasons as blockers (spec 3.4)", () => {
+    const reasons: NewOnlyReason[] = [{ code: "custom-section", sectionId: "s-abcdefgh" }, { code: "reordered" }];
+    expect(release1BlockerIssues(reasons)).toEqual([
       { level: "blocker", code: "needs-release-2", reason: reasons[0], stage: "s-abcdefgh" },
       { level: "blocker", code: "needs-release-2", reason: reasons[1] },
     ]);
-    expect(issues.slice(2)).toEqual(publishReadiness(base()));
   });
 
   it("names each piece of extra content with a draft learners don't see", () => {
@@ -489,11 +507,8 @@ describe("publishReadiness with the lesson list", () => {
     expect(issues.filter((i) => i.code === "part-draft")).toHaveLength(1);
   });
 
-  it("notes that learners get the step names from Release 2", () => {
-    expect(publishReadiness({ ...base(), sections: meta({ hasLabels: true }) })).toContainEqual({
-      level: "info",
-      code: "labels-later",
-    });
+  it("says nothing about step names: learners get them (D58)", () => {
+    expect(publishReadiness({ ...base(), sections: meta({ hasLabels: true }) })).toEqual(publishReadiness(base()));
   });
 
   it("warns above 12 visible lessons", () => {

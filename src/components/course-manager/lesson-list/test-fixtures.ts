@@ -113,22 +113,45 @@ function sectionLesson(s: ResolvedSection, number: number | null, rows: SectionF
     },
     parts: null,
     contentVersion: row ? "cv" : null,
-    live: !s.custom && !s.hidden && (row?.narrative != null || row?.structure != null),
+    // The lesson plan's rule, roughly: listed, not hidden, something in it.
+    live: !s.hidden && (row?.narrative != null || row?.structure != null),
   };
 }
 
-/** A created course as the course page gets it: its list, then today's "Add …" slots. */
+/**
+ * A created course as the course page gets it: its list, then today's
+ * "Add …" slots. `enrolled` learners (of whom `finished` finished), each
+ * lesson's learners with data (`withData`, 0 unless given), and whether the
+ * 1 December cut-off has passed (`closed`) feed the editor rules (D66, D67).
+ */
 export function createdOutline(
   raw: StoredOutline | null,
-  opts: { rows?: SectionFacts[]; status?: CourseStatus; enrolled?: number } = {}
+  opts: {
+    rows?: SectionFacts[];
+    status?: CourseStatus;
+    enrolled?: number;
+    finished?: number;
+    withData?: Record<string, number>;
+    closed?: boolean;
+  } = {}
 ): CourseOutline {
   const rows = opts.rows ?? STANDARD_ROWS;
-  const sections = sectionsMeta(raw, rows);
+  const learners = opts.enrolled ?? 0;
+  const sections: SectionsMeta = {
+    ...sectionsMeta(raw, rows),
+    learners,
+    finished: opts.finished ?? 0,
+    restructureClosed: opts.closed === true,
+    closedFrom: "2026-11-30T23:00:00.000Z",
+  };
   let n = 0;
   const lessons: LessonOutline[] = sections.resolved.sections.map((s) => {
     const row = rows.find((r) => r.stageKey === s.id);
     const numbered = !s.hidden && (row?.narrative != null || row?.structure != null);
-    return sectionLesson(s, numbered ? ++n : null, rows);
+    return {
+      ...sectionLesson(s, numbered ? ++n : null, rows),
+      ...(learners > 0 ? { learnersWithData: opts.withData?.[s.id] ?? 0 } : {}),
+    };
   });
   for (const key of INTERACTIVE_KEYS) {
     if (sections.resolved.sections.some((s) => s.id === key)) continue;
@@ -156,12 +179,8 @@ export function createdOutline(
     copy: {} as CourseOutline["copy"],
     languages: { en: coverage, de: coverage, el: coverage },
     lessons,
-    readiness: sections.reasons.map((reason) => ({
-      level: "blocker" as const,
-      code: "needs-release-2" as const,
-      reason,
-      ...(reason.sectionId ? { stage: reason.sectionId } : {}),
-    })),
+    // Release 2: a list unlike the standard one blocks nothing (D66).
+    readiness: [],
     sections,
   };
 }

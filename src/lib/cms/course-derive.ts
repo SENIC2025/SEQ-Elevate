@@ -29,7 +29,7 @@ import {
 } from "./course-admin-types";
 import type { Locale, StageKey } from "./types";
 import { blockHasText, metaHasText, narrativeHasText } from "./text-fallback";
-import type { MainKind } from "./sections/contract";
+import type { MainKind, NewOnlyReason, PublishBlocker } from "./sections/contract";
 
 const LOCALES: readonly Locale[] = ["en", "de", "el"];
 
@@ -227,15 +227,39 @@ export function offersAdd(lesson: Pick<LessonOutline, "addable" | "draft">): boo
   return lesson.addable && !lesson.draft;
 }
 
+/** The server's publish blockers (sections/publish-blockers.ts) as the page lists them first. */
+export function publishBlockerIssues(blockers: readonly PublishBlocker[]): ReadinessIssue[] {
+  return blockers.map((blocker) => ({
+    level: "blocker",
+    code: "cannot-publish",
+    blocker,
+    ...(blocker.code === "unreadable" && blocker.sectionId ? { stage: blocker.sectionId } : {}),
+  }));
+}
+
+/**
+ * Release 1's blockers (D57), one per way the lesson list differs from the
+ * standard layout: only while a kill switch puts that guard back
+ * (R2_PUBLISH_GUARD=on or R2_LEARNER_PLAYER=off, spec 3.4).
+ */
+export function release1BlockerIssues(reasons: readonly NewOnlyReason[]): ReadinessIssue[] {
+  return reasons.map((reason) => ({
+    level: "blocker",
+    code: "needs-release-2",
+    reason,
+    ...(reason.sectionId ? { stage: reason.sectionId } : {}),
+  }));
+}
+
 /**
  * Things worth knowing before publishing. Warnings and info never block
  * publishing, since a course half-translated today is still useful in the
- * language it is written in (learners get fallbacks). Blockers do (D57):
- * one per way the lesson list differs from what learners get, and they come
- * first.
+ * language it is written in (learners get fallbacks). Blockers do, and come
+ * first: the course page's loader works them out on the server, where the
+ * lesson plan is (D66: a list or lesson that can't be read, or no lesson
+ * learners would see — publishBlockerIssues; Release 1's reasons under a
+ * kill switch — release1BlockerIssues), and passes them in.
  *
- * - needs-release-2:     (blocker) one per reason of sections.reasons
- *                        (sections/guard.ts), naming the lesson if it is one;
  * - copy-missing:        a CMS course has no title/subtitle in a language;
  * - lesson-empty:        a CMS narrative lesson has no blocks in any language;
  * - lesson-untranslated: lessons with text in some language but not this one
@@ -248,29 +272,20 @@ export function offersAdd(lesson: Pick<LessonOutline, "addable" | "draft">): boo
  * - sections-many:       more than 12 lessons learners would see — fine,
  *                        but long for one sitting;
  * - no-interactive:      a CMS course has no simulation/scenario/quick check
- *                        saved for learners;
- * - labels-later:        (info) step names were written, which learners see
- *                        from Release 2 (D58).
+ *                        saved for learners.
  *
- * Without the lesson list (`sections` absent or null: a built-in course, or
- * a loader before Release 1) the issues are exactly Release 0's.
+ * Step names are never mentioned: learners get them (D58). Without the
+ * lesson list (`sections` absent or null: a built-in course, or a loader
+ * before Release 1) the issues are exactly Release 0's.
  */
 export function publishReadiness(
   outline: Pick<CourseOutline, "kind" | "copy" | "lessons"> &
-    Partial<Pick<CourseOutline, "sections">>
+    Partial<Pick<CourseOutline, "sections">>,
+  blockers: readonly ReadinessIssue[] = []
 ): ReadinessIssue[] {
   if (outline.kind !== "cms") return [];
-  const issues: ReadinessIssue[] = [];
+  const issues: ReadinessIssue[] = [...blockers];
   const sections = outline.sections ?? null;
-
-  for (const reason of sections?.reasons ?? []) {
-    issues.push({
-      level: "blocker",
-      code: "needs-release-2",
-      reason,
-      ...(reason.sectionId ? { stage: reason.sectionId } : {}),
-    });
-  }
 
   for (const locale of LOCALES) {
     if (outline.copy[locale]?.source === "fallback") {
@@ -339,6 +354,5 @@ export function publishReadiness(
   if (!present.some((l) => l.body === "interactive" && l.structure)) {
     issues.push({ level: "info", code: "no-interactive" });
   }
-  if (sections?.hasLabels) issues.push({ level: "info", code: "labels-later" });
   return issues;
 }

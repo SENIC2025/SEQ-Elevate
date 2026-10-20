@@ -9,9 +9,14 @@ import type {
   CourseStatus,
   ReadinessIssue,
 } from "@/lib/cms/course-admin-types";
-import { SECTION_LIMITS, type NewOnlyReason } from "@/lib/cms/sections/contract";
+import {
+  SECTION_LIMITS,
+  type NewOnlyReason,
+  type PublishBlocker,
+  type PublishRefused,
+} from "@/lib/cms/sections/contract";
 import type { Locale } from "@/lib/cms/types";
-import { reasonText } from "./lesson-list/list-model";
+import { blockerText, reasonText } from "./lesson-list/list-model";
 import { Named } from "./lesson-list/Named";
 import {
   AlertTriangle,
@@ -27,21 +32,34 @@ import {
 
 const STATUS_ICON = { published: Eye, draft: PenLine, archived: Archive };
 
+/** One thing that stops publishing: Release 2's (D66), or Release 1's under a kill switch (spec 3.4). */
+type Blocker = { blocker: PublishBlocker } | { reason: NewOnlyReason };
+
+/** The blockers among the readiness issues, in their order. */
+export function blockersOf(readiness: readonly ReadinessIssue[]): Blocker[] {
+  return readiness.flatMap((issue): Blocker[] => {
+    if (issue.level !== "blocker") return [];
+    if (issue.code === "cannot-publish" && issue.blocker) return [{ blocker: issue.blocker }];
+    if (issue.code === "needs-release-2" && issue.reason) return [{ reason: issue.reason }];
+    return [];
+  });
+}
+
 /**
  * The course's status and the one place to change it (the grid's cards only
  * link here). Unpublishing always asks first, saying how many learners are
  * enrolled — their progress is kept either way. Warnings before publishing
  * never block it.
  *
- * Blockers do (D57): a created course whose lesson list learners couldn't
- * get yet (a lesson of its own, a hidden or deleted one, a new order, added
- * content) lists them first, under "Can't publish yet", each linking to its
- * lesson. Publish then stays focusable but aria-disabled, described by that
- * list, and pressing it takes focus there. A page that didn't know yet (the
- * server refused with "needs-release-2") says why the same way. A course
- * that is live although it has some (published past the guard) says what
- * learners don't get yet. Lesson names are marked with the content language,
- * and "a new order" says what the usual order is.
+ * Blockers do (D66): a created course whose lesson list, or a lesson's
+ * content, can't be read, or that has no lesson learners would see, lists
+ * them first under "Can't publish yet", each linking to its lesson when
+ * there is one. Publish then stays focusable but aria-disabled, described
+ * by that list, and pressing it takes focus there. A page that didn't know
+ * yet (the server refused with "cannot-publish") says why the same way.
+ * Under a kill switch the blockers are Release 1's (spec 3.4), said the
+ * same way: lesson names are marked with the content language, and "a new
+ * order" says what the usual order is.
  */
 export function PublishControls({
   slug,
@@ -85,13 +103,11 @@ export function PublishControls({
   const [confirming, setConfirming] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   /** The reasons of a refused publish (a page that didn't know them yet). */
-  const [refusedReasons, setRefusedReasons] = React.useState<NewOnlyReason[]>([]);
+  const [refusedReasons, setRefusedReasons] = React.useState<Blocker[]>([]);
 
   const nameOf = (id: string) => (lessonName ? lessonName(id) : tStage(id));
   const order = (usualOrder ?? []).join(", ");
-  const blockers = readiness.flatMap((issue) =>
-    issue.level === "blocker" && issue.code === "needs-release-2" && issue.reason ? [issue.reason] : []
-  );
+  const blockers = blockersOf(readiness);
   const issues = readiness.filter((issue) => issue.level !== "blocker");
   const blocked = blockers.length > 0 && status !== "published";
 
@@ -109,10 +125,17 @@ export function PublishControls({
       if (res.ok) {
         setConfirming(false);
         onStatusChange(res.status);
-      } else if (res.error === "needs-release-2") {
+      } else if (res.error === "cannot-publish" || res.error === "needs-release-2") {
         // Changed since this page loaded: say why, and bring the page up to date.
         setError(tList("publish.needsRelease2"));
-        setRefusedReasons("reasons" in res ? res.reasons : []);
+        const refused = "reasons" in res ? (res as PublishRefused) : null;
+        setRefusedReasons(
+          !refused
+            ? []
+            : refused.error === "cannot-publish"
+              ? refused.reasons.map((blocker) => ({ blocker }))
+              : refused.reasons.map((reason) => ({ reason }))
+        );
         onRefresh?.();
       } else {
         setError(
@@ -184,18 +207,19 @@ export function PublishControls({
         return tList("publish.partDraft", { name: issue.stage ? nameOf(issue.stage) : "" });
       case "sections-many":
         return tList("many", { count: SECTION_LIMITS.warnAbove });
-      case "labels-later":
-        return tList("labelsLater");
+      case "cannot-publish":
+        return issue.blocker ? blockerText(issue.blocker, nameOf, tReason).text : "";
       case "needs-release-2":
         return issue.reason ? reasonText(issue.reason, nameOf, tReason, order).text : "";
     }
   };
 
   /** The blockers as a list, each linking to its lesson when it is on the page. */
-  const reasonList = (reasons: NewOnlyReason[]) => (
+  const reasonList = (reasons: Blocker[]) => (
     <ul className="mt-1.5 space-y-1">
-      {reasons.map((reason, i) => {
-        const { href, name, format } = reasonText(reason, nameOf, tReason, order);
+      {reasons.map((b, i) => {
+        const { href, name, format } =
+          "blocker" in b ? blockerText(b.blocker, nameOf, tReason) : reasonText(b.reason, nameOf, tReason, order);
         const text = <Named format={format} name={name} lang={nameLang} />;
         return (
           <li key={i} className="flex items-start gap-1.5 text-xs">
@@ -237,21 +261,15 @@ export function PublishControls({
         </span>
       </div>
 
-      {blockers.length ? (
+      {blocked ? (
         <div
           id={`${ids}-blockers`}
           ref={blockersRef}
           tabIndex={-1}
           className="mt-3 rounded-lg border border-[var(--danger)]/40 bg-[var(--danger)]/5 p-3"
         >
-          {status === "published" ? (
-            <p className="text-xs font-semibold">{tList("publish.liveBypass")}</p>
-          ) : (
-            <>
-              <p className="text-xs font-semibold">{tList("publish.blockedTitle")}</p>
-              <p className="text-xs text-[var(--muted-foreground)]">{tList("publish.blockedIntro")}</p>
-            </>
-          )}
+          <p className="text-xs font-semibold">{tList("publish.blockedTitle")}</p>
+          <p className="text-xs text-[var(--muted-foreground)]">{tList("publish.blockedIntro")}</p>
           {reasonList(blockers)}
         </div>
       ) : null}
@@ -395,7 +413,7 @@ export function PublishControls({
           <div>
             <p>{error}</p>
             {/* Once the page knows the blockers it lists them above. */}
-            {refusedReasons.length && !blockers.length ? reasonList(refusedReasons) : null}
+            {refusedReasons.length && !blocked ? reasonList(refusedReasons) : null}
           </div>
         </div>
       ) : null}

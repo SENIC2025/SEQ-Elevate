@@ -23,6 +23,7 @@ import type {
   NewOnlyReason,
   PartId,
   PartsView,
+  PublishBlocker,
   SectionStage,
   SectionView,
   SectionsMeta,
@@ -161,12 +162,21 @@ export interface LessonOutline {
   parts: PartsView | null;
   /** Base of deleteSection (sectionContentVersion), null when there is no row. */
   contentVersion: string | null;
-  /** Learners get this lesson now (it is in getCourse().stages). */
+  /**
+   * Learners get this lesson now: it is in the course's lesson plan (D64,
+   * sections/learner-path.ts) — listed, not hidden, something in it.
+   */
   live: boolean;
+  /**
+   * How many learners have any trace of this lesson (store.server.ts
+   * learnersWithData): set for the lessons of a created course's list
+   * while the course has learners, for the delete rule (spec 7.2).
+   */
+  learnersWithData?: number;
 }
 
 export interface ReadinessIssue {
-  /** Blockers stop publishing (D57); warnings and info never do. */
+  /** Blockers stop publishing (D66); warnings and info never do. */
   level: "blocker" | "warning" | "info";
   code:
     | "copy-missing"
@@ -174,16 +184,18 @@ export interface ReadinessIssue {
     | "lesson-untranslated"
     | "lesson-draft"
     | "no-interactive"
+    | "cannot-publish"
     | "needs-release-2"
     | "part-draft"
-    | "labels-later"
     | "sections-many";
   locale?: Locale;
   /** The lesson's id (a stage key, or a Release 1 lesson's "s-…"). */
   stage?: string;
   /** part-draft: the content with an unsaved-for-learners draft. */
   part?: PartId;
-  /** needs-release-2: one issue per reason learners couldn't get yet. */
+  /** cannot-publish (D66): what stops it — a list or lesson that can't be read, or no lesson. */
+  blocker?: PublishBlocker;
+  /** needs-release-2: Release 1's reasons, only under a kill switch (spec 3.4). */
   reason?: NewOnlyReason;
   /** lesson-untranslated: how many lessons lack text in `locale`. */
   count?: number;
@@ -205,7 +217,7 @@ export interface CourseOutline {
    * including "Add …" slots for CMS courses.
    */
   lessons: LessonOutline[];
-  /** Shown before publishing: blockers stop it (D57), the rest never do. */
+  /** Shown before publishing: blockers stop it (D66), the rest never do. */
   readiness: ReadinessIssue[];
   /** The lesson list's bases and reasons: created courses only, else null. */
   sections: SectionsMeta | null;
@@ -222,12 +234,15 @@ export interface CourseGridEntry {
   status: CourseStatus;
   durationMinutes: number;
   enrolled: number;
-  /** The lessons learners see, in STAGES order (count = length). */
-  lessonKeys: StageKey[];
   /**
-   * Set when the course's lesson list is stored (Course.outline): its
-   * lessons in order with their names in the grid's language, hidden ones
-   * left out. Otherwise the card names `lessonKeys` as before.
+   * The lessons learners see (count = length): a built-in course's seven;
+   * a created course's lesson plan (D64), in its order.
+   */
+  lessonKeys: string[];
+  /**
+   * Set when a created course's lesson list is stored (Course.outline): the
+   * lessons learners see, in order, with their names in the grid's
+   * language. Otherwise the card names `lessonKeys` as before.
    */
   sections?: { id: string; name: string }[];
   languages: Record<Locale, LanguageCoverage>;

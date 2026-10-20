@@ -106,7 +106,6 @@ const errorKey = (code: string) => code.replace(/-([a-z])/g, (_, c: string) => c
 const NEW_ERRORS = [
   "has-learners",
   "not-a-section",
-  "live-course-standard-only",
   "kind-mismatch",
   "outline-unreadable",
   "parts-too-large",
@@ -222,12 +221,8 @@ describe("Release 1 stream namespaces", () => {
       "where",
       "many",
       "max",
-      "liveLocked",
-      "nonStandardHint",
       "conflict",
       "publish",
-      "labelsLater",
-      "laterNote",
       "fullTemplate",
     ],
     lessonBlocks: [
@@ -239,8 +234,6 @@ describe("Release 1 stream namespaces", () => {
       "moveDown",
       "remove",
       "removeConfirm",
-      "notInLearnerView",
-      "liveLocked",
       "ownQuestionsNote",
       "draft",
       "notReady",
@@ -271,7 +264,16 @@ describe("Release 1 stream namespaces", () => {
   });
 
   it("names the publish blockers' reasons and the content types in full", () => {
-    const reasons = ["customSection", "hiddenSection", "removedSection", "reordered", "extraParts", "unreadable"];
+    const reasons = [
+      "customSection",
+      "hiddenSection",
+      "removedSection",
+      "reordered",
+      "extraParts",
+      "unreadable",
+      "noLessons",
+      "unreadableLesson",
+    ];
     const types = ["text", "practice", "scenario", "quiz", "reflection", "rating"];
     for (const messages of Object.values(FILES)) {
       expect(Object.keys(messages.lessonList.publish.reason).sort()).toEqual([...reasons].sort());
@@ -295,5 +297,57 @@ describe("Release 1 stream namespaces", () => {
       .flatMap(strings)
       .filter((s) => /μέρο|δραστηριότητ/i.test(s));
     expect(greek).toEqual([]);
+  });
+});
+
+/*
+ * Release 2 (D66): the editor no longer tells partners that something waits
+ * for "Release 2" or for 13 November, in any language. Dates are said as
+ * dates; a release name means nothing to a partner. The old preview's
+ * banner goes with that preview (spec 9.1), so it is left to it.
+ */
+describe("no release names or the release date in the editor's words", () => {
+  const OLD = /Release 2|Version 2|Έκδοση 2|13\.? November|13 Νοεμβρίου/;
+  const LEFT_TO_THE_OLD_PREVIEW = new Set(["sectionPreview.banner"]);
+
+  /** Every string under a messages node, with its dotted path. */
+  function paths(node: unknown, prefix = ""): [string, string][] {
+    if (typeof node === "string") return [[prefix, node]];
+    if (node && typeof node === "object") {
+      return Object.entries(node).flatMap(([k, v]) => paths(v, prefix ? `${prefix}.${k}` : k));
+    }
+    return [];
+  }
+
+  it("says no 'Release 2' and no '13 November' anywhere", () => {
+    for (const [locale, messages] of Object.entries(FILES)) {
+      const found = paths(messages)
+        .filter(([path, text]) => OLD.test(text) && !LEFT_TO_THE_OLD_PREVIEW.has(path))
+        .map(([path]) => path);
+      expect(found, locale).toEqual([]);
+    }
+  });
+
+  it("drops the keys that only said what waited for Release 2", () => {
+    const GONE = [
+      "lessonList.liveLocked",
+      "lessonList.nonStandardHint",
+      "lessonList.labelsLater",
+      "lessonList.laterNote",
+      "lessonList.rowNonStandard",
+      "lessonList.nowLater",
+      "lessonList.status.later",
+      "lessonList.errors.liveLocked",
+      "lessonList.publish.liveBypass",
+      "lessonBlocks.notInLearnerView",
+      "lessonBlocks.liveLocked",
+      "exerciseEditor.errors.liveCourseStandardOnly",
+    ];
+    for (const [locale, messages] of Object.entries(FILES)) {
+      expect(
+        GONE.filter((key) => at(messages, key) !== undefined),
+        locale
+      ).toEqual([]);
+    }
   });
 });

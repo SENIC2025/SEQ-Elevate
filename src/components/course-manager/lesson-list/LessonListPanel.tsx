@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { AlertTriangle, ChevronDown, FilePenLine, PenLine, Plus } from "lucide-react";
 import {
   addSection,
@@ -19,7 +19,6 @@ import type { CourseStatus } from "@/lib/cms/course-status";
 import { offersAdd } from "@/lib/cms/course-derive";
 import {
   SECTION_LIMITS,
-  isLegacySectionId,
   type AddSectionChoice,
   type LabelSource,
   type NarrativeKey,
@@ -30,15 +29,17 @@ import {
 } from "@/lib/cms/sections/contract";
 import type { Locale } from "@/lib/cms/types";
 import { AddLessonPicker } from "./AddLessonPicker";
-import { anyAddAllowed, rowControls, type Control, type ListContext } from "./live-controls";
+import { LiveChangeConfirm } from "./LiveChangeConfirm";
+import { addControl, choiceState, learnersOf, rowControls, type Control, type ListContext } from "./live-controls";
 import {
+  closedDate,
   fallbackName,
   focusAfterDelete,
   focusAfterMove,
   nameIn,
   refusalGone,
-  refusalKey,
   refusalRefreshes,
+  refusalWords,
   type ContentNames,
 } from "./list-model";
 import { SectionRow, type RowElement, type RowMode, type RowStatus } from "./SectionRow";
@@ -50,8 +51,12 @@ export interface RenameRequest {
   n: number;
 }
 
-type Where = { row: string; mode: RowMode } | null;
-type Picker = { from: number | null } | null;
+/** How many learners a change touches, as the page or (when it asked first) the server counted. */
+type Counts = { learners: number; finished: number };
+/** A change to a lesson's place or visibility waiting for the editor's confirmation (spec 7.3). */
+type PendingChange = { op: "move"; dir: -1 | 1 } | { op: "hide"; hidden: boolean };
+type Where = { row: string; mode: RowMode; change?: PendingChange; counts?: Counts } | null;
+type Picker = { from: number | null; confirm?: { counts?: Counts } } | null;
 /** Where a refusal is said: a lesson's row, the picker, or the list as a whole ("list"). */
 type ErrorAt = { at: string; text: string } | null;
 
@@ -69,6 +74,15 @@ type ErrorAt = { at: string; text: string } | null;
  * predictable (the pressed button, the next lesson after a delete, the new
  * lesson's heading after an add) and each change is announced once in the
  * page's polite live region. There is no drag and drop (WCAG 2.5.7).
+ *
+ * On a course with learners (D66, spec 7.3) adding, moving, hiding and
+ * showing a lesson ask first: LiveChangeConfirm opens in place of the
+ * row's buttons (or the picker's) with how many learners are taking the
+ * course, and only its own button sends the change, confirmed. When the
+ * server knew of learners the page didn't, it asks with its own counts. A
+ * delete that learners keep from happening says so in its confirmation,
+ * with Hide instead; from the 1 December cut-off the changes a published
+ * course with learners refuses say why (D67).
  */
 export function LessonListPanel({
   slug,
@@ -118,17 +132,25 @@ export function LessonListPanel({
   renameRequest?: RenameRequest | null;
 }) {
   const t = useTranslations("lessonList");
+  const tLive = useTranslations("liveChanges");
   const tNav = useTranslations("courseManager.page");
   const tDraft = useTranslations("exerciseEditor.page");
+  const locale = useLocale();
   const uid = React.useId();
   const ctx: ListContext = {
     kind,
     status,
     sections,
     enrolled,
-    learnerKeys: lessons.filter((l) => l.live).map((l) => l.key),
+    learnerKeys: lessons.filter((l) => l.section && l.live).map((l) => l.key),
+    withData: Object.fromEntries(
+      lessons.flatMap((l) => (l.learnersWithData === undefined ? [] : [[l.key, l.learnersWithData]]))
+    ),
   };
   const list = sections.resolved.sections;
+  const learners = learnersOf(ctx);
+  const pageCounts: Counts = { learners, finished: sections.finished ?? 0 };
+  const date = closedDate(sections.closedFrom, locale);
 
   const [expanded, setExpanded] = React.useState(false);
   const [where, setWhere] = React.useState<Where>(null);
@@ -139,6 +161,7 @@ export function LessonListPanel({
 
   const elId = React.useCallback((row: string, part: RowElement) => `${uid}-${row}-${part}`, [uid]);
   const openerId = `${uid}-add`;
+  const pickerAddId = `${uid}-picker-add`;
   const listId = `${uid}-list`;
   const focusEl = (id: string) => setFocus((f) => ({ id, n: (f?.n ?? 0) + 1 }));
 
@@ -162,12 +185,29 @@ export function LessonListPanel({
   const nameOf = (id: string) => byId.get(id)?.section?.name[lang]?.text ?? lessonLabel(id);
   const restoreName = (key: NarrativeKey) => names.standard[lang][key];
 
-  /** Ids of the shared texts that say why a control is refused. */
+  /**
+   * Ids of the shared texts that say why a control is refused, or, for a
+   * change that asks first, how many learners it touches.
+   */
   const describe = (c: Control): string | undefined => {
     if (c.kind === "locked") return `${uid}-why-${c.why}`;
     if (c.kind === "learners") return `${uid}-why-learners`;
+    if (c.kind === "enabled" && c.confirm) return `${uid}-learners`;
     return undefined;
   };
+
+  /** A refusal in words: the lesson list's, or the rules' for a course people are taking. */
+  function refusalText(res: Refused): string {
+    const words = refusalWords(res.error);
+    if (words.ns === "liveChanges") {
+      return tLive(words.key, {
+        count: res.error === "has-learners" ? res.count : learners,
+        date: res.error === "restructure-closed" ? closedDate(res.from, locale) : date,
+      });
+    }
+    const max = res.error === "label-too-long" ? SECTION_LIMITS.labelChars : sections.max;
+    return t(words.key, { count: learners, max });
+  }
 
   /**
    * A refusal in words, where it happened; a page that is behind re-reads
@@ -175,16 +215,14 @@ export function LessonListPanel({
    * colleague deleted it), its row goes too: the refusal is then said above
    * "Add lesson", and focus moves to the next lesson (or "Add lesson").
    */
-  function refused(res: Refused, at: string, key = refusalKey(res.error)) {
+  function refused(res: Refused, at: string, text = refusalText(res)) {
     const fresh = res.error === "changed-elsewhere" && res.outline ? res.outline : null;
     if (fresh) onOutline(fresh);
     else if (refusalRefreshes(res.error)) refresh();
-    const count = res.error === "has-learners" ? res.count : enrolled;
-    const max = res.error === "label-too-long" ? SECTION_LIMITS.labelChars : sections.max;
     const after = fresh ? (fresh.sections?.resolved.sections ?? []).map((s): string => s.id) : null;
     if (refusalGone(at, res.error, after)) {
       setWhere(null);
-      setError({ at: "list", text: t(refusalKey(res.error), { count, max }) });
+      setError({ at: "list", text });
       const next = focusAfterDelete(
         list.map((s) => s.id),
         at
@@ -192,19 +230,20 @@ export function LessonListPanel({
       focusEl(next && (after === null || after.includes(next)) ? elId(next, "link") : openerId);
       return;
     }
-    setError({ at, text: t(key, { count, max }) });
+    setError({ at, text });
   }
 
-  /** "… The course can now be published only from Release 2." after a change that made it so. */
-  const withLater = (text: string, nonStandard: boolean) => (nonStandard ? `${text} ${t("nowLater")}` : text);
-  const marks = (c: Control) => c.kind === "enabled" && c.nonStandard === true;
-
-  /** Run one structural change; true when it was stored. */
+  /**
+   * Run one structural change; true when it was stored. `ask` is called
+   * instead of saying a refusal when the server wants a confirmation the
+   * page didn't know was needed (needs-confirmation), with its counts.
+   */
   async function run(
     at: string,
     call: () => Promise<OutlineResult>,
     done: (outline: CourseOutline, id: string | undefined) => void,
-    refusedKey?: (res: Refused) => string | undefined
+    refusedText?: (res: Refused) => string | undefined,
+    ask?: (counts: Counts) => void
   ): Promise<boolean> {
     if (busy) return false;
     setBusy(true);
@@ -216,7 +255,12 @@ export function LessonListPanel({
         done(res.outline, res.id);
         return true;
       }
-      refused(res, at, refusedKey?.(res));
+      if (res.error === "needs-confirmation" && ask) {
+        refresh();
+        ask({ learners: res.learners, finished: res.finished });
+        return false;
+      }
+      refused(res, at, refusedText?.(res));
     } catch {
       setError({ at, text: t("errors.generic") });
     } finally {
@@ -228,31 +272,60 @@ export function LessonListPanel({
   const sectionName = (outline: CourseOutline, id: string) =>
     outline.lessons.find((l) => l.key === id)?.section?.name[lang]?.text ?? nameOf(id);
 
-  function move(id: SectionId, dir: -1 | 1) {
-    const index = list.findIndex((s) => s.id === id);
-    const controls = rowControls(ctx, id);
-    const later = marks(dir === -1 ? controls.moveUp : controls.moveDown);
-    void run(id, () => moveSection(slug, id, dir, sections.version), (outline) => {
-      const after = outline.sections?.resolved.sections ?? [];
-      const position = after.findIndex((s) => s.id === id) + 1;
-      announce(withLater(t("moved", { name: sectionName(outline, id), position, total: after.length }), later));
-      focusEl(elId(id, focusAfterMove(index, dir, list.length)));
-    });
+  /** Open the row's confirmation for a change (spec 7.3): its heading takes focus. */
+  function askFirst(id: string, change: PendingChange, counts?: Counts) {
+    setError(null);
+    setPicker(null);
+    setWhere({ row: id, mode: "confirm", change, counts });
   }
 
-  function hide(id: SectionId, hidden: boolean) {
-    const later = marks(rowControls(ctx, id).hide);
-    void run(id, () => setSectionHidden(slug, id, hidden, sections.version), (outline) => {
-      const name = sectionName(outline, id);
-      announce(withLater(hidden ? t("hiddenDone", { name }) : t("shownDone", { name }), later));
-      focusEl(elId(id, "hide"));
-    });
+  function move(id: SectionId, dir: -1 | 1, confirm?: true) {
+    const index = list.findIndex((s) => s.id === id);
+    const controls = rowControls(ctx, id);
+    const control = dir === -1 ? controls.moveUp : controls.moveDown;
+    if (!confirm && control.kind === "enabled" && control.confirm) return askFirst(id, { op: "move", dir });
+    void run(
+      id,
+      () => moveSection(slug, id, dir, sections.version, confirm),
+      (outline) => {
+        setWhere({ row: id, mode: "actions" });
+        const after = outline.sections?.resolved.sections ?? [];
+        const position = after.findIndex((s) => s.id === id) + 1;
+        announce(t("moved", { name: sectionName(outline, id), position, total: after.length }));
+        focusEl(elId(id, focusAfterMove(index, dir, list.length)));
+      },
+      undefined,
+      (counts) => askFirst(id, { op: "move", dir }, counts)
+    );
+  }
+
+  function hide(id: SectionId, hidden: boolean, confirm?: true) {
+    const control = rowControls(ctx, id).hide;
+    if (!confirm && control.kind === "enabled" && control.confirm) return askFirst(id, { op: "hide", hidden });
+    void run(
+      id,
+      () => setSectionHidden(slug, id, hidden, sections.version, confirm),
+      (outline) => {
+        setWhere({ row: id, mode: "actions" });
+        const name = sectionName(outline, id);
+        announce(hidden ? t("hiddenDone", { name }) : t("shownDone", { name }));
+        focusEl(elId(id, "hide"));
+      },
+      undefined,
+      (counts) => askFirst(id, { op: "hide", hidden }, counts)
+    );
+  }
+
+  /** The row's confirmation, cancelled (or Escape): back to its buttons, focus on its Actions button. */
+  function cancelConfirm(id: string) {
+    setError(null);
+    setWhere({ row: id, mode: "actions" });
+    focusEl(elId(id, "actions"));
   }
 
   function remove(lesson: LessonOutline) {
     const id = lesson.key as SectionId;
     const name = nameOf(id);
-    const later = marks(rowControls(ctx, id).delete);
     const next = focusAfterDelete(
       list.map((s) => s.id),
       id
@@ -263,22 +336,31 @@ export function LessonListPanel({
       () => {
         setWhere(null);
         onDeleted?.(id);
-        announce(withLater(t("delete.deleted", { name }), later));
+        announce(t("delete.deleted", { name }));
         focusEl(next ? elId(next, "link") : openerId);
       },
       // The lesson's content changed too (its base covers it): say so, not only the list.
-      (res) => (res.error === "changed-elsewhere" ? "delete.changed" : undefined)
+      (res) => (res.error === "changed-elsewhere" ? t("delete.changed") : undefined)
     );
   }
 
-  function add(choice: AddSectionChoice, at: number | null) {
-    void run("picker", () => addSection(slug, choice, at, sections.version), (outline, id) => {
-      setPicker(null);
-      setWhere(null);
-      if (!id) return;
-      announce(t("added", { name: sectionName(outline, id) }));
-      onAdded(id);
-    });
+  function add(choice: AddSectionChoice, at: number | null, confirm?: true) {
+    const control = choiceState(ctx, choice, at);
+    const askAdd = (counts?: Counts) => setPicker((p) => (p ? { ...p, confirm: { counts } } : p));
+    if (!confirm && control.kind === "enabled" && control.confirm) return askAdd();
+    void run(
+      "picker",
+      () => addSection(slug, choice, at, sections.version, confirm),
+      (outline, id) => {
+        setPicker(null);
+        setWhere(null);
+        if (!id) return;
+        announce(t("added", { name: sectionName(outline, id) }));
+        onAdded(id);
+      },
+      undefined,
+      askAdd
+    );
   }
 
   async function saveName(lesson: LessonOutline, label: string) {
@@ -336,12 +418,34 @@ export function LessonListPanel({
   const rowStatus = (lesson: LessonOutline): RowStatus | null => {
     // Hidden: its "Hidden" says it (learners don't get it as it stands).
     if (lesson.section?.hidden) return null;
-    if (lesson.section?.custom) return "later";
-    if (lesson.live) return "live";
-    return "empty";
+    return lesson.live ? "live" : "empty";
   };
 
-  const addOpener = anyAddAllowed(ctx);
+  /** The row's LiveChangeConfirm for the change waiting on it. */
+  const confirmFor = (id: SectionId) => {
+    const pending = where?.row === id && where.mode === "confirm" ? where : null;
+    if (!pending?.change) return null;
+    const change = pending.change;
+    const counts = pending.counts ?? pageCounts;
+    return (
+      <LiveChangeConfirm
+        change={
+          change.op === "move"
+            ? { kind: "move", name: nameOf(id) }
+            : { kind: change.hidden ? "hide" : "show", name: nameOf(id) }
+        }
+        nameLang={lang}
+        learners={counts.learners}
+        finished={counts.finished}
+        busy={busy}
+        error={error?.at === id ? error.text : null}
+        onConfirm={() => (change.op === "move" ? move(id, change.dir, true) : hide(id, change.hidden, true))}
+        onCancel={() => cancelConfirm(id)}
+      />
+    );
+  };
+
+  const addOpener = addControl(ctx);
   const pickerFor = (from: number | null) => (
     <AddLessonPicker
       ctx={ctx}
@@ -352,9 +456,16 @@ export function LessonListPanel({
       nameLang={lang}
       descriptions={describe}
       error={error?.at === "picker" ? error.text : null}
-      onAdd={add}
+      addId={pickerAddId}
+      confirming={picker?.confirm ? (picker.confirm.counts ?? pageCounts) : null}
+      onAdd={(choice, at) => add(choice, at)}
+      onConfirm={(choice, at) => add(choice, at, true)}
+      onCancelConfirm={() => {
+        setError(null);
+        setPicker((p) => (p ? { from: p.from } : p));
+        focusEl(pickerAddId);
+      }}
       onClose={closePicker}
-      onHint={announce}
     />
   );
   const sectionCount = list.length;
@@ -386,18 +497,25 @@ export function LessonListPanel({
       </h2>
 
       <div id={listId} className={`${expanded ? "mt-2" : "hidden"} lg:mt-0 lg:block`}>
-        {/* Why a control is refused, shared by every control it applies to. */}
-        <p id={`${uid}-why-live`} hidden>
-          {t("liveLocked")}
-        </p>
+        {/* Why a control is refused, shared by every control it applies to;
+            and, for a change that asks first, how many learners it touches. */}
         <p id={`${uid}-why-unreadable`} hidden>
           {t("errors.unreadable")}
         </p>
         <p id={`${uid}-why-max`} hidden>
           {t("max", { max: sections.max })}
         </p>
+        <p id={`${uid}-why-closed`} hidden>
+          {tLive("closed", { date })}
+        </p>
+        <p id={`${uid}-why-last-lesson`} hidden>
+          {tLive("lastLesson")}
+        </p>
         <p id={`${uid}-why-learners`} hidden>
-          {t("delete.blockedLearners", { count: enrolled })}
+          {tLive("hasLearners.delete", { count: learners })}
+        </p>
+        <p id={`${uid}-learners`} hidden>
+          {tLive("learners", pageCounts)}
         </p>
         {unreadable ? (
           <p className="mb-2 rounded-md bg-[var(--surface-muted)] p-2 text-xs">{t("errors.unreadable")}</p>
@@ -413,6 +531,7 @@ export function LessonListPanel({
             const index = list.findIndex((s) => s.id === id);
             const open = where?.row === id;
             const n = section.number ?? index + 1;
+            const controls = rowControls(ctx, id);
             return (
               <SectionRow
                 key={id}
@@ -421,7 +540,7 @@ export function LessonListPanel({
                 name={nameOf(id)}
                 status={rowStatus(lesson)}
                 idOf={(part) => elId(id, part)}
-                controls={rowControls(ctx, id)}
+                controls={controls}
                 open={open}
                 mode={open ? where.mode : "actions"}
                 busy={busy}
@@ -431,11 +550,12 @@ export function LessonListPanel({
                   lang,
                   initial: section.label[lang] ?? "",
                   placeholder: fallbackName(section, lang, names, { title: titleOf(lesson, lang), n }),
-                  laterNote:
-                    status === "published" && isLegacySectionId(id)
-                      ? t("laterNote", { standard: names.standard[lang][id] })
-                      : null,
                 }}
+                emptyNote={section.custom && !section.hidden && !lesson.live ? tLive("emptyNote") : null}
+                deleteBlocked={
+                  controls.delete.kind === "learners" ? tLive("hasLearners.delete", { count: learners }) : null
+                }
+                confirm={confirmFor(id)}
                 onToggle={() => toggleRow(id)}
                 onMove={(dir) => move(id, dir)}
                 onHide={() => hide(id, !section.hidden)}
@@ -455,6 +575,9 @@ export function LessonListPanel({
                   focusEl(elId(id, "rename"));
                 }}
                 onDeleteConfirm={() => remove(lesson)}
+                onDeleteHide={
+                  !section.hidden && controls.hide.kind === "enabled" ? () => hide(id, true) : null
+                }
                 onDeleteKeep={() => {
                   setError(null);
                   setWhere({ row: id, mode: "actions" });

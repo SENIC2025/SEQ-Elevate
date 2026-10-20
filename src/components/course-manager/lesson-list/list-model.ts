@@ -1,8 +1,8 @@
 /**
  * The lesson list's small rules that aren't about the server: where "Add
  * lesson" puts a lesson, where focus goes after a move or a delete, and how a
- * publishing blocker or a refusal is put into words. Pure, so they are
- * tested without a browser.
+ * publishing blocker, a refusal or the 1 December date is put into words.
+ * Pure, so they are tested without a browser.
  */
 
 import type { Locale } from "@/lib/cms/types";
@@ -15,6 +15,7 @@ import {
   type LabelSource,
   type NewOnlyReason,
   type NewSectionTemplate,
+  type PublishBlocker,
   type SectionsError,
   type StoredSection,
 } from "@/lib/cms/sections/contract";
@@ -144,11 +145,12 @@ export function usualOrder(ids: readonly string[]): StageKey[] {
 }
 
 /**
- * One publishing blocker in words ("“Wrap-up” is a new lesson"), with the
- * lesson to link to when it is on the page (a deleted one isn't). `format`
- * gives the same words for a given name (the lesson's, or for a new order
- * the usual order), and `name` is that name: the page marks it with the
- * content language. `t` is the lessonList.publish.reason translator.
+ * One of Release 1's publishing blockers in words ("“Wrap-up” is a new
+ * lesson"), shown only under a kill switch (spec 3.4), with the lesson to
+ * link to when it is on the page (a deleted one isn't). `format` gives the
+ * same words for a given name (the lesson's, or for a new order the usual
+ * order), and `name` is that name: the page marks it with the content
+ * language. `t` is the lessonList.publish.reason translator.
  */
 export function reasonText(
   reason: NewOnlyReason,
@@ -166,6 +168,46 @@ export function reasonText(
 }
 
 /**
+ * One of Release 2's publishing blockers in words (D66): no lesson learners
+ * would see, a lesson list that can't be read, or a lesson whose content
+ * can't be read (linked, and named in the content language).
+ */
+export function blockerText(
+  blocker: PublishBlocker,
+  nameOf: (id: string) => string,
+  t: T
+): { text: string; href: string | null; name: string; format: (name: string) => string } {
+  if (blocker.code === "unreadable" && blocker.sectionId) {
+    const format = (n: string) => t("unreadableLesson", { name: n });
+    const name = nameOf(blocker.sectionId);
+    return { text: format(name), href: `#lesson-${blocker.sectionId}`, name, format };
+  }
+  const key = blocker.code === "no-lessons" ? "noLessons" : "unreadable";
+  return { text: t(key), href: null, name: "", format: () => t(key) };
+}
+
+/**
+ * The 1 December cut-off's date in the menu language (liveChanges.closed),
+ * as a day in Brussels, where the pilot runs: the default
+ * 2026-12-01T00:00:00+01:00 is "1 December 2026", not 30 November in UTC.
+ */
+export function closedDate(iso: string | null | undefined, locale: string): string {
+  const d = iso ? new Date(iso) : null;
+  if (!d || Number.isNaN(d.getTime())) return "";
+  try {
+    // The platform's English is British: "1 December 2026", not "December 1".
+    return new Intl.DateTimeFormat(locale === "en" ? "en-GB" : locale, {
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+      timeZone: "Europe/Brussels",
+    }).format(d);
+  } catch {
+    return d.toISOString().slice(0, 10);
+  }
+}
+
+/**
  * Whether a refused change was about a lesson that the page's fresh list
  * no longer has (a colleague deleted it): then the refusal is said for the
  * whole list, since the lesson's row and its message box are gone.
@@ -177,31 +219,39 @@ export function refusalGone(at: string, error: SectionsError | "invalid", after:
   return after !== null && !after.includes(at);
 }
 
-/** The lessonList message key that explains a refused lesson-list change. */
-export function refusalKey(error: SectionsError | "invalid"): string {
+/**
+ * The message that explains a refused lesson-list change: a key under
+ * `lessonList`, or under `liveChanges` for the rules for a course people
+ * are taking (has-learners is a delete's: "… You can hide it instead";
+ * restructure-closed takes the date, closedDate).
+ */
+export function refusalWords(error: SectionsError | "invalid"): { ns: "lessonList" | "liveChanges"; key: string } {
+  const list = (key: string) => ({ ns: "lessonList" as const, key });
   switch (error) {
     case "changed-elsewhere":
     case "at-edge":
     case "not-restorable":
-      return "conflict";
-    case "live-course-standard-only":
-      return "errors.liveLocked";
+      return list("conflict");
     case "has-learners":
-      return "delete.blockedLearners";
+      return { ns: "liveChanges", key: "hasLearners.delete" };
+    case "restructure-closed":
+      return { ns: "liveChanges", key: "closed" };
+    case "last-lesson":
+      return { ns: "liveChanges", key: "lastLesson" };
     case "too-many-sections":
-      return "max";
+      return list("max");
     case "label-too-long":
-      return "rename.tooLong";
+      return list("rename.tooLong");
     case "not-a-section":
-      return "errors.notASection";
+      return list("errors.notASection");
     case "outline-unreadable":
-      return "errors.unreadable";
+      return list("errors.unreadable");
     case "forbidden":
-      return "errors.forbidden";
+      return list("errors.forbidden");
     case "unknown-course":
-      return "errors.unknownCourse";
+      return list("errors.unknownCourse");
     default:
-      return "errors.generic";
+      return list("errors.generic");
   }
 }
 
@@ -212,8 +262,10 @@ export function refusalRefreshes(error: SectionsError | "invalid"): boolean {
     error === "at-edge" ||
     error === "not-restorable" ||
     error === "not-a-section" ||
-    error === "live-course-standard-only" ||
     error === "has-learners" ||
+    error === "needs-confirmation" ||
+    error === "restructure-closed" ||
+    error === "last-lesson" ||
     error === "too-many-sections"
   );
 }

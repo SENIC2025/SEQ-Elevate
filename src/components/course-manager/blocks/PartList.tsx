@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { Info, Plus } from "lucide-react";
 import { useRouter } from "@/i18n/navigation";
 import { Button } from "@/components/ui/button";
@@ -23,15 +23,18 @@ import {
   type PartsView,
   type SectionId,
 } from "@/lib/cms/sections/contract";
+import type { LiveFacts } from "@/lib/cms/sections/live-rules";
 import type { Locale } from "@/lib/cms/types";
 import { DirtyScope } from "../dirty-registry";
+import { LiveChangeConfirm } from "../lesson-list/LiveChangeConfirm";
+import { closedDate } from "../lesson-list/list-model";
 import { PartCard } from "./PartCard";
 import { PartTypePicker } from "./PartTypePicker";
 import {
   extraCount,
   focusAfterPartMove,
   focusAfterRemove,
-  partOpAllowed,
+  partControl,
   partStatus,
   partTypeOf,
   settleRereads,
@@ -47,6 +50,21 @@ const FIELD = 'input:not([type="hidden"]), textarea, select, [contenteditable="t
 
 /** A lesson not in the list yet: only its main content (see `listed`). */
 const MAIN_ONLY: PartsView = { items: [{ id: MAIN_PART_ID, type: "main" }], order: "" };
+
+/** The course's learners and the 1 December cut-off, as the page got them (SectionsMeta). */
+export interface LiveCourse {
+  learners: number;
+  finished: number;
+  closed: boolean;
+  closedFrom: string | null;
+}
+
+type Counts = { learners: number; finished: number };
+/** A content change waiting for the editor's confirmation (spec 7.3). */
+type Pending =
+  | { op: "add"; after: PartId; type: PartType; counts?: Counts }
+  | { op: "move"; id: PartId; dir: -1 | 1; counts?: Counts }
+  | { op: "remove"; id: PartId; counts?: Counts };
 
 /**
  * A lesson's content on the course page, in learner order (spec 11.2): the
@@ -69,6 +87,13 @@ const MAIN_ONLY: PartsView = { items: [{ id: MAIN_PART_ID, type: "main" }], orde
  * the content's own save the page is still re-reading it, so a Remove
  * pressed then waits for that re-read, rather than being refused as if
  * someone else had changed it.
+ *
+ * On a course with learners (D66, spec 7.3) adding, moving and removing
+ * content ask first: LiveChangeConfirm opens where the change was asked
+ * for, and only its button sends it, confirmed. A question learners may
+ * have answered can't be removed while they are there (it can still be
+ * edited), and from 1 December a published course with learners takes no
+ * content change (D67); those controls stay focusable and say why.
  */
 export function PartList({
   listed = true,
@@ -79,6 +104,7 @@ export function PartList({
   status,
   lang,
   reasons,
+  live,
   main,
   onOutline,
   announce,
@@ -96,6 +122,8 @@ export function PartList({
   status: CourseStatus;
   lang: Locale;
   reasons: readonly NewOnlyReason[];
+  /** The course's learners and the cut-off (none: nobody is taking it). */
+  live?: LiveCourse;
   /** The main content's editor, as today. */
   main: React.ReactNode;
   onOutline: (outline: CourseOutline) => void;
@@ -104,6 +132,8 @@ export function PartList({
 }) {
   const t = useTranslations("lessonBlocks");
   const tEditor = useTranslations("exerciseEditor");
+  const tLive = useTranslations("liveChanges");
+  const locale = useLocale();
   const tLanguage = useTranslations("courseManager.languageName");
   const router = useRouter();
   // True while the page re-reads the course after a content's own save.
@@ -113,23 +143,24 @@ export function PartList({
   const parts = listed ? lesson.parts : MAIN_ONLY;
 
   const [picker, setPicker] = React.useState<PartId | null>(null);
+  const [pending, setPendingChange] = React.useState<Pending | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<{ at: string; message: string } | null>(null);
   const [focus, setFocus] = React.useState<PartFocus | null>(null);
   // Texts whose "Load the saved version" waits for a refreshed page.
-  const [pending, setPending] = React.useState<Record<string, string | null>>({});
+  const [rereads, setRereads] = React.useState<Record<string, string | null>>({});
   const [revs, setRevs] = React.useState<Record<string, number>>({});
   // Texts saved here that the page may not show yet (see textStart).
   const [saved, setSaved] = React.useState<Record<string, SavedText>>({});
   // A confirmed removal waiting for the page to catch up with a save.
-  const queuedRemove = React.useRef<PartId | null>(null);
+  const queuedRemove = React.useRef<{ id: PartId; confirm?: true } | null>(null);
   const [seenParts, setSeenParts] = React.useState(parts);
   if (parts !== seenParts) {
     setSeenParts(parts);
     if (parts && Object.keys(saved).length) setSaved(settleSaves(saved, parts.items));
-    if (parts && Object.keys(pending).length) {
-      const settled = settleRereads(pending, revs, parts.items);
-      setPending(settled.pending);
+    if (parts && Object.keys(rereads).length) {
+      const settled = settleRereads(rereads, revs, parts.items);
+      setRereads(settled.pending);
       setRevs(settled.revs);
     }
   }
@@ -141,6 +172,7 @@ export function PartList({
   const bodyId = (id: PartId) => `${ids}-body-${id}`;
   const pickerId = (id: PartId) => `${ids}-picker-${id}`;
   const lockedNoteId = `${ids}-locked`;
+  const learnersNoteId = `${ids}-learners`;
   const maxNoteId = `${ids}-max`;
 
   React.useEffect(() => {
@@ -181,22 +213,38 @@ export function PartList({
 
   const say = announce;
 
+  const facts: LiveFacts = {
+    status,
+    learners: live?.learners ?? 0,
+    closed: live?.closed === true,
+  };
+  const pageCounts: Counts = { learners: facts.learners, finished: live?.finished ?? 0 };
+  const date = closedDate(live?.closedFrom, locale);
+
   /** Words for a refused change, in the menu language. */
-  const refusalText = (r: WriteRefusal) => {
+  const refusalText = (r: WriteRefusal & { from?: string }) => {
     if (r.error === "too-many-parts") {
       return t("tooMany", { max: SECTION_LIMITS.maxPartsPerSection });
     }
     if (r.error === "changed-elsewhere") return t("changedElsewhere");
+    // The rules for a course people are taking (spec 7.2).
+    if (r.error === "restructure-closed") return tLive("closed", { date: closedDate(r.from, locale) || date });
+    if (r.error === "has-learners") return tLive("hasLearners.part");
     const message = writeErrorMessage(r);
     return tEditor(message.key, message.values);
   };
 
-  /** One change to the lesson's content list; the outline it returns is taken in. */
+  /**
+   * One change to the lesson's content list; the outline it returns is
+   * taken in. `ask` is called instead of saying a refusal when the server
+   * wants a confirmation the page didn't know was needed, with its counts.
+   */
   async function change(
     at: string,
     call: () => Promise<OutlineResult>,
     done: (id: string | undefined) => void,
-    failed?: () => void
+    failed?: () => void,
+    ask?: (counts: Counts) => void
   ) {
     if (busy) return;
     setBusy(true);
@@ -204,16 +252,25 @@ export function PartList({
     try {
       const res = await call();
       if (res.ok) {
+        setPendingChange(null);
         onOutline(res.outline);
         done(res.id);
         return;
       }
+      if (res.error === "needs-confirmation" && ask) {
+        refresh();
+        ask({ learners: res.learners, finished: res.finished });
+        return;
+      }
       if (res.error === "changed-elsewhere" && res.outline) onOutline(res.outline);
+      // The page was behind on the course's learners or the date: catch up.
+      if (res.error === "restructure-closed" || res.error === "has-learners") refresh();
       setError({
         at,
         message: refusalText({
           error: res.error,
           ...("count" in res ? { count: res.count } : {}),
+          ...("from" in res ? { from: res.from } : {}),
         }),
       });
       failed?.();
@@ -225,28 +282,30 @@ export function PartList({
     }
   }
 
-  /** Removes `id` as the page now shows it (its current version). */
-  function removeNow(id: PartId) {
+  /** Removes `id` as the page now shows it (its current version); `confirm` once asked. */
+  function removeNow(id: PartId, confirm?: true) {
     const list = parts?.items ?? [];
     const item = list.find((i) => i.id === id);
     if (!parts || !item || item.type === "main") return;
     void change(
       `card:${item.id}`,
-      () => removePart(slug, sectionId, item.id, parts.order, item.itemVersion),
+      () => removePart(slug, sectionId, item.id, parts.order, item.itemVersion, confirm),
       () => {
         const next = focusAfterRemove(list, item.id);
         setFocus((f) => ({ ...next, n: (f?.n ?? 0) + 1 }));
         say(t("removed"));
-      }
+      },
+      undefined,
+      (counts) => setPendingChange({ op: "remove", id: item.id, counts })
     );
   }
 
   // A removal confirmed while the page was re-reading goes once it has.
   React.useEffect(() => {
-    const id = queuedRemove.current;
-    if (refreshing || !id) return;
+    const queued = queuedRemove.current;
+    if (refreshing || !queued) return;
     queuedRemove.current = null;
-    removeNow(id);
+    removeNow(queued.id, queued.confirm);
     // removeNow reads this render's list, which is what the re-read brought.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshing]);
@@ -267,38 +326,52 @@ export function PartList({
 
   const items = parts.items;
   const extras = extraCount(items);
-  const allowed = (op: "add" | "move" | "remove") =>
-    partOpAllowed({ status, reasons, sectionId, op, extras });
-  const addLocked = !allowed("add");
-  const moveLocked = !allowed("move");
-  const removeLocked = !allowed("remove");
+  const control = (op: "add" | "move" | "remove", item?: PartView) => partControl({ reasons, op, item, facts });
+  // Why a control is refused: the note it is described by.
+  const noteFor = (c: ReturnType<typeof control>): string | null =>
+    c.kind === "enabled" ? null : c.why === "learners" ? learnersNoteId : lockedNoteId;
+  const addControl = control("add");
+  const moveControl = control("move");
+  const addLocked = addControl.kind !== "enabled";
   const full = items.length >= SECTION_LIMITS.maxPartsPerSection;
   const typeName = (item: PartView) => t(`types.${partTypeOf(item, lesson.mainKind)}`);
   const language = tLanguage(lang);
+  const lessonName = lesson.section?.name[lang]?.text ?? label;
 
-  function add(after: PartId, type: PartType) {
+  function add(after: PartId, type: PartType, confirm?: true) {
     setPicker(null);
     // The choice pressed goes with the picker: back to "Add content" while
     // the content is added, and there if it is refused (the reason is below it).
     const toAdd = () => setFocus((f) => ({ id: after, target: "add", n: (f?.n ?? 0) + 1 }));
+    if (!confirm && addControl.kind === "enabled" && addControl.confirm) {
+      setError(null);
+      setPendingChange({ op: "add", after, type });
+      return;
+    }
     toAdd();
     void change(
       `add:${after}`,
-      () => addPart(slug, sectionId, type, after, parts!.order),
+      () => addPart(slug, sectionId, type, after, parts!.order, confirm),
       (id) => {
         if (!id) return;
         setFocus((f) => ({ id: id as PartId, target: "field", n: (f?.n ?? 0) + 1 }));
         say(t("added", { type: t(`types.${type}`) }));
       },
-      toAdd
+      toAdd,
+      (counts) => setPendingChange({ op: "add", after, type, counts })
     );
   }
 
-  function move(item: PartView, dir: -1 | 1) {
+  function move(item: PartView, dir: -1 | 1, confirm?: true) {
     const to = items.findIndex((i) => i.id === item.id) + dir;
+    if (!confirm && moveControl.kind === "enabled" && moveControl.confirm) {
+      setError(null);
+      setPendingChange({ op: "move", id: item.id, dir });
+      return;
+    }
     void change(
       `card:${item.id}`,
-      () => movePart(slug, sectionId, item.id, dir, parts!.order),
+      () => movePart(slug, sectionId, item.id, dir, parts!.order, confirm),
       () => {
         setFocus((f) => ({
           id: item.id,
@@ -306,15 +379,66 @@ export function PartList({
           n: (f?.n ?? 0) + 1,
         }));
         say(t("moved", { n: to + 1, total: items.length }));
-      }
+      },
+      undefined,
+      (counts) => setPendingChange({ op: "move", id: item.id, dir, counts })
     );
   }
 
-  function remove(item: PartView) {
+  /** Remove: confirmed by the browser's dialog, or with learners by LiveChangeConfirm (`confirm`). */
+  function remove(item: PartView, confirm?: true) {
     if (item.type === "main") return;
-    if (!window.confirm(t("removeConfirm"))) return;
-    if (refreshing) queuedRemove.current = item.id;
-    else removeNow(item.id);
+    const c = control("remove", item);
+    if (c.kind !== "enabled") return;
+    if (!confirm) {
+      if (c.confirm) {
+        setError(null);
+        setPendingChange({ op: "remove", id: item.id });
+        return;
+      }
+      if (!window.confirm(t("removeConfirm"))) return;
+    }
+    if (refreshing) queuedRemove.current = { id: item.id, confirm };
+    else removeNow(item.id, confirm);
+  }
+
+  /** LiveChangeConfirm cancelled (or Escape): nothing changes, focus goes back where the editor was. */
+  function cancelPending() {
+    const p = pending;
+    setPendingChange(null);
+    setError(null);
+    if (!p) return;
+    const target = p.op === "add" ? "add" : p.op === "move" ? (p.dir === -1 ? "up" : "down") : "label";
+    setFocus((f) => ({ id: p.op === "add" ? p.after : p.id, target, n: (f?.n ?? 0) + 1 }));
+  }
+
+  /** The confirmation for the change waiting at `item` (`where`: its add area, or its card). */
+  function confirmAt(item: PartView, where: "add" | "card") {
+    const p = pending;
+    if (!p || (where === "add") !== (p.op === "add")) return null;
+    if ((p.op === "add" ? p.after : p.id) !== item.id) return null;
+    const counts = p.counts ?? pageCounts;
+    const at = p.op === "add" ? `add:${p.after}` : `card:${p.id}`;
+    return (
+      <LiveChangeConfirm
+        change={
+          p.op === "add"
+            ? { kind: "addPart", name: lessonName }
+            : p.op === "move"
+              ? { kind: "movePart", name: lessonName }
+              : { kind: "removePart", name: lessonName, text: item.type === "text" }
+        }
+        nameLang={lang}
+        learners={counts.learners}
+        finished={counts.finished}
+        busy={busy}
+        error={error?.at === at ? error.message : null}
+        onConfirm={() =>
+          p.op === "add" ? add(p.after, p.type, true) : p.op === "move" ? move(item, p.dir, true) : remove(item, true)
+        }
+        onCancel={cancelPending}
+      />
+    );
   }
 
   function closePicker() {
@@ -358,7 +482,7 @@ export function PartList({
               }}
               onDirtyChange={report}
               onReread={(stale) => {
-                setPending((p) => ({ ...p, [pairId]: stale }));
+                setRereads((p) => ({ ...p, [pairId]: stale }));
                 refresh();
               }}
             />
@@ -385,21 +509,24 @@ export function PartList({
     );
   }
 
-  const lockedAny = listed && (addLocked || moveLocked || removeLocked);
-  // Locked because something in the course can't be read (G8), not because it is live.
+  const removeControls = items.map((item) => control("remove", item));
+  const lockedAny =
+    listed &&
+    [addControl, moveControl, ...removeControls].some((c) => c.kind === "locked" && c.why !== "learners");
+  const learnersLocked = listed && removeControls.some((c) => c.kind === "locked" && c.why === "learners");
+  // Locked because something in the course can't be read (G8), or by the cut-off (D67).
   const unreadableCourse = reasons.some((r) => r.code === "unreadable");
 
   return (
     <div className="space-y-4">
-      {extras > 0 ? (
-        <p className="flex items-start gap-1.5 rounded-md bg-[var(--surface-muted)] px-3 py-2 text-sm">
-          <Info className="mt-0.5 h-4 w-4 flex-shrink-0 text-[var(--accent)]" aria-hidden />
-          {t("notInLearnerView")}
-        </p>
-      ) : null}
       {lockedAny ? (
         <p id={lockedNoteId} className="text-sm text-[var(--muted-foreground)]">
-          {unreadableCourse ? t("courseUnreadable") : t("liveLocked")}
+          {unreadableCourse ? t("courseUnreadable") : tLive("closed", { date })}
+        </p>
+      ) : null}
+      {learnersLocked ? (
+        <p id={learnersNoteId} className="text-sm text-[var(--muted-foreground)]">
+          {tLive("hasLearners.part")}
         </p>
       ) : null}
       {full ? (
@@ -436,14 +563,18 @@ export function PartList({
                 index={i}
                 total={items.length}
                 removable={item.id !== MAIN_PART_ID}
-                locked={{ move: moveLocked, remove: removeLocked }}
-                lockedNoteId={lockedNoteId}
-                error={error?.at === `card:${item.id}` ? error.message : undefined}
+                locked={{ move: noteFor(moveControl), remove: noteFor(removeControls[i]) }}
+                error={
+                  error?.at === `card:${item.id}` && !(pending && pending.op !== "add" && pending.id === item.id)
+                    ? error.message
+                    : undefined
+                }
                 onMove={(dir) => move(item, dir)}
                 onRemove={() => remove(item)}
               >
                 {editorFor(item, position)}
               </PartCard>
+              {confirmAt(item, "card")}
 
               {listed ? (
               <div className="mt-3 space-y-2">
@@ -458,7 +589,7 @@ export function PartList({
                   {...(addBlocked
                     ? {
                         "aria-disabled": true as const,
-                        "aria-describedby": addLocked ? lockedNoteId : maxNoteId,
+                        "aria-describedby": addLocked ? (noteFor(addControl) ?? lockedNoteId) : maxNoteId,
                       }
                     : {})}
                   onClick={() => {
@@ -477,7 +608,8 @@ export function PartList({
                     onClose={closePicker}
                   />
                 ) : null}
-                {addError ? (
+                {confirmAt(item, "add")}
+                {addError && !(pending?.op === "add" && pending.after === item.id) ? (
                   <p role="alert" className="text-sm text-[var(--danger)]">
                     {addError}
                   </p>

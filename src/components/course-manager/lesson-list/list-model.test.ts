@@ -15,9 +15,12 @@ import {
   focusAfterMove,
   nameIn,
   parseWhere,
+  blockerText,
+  closedDate,
   reasonText,
   refusalGone,
-  refusalKey,
+  refusalRefreshes,
+  refusalWords,
   usualOrder,
   whereToAt,
   whereValue,
@@ -107,6 +110,34 @@ describe("words", () => {
     });
   });
 
+  it("names Release 2's blockers, linking to a lesson whose content can't be read", () => {
+    const t = tr("en", "lessonList.publish.reason");
+    expect(blockerText({ code: "no-lessons" }, nameOf, t)).toMatchObject({
+      text: "No lesson has anything learners can see yet",
+      href: null,
+    });
+    expect(blockerText({ code: "unreadable" }, nameOf, t).text).toBe("The lesson list can't be read");
+    const lesson = blockerText({ code: "unreadable", sectionId: "concept" }, nameOf, t);
+    expect(lesson).toMatchObject({ text: "“Skill concept” has content that can't be read", href: "#lesson-concept" });
+    expect(aroundName(lesson.format)).toEqual({ before: "“", after: "” has content that can't be read" });
+  });
+
+  it("says the 1 December cut-off as a day in Brussels, in the menu language", () => {
+    expect(closedDate("2026-11-30T23:00:00.000Z", "en")).toBe("1 December 2026");
+    expect(closedDate("2026-11-30T23:00:00.000Z", "de")).toBe("1. Dezember 2026");
+    expect(closedDate("2026-11-30T23:00:00.000Z", "el")).toMatch(/^1 Δεκεμβρίου 2026$/);
+    expect(closedDate(null, "en")).toBe("");
+    expect(closedDate("not a date", "en")).toBe("");
+  });
+
+  it("asks a refusal of Release 2's rules to re-read the page, for the counts the server found", () => {
+    for (const e of ["needs-confirmation", "restructure-closed", "last-lesson", "has-learners"] as const) {
+      expect(refusalRefreshes(e), e).toBe(true);
+    }
+    expect(refusalWords("restructure-closed")).toEqual({ ns: "liveChanges", key: "closed" });
+    expect(refusalWords("has-learners")).toEqual({ ns: "liveChanges", key: "hasLearners.delete" });
+  });
+
   it("says what the usual order is when the lessons are in a new one", () => {
     const t = tr("en", "lessonList.publish.reason");
     const r = reasonText({ code: "reordered" }, nameOf, t, "Context, Skill concept, Reflection");
@@ -160,15 +191,18 @@ describe("words", () => {
       "label-too-long",
       "not-restorable",
       "changed-elsewhere",
-      "live-course-standard-only",
       "has-learners",
+      "needs-confirmation",
+      "restructure-closed",
+      "last-lesson",
     ];
     for (const locale of ["en", "de", "el"] as const) {
-      const t = tr(locale, "lessonList");
       for (const e of errors) {
-        const text = t(refusalKey(e), { count: 2, max: 15 });
-        expect(text, `${locale} ${e}`).not.toMatch(/lessonList\./);
+        const { ns, key } = refusalWords(e);
+        const text = tr(locale, ns)(key, { count: 2, max: 15, date: "1 December 2026" });
+        expect(text, `${locale} ${e}`).not.toMatch(/(lessonList|liveChanges)\./);
       }
+      const t = tr(locale, "lessonList");
       for (const choice of [...NEW_SECTION_TEMPLATES, "restore:context" as const]) {
         const k = choiceKey(choice);
         expect(t(k.label, { name: "X" })).not.toMatch(/lessonList\./);

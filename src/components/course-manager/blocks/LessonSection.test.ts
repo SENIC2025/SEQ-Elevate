@@ -175,14 +175,15 @@ describe("LessonSection — a lesson not in the lesson list yet", () => {
     // Nothing to add, move or remove until it is in the list.
     expect(html).not.toContain(">Add content<");
     expect(html).not.toContain(html_(en.lessonBlocks.unreadable));
-    expect(html).not.toContain(html_(en.lessonBlocks.liveLocked));
+    expect(html).not.toContain("From 1 December");
     expect(listed).toContain(">Add content<");
   });
 
   it("says nothing about a live course's locks while it isn't in the list", () => {
     const html = render(unlisted, true, "en", undefined, { status: "published" });
     expect(html).toContain("Interactive stage");
-    expect(html).not.toContain(html_(en.lessonBlocks.liveLocked));
+    expect(html).not.toContain("From 1 December");
+    expect(html).not.toContain(html_(en.liveChanges.hasLearners.part));
     expect(html).not.toContain(">Add content<");
   });
 });

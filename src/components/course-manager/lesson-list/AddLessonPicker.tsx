@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useTranslations } from "next-intl";
-import { AlertTriangle, Info, Loader2, Plus } from "lucide-react";
+import { AlertTriangle, Loader2, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { AddSectionChoice, NarrativeKey } from "@/lib/cms/sections/contract";
 import type { Locale } from "@/lib/cms/types";
@@ -11,6 +11,7 @@ import {
   addControl,
   choiceState,
   reusesStandard,
+  visibleAfterAdd,
   type Control,
   type ListContext,
 } from "./live-controls";
@@ -22,6 +23,7 @@ import {
   whereValue,
   type Where,
 } from "./list-model";
+import { LiveChangeConfirm } from "./LiveChangeConfirm";
 import { Named } from "./Named";
 
 /**
@@ -30,12 +32,13 @@ import { Named } from "./Named";
  * colours; the first takes focus when it opens, Escape closes it), where it
  * goes, and "Add this lesson" (which says to choose first until then).
  *
- * Before anything is added it says whether the choice makes the course one
- * that can only be published from Release 2 (a lesson of the course's own, or
- * a standard one out of its usual place), warns above 12 lessons, and on a
- * published course keeps the choices it would refuse aria-disabled with the
- * reason (G3). A practice, scenario or quick check that is free reuses the
- * standard lesson, in its usual place by default.
+ * It warns when learners would then see more than 12 lessons (Q7: hidden
+ * ones don't count; the limit of 15 does count them). On a course with
+ * learners, "Add this lesson" asks first (`confirming`: LiveChangeConfirm in
+ * place of the buttons); from the 1 December cut-off a published course
+ * with learners takes none, and the choices say why (D67). A practice,
+ * scenario or quick check that is free reuses the standard lesson, in its
+ * usual place by default.
  */
 export function AddLessonPicker({
   ctx,
@@ -46,9 +49,12 @@ export function AddLessonPicker({
   nameLang,
   descriptions,
   error,
+  addId,
+  confirming,
   onAdd,
+  onConfirm,
+  onCancelConfirm,
   onClose,
-  onHint,
 }: {
   ctx: ListContext;
   /** The index of the lesson "Add lesson after" was opened from (null: the list's own button). */
@@ -63,10 +69,15 @@ export function AddLessonPicker({
   /** Ids of the shared reason texts, for aria-describedby. */
   descriptions: (c: Control) => string | undefined;
   error: string | null;
+  /** The id of "Add this lesson", for focus to come back to after a cancelled confirmation. */
+  addId?: string;
+  /** The course has learners and the editor pressed "Add this lesson": the counts to confirm. */
+  confirming?: { learners: number; finished: number } | null;
   onAdd: (choice: AddSectionChoice, at: number | null) => void;
+  /** LiveChangeConfirm's "Add it": add the chosen lesson, confirmed. */
+  onConfirm?: (choice: AddSectionChoice, at: number | null) => void;
+  onCancelConfirm?: () => void;
   onClose: () => void;
-  /** Called with the non-standard hint whenever it appears, for the page's live region. */
-  onHint: (text: string) => void;
 }) {
   const t = useTranslations("lessonList");
   const ids = React.useId();
@@ -80,18 +91,11 @@ export function AddLessonPicker({
   const reuses = choice !== null && reusesStandard(choice, ctx.sections);
   const place: Where = where ?? defaultWhere(reuses, from, count);
   const at = whereToAt(place);
-  const state = choice ? choiceState(ctx, choice, at) : null;
-  const nonStandard = state?.nonStandard === true && state.control.kind === "enabled";
-  const addState: Control = state ? state.control : addControl(ctx);
+  const addState: Control = choice ? choiceState(ctx, choice, at) : addControl(ctx);
 
   React.useEffect(() => {
     firstRef.current?.focus();
   }, []);
-
-  const hint = t("nonStandardHint");
-  React.useEffect(() => {
-    if (nonStandard) onHint(hint);
-  }, [nonStandard, hint, onHint]);
 
   function pick(next: AddSectionChoice) {
     setChoice(next);
@@ -109,10 +113,11 @@ export function AddLessonPicker({
   ];
 
   const addLocked = addState.kind !== "enabled" || choice === null;
-  const hintId = `${ids}-hint`;
   const chooseFirstId = `${ids}-choose-first`;
+  const manyId = `${ids}-many`;
+  const many = visibleAfterAdd(ctx.sections) > ctx.sections.warnAbove;
   const addDescribedBy =
-    [choice ? null : chooseFirstId, nonStandard ? hintId : null, choice ? descriptions(addState) : null]
+    [choice ? null : chooseFirstId, choice ? descriptions(addState) : null, many ? manyId : null]
       .filter(Boolean)
       .join(" ") || undefined;
 
@@ -145,7 +150,7 @@ export function AddLessonPicker({
             ) : (
               t(keys.label)
             );
-            const own = choiceState(ctx, c, null).control;
+            const own = choiceState(ctx, c, null);
             const locked = own.kind !== "enabled";
             const selected = choice === c;
             return (
@@ -204,14 +209,8 @@ export function AddLessonPicker({
         </select>
       </label>
 
-      {nonStandard ? (
-        <p id={hintId} className="mt-2 flex items-start gap-1.5 text-xs">
-          <Info className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-[var(--accent)]" aria-hidden />
-          {hint}
-        </p>
-      ) : null}
-      {count > ctx.sections.warnAbove ? (
-        <p className="mt-2 flex items-start gap-1.5 text-xs">
+      {many ? (
+        <p id={manyId} className="mt-2 flex items-start gap-1.5 text-xs">
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-[var(--warning)]" aria-hidden />
           {t("many", { count: ctx.sections.warnAbove })}
         </p>
@@ -220,8 +219,20 @@ export function AddLessonPicker({
       <p id={chooseFirstId} hidden>
         {t("picker.chooseFirst")}
       </p>
+      {confirming && choice ? (
+        <LiveChangeConfirm
+          change={{ kind: "addLesson" }}
+          learners={confirming.learners}
+          finished={confirming.finished}
+          busy={busy}
+          error={error}
+          onConfirm={() => onConfirm?.(choice, at)}
+          onCancel={() => onCancelConfirm?.()}
+        />
+      ) : (
       <div className="mt-3 flex flex-wrap gap-2">
         <Button
+          id={addId}
           type="button"
           size="sm"
           aria-disabled={addLocked || busy || undefined}
@@ -247,7 +258,8 @@ export function AddLessonPicker({
           {t("picker.close")}
         </Button>
       </div>
-      {error ? (
+      )}
+      {error && !confirming ? (
         <p role="alert" className="mt-2 flex items-start gap-1.5 text-xs text-[var(--danger)]">
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" aria-hidden />
           {error}
