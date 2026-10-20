@@ -27,7 +27,7 @@ vi.mock("@/app/actions/facilitator", () => ({
   recordValidation: vi.fn(),
 }));
 
-const { RealFacilitatorView } = await import("./RealFacilitatorView");
+const { RealFacilitatorView, ActivityPanel } = await import("./RealFacilitatorView");
 
 const NOW = Date.UTC(2026, 9, 20, 12);
 const hoursAgo = (h: number) => new Date(NOW - h * 3_600_000).toISOString();
@@ -100,5 +100,77 @@ describe("RealFacilitatorView: “Active in the last 24h”", () => {
     expect(en.facilitator.activeNow).toBe("Active in the last 24h");
     expect(de.facilitator.activeNow).toBe("Aktiv in den letzten 24h");
     expect(el.facilitator.activeNow).toBe("Ενεργοί τις τελευταίες 24 ώρες");
+  });
+});
+
+/** "Currently on" in a learner's activity panel. */
+function currentlyOn(html: string): string | undefined {
+  return html.match(/<p class="mt-1 text-sm font-semibold leading-tight">([^<]*)<\/p><p[^>]*>Currently on<\/p>/)?.[1];
+}
+
+/** The time-per-lesson rows: [name, time]. */
+function timeRows(html: string): [string, string][] {
+  return [
+    ...html.matchAll(
+      /<span class="w-24 flex-shrink-0[^"]*">([^<]*)<\/span>.*?<span class="tabular-nums[^"]*">([^<]*)<\/span>/g
+    ),
+  ].map((m) => [m[1], m[2]]);
+}
+
+const panel = (l: Partial<FacilitatorLearner>) =>
+  renderToStaticMarkup(createElement(ActivityPanel, { learner: learner(l) }));
+
+describe("RealFacilitatorView: where a learner is, by the course's step names (spec 6, D58)", () => {
+  it("names a lesson of the course's own by its step name", () => {
+    expect(currentlyOn(panel({ currentStage: "s-ownstory", currentStageLabel: "Your own story" }))).toBe(
+      "Your own story"
+    );
+  });
+
+  it("names a renamed standard lesson as the learner sees it", () => {
+    expect(currentlyOn(panel({ currentStage: "concept", currentStageLabel: "The big idea" }))).toBe(
+      "The big idea"
+    );
+  });
+
+  it("keeps the standard name for a built-in course's lesson, and says when the learner is done", () => {
+    expect(currentlyOn(panel({ currentStage: "concept" }))).toBe("Skill concept");
+    expect(currentlyOn(panel({ currentStage: "complete" }))).toBe("Completed");
+    expect(currentlyOn(panel({}))).toBe("—");
+  });
+
+  it("never shows a lesson's id when its name is missing", () => {
+    expect(currentlyOn(panel({ currentStage: "s-ownstory" }))).toBe("—");
+  });
+});
+
+describe("RealFacilitatorView: time per lesson (spec 6)", () => {
+  it("shows time in the course's own lessons as one “Other lessons” row, and the rows add up to the time on task", () => {
+    const html = panel({
+      secondsTotal: 60 + 30 + 120 + 45,
+      secondsByStage: { context: 60, concept: 30, "s-ownstory": 120, "s-another1": 45 },
+    });
+    expect(timeRows(html)).toEqual([
+      ["Context", "1m"],
+      ["Skill concept", "30s"],
+      ["Other lessons", "2m"],
+    ]);
+    expect(html).toContain('<p class="mt-1 text-sm font-semibold leading-tight">4m</p>');
+  });
+
+  it("counts time recorded without a lesson under “Other lessons” too, as the statistics do", () => {
+    const html = panel({ secondsTotal: 90, secondsByStage: { context: 60 } });
+    expect(timeRows(html)).toEqual([
+      ["Context", "1m"],
+      ["Other lessons", "30s"],
+    ]);
+  });
+
+  it("has no “Other lessons” row when all the time was on the seven standard lessons", () => {
+    const html = panel({ secondsTotal: 90, secondsByStage: { context: 60, reflection: 30 } });
+    expect(timeRows(html)).toEqual([
+      ["Context", "1m"],
+      ["Reflection", "30s"],
+    ]);
   });
 });

@@ -18,6 +18,7 @@ import {
 import { FACILITATOR_TEXT_MAX } from "@/lib/facilitator-access";
 import { Link } from "@/i18n/navigation";
 import { STAGES } from "@/data/course";
+import { isLegacySectionId } from "@/lib/cms/sections/contract";
 import {
   Users,
   CheckCircle2,
@@ -448,21 +449,40 @@ function Row({
   );
 }
 
-/** Where the learner is, how long they've spent, and how their quizzes went. */
-function ActivityPanel({ learner }: { learner: FacilitatorLearner }) {
+/**
+ * Where the learner is, how long they've spent, and how their quizzes went.
+ * (Exported for its tests.)
+ */
+export function ActivityPanel({ learner }: { learner: FacilitatorLearner }) {
   const t = useTranslations("facilitator");
   const tStage = useTranslations("course.stageLabel");
   const locale = useLocale();
 
+  // The lesson by the step name the learner sees (D58): a course created in
+  // the CMS names its own lessons, and may rename the standard ones; a
+  // built-in course's lesson has its standard name.
   const positionLabel =
     learner.currentStage === "complete"
       ? t("completedAll")
-      : learner.currentStage
-        ? tStage(learner.currentStage)
-        : "—";
+      : learner.currentStageLabel
+        ? learner.currentStageLabel
+        : isLegacySectionId(learner.currentStage)
+          ? tStage(learner.currentStage)
+          : "—";
 
-  const stageRows = STAGES.filter((s) => (learner.secondsByStage[s] ?? 0) > 0);
-  const maxStage = Math.max(1, ...stageRows.map((s) => learner.secondsByStage[s]));
+  // Time per lesson: the seven standard lessons by their standard names,
+  // across courses, then one row for the rest — lessons of a course's own —
+  // so the rows add up to the time on task, as the statistics count it
+  // (spec 6; statistics per lesson come after launch).
+  const rows: { key: string; label: string; seconds: number }[] = STAGES.filter(
+    (s) => (learner.secondsByStage[s] ?? 0) > 0
+  ).map((s) => ({ key: s, label: tStage(s), seconds: learner.secondsByStage[s] }));
+  const other =
+    learner.secondsTotal - rows.reduce((sum, r) => sum + r.seconds, 0);
+  if (other > 0) {
+    rows.push({ key: "other", label: t("otherLessons"), seconds: other });
+  }
+  const maxStage = Math.max(1, ...rows.map((r) => r.seconds));
 
   return (
     <div className="mb-6 rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] p-4">
@@ -494,23 +514,21 @@ function ActivityPanel({ learner }: { learner: FacilitatorLearner }) {
         </p>
       ) : null}
 
-      {stageRows.length ? (
+      {rows.length ? (
         <div className="mt-3 space-y-1.5">
-          {stageRows.map((s) => (
-            <div key={s} className="flex items-center gap-2 text-xs">
+          {rows.map((r) => (
+            <div key={r.key} className="flex items-center gap-2 text-xs">
               <span className="w-24 flex-shrink-0 text-[var(--muted-foreground)] truncate">
-                {tStage(s)}
+                {r.label}
               </span>
               <div className="flex-1 h-1.5 rounded-full bg-[var(--surface)] overflow-hidden">
                 <div
                   className="h-full rounded-full bg-[var(--accent)]/60"
-                  style={{
-                    width: `${(learner.secondsByStage[s] / maxStage) * 100}%`,
-                  }}
+                  style={{ width: `${(r.seconds / maxStage) * 100}%` }}
                 />
               </div>
               <span className="tabular-nums text-[var(--muted-foreground)] w-12 text-right">
-                {formatDuration(learner.secondsByStage[s])}
+                {formatDuration(r.seconds)}
               </span>
             </div>
           ))}
