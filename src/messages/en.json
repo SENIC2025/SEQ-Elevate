@@ -512,7 +512,8 @@
     "reload": "Reload",
     "charsLeft": "{count, plural, one {# character left} other {# characters left}}",
     "answerTooLong": "This answer is too long to save. Shorten it to {max} characters.",
-    "earlierAnswers": "Your earlier answers"
+    "earlierAnswers": "Your earlier answers",
+    "notSaved": "This answer couldn't be saved. You can carry on, but it won't be there after a reload or on another device."
   },
   "sectionPreview": {
     "answerFirst": "Answer this first to continue.",

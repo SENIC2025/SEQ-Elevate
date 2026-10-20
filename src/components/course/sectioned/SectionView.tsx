@@ -18,6 +18,7 @@ import { InteractiveVideoPlayer } from "../InteractiveVideoPlayer";
 import { LessonDocuments } from "../LessonDocuments";
 import { ContinueNote, FLAGGED_CLASS, useContinue, type ContinueApi } from "../useContinue";
 import { useLessonAnswers } from "../useLessonAnswers";
+import { RefusedNote } from "../refused-note";
 import { TextPart } from "./TextPart";
 import { PracticePart } from "./PracticePart";
 import { ScenarioPart } from "./ScenarioPart";
@@ -39,6 +40,9 @@ import type { PartTargets } from "./part-props";
  * Comp Card. "Try another" and "Try different choices" ask again on this
  * screen only (`retrying`): the saved answer stays until a new one is
  * given (owner default 8).
+ *
+ * An answer the server refused (or the store held back) stays on the
+ * screen, and a note under its item says it wasn't saved (D62.d).
  *
  * Continue is always there and enabled, with what it waits for above it
  * (useContinue). Pressed early, it marks the first item missing, says what
@@ -68,7 +72,7 @@ export function SectionView({
   const t = useTranslations("sectionPreview");
   const tPlayer = useTranslations("coursePlayer");
   const tCommon = useTranslations("common");
-  const { answers, answer } = useLessonAnswers();
+  const { answers, answer, refused } = useLessonAnswers();
   // Pieces of content tried again on this visit: shown fresh, saved as they were.
   const [retrying, setRetrying] = useState<ReadonlySet<PartKey>>(() => new Set());
   const cont = useContinue({ lessonId: stage.key, parts: stage.parts, answers, retrying, onContinue });
@@ -140,6 +144,7 @@ export function SectionView({
                     answer={retrying.has(key) ? undefined : answers[key]}
                     onAnswer={(a) => give(part, key, a)}
                   />
+                  <RefusedNote reason={refused[key]} reflection={part.type === "reflection"} />
                 </section>
               );
             })}

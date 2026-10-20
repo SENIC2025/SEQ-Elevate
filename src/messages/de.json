@@ -512,7 +512,8 @@
     "reload": "Neu laden",
     "charsLeft": "Noch {count, plural, one {# Zeichen} other {# Zeichen}}",
     "answerTooLong": "Diese Antwort ist zu lang zum Speichern. Kürze sie auf {max} Zeichen.",
-    "earlierAnswers": "Deine früheren Antworten"
+    "earlierAnswers": "Deine früheren Antworten",
+    "notSaved": "Diese Antwort konnte nicht gespeichert werden. Du kannst weitermachen, aber nach dem Neuladen oder auf einem anderen Gerät ist sie nicht mehr da."
   },
   "sectionPreview": {
     "answerFirst": "Beantworte das zuerst, um weiterzumachen.",

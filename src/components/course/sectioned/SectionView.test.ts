@@ -4,13 +4,14 @@ import { createElement } from "react";
 // The learner store, as the view reads it: legacy fields and responses.
 const store = vi.hoisted(() => ({
   over: {} as Record<string, unknown>,
+  refused: {} as Record<string, string>,
   dispatched: [] as unknown[],
 }));
 vi.mock("@/store/demo-state", async () => {
   const { fakeCourse } = await import("../press.test-helpers");
   return {
     useDemoState: () => ({
-      state: { course: fakeCourse(store.over), refusedKeys: {} },
+      state: { course: fakeCourse(store.over), refusedKeys: store.refused },
       dispatch: (a: unknown) => store.dispatched.push(a),
     }),
   };
@@ -59,6 +60,7 @@ function render(
 
 beforeEach(() => {
   store.over = {};
+  store.refused = {};
   store.dispatched.length = 0;
   announced.length = 0;
   cues.length = 0;
@@ -235,6 +237,39 @@ describe("SectionView", () => {
     const html = render({ ...sectionStage, parts: [] });
     expect(html).not.toContain("<section");
     expect(textOf(html)).toContain("Continue");
+  });
+
+  // Review finding 1 on Stream A (D62.d: refused per key, "and the learner
+  // is told"): the store kept the server's refusals, and nothing showed them.
+  it("says under an item that its answer couldn't be saved, when the server refused it", () => {
+    store.over = {
+      responses: {
+        "s-abcd1234/p-practc01": { type: "practice", optionId: "o1", correct: true },
+        "s-abcd1234/p-reflct01": { type: "reflection", text: { r1: "Spoke up once." } },
+      },
+    };
+    store.refused = { "s-abcd1234/p-practc01": "row-full", "s-abcd1234/p-reflct01": "invalid" };
+    const sections = render(sectionStage).split("<section").slice(1).map(textOf);
+    const NOTE = "This answer couldn't be saved. You can carry on, but it won't be there after a reload or on another device.";
+    expect(sections.map((s) => s.includes(NOTE))).toEqual([false, true, false, false, true, false]);
+    // Under the answer, which stays on screen.
+    expect(sections[1].indexOf(NOTE)).toBeGreaterThan(sections[1].indexOf("Clear and calm."));
+    expect(sections[4]).toContain("Spoke up once.");
+    expect(textOf(render(sectionStage, { locale: "de" }))).toContain(
+      "Diese Antwort konnte nicht gespeichert werden."
+    );
+  });
+
+  it("says nothing more about a reflection held back as too long: its box already says so", () => {
+    store.over = { responses: { "s-abcd1234/p-reflct01": { type: "reflection", text: { r1: "x".repeat(5_001) } } } };
+    store.refused = { "s-abcd1234/p-reflct01": "too-long" };
+    const text = textOf(render({ ...sectionStage, parts: [reflectionPart] }));
+    expect(text).toContain("This answer is too long to save. Shorten it to 5000 characters.");
+    expect(text).not.toContain("couldn't be saved");
+  });
+
+  it("says nothing about saving while nothing was refused", () => {
+    expect(textOf(render(sectionStage))).not.toContain("couldn't be saved");
   });
 
   it("shows the standard reflection answers its own questions replaced, read only, under 'Your earlier answers'", () => {

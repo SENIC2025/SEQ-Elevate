@@ -4,12 +4,15 @@ import type { CourseStage } from "@/lib/cms/types";
 import { EMPTY_PROGRESS, fitPatch, patchSince } from "@/lib/learner-progress/patch";
 
 // The learner store, as the stage reads it: the three reflection answers.
-const store = vi.hoisted(() => ({ reflection: { p1: "", p2: "", p3: "" } }));
+const store = vi.hoisted(() => ({
+  reflection: { p1: "", p2: "", p3: "" },
+  refused: {} as Record<string, string>,
+}));
 vi.mock("@/store/demo-state", async () => {
   const { fakeCourse } = await import("./press.test-helpers");
   return {
     useDemoState: () => ({
-      state: { course: fakeCourse({ reflection: store.reflection }), refusedKeys: {} },
+      state: { course: fakeCourse({ reflection: store.reflection }), refusedKeys: store.refused },
       dispatch: () => {},
     }),
   };
@@ -38,8 +41,13 @@ const stage: CourseStage = {
   },
 };
 
-function render(reflection = { p1: "", p2: "", p3: "" }, locale: "en" | "de" = "en") {
+function render(
+  reflection = { p1: "", p2: "", p3: "" },
+  locale: "en" | "de" = "en",
+  refused: Record<string, string> = {}
+) {
   store.reflection = reflection;
+  store.refused = refused;
   return renderIn(createElement(ReflectionStage, { stage, onContinue: () => {} }), locale);
 }
 
@@ -83,6 +91,22 @@ describe("ReflectionStage", () => {
     expect(textOf(html)).toContain("This answer is too long to save. Shorten it to 5000 characters.");
     const box = [...html.matchAll(/<textarea([^>]*)>/g)][2][1];
     expect(attr(box, "aria-invalid")).toBe("true");
+  });
+
+  // Review finding 1 on Stream A (D62.d): a refusal other than the length
+  // — the server couldn't take the answer at all — was never shown.
+  it("says the answers couldn't be saved when the server refused them, under the boxes", () => {
+    const html = render({ p1: "Asked early.", p2: "", p3: "" }, "en", { "reflection/main": "invalid" });
+    const text = textOf(html);
+    expect(text).toContain(
+      "This answer couldn't be saved. You can carry on, but it won't be there after a reload or on another device."
+    );
+    expect(html.indexOf("couldn&#x27;t be saved")).toBeGreaterThan(html.lastIndexOf("<textarea"));
+    // Held back as too long: the box's own note says so, once.
+    const long = textOf(render({ p1: "x".repeat(5_001), p2: "", p3: "" }, "en", { "reflection/main": "too-long" }));
+    expect(long).toContain("This answer is too long to save.");
+    expect(long).not.toContain("couldn't be saved");
+    expect(textOf(render({ p1: "Asked early.", p2: "", p3: "" }))).not.toContain("couldn't be saved");
   });
 
   it("an answer past the limit isn't sent, while the others are", () => {

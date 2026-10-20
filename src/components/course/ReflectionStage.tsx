@@ -10,6 +10,7 @@ import type { CourseStage } from "@/lib/cms/types";
 import { ArrowRight, NotebookPen } from "lucide-react";
 import { ReflectionIntro } from "./ReflectionIntro";
 import { AnswerLengthNote, answerLengthState } from "./answer-length";
+import { RefusedNote } from "./refused-note";
 
 /**
  * Reflection stage. Renders authored prompts; answers are private to the
@@ -20,9 +21,9 @@ import { AnswerLengthNote, answerLengthState } from "./answer-length";
  * characters (owner default 7): from 4,500 a note says how many are left,
  * and past the limit that the answer is too long to save — it isn't sent
  * until it is shorter, while every other answer keeps saving — rather than
- * the browser cutting pasted text short (no maxLength). A server
- * refusal can only be of an answer past the limit, so it shows the same
- * note.
+ * the browser cutting pasted text short (no maxLength). Held back or
+ * refused as too long, that note is all it needs; any other refusal of
+ * the answers (D62.d) is said under the boxes (RefusedNote).
  */
 export function ReflectionStage({
   stage,
@@ -36,6 +37,7 @@ export function ReflectionStage({
   const uid = useId();
   const { state, dispatch } = useDemoState();
   const r = state.course.reflection;
+  const refused = state.refusedKeys?.["reflection/main"];
 
   const ref = stage.reflection;
   if (!ref) return null;
@@ -81,6 +83,7 @@ export function ReflectionStage({
             );
           })}
         </div>
+        <RefusedNote reason={refused} reflection />
 
         <div className="mt-6 flex justify-end">
           <Button size="md" onClick={onContinue}>
