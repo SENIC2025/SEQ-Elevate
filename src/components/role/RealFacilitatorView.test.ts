@@ -66,27 +66,50 @@ function stat(html: string, label: string): string | undefined {
 }
 
 describe("RealFacilitatorView: “Active in the last 24h”", () => {
-  // Review finding 5: a change to this figure isn't part of spec 9.3, and
-  // the staff guide (docs/staff-guide.md, "The figures at the top") says
-  // what it counts today: every learner with any progress, however long
-  // ago. It keeps that count until the owner signs off a change and the
-  // guide changes with it.
-  it("counts the learners with any progress, as the staff guide says", () => {
+  // It counts what it says: learners whose last activity — lastActiveAt,
+  // the "Last active" of their activity panel — is at most a day before the
+  // server's time of the request (owner's decision at integration; Release
+  // 1 counted every learner with any progress, however long ago).
+  const learners = [
+    // Halfway, but last seen three days ago.
+    learner({ id: "a", progressPct: 50, lastActiveAt: hoursAgo(72) }),
+    // No lesson done yet, but answered something two hours ago.
+    learner({ id: "b", progressPct: 0, lastActiveAt: hoursAgo(2) }),
+    // Finished, the day before yesterday's evening.
+    learner({ id: "c", progressPct: 100, completed: true, lastActiveAt: hoursAgo(25) }),
+    // Hasn't started.
+    learner({ id: "d" }),
+  ];
+
+  it("counts the learners active in the last 24 hours, not those with any progress", () => {
+    const html = renderToStaticMarkup(createElement(RealFacilitatorView, { learners, now: NOW }));
+    expect(stat(html, "Active in the last 24h")).toBe("1/4");
+  });
+
+  it("counts a learner active exactly 24 hours ago, and one whose time is after the server's", () => {
     const html = renderToStaticMarkup(
       createElement(RealFacilitatorView, {
         learners: [
-          // Halfway, last seen three days ago.
-          learner({ id: "a", progressPct: 50, lastActiveAt: hoursAgo(72) }),
-          // No lesson done yet, but answered something two hours ago.
-          learner({ id: "b", progressPct: 0, lastActiveAt: hoursAgo(2) }),
-          // Finished, the day before yesterday.
-          learner({ id: "c", progressPct: 100, completed: true, lastActiveAt: hoursAgo(25) }),
-          // Hasn't started.
-          learner({ id: "d" }),
+          learner({ id: "e", lastActiveAt: hoursAgo(24) }),
+          learner({ id: "f", lastActiveAt: hoursAgo(-0.1) }),
+          learner({ id: "g", lastActiveAt: hoursAgo(24.01) }),
         ],
+        now: NOW,
       })
     );
-    expect(stat(html, "Active in the last 24h")).toBe("2/4");
+    expect(stat(html, "Active in the last 24h")).toBe("2/3");
+  });
+
+  it("counts from the server's time it is given, not the browser's clock", () => {
+    // The page as sent and the page once it runs show the same figure:
+    // a browser whose clock is two days ahead still counts learner b.
+    vi.useFakeTimers({ now: NOW + 48 * 3_600_000 });
+    try {
+      const html = renderToStaticMarkup(createElement(RealFacilitatorView, { learners, now: NOW }));
+      expect(stat(html, "Active in the last 24h")).toBe("1/4");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("says “24 hours” in every language", () => {

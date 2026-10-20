@@ -110,7 +110,7 @@ Today every facilitator and admin sees **all learners of all partners**. This ch
 ### The figures at the top
 
 - **Cohort completion**: the average progress of all learners in the list, and how many finished every course they started. Learners who haven't started count as 0%.
-- **Active in the last 24h**: despite its name, this counts learners who have made any progress at any time. To see recent activity, use **Last active** or Statistics.
+- **Active in the last 24h**: learners whose **Last active** is within the 24 hours before you opened the page. A learner who opened a course but saved nothing new isn't counted; Statistics, which also counts opening a course, can show them as seen more recently.
 - **Comp Cards submitted**: learners who have saved a Comp Card. The card saves as they type, so unfinished cards count too.
 - **Needs attention**: learners who have started, are below 50% and haven't finished. It doesn't look at when they were last active.
 
