@@ -175,7 +175,16 @@ describe("PartList — on a live course (D66)", () => {
       const why = /aria-describedby="([^"]+)"/.exec(tag)![1];
       expect(html, name).toContain(`<p id="${why}"`);
     }
-    expect(html).toContain("From 1 December 2026, lessons and content in a published course with learners");
+    expect(html).toContain("From 1 December 2026, lessons and content in a course with learners");
+  });
+
+  it("from 1 December, an unpublished course with learners takes none either, saying why (D67)", () => {
+    // Unpublishing a course to rework it doesn't get around the cut-off.
+    const html = render(lesson([MAIN, TEXT]), { status: "draft", live: learners(2, true) });
+    for (const name of ["Add content after content 1: Text", "Move up content 2: Text", "Remove content 2: Text"]) {
+      expect(tagWith(html, `aria-label="${name}"`), name).toContain('aria-disabled="true"');
+    }
+    expect(html).toContain("even while it isn&#x27;t published");
   });
 });
 

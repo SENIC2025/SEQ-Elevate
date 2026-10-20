@@ -205,7 +205,7 @@ async function outlineResult(
  * item itself); then the rules of spec 7.2 for that change (partLiveOp:
  * removing a question learners may have answered is refused while there are
  * learners; the rest needs `confirm` with learners, and is closed from the
- * cut-off on a published course with learners).
+ * cut-off on a course with learners, published or not).
  */
 async function changeParts(
   slug: string,
@@ -354,7 +354,7 @@ export async function movePart(
  * With learners (spec 7.2): a question with a live version — one they may
  * have answered — is refused (has-learners; it can still be edited); text,
  * or a question that is only a draft, needs `confirm`, and from the cut-off
- * a published course with learners keeps it.
+ * a course with learners, published or not, keeps it.
  */
 export async function removePart(
   slug: string,

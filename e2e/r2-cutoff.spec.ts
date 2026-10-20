@@ -24,9 +24,18 @@ import {
  *
  * Moving a lesson, adding one, and adding content are refused with the
  * date, on the page and by the server (a page opened before the course had
- * learners); Hide still works, asking first. Requires a real database —
- * gated on E2E_DB=1. Everything it creates is unique to this run and
- * removed afterwards.
+ * learners); Hide still works, asking first.
+ *
+ * Settled at integration (owner's standing instruction): the rule holds
+ * for any course with learners, whatever its status, so unpublishing a
+ * course, reworking it and publishing it again doesn't get round it. The
+ * second test unpublishes a live course and finds it closed all the same,
+ * on the page and by the server. Red on Release 1, which has no cut-off
+ * and lets a course that isn't published take any change; red on Stream
+ * B's rule, which closed only published courses.
+ *
+ * Requires a real database — gated on E2E_DB=1. Everything it creates is
+ * unique to this run and removed afterwards.
  */
 
 const DB = process.env.E2E_DB === "1";
@@ -47,11 +56,15 @@ const EMAILS = [EDITOR, LEARNER];
 const CLOSED = `e2e-r2-cutoff-${RUN}`;
 /** Published; its learner arrives after the page opened. */
 const STALE = `e2e-r2-cutoff-stale-${RUN}`;
-const SLUGS = [CLOSED, STALE];
+/** Published with a learner, then unpublished on the page (D67's way round). */
+const UNPUBLISHED = `e2e-r2-cutoff-unpub-${RUN}`;
+/** Not published; its learner arrives after the page opened. */
+const STALE_DRAFT = `e2e-r2-cutoff-stale-draft-${RUN}`;
+const SLUGS = [CLOSED, STALE, UNPUBLISHED, STALE_DRAFT];
 
 /** liveChanges.closed with the cut-off of the `cutoff` server, as the page says it in English. */
 const CLOSED_TEXT =
-  "From 1 January 2020, lessons and content in a published course with learners can't be added, moved or removed. You can still hide or show lessons, rename them, and edit text and questions.";
+  "From 1 January 2020, lessons and content in a course with learners can't be added, moved or removed, even while it isn't published. You can still hide or show lessons, rename them, and edit text and questions.";
 
 const lesson = (id: string): R2LessonSeed => ({
   id,
@@ -59,9 +72,14 @@ const lesson = (id: string): R2LessonSeed => ({
 });
 
 /** Seed a course whose stored list is exactly its lessons: the standard text lessons it leaves out are deleted. */
-function seed(slug: string, lessons: R2LessonSeed[]) {
+function seed(slug: string, lessons: R2LessonSeed[], status: "draft" | "published" = "published") {
   const removed = ["context", "concept", "behaviour", "reflection"].filter((k) => !lessons.some((l) => l.id === k));
-  return seedR2Course(prisma, { slug, lessons, outline: { ...outlineOf(lessons), ...(removed.length ? { removed } : {}) } });
+  return seedR2Course(prisma, {
+    slug,
+    status,
+    lessons,
+    outline: { ...outlineOf(lessons), ...(removed.length ? { removed } : {}) },
+  });
 }
 
 async function editorWithSession(email: string) {
@@ -122,6 +140,9 @@ describe("Release 2 — the 1 December cut-off", () => {
     ]);
     await enrol(learnerId, CLOSED);
     await seed(STALE, [lesson("context"), lesson("concept")]);
+    await seed(UNPUBLISHED, [lesson("context"), lesson("concept"), lesson("behaviour")]);
+    await enrol(learnerId, UNPUBLISHED);
+    await seed(STALE_DRAFT, [lesson("context"), lesson("concept")], "draft");
   });
 
   test.afterAll(async () => {
@@ -172,5 +193,51 @@ describe("Release 2 — the 1 December cut-off", () => {
     await move.click();
     await expect(lessonList(page).getByRole("alert")).toHaveText(CLOSED_TEXT, { timeout: 15000 });
     expect(await ids(STALE)).toEqual(["context", "concept"]);
+  });
+
+  test("unpublishing doesn't get round it: a course with learners keeps its shape, published or not", async ({
+    page,
+    context,
+  }) => {
+    await signIn(context, editorSession);
+    await openCourse(page, UNPUBLISHED);
+
+    // Unpublished on the page, to rework it.
+    const publishing = page.getByRole("region", { name: /^publishing$/i });
+    await publishing.getByRole("button", { name: /^unpublish$/i }).click();
+    await publishing.getByRole("button", { name: /^yes, unpublish$/i }).click();
+    await expect(publishing.getByText(/^draft$/i)).toBeVisible({ timeout: 15000 });
+    await expect
+      .poll(async () => (await prisma.course.findFirstOrThrow({ where: { projectId: PROJECT, slug: UNPUBLISHED } })).status)
+      .toBe("draft");
+
+    // Still closed: no move, no new lesson, no delete of a lesson nobody
+    // has anything in — each says why, with the date.
+    const actions = await openActions(page, "2. Concept");
+    const down = actions.getByRole("button", { name: /^move down$/i });
+    await expect(down).toHaveAttribute("aria-disabled", "true");
+    await expect(down).toHaveAccessibleDescription(CLOSED_TEXT);
+    const add = lessonList(page).getByRole("button", { name: /^add lesson$/i });
+    await expect(add).toHaveAttribute("aria-disabled", "true");
+    await expect(add).toHaveAccessibleDescription(CLOSED_TEXT);
+    const del = actions.getByRole("button", { name: /^delete$/i });
+    await expect(del).toHaveAttribute("aria-disabled", "true");
+    await expect(del).toHaveAccessibleDescription(CLOSED_TEXT);
+    // Pressed anyway (by keyboard: it stays focusable), nothing moves.
+    await down.focus();
+    await page.keyboard.press("Enter");
+    // Hide stays open.
+    await expect(actions.getByRole("button", { name: /^hide$/i })).not.toHaveAttribute("aria-disabled", "true");
+    expect(await ids(UNPUBLISHED)).toEqual(["context", "concept", "behaviour"]);
+
+    // A page opened while the unpublished course had no learners: the server refuses, with the date.
+    await openCourse(page, STALE_DRAFT);
+    const stale = await openActions(page, "1. Context");
+    const move = stale.getByRole("button", { name: /^move down$/i });
+    await expect(move).not.toHaveAttribute("aria-disabled", "true");
+    await enrol(learnerId, STALE_DRAFT);
+    await move.click();
+    await expect(lessonList(page).getByRole("alert")).toHaveText(CLOSED_TEXT, { timeout: 15000 });
+    expect(await ids(STALE_DRAFT)).toEqual(["context", "concept"]);
   });
 });

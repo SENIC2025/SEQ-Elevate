@@ -1263,7 +1263,7 @@
       "remove": "Entfernen"
     },
     "cancel": "Abbrechen",
-    "closed": "Ab dem {date} können in einem veröffentlichten Kurs mit Lernenden keine Lektionen und Inhalte mehr hinzugefügt, verschoben oder entfernt werden. Du kannst Lektionen weiterhin aus- und einblenden, umbenennen und Texte und Fragen bearbeiten.",
+    "closed": "Ab dem {date} können in einem Kurs mit Lernenden keine Lektionen und Inhalte mehr hinzugefügt, verschoben oder entfernt werden, auch wenn er gerade nicht veröffentlicht ist. Du kannst Lektionen weiterhin aus- und einblenden, umbenennen und Texte und Fragen bearbeiten.",
     "hasLearners": {
       "delete": "{scope, select, lesson {{count, plural, one {# Person hat} other {# Personen haben}} bereits an dieser Lektion gearbeitet, deshalb kann sie nicht gelöscht werden.} other {{count, plural, one {# Person hat} other {# Personen haben}} diesen Kurs begonnen, deshalb kann diese Lektion nicht gelöscht werden.}}{hide, select, yes { Du kannst sie stattdessen ausblenden.} other {}}",
       "part": "Lernende machen diesen Kurs, deshalb kann eine Frage, die sie vielleicht beantwortet haben, nicht entfernt werden. Du kannst sie weiterhin bearbeiten."

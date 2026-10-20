@@ -154,8 +154,8 @@ export function addChoices(sections: SectionsMeta): AddSectionChoice[] {
 
 /**
  * "Add lesson" as a whole: refused at the limit (hidden lessons count),
- * while unreadable, or from the cut-off on a published course with
- * learners; with learners it asks first.
+ * while unreadable, or from the cut-off on a course with learners
+ * (published or not); with learners it asks first.
  */
 export function addControl(ctx: ListContext): Control {
   if (listUnreadable(ctx.sections)) return { kind: "locked", why: "unreadable" };

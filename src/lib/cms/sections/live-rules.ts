@@ -9,16 +9,25 @@
  * trying a course out. An enrolment exists once a learner has saved
  * something, so opening a course makes nobody a learner of it.
  *
- *   Change                   no learners  learners,      published,    published,
- *                                         not published before 1 Dec  from 1 Dec
- *   add / move a lesson      allowed      confirm       confirm       restructure-closed
- *   hide / show a lesson     allowed      confirm       confirm       confirm ("use Hide")
- *   delete a lesson          allowed      has-learners if anyone has  has-learners
- *                                         data in it, else allowed    (Hide is offered)
- *   add / move content       allowed      confirm       confirm       restructure-closed
- *   remove text content      allowed      confirm       confirm       restructure-closed
- *   remove a live question   allowed      has-learners  has-learners  has-learners
- *   Remove stage (live)      allowed      has-learners  has-learners  has-learners
+ *   Change                   no learners  learners, before 1 Dec      learners, from 1 Dec
+ *                                         not published  published      (any status)
+ *   add / move a lesson      allowed      confirm        confirm        restructure-closed
+ *   hide / show a lesson     allowed      confirm        confirm        confirm ("use Hide")
+ *   delete a lesson          allowed      has-learners   has-learners   has-learners if anyone has
+ *                                         if anyone has  (Hide is       data in it (published: any
+ *                                         data in it,    offered)       lesson), else
+ *                                         else allowed                  restructure-closed
+ *   add / move content       allowed      confirm        confirm        restructure-closed
+ *   remove text content      allowed      confirm        confirm        restructure-closed
+ *   remove a live question   allowed      has-learners   has-learners   has-learners
+ *   Remove stage (live)      allowed      has-learners   has-learners   has-learners
+ *
+ * From the cut-off (D67) restructuring — adding, moving and removing
+ * lessons and content — is refused on any course with learners, whatever
+ * its status: a course unpublished to be reworked and published again
+ * keeps its shape too (settled at integration, owner's standing
+ * instruction; spec 7.2 had closed only published courses, which left that
+ * way round it).
  *
  * On a published course, hiding or deleting the last lesson learners see is
  * refused (last-lesson): learners would be left a course with nothing in it,
@@ -71,7 +80,7 @@ export interface LiveFacts {
   lastVisible?: boolean;
 }
 
-/** Changes the 1 December rule closes (adding, moving or removing lessons and content). */
+/** Changes the 1 December rule closes on a course with learners (adding, moving or removing lessons and content). */
 const RESTRUCTURE: ReadonlySet<LiveOp> = new Set(["add-lesson", "move-lesson", "add-part", "move-part", "remove-part"]);
 
 export function liveRule(op: LiveOp, f: LiveFacts): LiveVerdict {
@@ -85,13 +94,14 @@ export function liveRule(op: LiveOp, f: LiveFacts): LiveVerdict {
       return "has-learners";
     case "delete-lesson":
       if (published) return "has-learners";
-      return (f.withData ?? f.learners) > 0 ? "has-learners" : "allowed";
+      if ((f.withData ?? f.learners) > 0) return "has-learners";
+      return f.closed ? "restructure-closed" : "allowed";
     case "hide":
       return emptiesCourse ? "last-lesson" : "needs-confirmation";
     case "show":
       return "needs-confirmation";
     default:
-      return RESTRUCTURE.has(op) && published && f.closed ? "restructure-closed" : "needs-confirmation";
+      return RESTRUCTURE.has(op) && f.closed ? "restructure-closed" : "needs-confirmation";
   }
 }
 

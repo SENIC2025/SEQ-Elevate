@@ -146,14 +146,17 @@ describe("partControl (spec 7.2)", () => {
     });
   });
 
-  it("from 1 December, a published course with learners takes no content change (D67)", () => {
+  it("from 1 December, a course with learners takes no content change, published or not (D67)", () => {
     const f = facts({ learners: 2, closed: true });
     for (const op of ["add", "move", "remove"] as const) {
       expect(partControl({ reasons: [], op, item: text, facts: f }), op).toEqual({ kind: "locked", why: "closed" });
+      expect(partControl({ reasons: [], op, item: text, facts: { ...f, status: "draft" } }), op).toEqual({
+        kind: "locked",
+        why: "closed",
+      });
     }
-    expect(partControl({ reasons: [], op: "add", facts: { ...f, status: "draft" } })).toEqual({
+    expect(partControl({ reasons: [], op: "add", facts: { ...f, learners: 0, status: "draft" } })).toEqual({
       kind: "enabled",
-      confirm: true,
     });
   });
 

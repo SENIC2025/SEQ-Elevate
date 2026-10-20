@@ -93,8 +93,9 @@ type Pending =
  * content ask first: LiveChangeConfirm opens where the change was asked
  * for, and only its button sends it, confirmed. A question learners may
  * have answered can't be removed while they are there (it can still be
- * edited), and from 1 December a published course with learners takes no
- * content change (D67); those controls stay focusable and say why.
+ * edited), and from 1 December a course with learners, published or not,
+ * takes no content change (D67); those controls stay focusable and say
+ * why.
  */
 export function PartList({
   listed = true,

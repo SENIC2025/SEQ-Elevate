@@ -278,17 +278,20 @@ describe("addSection", () => {
     });
   });
 
-  it("is refused from the cut-off on a published course with learners, confirmed or not (D67)", async () => {
+  it("is refused from the cut-off on a course with learners, whatever its status, confirmed or not (D67)", async () => {
     vi.stubEnv("RESTRUCTURE_CLOSED_FROM", "2020-01-01T00:00:00Z");
     try {
       db.course!.status = "published";
       db.enrolled = 1;
       const closed = { ok: false, error: "restructure-closed", from: "2020-01-01T00:00:00.000Z" };
       expect(await addSection(SLUG, "text", null, base(), true)).toEqual(closed);
-      expect(db.course?.outline).toBeNull();
-      // A draft, or a course nobody is taking, is never closed.
+      // Unpublished (to rework it, then publish again) or archived: still closed.
       db.course!.status = "draft";
-      expect(await addSection(SLUG, "text", null, base(), true)).toMatchObject({ ok: true });
+      expect(await addSection(SLUG, "text", null, base(), true)).toEqual(closed);
+      db.course!.status = "archived";
+      expect(await addSection(SLUG, "text", null, base(), true)).toEqual(closed);
+      expect(db.course?.outline).toBeNull();
+      // A course nobody is taking is never closed.
       db.course!.status = "published";
       db.enrolled = 0;
       expect(await addSection(SLUG, "quiz", null, base())).toMatchObject({ ok: true });
@@ -338,17 +341,19 @@ describe("moveSection", () => {
     });
   });
 
-  it("is refused from the cut-off on a published course with learners (D67)", async () => {
+  it("is refused from the cut-off on a course with learners, published or not (D67)", async () => {
     vi.stubEnv("RESTRUCTURE_CLOSED_FROM", "2020-01-01T00:00:00Z");
     try {
+      const closed = { ok: false, error: "restructure-closed", from: "2020-01-01T00:00:00.000Z" };
       db.course!.status = "published";
       db.enrolled = 2;
-      expect(await moveSection(SLUG, "concept", -1, base(), true)).toEqual({
-        ok: false,
-        error: "restructure-closed",
-        from: "2020-01-01T00:00:00.000Z",
-      });
+      expect(await moveSection(SLUG, "concept", -1, base(), true)).toEqual(closed);
+      // Unpublishing it first doesn't get around the cut-off.
+      db.course!.status = "draft";
+      expect(await moveSection(SLUG, "concept", -1, base(), true)).toEqual(closed);
       expect(db.course?.outline).toBeNull();
+      // Hiding stays open, asking first.
+      expect(await setSectionHidden(SLUG, "concept", true, base(), true)).toMatchObject({ ok: true });
     } finally {
       vi.unstubAllEnvs();
     }
@@ -534,6 +539,22 @@ describe("deleteSection", () => {
     // Nobody has anything in the skill concept: it goes, without asking.
     expect(await deleteSection(SLUG, "concept", base(), null)).toMatchObject({ ok: true });
     expect(storedIds()).not.toContain("concept");
+  });
+
+  it("from the cut-off, deletes nothing from an unpublished course with learners (D67)", async () => {
+    db.enrolled = 2;
+    db.withData = { concept: 0 };
+    vi.stubEnv("RESTRUCTURE_CLOSED_FROM", "2020-01-01T00:00:00Z");
+    try {
+      expect(await deleteSection(SLUG, "concept", base(), null)).toEqual({
+        ok: false,
+        error: "restructure-closed",
+        from: "2020-01-01T00:00:00.000Z",
+      });
+      expect(db.course?.outline).toBeNull();
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it("deletes from a live course nobody is taking, but not its last lesson learners see", async () => {

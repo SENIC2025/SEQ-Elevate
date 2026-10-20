@@ -4,10 +4,14 @@ import { liveRule, outlineLiveOp, partLiveOp, type LiveFacts, type LiveOp, type 
 
 /*
  * Spec 7.2, the whole table (D66, D67): what each change does on a course
- * with no learners, with learners but not published, published with
- * learners before the 1 December cut-off, and from it. The two published
- * columns get their "closed" from restructureClosedFrom with the clock set
- * either side of the default date.
+ * with no learners, with learners but not published, and published with
+ * learners — each with learners before the 1 December cut-off and from it.
+ * Settled at integration (owner's standing instruction): from the cut-off,
+ * adding, moving and removing lessons and content is refused on ANY course
+ * with learners, whatever its status, so unpublishing a course to rework
+ * it and publishing it again doesn't get around the rule. The columns get
+ * their "closed" from restructureClosedFrom with the clock set either side
+ * of the default date.
  */
 
 const before = restructureClosedFrom({}, new Date("2026-11-30T23:59:59+01:00"), () => {});
@@ -15,26 +19,32 @@ const after = restructureClosedFrom({}, new Date("2026-12-01T00:00:00+01:00"), (
 
 const COLUMNS: Record<string, LiveFacts> = {
   "no learners": { status: "published", learners: 0, closed: after.closed },
-  "learners, not published": { status: "draft", learners: 3, closed: after.closed },
+  "learners, not published, before the cut-off": { status: "draft", learners: 3, closed: before.closed },
+  "learners, not published, from the cut-off": { status: "draft", learners: 3, closed: after.closed },
   "published with learners, before the cut-off": { status: "published", learners: 3, closed: before.closed },
   "published with learners, from the cut-off": { status: "published", learners: 3, closed: after.closed },
 };
 
+const C = "needs-confirmation";
+const X = "restructure-closed";
+const H = "has-learners";
+
 /** Each row of the table, one verdict per column in the order above. */
 const TABLE: [LiveOp, Partial<LiveFacts>, LiveVerdict[]][] = [
-  ["add-lesson", {}, ["allowed", "needs-confirmation", "needs-confirmation", "restructure-closed"]],
-  ["move-lesson", {}, ["allowed", "needs-confirmation", "needs-confirmation", "restructure-closed"]],
-  ["hide", {}, ["allowed", "needs-confirmation", "needs-confirmation", "needs-confirmation"]],
-  ["show", {}, ["allowed", "needs-confirmation", "needs-confirmation", "needs-confirmation"]],
-  // A lesson some learner has data in.
-  ["delete-lesson", { withData: 1 }, ["allowed", "has-learners", "has-learners", "has-learners"]],
-  // A lesson nobody has anything in: only an unpublished course lets it go.
-  ["delete-lesson", { withData: 0 }, ["allowed", "allowed", "has-learners", "has-learners"]],
-  ["add-part", {}, ["allowed", "needs-confirmation", "needs-confirmation", "restructure-closed"]],
-  ["move-part", {}, ["allowed", "needs-confirmation", "needs-confirmation", "restructure-closed"]],
-  ["remove-part", {}, ["allowed", "needs-confirmation", "needs-confirmation", "restructure-closed"]],
-  ["remove-question", {}, ["allowed", "has-learners", "has-learners", "has-learners"]],
-  ["remove-stage", {}, ["allowed", "has-learners", "has-learners", "has-learners"]],
+  ["add-lesson", {}, ["allowed", C, X, C, X]],
+  ["move-lesson", {}, ["allowed", C, X, C, X]],
+  ["hide", {}, ["allowed", C, C, C, C]],
+  ["show", {}, ["allowed", C, C, C, C]],
+  // A lesson some learner has data in: refused for them first (Hide is offered).
+  ["delete-lesson", { withData: 1 }, ["allowed", H, H, H, H]],
+  // A lesson nobody has anything in: only an unpublished course lets it
+  // go, and only before the cut-off.
+  ["delete-lesson", { withData: 0 }, ["allowed", "allowed", X, H, H]],
+  ["add-part", {}, ["allowed", C, X, C, X]],
+  ["move-part", {}, ["allowed", C, X, C, X]],
+  ["remove-part", {}, ["allowed", C, X, C, X]],
+  ["remove-question", {}, ["allowed", H, H, H, H]],
+  ["remove-stage", {}, ["allowed", H, H, H, H]],
 ];
 
 describe("liveRule: the table of spec 7.2", () => {
@@ -50,12 +60,29 @@ describe("liveRule: the table of spec 7.2", () => {
     });
   }
 
-  it("only closes restructuring on a published course with learners", () => {
-    // No learners, or not published: the date changes nothing.
+  it("closes restructuring on any course with learners, whatever its status; never on one without", () => {
     for (const op of ["add-lesson", "move-lesson", "add-part", "move-part", "remove-part"] as const) {
-      expect(liveRule(op, { status: "published", learners: 0, closed: true })).toBe("allowed");
-      expect(liveRule(op, { status: "archived", learners: 2, closed: true })).toBe("needs-confirmation");
+      for (const status of ["published", "draft", "archived"] as const) {
+        expect(liveRule(op, { status, learners: 2, closed: true }), `${op} ${status}`).toBe("restructure-closed");
+        expect(liveRule(op, { status, learners: 0, closed: true }), `${op} ${status}`).toBe("allowed");
+      }
     }
+    // Hide and Show stay open ("use Hide"), whatever the status.
+    for (const status of ["published", "draft", "archived"] as const) {
+      expect(liveRule("hide", { status, learners: 2, closed: true })).toBe("needs-confirmation");
+      expect(liveRule("show", { status, learners: 2, closed: true })).toBe("needs-confirmation");
+    }
+  });
+
+  it("doesn't let unpublishing get around the cut-off (D67): unpublish, restructure, publish again", () => {
+    const live: LiveFacts = { status: "published", learners: 3, closed: true };
+    const unpublished: LiveFacts = { ...live, status: "draft" };
+    for (const op of ["add-lesson", "move-lesson", "add-part", "move-part", "remove-part"] as const) {
+      expect(liveRule(op, live)).toBe("restructure-closed");
+      expect(liveRule(op, unpublished)).toBe("restructure-closed");
+    }
+    // Deleting a lesson nobody has anything in, once unpublished, is removing one too.
+    expect(liveRule("delete-lesson", { ...unpublished, withData: 0 })).toBe("restructure-closed");
   });
 
   it("keeps a published course from losing its last lesson learners see (last-lesson)", () => {

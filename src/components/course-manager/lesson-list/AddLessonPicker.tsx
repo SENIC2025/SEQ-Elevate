@@ -35,8 +35,8 @@ import { Named } from "./Named";
  * It warns when learners would then see more than 12 lessons (Q7: hidden
  * ones don't count; the limit of 15 does count them). On a course with
  * learners, "Add this lesson" asks first (`confirming`: LiveChangeConfirm in
- * place of the buttons); from the 1 December cut-off a published course
- * with learners takes none, and the choices say why (D67). A practice,
+ * place of the buttons); from the 1 December cut-off a course with
+ * learners takes none, published or not, and the choices say why (D67). A practice,
  * scenario or quick check that is free reuses the standard lesson, in its
  * usual place by default.
  */

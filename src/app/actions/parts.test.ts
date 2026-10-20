@@ -232,16 +232,16 @@ describe("addPart", () => {
     });
   });
 
-  it("takes no new content from the cut-off on a published course with learners (D67)", async () => {
+  it("takes no new content from the cut-off on a course with learners, published or not (D67)", async () => {
     vi.stubEnv("RESTRUCTURE_CLOSED_FROM", "2020-01-01T00:00:00Z");
     try {
+      const closed = { ok: false, error: "restructure-closed", from: "2020-01-01T00:00:00.000Z" };
       db.course!.status = "published";
       db.enrolled = 1;
-      expect(await addPart(SLUG, "concept", "text", null, order(), true)).toEqual({
-        ok: false,
-        error: "restructure-closed",
-        from: "2020-01-01T00:00:00.000Z",
-      });
+      expect(await addPart(SLUG, "concept", "text", null, order(), true)).toEqual(closed);
+      // Unpublished to rework it: still closed.
+      db.course!.status = "draft";
+      expect(await addPart(SLUG, "concept", "text", null, order(), true)).toEqual(closed);
       // The same course before anyone took it: open.
       db.enrolled = 0;
       expect(await addPart(SLUG, "concept", "text", null, order())).toMatchObject({ ok: true });

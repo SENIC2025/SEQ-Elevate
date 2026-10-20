@@ -1263,7 +1263,7 @@
       "remove": "Remove it"
     },
     "cancel": "Cancel",
-    "closed": "From {date}, lessons and content in a published course with learners can't be added, moved or removed. You can still hide or show lessons, rename them, and edit text and questions.",
+    "closed": "From {date}, lessons and content in a course with learners can't be added, moved or removed, even while it isn't published. You can still hide or show lessons, rename them, and edit text and questions.",
     "hasLearners": {
       "delete": "{scope, select, lesson {{count, plural, one {# learner has} other {# learners have}} already worked on this lesson, so it can't be deleted.} other {{count, plural, one {# learner has} other {# learners have}} started this course, so this lesson can't be deleted.}}{hide, select, yes { You can hide it instead.} other {}}",
       "part": "Learners are taking this course, so a question they may have answered can't be removed. You can still edit it."

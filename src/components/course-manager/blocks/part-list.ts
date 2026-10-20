@@ -113,8 +113,8 @@ export type PartControl =
 /**
  * What the server will answer for one content change (spec 7.2, as
  * guardStructure decides it): with learners, adding, moving and removing
- * text ask first, and from the cut-off a published course takes none of
- * them; a question with a live version can't be removed while there are
+ * text ask first, and from the cut-off a course with learners, published
+ * or not, takes none of them; a question with a live version can't be removed while there are
  * learners. `item` is the content a move or removal is about.
  */
 export function partControl(args: {

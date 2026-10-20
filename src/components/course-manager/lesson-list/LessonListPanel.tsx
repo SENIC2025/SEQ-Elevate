@@ -84,8 +84,8 @@ type ErrorAt = { at: string; text: string } | null;
  * delete that learners keep from happening says so in its confirmation
  * (whose learners: the course's when it is published, else those with
  * something in that lesson), with Hide instead where Hide can be pressed;
- * from the 1 December cut-off the changes a published course with learners
- * refuses say why (D67).
+ * from the 1 December cut-off the changes a course with learners refuses,
+ * published or not, say why (D67).
  */
 export function LessonListPanel({
   slug,

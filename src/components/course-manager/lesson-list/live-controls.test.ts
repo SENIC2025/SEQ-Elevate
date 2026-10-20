@@ -135,7 +135,7 @@ describe("a course with learners (D66, spec 7.2)", () => {
     expect(rowControls(c, "context").delete).toEqual({ kind: "learners", count: 3 });
   });
 
-  it("from the cut-off, keeps a published course's lessons where they are but lets Hide and Show through (D67)", () => {
+  it("from the cut-off, keeps a course's lessons where they are but lets Hide and Show through (D67)", () => {
     const c = closed({ ...ctx(STANDARD, "published", 2), learnerKeys: SHOWN });
     const row = rowControls(c, "concept");
     expect(row.moveUp).toEqual({ kind: "locked", why: "closed" });
@@ -144,8 +144,14 @@ describe("a course with learners (D66, spec 7.2)", () => {
     expect(addControl(c)).toEqual({ kind: "locked", why: "closed" });
     expect(row.hide).toEqual({ kind: "enabled", confirm: true });
     expect(row.rename).toEqual({ kind: "enabled" });
-    // An unpublished course is never closed.
-    expect(rowControls(closed(ctx(STANDARD, "draft", 2)), "concept").moveUp).toEqual({ kind: "enabled", confirm: true });
+    // Unpublished, with learners: closed all the same (unpublishing doesn't get around it).
+    const draft = closed({ ...ctx(STANDARD, "draft", 2), withData: { concept: 0 } });
+    expect(rowControls(draft, "concept").moveUp).toEqual({ kind: "locked", why: "closed" });
+    expect(rowControls(draft, "concept").delete).toEqual({ kind: "locked", why: "closed" });
+    expect(addControl(draft)).toEqual({ kind: "locked", why: "closed" });
+    expect(rowControls(draft, "concept").hide).toEqual({ kind: "enabled", confirm: true });
+    // Nobody taking it: open.
+    expect(rowControls(closed(ctx(STANDARD, "draft", 0)), "concept").moveUp).toEqual({ kind: "enabled" });
   });
 
   it("counts the learners SectionsMeta sent over the page's enrolment count", () => {

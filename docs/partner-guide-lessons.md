@@ -8,8 +8,8 @@ For course editors in the SEQ Elevate consortium. It covers the lesson editor th
 - Inside each lesson you can **add content** around the lesson's main content: text, a practice question, a branching scenario, a quick check, reflection questions, or a 1–5 self-assessment.
 - **Preview as learner** shows what learners get, at any time.
 - From 10 November, **learners get the course as you built it**: your own lessons and names, your order, the content you added. Hidden lessons are left out. A course publishes as long as learners would see at least one lesson.
-- **Once people are taking a course**, adding, moving, hiding or showing lessons, and adding, moving or removing content, first tell you how many learners it affects and ask you to confirm. On a published course with learners, no lesson can be deleted: hide it instead. On a course that isn't published, only a lesson no learner has anything in can be deleted. A question learners may have answered can't be removed while they are there; you can still edit it.
-- **From 1 December**, a published course with learners keeps its shape: lessons and content can no longer be added, moved or removed. Hiding and showing lessons, renaming, and editing text and questions stay open.
+- **Once people are taking a course**, adding, moving, hiding or showing lessons, and adding, moving or removing content, first tell you how many learners it affects and ask you to confirm. On a published course with learners, no lesson can be deleted: hide it instead. On a course that isn't published, only a lesson no learner has anything in can be deleted, until 1 December. A question learners may have answered can't be removed while they are there; you can still edit it.
+- **From 1 December**, a course with learners keeps its shape, published or not: lessons and content can no longer be added, moved or removed. Hiding and showing lessons, renaming, and editing text and questions stay open.
 - Nothing you wrote before 13 October moves or changes. Existing courses look and work as they did.
 
 ## The lesson list
@@ -81,19 +81,19 @@ The platform checks the confirmation when you save. If the course got its first 
 
 ### Deleting, and removing questions
 
-- **Deleting a lesson** on a published course with learners is refused: the page says how many learners have started and offers **Hide it** instead, which keeps their work. On a course that isn't published, a lesson can be deleted as long as no learner has anything in it.
+- **Deleting a lesson** on a published course with learners is refused: the page says how many learners have started and offers **Hide it** instead, which keeps their work. On a course that isn't published, a lesson can be deleted as long as no learner has anything in it, until 1 December (below).
 - **A question learners may have answered** (one saved with *Save stage*) can't be removed while the course has learners. You can still edit it.
 - **Remove stage** on a lesson's exercise learners get is refused while the course has learners, whether it is a standard lesson or one of your own.
 
 ### From 1 December
 
-From 1 December, a **published** course with learners keeps its shape: lessons and content can no longer be added, moved or removed. The buttons stay visible and say so, with the date. You can still:
+From 1 December, a course with learners keeps its shape, published or not: lessons and content can no longer be added, moved or removed, and no lesson can be deleted. Unpublishing a course to rework it and publishing it again doesn't change that. The buttons stay visible and say so, with the date. You can still:
 
 - hide and show lessons (to take one out, use **Hide**);
 - rename lessons;
 - edit text and questions, video and documents (live at once, as always).
 
-A course that isn't published, or has no learners yet, can be restructured as before.
+A course nobody has started yet can be restructured as before.
 
 ## Questions partners have asked
 

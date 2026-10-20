@@ -153,8 +153,8 @@ async function outlineResult(
  * before; null = its standard place for a standard lesson, the end for one
  * of the course's own. A "Reflection & self-assessment" lesson starts with
  * the platform's three reflection questions and a self-assessment to finish.
- * With learners it needs `confirm`, and from the cut-off a published course
- * with learners takes no new lesson (D67).
+ * With learners it needs `confirm`, and from the cut-off a course with
+ * learners, published or not, takes no new lesson (D67).
  */
 export async function addSection(
   slug: string,
@@ -273,8 +273,8 @@ async function simpleChange(
 
 /**
  * Move a lesson one place up (-1) or down (1). Refused at either end. With
- * learners it needs `confirm`; from the cut-off a published course with
- * learners keeps its order (D67).
+ * learners it needs `confirm`; from the cut-off a course with learners,
+ * published or not, keeps its order (D67).
  */
 export async function moveSection(
   slug: string,
@@ -390,8 +390,9 @@ export async function renameSection(
  * whatever the lesson — Hide is what the page offers instead; on a course
  * that isn't published, refused only while some learner has any trace of
  * this lesson (learnersWithData), so a course reworked while it has
- * learners can lose what nobody has; and a published course keeps at least
- * one lesson learners see (last-lesson). Never needs a confirmation: the
+ * learners can lose what nobody has — until the cut-off, from which it
+ * keeps its lessons too (restructure-closed, D67); and a published course
+ * keeps at least one lesson learners see (last-lesson). Never needs a confirmation: the
  * page's own "Delete … in all languages?" is it. Also refused when the
  * lesson's content changed since the page opened (`contentBase`,
  * sectionContentVersion): nobody deletes what they haven't seen. Learner

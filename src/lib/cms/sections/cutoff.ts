@@ -1,8 +1,9 @@
 /**
- * The 1 December rule's date (D67, spec 4.7): from then on, a published
- * course with learners can't have lessons or content added, moved or
- * removed (live-rules.ts). Hiding and showing lessons, renaming them and
- * editing text and questions stay open.
+ * The 1 December rule's date (D67, spec 4.7): from then on, a course with
+ * learners — published or not, so unpublishing it to rework it doesn't get
+ * round the rule — can't have lessons or content added, moved or removed
+ * (live-rules.ts). Hiding and showing lessons, renaming them and editing
+ * text and questions stay open.
  *
  *   RESTRUCTURE_CLOSED_FROM unset or blank  2026-12-01T00:00:00+01:00
  *                           an ISO date     that moment (a date alone is

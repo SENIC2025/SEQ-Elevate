@@ -34,6 +34,21 @@ describe("the partner guide", () => {
     expect(bullet).not.toMatch(/question[^.]*hide it instead/i);
   });
 
+  it("says the 1 December rule holds for any course with learners, published or not (D67)", () => {
+    // Settled at integration: unpublishing a course to rework it, then
+    // publishing it again, doesn't get round the cut-off.
+    const summary = section("In one minute")
+      .split("\n")
+      .find((line) => line.includes("From 1 December"));
+    expect(summary).toBeDefined();
+    expect(summary).toMatch(/a course with learners/i);
+    expect(summary).toMatch(/published or not/i);
+    const rule = guide.slice(guide.indexOf("### From 1 December"), guide.indexOf("## Questions partners have asked"));
+    expect(rule).toMatch(/published or not/i);
+    expect(rule).not.toMatch(/a \*\*published\*\* course with learners keeps its shape/i);
+    expect(rule).not.toMatch(/isn't published[^.]*can be restructured/i);
+  });
+
   it("says a lesson of your own appears with content learners can get, a question once saved with Save stage", () => {
     const line = section("The lesson list")
       .split("\n")
