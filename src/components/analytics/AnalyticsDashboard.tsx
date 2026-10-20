@@ -272,30 +272,40 @@ export function AnalyticsDashboard({
         </p>
         <Card>
           <CardContent className="p-5">
+            {/* Each column keeps room for its label: on a narrow screen the
+                chart scrolls sideways in its card, as the table below does,
+                rather than printing its labels over each other. */}
             <div
-              className={`grid ${timeColumns.length > 7 ? "grid-cols-8" : "grid-cols-7"} gap-2 items-end h-40`}
+              className="overflow-x-auto"
+              role="region"
+              aria-label="Time per lesson"
+              tabIndex={0}
             >
-              {timeColumns.map((t, i) => (
-                <div key={t.label} className="flex flex-col items-center gap-1 h-full justify-end">
-                  <span className="text-[10px] text-[var(--muted-foreground)] tabular-nums">
-                    {fmtDuration(t.avgSeconds)}
-                  </span>
-                  <div
-                    className="w-full rounded-t"
-                    style={{
-                      height: `${(t.avgSeconds / maxTime) * 100}%`,
-                      background:
-                        i === slowestIndex
-                          ? "var(--warning)"
-                          : "var(--accent)",
-                      minHeight: "4px",
-                    }}
-                  />
-                  <span className="text-[10px] text-[var(--muted-foreground)] text-center leading-tight">
-                    {t.label}
-                  </span>
-                </div>
-              ))}
+              <div
+                className={`grid ${timeColumns.length > 7 ? "grid-cols-8" : "grid-cols-7"} gap-2 items-end h-40 min-w-[32rem]`}
+              >
+                {timeColumns.map((t, i) => (
+                  <div key={t.label} className="flex flex-col items-center gap-1 h-full justify-end">
+                    <span className="text-[10px] text-[var(--muted-foreground)] tabular-nums">
+                      {fmtDuration(t.avgSeconds)}
+                    </span>
+                    <div
+                      className="w-full rounded-t"
+                      style={{
+                        height: `${(t.avgSeconds / maxTime) * 100}%`,
+                        background:
+                          i === slowestIndex
+                            ? "var(--warning)"
+                            : "var(--accent)",
+                        minHeight: "4px",
+                      }}
+                    />
+                    <span className="text-[10px] text-[var(--muted-foreground)] text-center leading-tight">
+                      {t.label}
+                    </span>
+                  </div>
+                ))}
+              </div>
             </div>
           </CardContent>
         </Card>

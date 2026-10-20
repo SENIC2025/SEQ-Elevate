@@ -98,7 +98,7 @@ describe("RealFacilitatorView: “Active in the last 24h”", () => {
 
 /** "Currently on" in a learner's activity panel. */
 function currentlyOn(html: string): string | undefined {
-  return html.match(/<p class="mt-1 text-sm font-semibold leading-tight">([^<]*)<\/p><p[^>]*>Currently on<\/p>/)?.[1];
+  return html.match(/<p class="mt-1 text-sm font-semibold leading-tight[^"]*">([^<]*)<\/p><p[^>]*>Currently on<\/p>/)?.[1];
 }
 
 /** The time-per-lesson rows: [name, time]. */
@@ -148,7 +148,7 @@ describe("RealFacilitatorView: time per lesson (spec 6)", () => {
       ["Skill concept", "30s"],
       ["Other lessons", "2m"],
     ]);
-    expect(html).toContain('<p class="mt-1 text-sm font-semibold leading-tight">4m</p>');
+    expect(html).toMatch(/<p class="mt-1 text-sm font-semibold leading-tight[^"]*">4m<\/p><p[^>]*>Time on task<\/p>/);
   });
 
   it("counts time recorded without a lesson under “Other lessons” too, as the statistics do", () => {

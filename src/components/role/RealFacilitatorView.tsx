@@ -137,12 +137,14 @@ export function RealFacilitatorView({
         <Card>
           <CardContent className="p-6 sm:p-8">
             <div className="flex items-center justify-between gap-2 mb-3">
-              <div>
+              {/* A learner without a name is headed by their email, one long
+                  word: it wraps rather than widening the page. */}
+              <div className="min-w-0">
                 <p className="text-xs uppercase tracking-wider text-[var(--muted-foreground)] font-semibold">
                   {t("viewLearner")}
                 </p>
-                <h2 className="text-2xl font-bold">{selected.name}</h2>
-                <p className="text-sm text-[var(--muted-foreground)] mt-0.5">
+                <h2 className="text-2xl font-bold wrap-anywhere">{selected.name}</h2>
+                <p className="text-sm text-[var(--muted-foreground)] mt-0.5 wrap-anywhere">
                   {selected.email}
                 </p>
               </div>
@@ -463,7 +465,9 @@ export function ActivityPanel({ learner }: { learner: FacilitatorLearner }) {
         {t("activityTitle")}
       </p>
 
-      <div className="grid grid-cols-3 gap-3">
+      {/* One card under the other on a narrow screen: "Currently on" is a
+          step name an editor wrote, up to 40 characters. */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <MiniStat icon={MapPin} label={t("currentlyOn")} value={positionLabel} />
         <MiniStat
           icon={Clock}
@@ -491,7 +495,8 @@ export function ActivityPanel({ learner }: { learner: FacilitatorLearner }) {
         <div className="mt-3 space-y-1.5">
           {rows.map((r) => (
             <div key={r.key} className="flex items-center gap-2 text-xs">
-              <span className="w-24 flex-shrink-0 text-[var(--muted-foreground)] truncate">
+              {/* Wraps rather than cuts: "Andere Lektionen", the Greek names. */}
+              <span className="w-24 flex-shrink-0 text-[var(--muted-foreground)] break-words hyphens-auto">
                 {r.label}
               </span>
               <div className="flex-1 h-1.5 rounded-full bg-[var(--surface)] overflow-hidden">
@@ -539,9 +544,12 @@ function MiniStat({
   value: string;
 }) {
   return (
-    <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-2.5">
+    <div className="min-w-0 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-2.5">
       <Icon className="h-3.5 w-3.5 text-[var(--accent)]" />
-      <p className="mt-1 text-sm font-semibold leading-tight">{value}</p>
+      {/* A long word (a German step name) breaks rather than running out. */}
+      <p className="mt-1 text-sm font-semibold leading-tight hyphens-auto wrap-anywhere">
+        {value}
+      </p>
       <p className="text-[10px] uppercase tracking-wider text-[var(--muted-foreground)]">
         {label}
       </p>

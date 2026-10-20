@@ -1,4 +1,4 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Locator, type Page } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import {
@@ -27,11 +27,15 @@ import {
  * course. How each test is red on Release 1's build (main b357cc7, against
  * this database once migrated):
  *
- *   C-E1  every part: the hero, and so "Your journey", is the first
- *         published course; the facilitator's view has the learner at 25%
- *         (the standard lessons the course doesn't list counted, its own
- *         left out), "Currently on: Skill concept", no "Other lessons" time;
- *         the statistics have them on "Concept"
+ *   C-E1  every part, each checked softly so one doesn't hide the next:
+ *         the facilitator's view has the learner at 25% (the standard
+ *         lessons the course doesn't list counted, its own left out),
+ *         "Currently on: Skill concept", no "Other lessons" time; the
+ *         statistics have them on "Concept", with no "Other lessons" note;
+ *         and on the dashboard the hero, and so "Your journey", is the first
+ *         published course. The dashboard comes last: "Your journey" is the
+ *         hero's, which is C-E3's, so the facilitator's and the statistics'
+ *         checks never depend on it
  *   C-E2  a guard there. The spec's reason — Release 1 refuses to publish
  *         a flexible course — is the editor's guard (Stream B; this branch
  *         still applies it), so the course is seeded published, as the
@@ -40,6 +44,10 @@ import {
  *         finish goes through Release 2's save, own lessons kept
  *   C-E3  the hero is the first published course, which the learner never
  *         opened
+ *   320 px  (review findings 1-3, WCAG 1.4.10) the facilitator's learner
+ *         view scrolls sideways (the email as the heading), "Gerade bei"
+ *         runs under the next card, and the statistics' time chart prints
+ *         its labels over each other; there's no "Andere Lektionen" row
  *
  * The courses are seeded the way the course editor leaves them
  * (fixtures/r2-course.ts); a learner's progress in a course's own lessons is
@@ -68,6 +76,7 @@ const EMAILS = {
   staff: `e2e-r2c-staff-${RUN}@example.com`,
   finisher: `e2e-r2c-finisher-${RUN}@example.com`,
   hero: `e2e-r2c-hero-${RUN}@example.com`,
+  narrow: `e2e-r2c-narrow-${RUN}@example.com`,
 };
 const SLUGS = {
   flexible: `e2e-r2c-flexible-${RUN}`,
@@ -75,6 +84,7 @@ const SLUGS = {
   heroNow: `e2e-r2c-hero-now-${RUN}`,
   heroDone: `e2e-r2c-hero-done-${RUN}`,
   heroNext: `e2e-r2c-hero-next-${RUN}`,
+  narrow: `e2e-r2c-narrow-${RUN}`,
 };
 
 // ---------------------------------------------------------------------------
@@ -171,6 +181,14 @@ const hero = (page: Page) =>
 const miniStat = (page: Page, label: string) =>
   page.getByText(label, { exact: true }).filter({ visible: true }).locator("xpath=..");
 
+/** Does the element's content fit its box (no text cut off or running out of it)? */
+const fits = (locator: Locator) =>
+  locator.evaluate((el) => ({ fits: el.scrollWidth <= el.clientWidth, scroll: el.scrollWidth, client: el.clientWidth }));
+
+/** How far the page scrolls sideways (0: it doesn't). */
+const sidewaysScroll = (page: Page) =>
+  page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+
 /** Opens a course in the player and waits for the learner's saved progress to load. */
 async function openCourse(page: Page, slug: string) {
   const loaded = page.waitForResponse(
@@ -190,6 +208,7 @@ describe("Release 2: dashboards and reports follow the course's lessons", () => 
   const OWN_NEXT = ownLessonId();
   const OWN_HIDDEN = ownLessonId();
   const FINISH_OWN = ownLessonId();
+  const OWN_LONG = ownLessonId();
   const ROOT = "Ask to finish your point";
   const FOLLOWUP = "Thank them for waiting afterwards";
 
@@ -199,6 +218,7 @@ describe("Release 2: dashboards and reports follow the course's lessons", () => 
     users.learner = await learnerWithSession(prisma, EMAILS.learner);
     users.finisher = await learnerWithSession(prisma, EMAILS.finisher);
     users.hero = await learnerWithSession(prisma, EMAILS.hero);
+    users.narrow = await learnerWithSession(prisma, EMAILS.narrow);
     users.staff = await staffWithSession(EMAILS.staff);
 
     // C-E1: a renamed standard lesson, two of its own, a hidden one of its
@@ -275,6 +295,22 @@ describe("Release 2: dashboards and reports follow the course's lessons", () => 
       ],
     });
 
+    // 320 px: a lesson of its own with a long step name (one long German
+    // word), between two standard lessons.
+    await seedCourse({
+      slug: SLUGS.narrow,
+      title: { en: "E2E Hard talks", de: "E2E Schwierige Gespräche" },
+      lessons: [
+        { id: "context", narrative: narrative({ en: { title: "Where we start", text: "E2E: a meeting." } }) },
+        {
+          id: OWN_LONG,
+          label: { en: "Preparing a difficult conversation", de: "Gesprächsvorbereitungsübungen" },
+          narrative: narrative({ en: { title: "Prepare", text: "E2E: write it down first." } }),
+        },
+        { id: "concept", narrative: narrative({ en: { title: "The idea", text: "E2E: say it early." } }) },
+      ],
+    });
+
     // C-E3: three courses of three standard lessons (Behaviour model deleted).
     for (const [slug, title] of [
       [SLUGS.heroNow, "E2E The course I'm in"],
@@ -301,7 +337,8 @@ describe("Release 2: dashboards and reports follow the course's lessons", () => 
     page,
     context,
   }) => {
-    test.setTimeout(90_000);
+    // Long enough for every soft check to time out (Release 1).
+    test.setTimeout(240_000);
     const { userId } = users.learner;
     // Done: the renamed standard lesson, one of its own, and one of its own
     // the course hides since. Next: the other of its own.
@@ -310,55 +347,65 @@ describe("Release 2: dashboards and reports follow the course's lessons", () => 
     await timeOn(userId, SLUGS.flexible, OWN_DONE, 120);
     // 4 lessons shown + 1 finished one hidden since; 3 of those 5 done.
 
+    // Each part is checked softly: one that fails doesn't hide the next.
+
+    // ---- The facilitator's view ----
+    await signIn(context, users.staff.sessionToken);
+    await page.goto("/en/facilitator");
+    const row = page.locator("li", { hasText: EMAILS.learner }).filter({ visible: true });
+    await expect.soft(row).toContainText("60%");
+    await row.getByRole("button", { name: /open learner/i }).click();
+    await expect.soft(miniStat(page, "Currently on")).toContainText("Try it at work");
+    await expect.soft(miniStat(page, "Time on task")).toContainText("3m");
+    // Time per lesson: the standard lesson by its standard name, the course's
+    // own lessons as one row, adding up to the time on task.
+    await expect.soft(miniStat(page, "Context")).toContainText("1m");
+    await expect.soft(miniStat(page, "Other lessons")).toContainText("2m");
+
+    // ---- The statistics ----
+    await page.goto("/en/analytics?live=1");
+    await expect(page.getByText("live data", { exact: false }).first()).toBeVisible();
+    const stats = page.locator("tr", { hasText: EMAILS.learner }).filter({ visible: true });
+    await expect.soft(stats.locator("td").nth(1)).toHaveText("Other lesson");
+    await expect.soft(stats.locator("td").nth(2)).toContainText("60%");
+    await expect.soft(stats.locator("td").nth(3)).toHaveText("3m");
+    await expect
+      .soft(
+        page.getByText(
+          "Learners now on one of their course's own lessons, outside the seven steps. Figures for each of those lessons come later."
+        )
+      )
+      .toBeVisible();
+
     // ---- The learner's dashboard ----
+    // "Your journey" and its bars are the hero's: the course the learner is
+    // in (C-E3).
     await signIn(context, users.learner.sessionToken);
     await page.goto("/en/learner");
-    await expect(hero(page)).toHaveText("E2E Speaking up");
-    await expect(journey(page)).toHaveText([
+    await expect.soft(hero(page)).toHaveText("E2E Speaking up");
+    await expect.soft(journey(page)).toHaveText([
       "Warm-up, done",
       "Your own story, done",
       "Try it at work",
       "Skill concept",
       "and 1 completed lesson no longer in the course",
     ]);
-    await expect(page.getByRole("progressbar", { name: "3/5", exact: true })).toHaveAttribute("aria-valuenow", "60");
-    await expect(page.getByRole("progressbar", { name: "3/5 your journey" })).toHaveAttribute("aria-valuenow", "60");
+    await expect
+      .soft(page.getByRole("progressbar", { name: "3/5", exact: true }))
+      .toHaveAttribute("aria-valuenow", "60");
+    await expect
+      .soft(page.getByRole("progressbar", { name: "3/5 your journey" }))
+      .toHaveAttribute("aria-valuenow", "60");
 
     // In German: the course's German step names, the standard one's German name.
     await page.goto("/de/learner");
-    await expect(journey(page)).toHaveText([
+    await expect.soft(journey(page)).toHaveText([
       "Aufwärmen, erledigt",
       "Deine Geschichte, erledigt",
       "Probier es aus",
       "Skill-Konzept",
       "und 1 abgeschlossene Lektion, die nicht mehr im Kurs ist",
     ]);
-
-    // ---- The facilitator's view ----
-    await signIn(context, users.staff.sessionToken);
-    await page.goto("/en/facilitator");
-    const row = page.locator("li", { hasText: EMAILS.learner }).filter({ visible: true });
-    await expect(row).toContainText("60%");
-    await row.getByRole("button", { name: /open learner/i }).click();
-    await expect(miniStat(page, "Currently on")).toContainText("Try it at work");
-    await expect(miniStat(page, "Time on task")).toContainText("3m");
-    // Time per lesson: the standard lesson by its standard name, the course's
-    // own lessons as one row, adding up to the time on task.
-    await expect(miniStat(page, "Context")).toContainText("1m");
-    await expect(miniStat(page, "Other lessons")).toContainText("2m");
-
-    // ---- The statistics ----
-    await page.goto("/en/analytics?live=1");
-    await expect(page.getByText("live data", { exact: false }).first()).toBeVisible();
-    const stats = page.locator("tr", { hasText: EMAILS.learner }).filter({ visible: true });
-    await expect(stats.locator("td").nth(1)).toHaveText("Other lesson");
-    await expect(stats.locator("td").nth(2)).toContainText("60%");
-    await expect(stats.locator("td").nth(3)).toHaveText("3m");
-    await expect(
-      page.getByText(
-        "Learners now on one of their course's own lessons, outside the seven steps. Figures for each of those lessons come later."
-      )
-    ).toBeVisible();
   });
 
   test("C-E2: finishing a flexible course gives its badge; the Comp Card evidence still shows", async ({
@@ -457,5 +504,63 @@ describe("Release 2: dashboards and reports follow the course's lessons", () => 
     await page.goto("/en/learner");
     await expect(hero(page)).toHaveText("E2E The course I open next");
     await expect(page.getByRole("progressbar", { name: "1/3 your journey" })).toBeVisible();
+  });
+
+  test("320 px: the facilitator's learner view and the statistics fit the screen, no step name or label cut off (WCAG 1.4.10)", async ({
+    page,
+    context,
+  }) => {
+    // Review findings 1-3. Each check is soft: one that fails doesn't hide
+    // the next.
+    test.setTimeout(180_000);
+    const { userId } = users.narrow;
+    // On the lesson with the long name; time there and in Context.
+    await enrol(userId, SLUGS.narrow, { stages: ["CONTEXT"], hoursAgo: 1 });
+    await timeOn(userId, SLUGS.narrow, "context", 60);
+    await timeOn(userId, SLUGS.narrow, OWN_LONG, 300);
+    await page.setViewportSize({ width: 320, height: 800 });
+
+    // ---- The facilitator's view of the learner, in German ----
+    await signIn(context, users.staff.sessionToken);
+    await page.goto("/de/facilitator");
+    await page
+      .locator("li", { hasText: EMAILS.narrow })
+      .filter({ visible: true })
+      .getByRole("button", { name: "Lernende:n öffnen" })
+      .click();
+    // The learner has no name: the email is the heading, and it wraps.
+    await expect(page.getByRole("heading", { level: 2, name: EMAILS.narrow })).toBeVisible();
+    expect.soft(await sidewaysScroll(page), "the learner view scrolls sideways").toBe(0);
+    // "Gerade bei": the step name, all of it in its card.
+    const currentlyOn = miniStat(page, "Gerade bei").locator("p").first();
+    await expect.soft(currentlyOn).toHaveText("Gesprächsvorbereitungsübungen");
+    expect.soft(await fits(currentlyOn), "“Gerade bei” fits its card").toMatchObject({ fits: true });
+    // Time per lesson: "Andere Lektionen" whole, not "Andere Lektio…".
+    const other = page.getByText("Andere Lektionen", { exact: true }).filter({ visible: true });
+    await expect.soft(other).toBeVisible();
+    if (await other.count()) {
+      expect.soft(await fits(other), "“Andere Lektionen” fits its cell").toMatchObject({ fits: true });
+    }
+
+    // ---- The statistics, from the German menu ----
+    await page.goto("/de/analytics?live=1");
+    await expect(page.getByText("live data", { exact: false }).first()).toBeVisible();
+    // English only, and marked so.
+    await expect
+      .soft(page.locator('[lang="en"]').filter({ has: page.getByRole("heading", { name: "Learner statistics" }) }))
+      .toHaveCount(1);
+    expect.soft(await sidewaysScroll(page), "the statistics scroll sideways").toBe(0);
+    // "Time per lesson": every label within its own column, none printed
+    // over the next (the chart may scroll inside its card instead).
+    const chart = page.locator("section", { has: page.getByRole("heading", { name: "Time per lesson" }) });
+    const outside = await chart.evaluate((section) =>
+      [...section.querySelectorAll(".grid > div")].flatMap((column) => {
+        const label = column.lastElementChild as HTMLElement;
+        const c = column.getBoundingClientRect();
+        const l = label.getBoundingClientRect();
+        return l.left < c.left - 0.5 || l.right > c.right + 0.5 ? [label.textContent] : [];
+      })
+    );
+    expect.soft(outside, "labels running out of their columns").toEqual([]);
   });
 });
