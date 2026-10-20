@@ -21,6 +21,9 @@ import {
   Info,
 } from "lucide-react";
 
+/** Lessons of a course's own, on none of the seven steps (staff screens stay English). */
+const OTHER_LESSONS = "Other lessons";
+
 function fmtDuration(seconds: number): string {
   if (seconds <= 0) return "0m";
   const m = Math.round(seconds / 60);
@@ -45,7 +48,28 @@ export function AnalyticsDashboard({
   /** Test copies can switch to sample data; the live site never shows it. */
   sampleAvailable?: boolean;
 }) {
-  const maxTime = Math.max(1, ...data.timePerStage.map((t) => t.avgSeconds));
+  // Release 2: learners on a lesson of their course's own are on none of
+  // the seven steps (currentStageIndex -1), and their time there is in
+  // secondsOther. Each is one figure beside the steps' — statistics per
+  // lesson come after launch (spec 6, D70). Neither shows while there's
+  // nothing to show, nor ever for the sample, which has no such learners.
+  const onOther =
+    data.funnelOther && data.funnelOther.reached > 0 ? data.funnelOther : null;
+  const otherTimes = data.learners
+    .map((l) => l.secondsOther ?? 0)
+    .filter((v) => v > 0);
+  const timeColumns = otherTimes.length
+    ? [
+        ...data.timePerStage,
+        {
+          label: OTHER_LESSONS,
+          avgSeconds: Math.round(
+            otherTimes.reduce((a, b) => a + b, 0) / otherTimes.length
+          ),
+        },
+      ]
+    : data.timePerStage;
+  const maxTime = Math.max(1, ...timeColumns.map((t) => t.avgSeconds));
   const maxDay = Math.max(1, ...data.activityByDay.map((d) => d.opens));
   const maxHeat = Math.max(
     1,
@@ -54,10 +78,25 @@ export function AnalyticsDashboard({
 
   const stuckStage =
     data.funnel[data.stuckStageIndex]?.label ?? STAGE_LABELS[0];
-  const slowStage = STAGE_LABELS[data.slowestStageIndex];
+  // The slowest column of the chart, "Other lessons" included: the seven
+  // steps' slowest, unless learners spend longer in their courses' own
+  // lessons.
+  const slowestIndex =
+    timeColumns.length > data.timePerStage.length &&
+    timeColumns[timeColumns.length - 1].avgSeconds >
+      (data.timePerStage[data.slowestStageIndex]?.avgSeconds ?? 0)
+      ? timeColumns.length - 1
+      : data.slowestStageIndex;
+  const slowOther = slowestIndex >= data.timePerStage.length;
+  const slowStage = slowOther
+    ? OTHER_LESSONS
+    : STAGE_LABELS[data.slowestStageIndex];
+  const slowAvg = fmtDuration(timeColumns[slowestIndex]?.avgSeconds ?? 0);
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-8">
+    // The staff statistics are English only, whatever the page's language
+    // (like STAGE_LABELS): say so, so the screen is read as English.
+    <div lang="en" className="mx-auto max-w-6xl px-4 py-8">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">
           Learner statistics
@@ -161,6 +200,29 @@ export function AnalyticsDashboard({
                   </div>
                 );
               })}
+              {onOther ? (
+                <div className="border-t border-[var(--border)] pt-2.5">
+                  <div className="flex items-center justify-between text-xs mb-1">
+                    <span className="font-medium flex items-center gap-1.5">
+                      {OTHER_LESSONS}
+                    </span>
+                    <span className="text-[var(--muted-foreground)] tabular-nums">
+                      {onOther.reached} · {onOther.pct}%
+                    </span>
+                  </div>
+                  <div className="h-3 rounded-full bg-[var(--surface-muted)] overflow-hidden">
+                    <div
+                      className="h-full rounded-full"
+                      style={{ width: `${onOther.pct}%`, background: "var(--primary)" }}
+                    />
+                  </div>
+                  <p className="mt-1 text-[11px] text-[var(--muted-foreground)]">
+                    Learners now on one of their course&apos;s own lessons,
+                    outside the seven steps. Figures for each of those
+                    lessons come later.
+                  </p>
+                </div>
+              ) : null}
             </CardContent>
           </Card>
         </section>
@@ -181,10 +243,16 @@ export function AnalyticsDashboard({
             <Insight
               icon={Hourglass}
               tone="accent"
-              title={`“${slowStage}” takes the longest`}
-              body={`Learners spend the most time on this lesson (avg ${fmtDuration(
-                data.timePerStage[data.slowestStageIndex].avgSeconds
-              )}) — a sign it's challenging.`}
+              title={
+                slowOther
+                  ? `“${slowStage}” take the longest`
+                  : `“${slowStage}” takes the longest`
+              }
+              body={
+                slowOther
+                  ? `Learners spend the most time in their course's own lessons, outside the seven steps (avg ${slowAvg}). Figures for each of those lessons come later.`
+                  : `Learners spend the most time on this lesson (avg ${slowAvg}) — a sign it's challenging.`
+              }
             />
             <Insight
               icon={AlertTriangle}
@@ -204,28 +272,40 @@ export function AnalyticsDashboard({
         </p>
         <Card>
           <CardContent className="p-5">
-            <div className="grid grid-cols-7 gap-2 items-end h-40">
-              {data.timePerStage.map((t, i) => (
-                <div key={t.label} className="flex flex-col items-center gap-1 h-full justify-end">
-                  <span className="text-[10px] text-[var(--muted-foreground)] tabular-nums">
-                    {fmtDuration(t.avgSeconds)}
-                  </span>
-                  <div
-                    className="w-full rounded-t"
-                    style={{
-                      height: `${(t.avgSeconds / maxTime) * 100}%`,
-                      background:
-                        i === data.slowestStageIndex
-                          ? "var(--warning)"
-                          : "var(--accent)",
-                      minHeight: "4px",
-                    }}
-                  />
-                  <span className="text-[10px] text-[var(--muted-foreground)] text-center leading-tight">
-                    {t.label}
-                  </span>
-                </div>
-              ))}
+            {/* Each column keeps room for its label: on a narrow screen the
+                chart scrolls sideways in its card, as the table below does,
+                rather than printing its labels over each other. */}
+            <div
+              className="overflow-x-auto"
+              role="region"
+              aria-label="Time per lesson"
+              tabIndex={0}
+            >
+              <div
+                className={`grid ${timeColumns.length > 7 ? "grid-cols-8" : "grid-cols-7"} gap-2 items-end h-40 min-w-[32rem]`}
+              >
+                {timeColumns.map((t, i) => (
+                  <div key={t.label} className="flex flex-col items-center gap-1 h-full justify-end">
+                    <span className="text-[10px] text-[var(--muted-foreground)] tabular-nums">
+                      {fmtDuration(t.avgSeconds)}
+                    </span>
+                    <div
+                      className="w-full rounded-t"
+                      style={{
+                        height: `${(t.avgSeconds / maxTime) * 100}%`,
+                        background:
+                          i === slowestIndex
+                            ? "var(--warning)"
+                            : "var(--accent)",
+                        minHeight: "4px",
+                      }}
+                    />
+                    <span className="text-[10px] text-[var(--muted-foreground)] text-center leading-tight">
+                      {t.label}
+                    </span>
+                  </div>
+                ))}
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -325,7 +405,9 @@ export function AnalyticsDashboard({
                     <td className="px-3 py-2.5">
                       {l.completed
                         ? "Completed"
-                        : STAGE_LABELS[l.currentStageIndex]}
+                        : l.currentStageIndex < 0
+                          ? "Other lesson"
+                          : STAGE_LABELS[l.currentStageIndex]}
                     </td>
                     <td className="px-3 py-2.5">
                       <div className="flex items-center gap-2">

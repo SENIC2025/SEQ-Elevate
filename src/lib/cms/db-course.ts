@@ -112,6 +112,12 @@ const DEFAULTS: Record<
 // text-fallback.ts); re-exported for the callers that read it from here.
 export { pickMeta, type CourseMeta, type CourseMetaEntry };
 
+/** The step names not in the list's language, by lesson id; nothing when there are none. */
+function stageLabelLangs(plan: LessonPlan): Pick<CourseSummary, "stageLabelLangs"> {
+  const other = plan.lessons.flatMap((l) => (l.lang ? [[l.id, l.lang] as const] : []));
+  return other.length ? { stageLabelLangs: Object.fromEntries(other) } : {};
+}
+
 function toSummary(
   slug: string,
   cluster: string,
@@ -134,6 +140,7 @@ function toSummary(
     stageKeys: plan.lessons.map((l) => l.id),
     unseenStageKeys: [...plan.unseen],
     stageLabels: Object.fromEntries(plan.lessons.map((l) => [l.id, l.label])),
+    ...stageLabelLangs(plan),
     // The dashboard names a badge from the course list; without these it
     // showed a created course's badge as its slug.
     badgeSlug,

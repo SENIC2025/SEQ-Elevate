@@ -148,6 +148,41 @@ describe("buildRealAnalytics, for a course with lessons of its own", () => {
     expect(data?.funnelOther).toEqual({ reached: 1, pct: 50 });
   });
 
+  it("keeps a learner on the funnel's steps they finished while they are on one of the course's own lessons", async () => {
+    // Review finding 6: Context done, now on a lesson of the course's own.
+    // The funnel had them at no step at all ("Context 0 · 0%") and put the
+    // biggest drop-off on a step with nobody before it.
+    lessonPlans.mockImplementation(async () => new Map([["asking-for-help", plan]]));
+    learnersOf.mockImplementation(() => [one("onOwn", [enrolment(["CONTEXT"], null)])]);
+    const data = await buildRealAnalytics("en");
+    expect(data?.learners[0].currentStageIndex).toBe(-1);
+    expect(data?.funnel[0]).toEqual({ label: "Context", reached: 1, pct: 100 });
+    expect(data?.funnel[1]).toEqual({ label: "Concept", reached: 0, pct: 0 });
+    expect(data?.funnelOther).toEqual({ reached: 1, pct: 100 });
+  });
+
+  it("counts a step the learner finished ahead of the course's next one (a course in its own order)", async () => {
+    // Concept before Context: done Concept, now on Context.
+    lessonPlans.mockImplementation(async () =>
+      new Map([
+        [
+          "asking-for-help",
+          {
+            lessons: [
+              { id: "concept", kind: "stage", label: "Concept" },
+              { id: "context", kind: "stage", label: "Context" },
+            ],
+            unseen: [],
+          } satisfies LessonPlan,
+        ],
+      ])
+    );
+    learnersOf.mockImplementation(() => [one("reordered", [enrolment(["CONCEPT"], null)])]);
+    const data = await buildRealAnalytics("en");
+    expect(data?.learners[0].currentStageIndex).toBe(0);
+    expect(data?.funnel.slice(0, 3).map((f) => f.reached)).toEqual([1, 1, 0]);
+  });
+
   it("has nobody beside the funnel when every learner is on a standard lesson", async () => {
     const data = await buildRealAnalytics("en");
     expect(data?.funnelOther).toEqual({ reached: 0, pct: 0 });

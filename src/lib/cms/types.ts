@@ -225,6 +225,12 @@ export interface CourseSummary {
    * language. Absent for a built-in course: its standard names (tStage).
    */
   stageLabels?: Record<string, string>;
+  /**
+   * The language of a step name that isn't in the list's language (a
+   * lesson of the course's own named only in another), by lesson id, for
+   * its lang attribute (WCAG 3.1.2). Absent when every name is.
+   */
+  stageLabelLangs?: Record<string, Locale>;
 }
 
 /** A Comp Card template (fields the learner fills). Configurable per project. */

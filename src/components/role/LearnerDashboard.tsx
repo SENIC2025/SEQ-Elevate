@@ -2,14 +2,19 @@
 
 import { useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
-import { useDemoState } from "@/store/demo-state";
+import { useDemoState, type CourseProgress } from "@/store/demo-state";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { SKILL_CLUSTERS } from "@/data/course";
 import type { CourseSummary } from "@/lib/cms/types";
-import { courseProgress, overallProgress } from "@/lib/course-progress";
+import {
+  courseProgress,
+  courseStageKeys,
+  overallProgress,
+} from "@/lib/course-progress";
+import { hasCourseProgress } from "@/store/progress-merge";
 import {
   MessageCircle,
   Shield,
@@ -61,16 +66,21 @@ export function LearnerDashboard({
   const t = useTranslations("dashboard");
   const tCommon = useTranslations("common");
   const tClusters = useTranslations("skillClusters");
+  // ", done" after a finished step, for screen readers (as the player's step bar).
+  const tPlayer = useTranslations("coursePlayer");
 
   const { state } = useDemoState();
 
   const published = courses.filter((c) => !c.comingSoon);
-  const hero = published[0];
+  const current = currentCourseSlug(enrollments, state.course, published);
+  const hero = published.find((c) => c.slug === current) ?? published[0];
   const activeClusters = new Set(published.map((c) => c.cluster));
 
   // Per-course status: real enrollments for authed users, demo-state for
-  // guests. Progress is counted against the course's OWN lessons — a course
-  // created in the CMS can have four, not seven (src/lib/course-progress.ts).
+  // guests. Progress is counted against the course's OWN lessons, as the
+  // player plays them — a course created in the CMS can have four, or
+  // lessons of its own — and a lesson the learner finished keeps counting
+  // once the course no longer shows it (D64, src/lib/course-progress.ts).
   const enrollMap = new Map((enrollments ?? []).map((e) => [e.slug, e]));
   const courseStatus = (course: CourseSummary) => {
     let stages: string[] = [];
@@ -85,12 +95,24 @@ export function LearnerDashboard({
       state.course.courseSlug === course.slug ||
       (!state.course.courseSlug && course.slug === hero?.slug)
     ) {
-      stages = state.course.stagesCompleted;
+      // Standard lessons and the course's own are kept apart in the store.
+      stages = [
+        ...state.course.stagesCompleted,
+        ...state.course.sectionsCompleted,
+      ];
       completed = !!state.course.completedAt;
     }
-    const progress = courseProgress(course.stageKeys, stages, completed);
+    const progress = courseProgress(
+      course.stageKeys,
+      stages,
+      completed,
+      course.unseenStageKeys
+    );
     return {
       ...progress,
+      // The lessons the course shows, in its order; `keys` adds the
+      // finished ones it no longer shows.
+      shown: courseStageKeys(course.stageKeys),
       completed,
       inProgress: progress.done.length > 0 && !completed,
     };
@@ -102,6 +124,11 @@ export function LearnerDashboard({
   const progressPct = heroStatus?.pct ?? 0;
   const isInProgress = heroStatus?.inProgress ?? false;
   const isCompleted = heroStatus?.completed ?? false;
+  // Finished lessons the hero's course no longer shows: counted above, one
+  // line under its journey.
+  const notShown = heroStatus
+    ? heroStatus.keys.length - heroStatus.shown.length
+    : 0;
 
   // Overall completion across all published courses (the whole programme).
   const publishedStatus = published.map(courseStatus);
@@ -146,7 +173,7 @@ export function LearnerDashboard({
         </Card>
       ) : null}
 
-      {/* Hero mission — first published course */}
+      {/* Hero mission — the course the learner is in, else the first published */}
       {hero ? (
         <Card className="mt-4 overflow-hidden border-[var(--accent)]/30">
           <CardContent className="p-0">
@@ -377,14 +404,14 @@ export function LearnerDashboard({
                   label={`${stagesDone}/${totalStages}`}
                 />
                 <ul className="mt-3 space-y-1.5">
-                  {(heroStatus?.keys ?? []).map((stage) => {
+                  {(heroStatus?.shown ?? []).map((stage) => {
                     const done = heroStatus?.done.includes(stage) ?? false;
                     return (
                       <li key={stage} className="flex items-center gap-2 text-sm">
                         {done ? (
-                          <CheckCircle2 className="h-4 w-4 text-[var(--success)]" />
+                          <CheckCircle2 className="h-4 w-4 flex-shrink-0 text-[var(--success)]" />
                         ) : (
-                          <span className="h-4 w-4 rounded-full border border-[var(--border)]" />
+                          <span className="h-4 w-4 flex-shrink-0 rounded-full border border-[var(--border)]" />
                         )}
                         <span
                           className={
@@ -393,11 +420,24 @@ export function LearnerDashboard({
                               : "text-[var(--muted-foreground)]"
                           }
                         >
-                          <StageLabel stage={stage} />
+                          <StageLabel
+                            stage={stage}
+                            labels={hero?.stageLabels}
+                            langs={hero?.stageLabelLangs}
+                          />
+                          {done ? (
+                            <span className="sr-only">{tPlayer("stepDone")}</span>
+                          ) : null}
                         </span>
                       </li>
                     );
                   })}
+                  {notShown > 0 ? (
+                    <li className="flex items-center gap-2 text-sm text-[var(--muted-foreground)]">
+                      <CheckCircle2 className="h-4 w-4 flex-shrink-0 text-[var(--success)]" />
+                      <span>{t("lessonsNotShown", { count: notShown })}</span>
+                    </li>
+                  ) : null}
                 </ul>
               </CardContent>
             </Card>
@@ -408,7 +448,54 @@ export function LearnerDashboard({
   );
 }
 
-function StageLabel({ stage }: { stage: string }) {
+/**
+ * A lesson's step name, as the player shows it (D58): a created course's
+ * own (CourseSummary.stageLabels), else the standard name. One written
+ * only in another language says which (WCAG 3.1.2).
+ */
+function StageLabel({
+  stage,
+  labels,
+  langs,
+}: {
+  stage: string;
+  labels?: Record<string, string>;
+  langs?: Record<string, string>;
+}) {
   const t = useTranslations("course.stageLabel");
-  return <>{t(stage)}</>;
+  const own = labels?.[stage];
+  const lang = own !== undefined ? langs?.[stage] : undefined;
+  return lang ? <span lang={lang}>{own}</span> : <>{own ?? t(stage)}</>;
+}
+
+/**
+ * The course the learner is in, for the hero: of the courses they can
+ * open, the one they were last in and haven't finished — a signed-in
+ * learner's most recently updated enrolment, a guest's course in this
+ * browser while it is under way. Null when there is none; the hero is then
+ * the first published course. (It used to be the first published course
+ * always, so a learner several courses in was shown one they never opened,
+ * at 0%.)
+ */
+function currentCourseSlug(
+  enrollments: EnrollmentSummary[] | null | undefined,
+  guest: CourseProgress,
+  published: readonly CourseSummary[]
+): string | null {
+  const open = new Set(published.map((c) => c.slug));
+  if (enrollments) {
+    const at = (e: EnrollmentSummary) =>
+      (e.updatedAt && Date.parse(e.updatedAt)) || 0;
+    const underWay = enrollments.filter(
+      (e) => !e.completed && open.has(e.slug)
+    );
+    underWay.sort((a, b) => at(b) - at(a));
+    return underWay[0]?.slug ?? null;
+  }
+  return guest.courseSlug &&
+    open.has(guest.courseSlug) &&
+    !guest.completedAt &&
+    hasCourseProgress(guest)
+    ? guest.courseSlug
+    : null;
 }

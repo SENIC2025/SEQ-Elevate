@@ -101,6 +101,12 @@ export interface FacilitatorLearner {
    * "complete".
    */
   currentStageLabel: string | null;
+  /**
+   * The language of currentStageLabel when it isn't the page's (a lesson
+   * of the course's own named only in another), for its lang attribute
+   * (WCAG 3.1.2). Absent otherwise.
+   */
+  currentStageLabelLang?: Locale;
   lastActiveAt: string | null; // ISO
   /**
    * Active time on task (seconds): total + per lesson id. The total holds
@@ -252,6 +258,7 @@ async function loadLearners(
     )[0];
     let currentStage: string | null = null;
     let currentStageLabel: string | null = null;
+    let currentStageLabelLang: Locale | undefined;
     let currentCourse: string | null = null;
     let lastActiveAt: string | null = null;
     if (recent) {
@@ -263,9 +270,11 @@ async function loadLearners(
         completedLessonIds(recent),
         !!recent.completedAt
       );
-      currentStageLabel =
-        planOf(recent.course.slug)?.lessons.find((l) => l.id === currentStage)
-          ?.label ?? null;
+      const current = planOf(recent.course.slug)?.lessons.find(
+        (l) => l.id === currentStage
+      );
+      currentStageLabel = current?.label ?? null;
+      currentStageLabelLang = current?.lang;
     }
 
     // Quiz performance across enrollments.
@@ -314,6 +323,7 @@ async function loadLearners(
       currentCourse,
       currentStage,
       currentStageLabel,
+      ...(currentStageLabelLang ? { currentStageLabelLang } : {}),
       lastActiveAt,
       secondsTotal: time.total,
       secondsByStage: time.byStage,

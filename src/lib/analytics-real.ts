@@ -111,6 +111,8 @@ export async function buildRealAnalytics(
     }
 
     const now = Date.now();
+    // How far along the seven steps each learner got, for the funnel.
+    const furthestStep = new Map<string, number>();
     const learners: LearnerRow[] = started.map((m) => {
       const u = m.user;
       const recent = [...u.enrollments].sort(
@@ -130,6 +132,19 @@ export async function buildRealAnalytics(
       // Where they are, on the seven-step funnel: the course's next lesson
       // (-1, beside the funnel, for one of the course's own).
       const next = nextStage(ownKeys, done, completed);
+      const currentStageIndex =
+        next === "complete" ? 7 : (STAGES as readonly string[]).indexOf(next);
+      // The funnel's furthest step: the next lesson's, or a step finished
+      // further on — the learner on a lesson of the course's own (-1) still
+      // reached the steps they finished, as does one whose course puts a
+      // step they finished after the next.
+      furthestStep.set(
+        u.id,
+        Math.max(
+          currentStageIndex,
+          ...done.map((k) => (STAGES as readonly string[]).indexOf(k))
+        )
+      );
       const secondsByStage = timeByUser.get(u.id) ?? new Array(7).fill(0);
       const secondsOther = otherByUser.get(u.id) ?? 0;
       const secondsTotal = secondsByStage.reduce((a, b) => a + b, 0) + secondsOther;
@@ -158,7 +173,7 @@ export async function buildRealAnalytics(
         id: u.id,
         name: u.name ?? u.email ?? "Learner",
         cohort: m.cohort?.name ?? "—",
-        currentStageIndex: next === "complete" ? 7 : (STAGES as readonly string[]).indexOf(next),
+        currentStageIndex,
         completed,
         progressPct: progress.pct,
         secondsByStage,
@@ -173,7 +188,7 @@ export async function buildRealAnalytics(
 
     const N = learners.length;
     const reachedVal = (l: LearnerRow) =>
-      l.completed ? 7 : l.currentStageIndex;
+      l.completed ? 7 : (furthestStep.get(l.id) ?? l.currentStageIndex);
 
     const funnel: { label: string; reached: number; pct: number }[] =
       STAGE_LABELS.map((label, idx) => {

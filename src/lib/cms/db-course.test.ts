@@ -230,5 +230,12 @@ describe("listDbCourses lessons", () => {
       behaviour: "Behaviour model",
       reflection: "Reflection",
     });
+    // Every name is English, the list's language.
+    expect(summary.stageLabelLangs).toBeUndefined();
+
+    // In German: "My own" is still English, and says so (WCAG 3.1.2).
+    const [de] = await listDbCourses("p", "de");
+    expect(de.stageLabels?.["s-abcdefgh"]).toBe("My own");
+    expect(de.stageLabelLangs).toEqual({ "s-abcdefgh": "en" });
   });
 });

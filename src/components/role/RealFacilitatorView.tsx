@@ -18,6 +18,7 @@ import {
 import { FACILITATOR_TEXT_MAX } from "@/lib/facilitator-access";
 import { Link } from "@/i18n/navigation";
 import { STAGES } from "@/data/course";
+import { isLegacySectionId } from "@/lib/cms/sections/contract";
 import {
   Users,
   CheckCircle2,
@@ -136,12 +137,14 @@ export function RealFacilitatorView({
         <Card>
           <CardContent className="p-6 sm:p-8">
             <div className="flex items-center justify-between gap-2 mb-3">
-              <div>
+              {/* A learner without a name is headed by their email, one long
+                  word: it wraps rather than widening the page. */}
+              <div className="min-w-0">
                 <p className="text-xs uppercase tracking-wider text-[var(--muted-foreground)] font-semibold">
                   {t("viewLearner")}
                 </p>
-                <h2 className="text-2xl font-bold">{selected.name}</h2>
-                <p className="text-sm text-[var(--muted-foreground)] mt-0.5">
+                <h2 className="text-2xl font-bold wrap-anywhere">{selected.name}</h2>
+                <p className="text-sm text-[var(--muted-foreground)] mt-0.5 wrap-anywhere">
                   {selected.email}
                 </p>
               </div>
@@ -421,21 +424,40 @@ function Row({
   );
 }
 
-/** Where the learner is, how long they've spent, and how their quizzes went. */
-function ActivityPanel({ learner }: { learner: FacilitatorLearner }) {
+/**
+ * Where the learner is, how long they've spent, and how their quizzes went.
+ * (Exported for its tests.)
+ */
+export function ActivityPanel({ learner }: { learner: FacilitatorLearner }) {
   const t = useTranslations("facilitator");
   const tStage = useTranslations("course.stageLabel");
   const locale = useLocale();
 
+  // The lesson by the step name the learner sees (D58): a course created in
+  // the CMS names its own lessons, and may rename the standard ones; a
+  // built-in course's lesson has its standard name.
   const positionLabel =
     learner.currentStage === "complete"
       ? t("completedAll")
-      : learner.currentStage
-        ? tStage(learner.currentStage)
-        : "—";
+      : learner.currentStageLabel
+        ? learner.currentStageLabel
+        : isLegacySectionId(learner.currentStage)
+          ? tStage(learner.currentStage)
+          : "—";
 
-  const stageRows = STAGES.filter((s) => (learner.secondsByStage[s] ?? 0) > 0);
-  const maxStage = Math.max(1, ...stageRows.map((s) => learner.secondsByStage[s]));
+  // Time per lesson: the seven standard lessons by their standard names,
+  // across courses, then one row for the rest — lessons of a course's own —
+  // so the rows add up to the time on task, as the statistics count it
+  // (spec 6; statistics per lesson come after launch).
+  const rows: { key: string; label: string; seconds: number }[] = STAGES.filter(
+    (s) => (learner.secondsByStage[s] ?? 0) > 0
+  ).map((s) => ({ key: s, label: tStage(s), seconds: learner.secondsByStage[s] }));
+  const other =
+    learner.secondsTotal - rows.reduce((sum, r) => sum + r.seconds, 0);
+  if (other > 0) {
+    rows.push({ key: "other", label: t("otherLessons"), seconds: other });
+  }
+  const maxStage = Math.max(1, ...rows.map((r) => r.seconds));
 
   return (
     <div className="mb-6 rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] p-4">
@@ -443,8 +465,19 @@ function ActivityPanel({ learner }: { learner: FacilitatorLearner }) {
         {t("activityTitle")}
       </p>
 
-      <div className="grid grid-cols-3 gap-3">
-        <MiniStat icon={MapPin} label={t("currentlyOn")} value={positionLabel} />
+      {/* One card under the other on a narrow screen: "Currently on" is a
+          step name an editor wrote, up to 40 characters. */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <MiniStat
+          icon={MapPin}
+          label={t("currentlyOn")}
+          value={positionLabel}
+          lang={
+            positionLabel === learner.currentStageLabel
+              ? learner.currentStageLabelLang
+              : undefined
+          }
+        />
         <MiniStat
           icon={Clock}
           label={t("timeOnTask")}
@@ -467,23 +500,22 @@ function ActivityPanel({ learner }: { learner: FacilitatorLearner }) {
         </p>
       ) : null}
 
-      {stageRows.length ? (
+      {rows.length ? (
         <div className="mt-3 space-y-1.5">
-          {stageRows.map((s) => (
-            <div key={s} className="flex items-center gap-2 text-xs">
-              <span className="w-24 flex-shrink-0 text-[var(--muted-foreground)] truncate">
-                {tStage(s)}
+          {rows.map((r) => (
+            <div key={r.key} className="flex items-center gap-2 text-xs">
+              {/* Wraps rather than cuts: "Andere Lektionen", the Greek names. */}
+              <span className="w-24 flex-shrink-0 text-[var(--muted-foreground)] break-words hyphens-auto">
+                {r.label}
               </span>
               <div className="flex-1 h-1.5 rounded-full bg-[var(--surface)] overflow-hidden">
                 <div
                   className="h-full rounded-full bg-[var(--accent)]/60"
-                  style={{
-                    width: `${(learner.secondsByStage[s] / maxStage) * 100}%`,
-                  }}
+                  style={{ width: `${(r.seconds / maxStage) * 100}%` }}
                 />
               </div>
               <span className="tabular-nums text-[var(--muted-foreground)] w-12 text-right">
-                {formatDuration(learner.secondsByStage[s])}
+                {formatDuration(r.seconds)}
               </span>
             </div>
           ))}
@@ -515,15 +547,24 @@ function MiniStat({
   icon: Icon,
   label,
   value,
+  lang,
 }: {
   icon: typeof MapPin;
   label: string;
   value: string;
+  /** The value's language when it isn't the page's (WCAG 3.1.2). */
+  lang?: string;
 }) {
   return (
-    <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-2.5">
+    <div className="min-w-0 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-2.5">
       <Icon className="h-3.5 w-3.5 text-[var(--accent)]" />
-      <p className="mt-1 text-sm font-semibold leading-tight">{value}</p>
+      {/* A long word (a German step name) breaks rather than running out. */}
+      <p
+        className="mt-1 text-sm font-semibold leading-tight hyphens-auto wrap-anywhere"
+        lang={lang}
+      >
+        {value}
+      </p>
       <p className="text-[10px] uppercase tracking-wider text-[var(--muted-foreground)]">
         {label}
       </p>

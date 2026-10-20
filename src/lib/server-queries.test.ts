@@ -188,6 +188,20 @@ describe("getProjectLearners, for a course with lessons of its own", () => {
     const [learner] = (await getProjectLearners("en")) ?? [];
     expect(learner.currentStage).toBe(OWN2);
     expect(learner.currentStageLabel).toBe("Try it");
+    expect(learner.currentStageLabelLang).toBeUndefined();
+  });
+
+  it("says the language of that step name when it isn't the page's (WCAG 3.1.2)", async () => {
+    // Named only in English, on a German page.
+    const dePlan: LessonPlan = {
+      ...sayingNoPlan,
+      lessons: sayingNoPlan.lessons.map((l) => (l.id === OWN2 ? { ...l, lang: "en" as const } : l)),
+    };
+    lessonPlans.mockImplementation(async () => new Map([["saying-no", dePlan]]));
+    learnerEnrolments.mockImplementation(() => [flexible(["CONTEXT", "CONCEPT"], [OWN])]);
+    const [learner] = (await getProjectLearners("de")) ?? [];
+    expect(learner.currentStageLabel).toBe("Try it");
+    expect(learner.currentStageLabelLang).toBe("en");
   });
 
   it("has no step name for a bundled course's lesson (the view names it), nor once complete", async () => {
