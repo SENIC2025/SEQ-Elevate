@@ -26,7 +26,15 @@ import {
  *
  * The two playback engines (native, YouTube) are separate child components so
  * each owns its own effect; both report time up and expose pause/play via refs.
+ *
+ * Release 2 (spec 5.9): in a narrow player (under 480 px, a phone) the
+ * question is shown below the video instead of over it — squeezed into the
+ * frame, its answers didn't fit (consortium point 5). Focus goes to the
+ * question when it opens and back to the video when it closes.
  */
+
+/** Below this width (px) the question goes under the video, not over it. */
+export const NARROW_PLAYER_PX = 480;
 export function InteractiveVideoPlayer({
   video,
   onCueAnswered,
@@ -42,6 +50,19 @@ export function InteractiveVideoPlayer({
   const [activeCue, setActiveCue] = React.useState<VideoCue | null>(null);
   const [duration, setDuration] = React.useState(0);
   const [currentTime, setCurrentTime] = React.useState(0);
+
+  // How wide the player is: under NARROW_PLAYER_PX the question goes below.
+  const sectionRef = React.useRef<HTMLElement>(null);
+  const [narrow, setNarrow] = React.useState(false);
+  React.useEffect(() => {
+    const el = sectionRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(([entry]) =>
+      setNarrow(entry.contentRect.width < NARROW_PLAYER_PX)
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   // Engine controls, set by whichever child engine mounts.
   const pauseRef = React.useRef<() => void>(() => {});
@@ -77,7 +98,9 @@ export function InteractiveVideoPlayer({
       setAnswered((a) => (a.includes(cueId) ? a : [...a, cueId]));
       setActiveCue(null);
       if (correct !== null) onCueAnswered?.(cueId, correct);
-      // Resume after the overlay unmounts.
+      // Focus back on the video, whose button went with the question, and
+      // resume once the question has gone.
+      sectionRef.current?.querySelector<HTMLElement>("video, iframe")?.focus();
       window.setTimeout(() => playRef.current(), 0);
     },
     [onCueAnswered]
@@ -87,6 +110,7 @@ export function InteractiveVideoPlayer({
 
   return (
     <section
+      ref={sectionRef}
       className="rounded-xl border border-[var(--border)] bg-[var(--surface)] overflow-hidden"
       aria-label={video.title ?? t("regionLabel")}
     >
@@ -125,7 +149,7 @@ export function InteractiveVideoPlayer({
           />
         )}
 
-        {activeCue ? (
+        {activeCue && !narrow ? (
           <QuizOverlay
             key={activeCue.id}
             cue={activeCue}
@@ -133,6 +157,15 @@ export function InteractiveVideoPlayer({
           />
         ) : null}
       </div>
+
+      {activeCue && narrow ? (
+        <QuizOverlay
+          key={activeCue.id}
+          cue={activeCue}
+          onResolve={resolveCue}
+          below
+        />
+      ) : null}
 
       {/* Cue timeline — shows where the questions are */}
       {cues.length > 0 && duration > 0 ? (
@@ -180,17 +213,25 @@ export function InteractiveVideoPlayer({
 
 /* ---------------------------- Quiz overlay ---------------------------- */
 
+/**
+ * The question at a cue: over the paused video, or (`below`, a narrow
+ * player) under it — there not modal, as the page around it stays usable.
+ */
 function QuizOverlay({
   cue,
   onResolve,
+  below = false,
 }: {
   cue: VideoCue;
   onResolve: (cueId: string, correct: boolean | null) => void;
+  below?: boolean;
 }) {
   const t = useTranslations("video");
   const [choice, setChoice] = React.useState<string | null>(null);
   const [submitted, setSubmitted] = React.useState(false);
   const headingRef = React.useRef<HTMLHeadingElement>(null);
+  const uid = React.useId();
+  const headingId = `${uid}-question`;
 
   React.useEffect(() => {
     headingRef.current?.focus();
@@ -201,17 +242,21 @@ function QuizOverlay({
   return (
     <div
       role="dialog"
-      aria-modal="true"
-      aria-labelledby="cue-question"
-      className="absolute inset-0 z-10 flex items-center justify-center bg-black/80 p-4 overflow-y-auto"
+      aria-modal={below ? undefined : "true"}
+      aria-labelledby={headingId}
+      className={
+        below
+          ? "border-t border-[var(--border)] p-4"
+          : "absolute inset-0 z-10 flex items-center justify-center bg-black/80 p-4 overflow-y-auto"
+      }
     >
-      <div className="w-full max-w-lg rounded-xl bg-[var(--surface)] p-5 shadow-2xl my-auto">
+      <div className={below ? "w-full" : "w-full max-w-lg rounded-xl bg-[var(--surface)] p-5 shadow-2xl my-auto"}>
         <p className="text-xs uppercase tracking-wider text-[var(--accent)] font-semibold flex items-center gap-1.5">
           <HelpCircle className="h-3.5 w-3.5" />
           {t("quickQuestion")}
         </p>
         <h3
-          id="cue-question"
+          id={headingId}
           ref={headingRef}
           tabIndex={-1}
           className="mt-1 text-lg font-bold outline-none"
@@ -240,7 +285,7 @@ function QuizOverlay({
               >
                 <input
                   type="radio"
-                  name="cue-answer"
+                  name={`${uid}-answer`}
                   value={o.id}
                   checked={isChoice}
                   onChange={() => setChoice(o.id)}

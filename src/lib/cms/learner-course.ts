@@ -39,7 +39,7 @@ import type { CourseContent, CourseStage, Locale, StageKey } from "./types";
 
 export { getLessonPlans } from "./lesson-plans";
 
-export type LearnerLesson =
+export type LearnerLesson = (
   | { kind: "stage"; id: StageKey; label: string; stage: CourseStage }
   | {
       kind: "section";
@@ -48,7 +48,14 @@ export type LearnerLesson =
       section: SectionStage;
       /** The standard reflection questions, when the lesson's own questions replace them. */
       replacedPrompts?: { id: "p1" | "p2" | "p3"; label: string }[];
-    };
+    }
+) & {
+  /**
+   * The language `label` is written in, when it isn't the course's
+   * (PlanLesson.lang): the player marks the name with it (WCAG 3.1.2).
+   */
+  lang?: Locale;
+};
 
 export interface LearnerCourse extends Omit<CourseContent, "stages"> {
   lessons: LearnerLesson[];
@@ -56,6 +63,9 @@ export interface LearnerCourse extends Omit<CourseContent, "stages"> {
 }
 
 const isRecord = (v: unknown) => typeof v === "object" && v !== null && !Array.isArray(v);
+
+/** A plan lesson's `lang`, only when it has one. */
+const langOf = (lesson: { lang?: Locale }) => (lesson.lang ? { lang: lesson.lang } : {});
 
 /** Every stage of `base` as a stage lesson, under its standard name. */
 function asStages(base: CourseContent, locale: Locale): LearnerCourse {
@@ -121,7 +131,7 @@ export async function getLearnerCourse(
       if (lesson.kind === "stage") {
         const stage = base.stages.find((s) => s.key === lesson.id);
         if (!stage) throw new Error(`lesson ${lesson.id} is in the plan but not in the course`);
-        return { kind: "stage", id: stage.key, label: lesson.label, stage };
+        return { kind: "stage", id: stage.key, label: lesson.label, ...langOf(lesson), stage };
       }
       const section = sections.get(lesson.id);
       const row = rowOf.get(lesson.id);
@@ -143,6 +153,7 @@ export async function getLearnerCourse(
         kind: "section",
         id: lesson.id,
         label: lesson.label,
+        ...langOf(lesson),
         section: { ...resolved, skipped: opts?.editor ? resolved.skipped : 0 },
         ...(replaced
           ? {

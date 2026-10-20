@@ -506,16 +506,16 @@
     "backToEditing": "Zurück zum Bearbeiten",
     "stepDone": ", erledigt",
     "resumed": "Dort geöffnet, wo du aufgehört hast: Schritt {current} von {total}, {name}.",
-    "newLesson": "Neue Lektion: hinzugefügt, nachdem du angefangen hast.",
+    "newLesson": "Diese Lektion hast du noch nicht gemacht. Sie ist neu oder wurde verschoben.",
     "noLessons": "Dieser Kurs hat noch keine Lektionen.",
     "staleBuild": "Eine neue Version ist verfügbar. Lade die Seite neu, damit deine Antworten weiter gespeichert werden.",
     "reload": "Neu laden",
-    "charsLeft": "Noch {count} Zeichen",
+    "charsLeft": "Noch {count, plural, one {# Zeichen} other {# Zeichen}}",
     "answerTooLong": "Diese Antwort ist zu lang zum Speichern. Kürze sie auf {max} Zeichen.",
-    "earlierAnswers": "Deine früheren Antworten"
+    "earlierAnswers": "Deine früheren Antworten",
+    "notSaved": "Diese Antwort konnte nicht gespeichert werden. Du kannst weitermachen, aber nach dem Neuladen oder auf einem anderen Gerät ist sie nicht mehr da."
   },
   "sectionPreview": {
-    "banner": "Diese Vorschau zeigt den neuen Aufbau. Lernende bekommen ihn ab Release 2, deshalb lässt sich der Kurs noch nicht veröffentlichen.",
     "answerFirst": "Beantworte das zuerst, um weiterzumachen.",
     "skippedNote": "Für die Redaktion: {count, plural, one {Ein Inhalt wird} other {# Inhalte werden}} hier nicht gezeigt — bisher nur ein Entwurf oder noch nicht fertig.",
     "ratingOption": "{n} von 5",
@@ -544,7 +544,7 @@
     "quizLeft": "Beantworte {count, plural, one {noch # Frage} other {noch # Fragen}} und wähle dann „{button}“.",
     "quizCheck": "Wähle „{button}“, um zu sehen, wie du abgeschnitten hast.",
     "announce": "{item}: {need}",
-    "stillToDo": "Bevor du abschließt: „{name}“ fehlt noch."
+    "stillToDo": "Bevor du abschließt: „<lesson>{name}</lesson>“ fehlt noch."
   },
   "video": {
     "regionLabel": "Lernvideo",

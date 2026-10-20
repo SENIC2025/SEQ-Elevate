@@ -1,10 +1,9 @@
 import { describe, it, expect } from "vitest";
-import type { SectionedCourseContent } from "@/lib/cms/sections/contract";
+import type { LearnerCourse } from "@/lib/cms/learner-course";
 import { completionCourse } from "./completion-course";
 import { sectionStage } from "./test-fixtures";
 
-const course: SectionedCourseContent = {
-  sectioned: true,
+const course: LearnerCourse = {
   slug: "speaking-up",
   locale: "de",
   cluster: "communication",
@@ -13,7 +12,8 @@ const course: SectionedCourseContent = {
   tagline: "Klar und ruhig",
   durationMinutes: 20,
   badge: { slug: "speaking-up", name: "Klare Stimme", meaning: "Sagt, was zählt" },
-  stages: [sectionStage],
+  lessons: [{ kind: "section", id: sectionStage.key, label: "Warm-up", section: sectionStage }],
+  unseen: ["concept"],
   completion: { title: "Geschafft", body: "Gut gemacht." },
 };
 
@@ -27,12 +27,12 @@ describe("completionCourse", () => {
     expect(got.completion).toEqual(course.completion);
   });
 
-  it("carries none of the editor's lessons and no sectioned flag", () => {
+  it("carries none of the course's lessons", () => {
     const got = completionCourse(course);
     expect(got.stages).toEqual([]);
-    expect("sectioned" in got).toBe(false);
-    // The preview's course itself is left as it was.
-    expect(course.stages).toHaveLength(1);
-    expect(course.sectioned).toBe(true);
+    expect("lessons" in got).toBe(false);
+    expect("unseen" in got).toBe(false);
+    // The learner course itself is left as it was.
+    expect(course.lessons).toHaveLength(1);
   });
 });

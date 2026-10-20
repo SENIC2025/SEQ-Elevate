@@ -179,3 +179,92 @@ describe("StageBreadcrumb", () => {
     expect(html).not.toContain("stageLabel");
   });
 });
+
+/**
+ * UA4 (Q4, spec 5.6): the bar reaches up to the first lesson not done, no
+ * further — Release 1 let any done step be opened, so a lesson done before
+ * an editor moved it past the frontier let the learner skip ahead — and a
+ * done step says so in words.
+ */
+describe("StageBreadcrumb in order (Release 2)", () => {
+  const ids = ["s-abcd1234", "concept", "scenario", "s-efgh5678"];
+  const names: Record<string, string> = {
+    "s-abcd1234": "Warm-up",
+    concept: "The idea",
+    scenario: "Try it",
+    "s-efgh5678": "Wrap-up",
+  };
+  const bar = (o: Partial<Parameters<typeof StageBreadcrumb<string>>[0]>) =>
+    steps(
+      renderOwn<string>({
+        current: "concept",
+        completed: [],
+        stages: ids,
+        labelOf: (k) => names[k],
+        ...o,
+      })
+    );
+
+  it("reaches up to the frontier and the current step, never a done step beyond it", () => {
+    // "Wrap-up" was done, then an editor moved it after a lesson not done.
+    const got = bar({ current: "concept", completed: ["s-abcd1234", "s-efgh5678"], frontier: 1 });
+    expect(got.map((s) => s.disabled)).toEqual([false, false, true, true]);
+    expect(got[3].label).toBe("Wrap-up");
+  });
+
+  it("reaches the frontier from a lesson before it (Back keeps the way forward open)", () => {
+    const got = bar({ current: "s-abcd1234", completed: ["s-abcd1234", "concept"], frontier: 2 });
+    expect(got.map((s) => s.disabled)).toEqual([false, false, false, true]);
+  });
+
+  it("keeps the current step reachable even past the frontier", () => {
+    const got = bar({ current: "s-efgh5678", completed: [], frontier: 0 });
+    expect(got.map((s) => s.disabled)).toEqual([false, true, true, false]);
+  });
+
+  it("lets a preview reach every step whatever the frontier", () => {
+    expect(bar({ frontier: 0, allReachable: true }).every((s) => !s.disabled)).toBe(true);
+  });
+
+  it("says a done step is done, in its name (the eye sees a tick, and the name on wider screens)", () => {
+    const html = renderOwn<string>({
+      current: "concept",
+      completed: ["s-abcd1234"],
+      stages: ids,
+      labelOf: (k) => names[k],
+      frontier: 1,
+      doneLabel: ", done",
+    });
+    expect(html).toContain(
+      '<span aria-hidden="true" class="hidden sm:inline">Warm-up</span><span class="sr-only">Warm-up, done</span></button>'
+    );
+    // Steps not done keep their markup.
+    expect(html).toContain('<span class="sr-only sm:not-sr-only">The idea</span>');
+  });
+
+  // Review finding 6 on Stream A (WCAG 3.1.2): on a Greek page, a step
+  // named only in English was read with Greek speech.
+  it("marks a step name written in another language than the page's with its lang", () => {
+    const html = renderOwn<string>({
+      current: "concept",
+      completed: ["s-abcd1234"],
+      stages: ids,
+      labelOf: (k) => names[k],
+      langOf: (k) => (k === "concept" || k === "s-abcd1234" ? "en" : undefined),
+      frontier: 1,
+      doneLabel: ", ολοκληρώθηκε",
+    });
+    // Done: the shown name and the read one, the suffix in the page's language.
+    expect(html).toContain(
+      '<span aria-hidden="true" class="hidden sm:inline" lang="en">Warm-up</span><span class="sr-only"><span lang="en">Warm-up</span>, ολοκληρώθηκε</span></button>'
+    );
+    expect(html).toContain('<span class="sr-only sm:not-sr-only" lang="en">The idea</span>');
+    // In the page's language: no lang, the markup as before.
+    expect(html).toContain('<span class="sr-only sm:not-sr-only">Try it</span>');
+  });
+
+  it("without the new props, a done step stays reachable as before", () => {
+    const got = bar({ current: "concept", completed: ["s-abcd1234", "s-efgh5678"] });
+    expect(got.map((s) => s.disabled)).toEqual([false, false, true, false]);
+  });
+});

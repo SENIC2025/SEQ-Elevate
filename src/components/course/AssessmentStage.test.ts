@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createElement, type FC, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { NextIntlClientProvider } from "next-intl";
@@ -14,14 +14,21 @@ const store = vi.hoisted(() => ({
   },
   dispatch: (() => {}) as (action: unknown) => void,
 }));
-vi.mock("@/store/demo-state", () => ({
-  useDemoState: () => ({
-    state: { course: { assessment: store.assessment } },
-    dispatch: store.dispatch,
-  }),
-}));
+vi.mock("@/store/demo-state", async () => {
+  const { fakeCourse } = await import("./press.test-helpers");
+  return {
+    useDemoState: () => ({
+      state: { course: fakeCourse({ assessment: store.assessment }), refusedKeys: {} },
+      dispatch: store.dispatch,
+    }),
+  };
+});
+const announced = vi.hoisted(() => [] as string[]);
+vi.mock("./PlayerAnnouncer", () => ({ useAnnounce: () => (t: string) => announced.push(t) }));
+vi.mock("@/components/ui/button", async () => ({ Button: (await import("./press.test-helpers")).MockButton }));
 
 import { AssessmentStage } from "./AssessmentStage";
+import { did, fakePage, press } from "./press.test-helpers";
 
 const IntlProvider = NextIntlClientProvider as FC<{
   locale: string;
@@ -59,13 +66,14 @@ const stage: CourseStage = {
   },
 } as CourseStage;
 
+let continued = 0;
 function render(progress: AssessmentProgress): string {
   store.assessment = progress;
   return renderToStaticMarkup(
     createElement(
       IntlProvider,
       { locale: "en", messages: en, timeZone: "UTC" },
-      createElement(AssessmentStage, { stage, onContinue: () => {} })
+      createElement(AssessmentStage, { stage, onContinue: () => continued++ })
     )
   );
 }
@@ -88,7 +96,13 @@ function buttons(html: string) {
 describe("AssessmentStage", () => {
   beforeEach(() => {
     store.dispatch = () => {};
+    announced.length = 0;
+    continued = 0;
+    const page = fakePage();
+    vi.stubGlobal("document", page.document);
+    vi.stubGlobal("window", page.window);
   });
+  afterEach(() => vi.unstubAllGlobals());
 
   it("shows the answers the learner chose earlier, keyed by question id", () => {
     const got = buttons(render({ answers: { qk3f: "a2x" }, checked: false }));
@@ -123,11 +137,13 @@ describe("AssessmentStage", () => {
   it("opens a quiz tried again afresh: nothing chosen, nothing locked, the hint back", () => {
     const html = render({ answers: {}, checked: false, retaken: true });
     const got = buttons(html);
-    const options = got.filter((b) => b.label !== "Check answers");
+    const options = got.filter((b) => b.label !== "Check answers" && b.label !== "Continue");
     expect(options).toHaveLength(4);
     expect(options.some((b) => b.pressed || b.disabled)).toBe(false);
     expect(got.find((b) => b.label === "Check answers")?.disabled).toBe(true);
-    expect(got.some((b) => b.label === "Continue" || b.label === "Try again")).toBe(false);
+    // Release 2 (D1): Continue is there before the check too; Try again isn't.
+    expect(got.some((b) => b.label === "Try again")).toBe(false);
+    expect(got.at(-1)).toMatchObject({ label: "Continue", disabled: false });
     expect(html).toContain(
       "Answer every question, then select “Check answers” to continue."
     );
@@ -144,8 +160,45 @@ describe("AssessmentStage", () => {
   it("doesn't count a quiz as checked once its questions have changed", () => {
     // Checked before the editor added a question: the new one is open.
     const got = buttons(render({ answers: { qk3f: "a1x" }, checked: true }));
-    expect(got.some((b) => b.label === "Continue")).toBe(false);
+    expect(got.some((b) => b.label === "Try again")).toBe(false);
+    expect(got.some((b) => b.label === "Check answers")).toBe(true);
     expect(got.find((b) => b.label === "Also right")?.disabled).toBe(false);
+    press("Continue");
+    expect(continued).toBe(0);
+  });
+
+  // UA5 (spec 5.7): Release 1 hid Continue until the answers were checked.
+  it("shows Continue after Check answers before the check, described by the same hint", () => {
+    const html = render({ answers: {}, checked: false });
+    const id = html.match(/<p id="([^"]+)"[^>]*>Answer every question/)?.[1];
+    const names = buttons(html).map((b) => b.label);
+    expect(names.slice(-2)).toEqual(["Check answers", "Continue"]);
+    expect(html).toMatch(new RegExp(`<button[^>]*aria-describedby="${id}"[^>]*>Continue`));
+  });
+
+  it("pressed with questions left: says how many, and focuses the first unanswered question", () => {
+    const html = render({ answers: { qk3f: "a1x" }, checked: false });
+    const second = html.match(/<p id="([^"]+)" tabindex="-1"[^>]*><span[^>]*>2\.<\/span>Second\?<\/p>/)?.[1];
+    expect(second).toBeTruthy();
+    press("Continue");
+    expect(continued).toBe(0);
+    expect(announced).toEqual(["Quick check: Answer 1 more question, then select “Check answers”."]);
+    expect(did).toEqual([`focus ${second} preventScroll`]);
+  });
+
+  it("pressed with every question answered but not checked: focuses Check answers", () => {
+    const html = render({ answers: { qk3f: "a1x", q9zz: "a4x" }, checked: false });
+    const check = html.match(/<button[^>]*id="([^"]+)"[^>]*>Check answers/)?.[1];
+    expect(check).toBeTruthy();
+    press("Continue");
+    expect(announced).toEqual(["Quick check: Select “Check answers” to see how you did."]);
+    expect(did).toEqual([`focus ${check} preventScroll`]);
+  });
+
+  it("goes on once checked", () => {
+    render({ answers: { qk3f: "a1x", q9zz: "a4x" }, checked: true });
+    press("Continue");
+    expect(continued).toBe(1);
   });
 
   it("ignores a saved answer that is no longer one of the question's options", () => {

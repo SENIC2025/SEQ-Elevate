@@ -5,8 +5,10 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   type MouseEvent,
+  type ReactNode,
 } from "react";
 import { useTranslations } from "next-intl";
 import { useSession } from "next-auth/react";
@@ -14,9 +16,13 @@ import { Link } from "@/i18n/navigation";
 import { recordVideoCueAnswer } from "@/app/actions/video";
 import { recordCourseOpened } from "@/app/actions/telemetry";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { STAGES, type Stage } from "@/data/course";
 import { useDemoState } from "@/store/demo-state";
+import type { LearnerCourse, LearnerLesson } from "@/lib/cms/learner-course";
+import { frontierOf, isReachable } from "@/lib/cms/sections/learner-nav";
+import type { SectionId } from "@/lib/cms/sections/contract";
+import type { Locale } from "@/lib/cms/types";
 import { StageBreadcrumb } from "./StageBreadcrumb";
 import { NarrativeStage } from "./NarrativeStage";
 import { SimulationStage } from "./SimulationStage";
@@ -26,31 +32,19 @@ import { AssessmentStage } from "./AssessmentStage";
 import { CompletionStage } from "./CompletionStage";
 import { InteractiveVideoPlayer } from "./InteractiveVideoPlayer";
 import { LessonDocuments } from "./LessonDocuments";
+import { SectionView } from "./sectioned/SectionView";
+import { completionCourse } from "./sectioned/completion-course";
+import { PlayerAnnouncer, useAnnounce } from "./PlayerAnnouncer";
+import { StaleBuildBanner } from "./StaleBuildBanner";
+import { LessonNote } from "./lesson-note";
+import { afterContinue, backFrom, type Position } from "./player-nav";
+import { initialPosition, useResume } from "./useResume";
 import { useStageTimer } from "./useStageTimer";
 import { openStepAtTop } from "./step-focus";
-import type { CourseContent, CourseStage, Locale } from "@/lib/cms/types";
 import { ChevronLeft, Pencil } from "lucide-react";
 
-/**
- * Generic course player. Renders ANY course passed as a CourseContent
- * object — content comes from props (CMS), only UI chrome is i18n. The
- * WP3 7-stage sequence is enforced via the STAGES order; the player walks
- * the stages present in course.stages in that canonical order.
- *
- * In an editor's preview (`preview`) nothing is recorded: the page wraps the
- * player in PreviewStateProvider, so progress stays in memory, and the
- * telemetry below is switched off. Preview may start at any lesson
- * (`initialStage`) and lets the editor jump to any step.
- */
-export function CoursePlayer({
-  course,
-  draftPreview = false,
-  preview = false,
-  canEdit = false,
-  initialStage,
-  editLocale,
-}: {
-  course: CourseContent;
+export interface CoursePlayerProps {
+  course: LearnerCourse;
   /** Editor previewing an unpublished course — learners never see this. */
   draftPreview?: boolean;
   /** Editor's sandboxed preview: nothing is saved, every step is reachable. */
@@ -58,50 +52,143 @@ export function CoursePlayer({
   /** The viewer may edit content (checked on the server): "Edit this lesson". */
   canEdit?: boolean;
   /** Preview only: the lesson to open first. Ignored if the course lacks it. */
-  initialStage?: Stage;
+  initialLesson?: SectionId;
   /**
    * Preview opened from the course page: the editor's own menu language.
    * The links back to editing use it, and "Back to editing" closes this tab
    * to return to the course page it came from, when the browser allows.
    */
   editLocale?: Locale;
-}) {
-  const tStage = useTranslations("course.stageLabel");
-  const tPlayer = useTranslations("coursePlayer");
+  /**
+   * A signed-in learner's position, worked out on the server from their
+   * enrolment (spec 5.5): where they open, with no flash of lesson 1.
+   */
+  serverResume?: SectionId | "complete" | null;
+}
 
-  // Stage data lookup by key
-  const stageByKey = new Map<string, CourseStage>(
-    course.stages.map((s) => [s.key, s])
+/**
+ * The one course player, for every course (D63). Renders the lessons
+ * learners get (LearnerCourse, the course's lesson plan): in their order,
+ * under their step names (D58), hidden lessons and lessons with nothing to
+ * show left out. Each lesson is drawn one of two ways (spec 5.3): a
+ * standard lesson with only its main content by its Release 0 stage
+ * screen; a lesson of the course's own, or one with extra content, by the
+ * sectioned view. Built-in courses only ever have stage lessons. Content
+ * comes from props (CMS); only the chrome is i18n.
+ *
+ * In order, can go back (Q4): the step bar reaches up to the first lesson
+ * not done; Back always works; the last Continue goes to any lesson still
+ * to do, and says so — on the screen and in the live region — before the
+ * completion. A course with no lessons says so and never completes (no
+ * badge for nothing).
+ *
+ * Resume (useResume): a signed-in learner opens where the server says,
+ * then the player checks once more when their progress has loaded, never
+ * moving a learner who has started. A lesson not done placed before done
+ * ones (added, shown again or moved there mid-course) says it is still to
+ * do (LessonNote).
+ *
+ * A step name written in another language than the page's (a lesson of
+ * the course's own named only in English, on a Greek page) is marked with
+ * its lang wherever it shows: the step bar, Back, the counter and the
+ * still-to-do note (WCAG 3.1.2).
+ *
+ * In an editor's preview (`preview`) nothing is recorded: the page wraps the
+ * player in PreviewStateProvider, so progress stays in memory, and the
+ * telemetry below is switched off. Preview may start at any lesson
+ * (`initialLesson`) and lets the editor jump to any step.
+ */
+export function CoursePlayer(props: CoursePlayerProps) {
+  return (
+    <PlayerAnnouncer>
+      <Player {...props} />
+    </PlayerAnnouncer>
   );
-  // The ordered list of stage keys this course actually contains,
-  // in the enforced WP3 order.
-  const orderedKeys = STAGES.filter((k) => stageByKey.has(k));
+}
+
+function Player({
+  course,
+  draftPreview = false,
+  preview = false,
+  canEdit = false,
+  initialLesson,
+  editLocale,
+  serverResume,
+}: CoursePlayerProps) {
+  const tPlayer = useTranslations("coursePlayer");
+  const tHint = useTranslations("continueHint");
+  const announce = useAnnounce();
+
+  const lessons = course.lessons;
+  const ids = useMemo(() => lessons.map((l) => l.id), [lessons]);
+  const byId = useMemo(() => new Map<string, LearnerLesson>(lessons.map((l) => [l.id, l])), [lessons]);
+  const labelOf = useCallback((id: string) => byId.get(id)?.label ?? "", [byId]);
+  const langOf = useCallback((id: string) => byId.get(id)?.lang, [byId]);
+  /** A lesson's step name, marked with its language when it isn't the page's. */
+  const nameOf = (id: string): ReactNode => {
+    const lang = langOf(id);
+    return lang ? <span lang={lang}>{labelOf(id)}</span> : labelOf(id);
+  };
 
   const { state, dispatch } = useDemoState();
   const { status } = useSession();
-  // Start at the first lesson this course has (not every course has
-  // "context"), or at the lesson a preview asked for.
-  const [current, setCurrent] = useState<Stage | "complete">(() =>
-    initialStage && stageByKey.has(initialStage)
-      ? initialStage
-      : (orderedKeys[0] ?? "complete")
+  const [current, setCurrent] = useState<Position>(() =>
+    initialPosition(ids, { preview, initialLesson, serverResume })
   );
+  // The lesson the last Continue went back to, still to do: said above it
+  // while the learner is there.
+  const [stillToDo, setStillToDo] = useState<SectionId | null>(null);
+
+  // What the learner has done in this course: the store's, only while it
+  // holds this course (just opened after another course, it still holds
+  // that one's) — and, until the learner's saved progress has loaded into
+  // it, what the server said: every lesson before the one they open at is
+  // done (nextLesson), so the step bar and the last Continue never act as
+  // if it weren't. Progress only grows, so the two are a union.
+  const ours = state.course.courseSlug === course.slug;
+  const { stagesCompleted, sectionsCompleted } = state.course;
+  const done = useMemo(() => {
+    const at = serverResume && serverResume !== "complete" ? ids.indexOf(serverResume) : -1;
+    const fromServer = serverResume === "complete" ? ids : at > 0 ? ids.slice(0, at) : [];
+    return new Set<string>([...fromServer, ...(ours ? [...stagesCompleted, ...sectionsCompleted] : [])]);
+  }, [ids, serverResume, ours, stagesCompleted, sectionsCompleted]);
+  const completedAt = ours ? state.course.completedAt : null;
+  const completed = !!completedAt || serverResume === "complete";
+  const frontier = frontierOf(ids, done, completed);
+
+  const indexOf = (id: Position) => (id === "complete" || id === "empty" ? -1 : ids.indexOf(id));
+  const total = ids.length;
+
+  const { interacted } = useResume({
+    slug: course.slug,
+    progress: { ids, done, completedAt },
+    current,
+    setCurrent,
+    preview,
+    initialLesson,
+    onMoved: (to) => {
+      if (to === "complete" || to === "empty") return;
+      announce(tPlayer("resumed", { current: ids.indexOf(to) + 1, total, name: labelOf(to) }));
+    },
+  });
 
   // Telemetry is for signed-in learners, never for an editor's preview.
   const track = status === "authenticated" && !preview;
 
-  // Record in-video quiz answers for signed-in learners (engagement signal
-  // facilitators can see). Guests keep their answers client-side only.
+  // In-video answers of signed-in learners (an engagement signal for
+  // facilitators), with the lesson they belong to. Guests keep theirs in
+  // the browser only.
   const onCueAnswered = useCallback(
-    (cueId: string, correct: boolean) => {
+    (cue: { cueId: string; correct: boolean; lessonId: SectionId }) => {
       if (!track) return;
-      void recordVideoCueAnswer({ courseSlug: course.slug, cueId, correct });
+      void recordVideoCueAnswer({ courseSlug: course.slug, ...cue });
     },
     [track, course.slug]
   );
 
-  // Track active time on each stage for the facilitator analytics (authed only).
-  useStageTimer(course.slug, current, track && current !== "complete");
+  const isLesson = current !== "complete" && current !== "empty";
+  // Track active time on each lesson for the facilitator analytics (authed only).
+  useStageTimer(course.slug, current, track && isLesson);
 
   // Record the course open once per mount (for "when they open" analytics).
   const openedRef = useRef(false);
@@ -111,12 +198,10 @@ export function CoursePlayer({
     void recordCourseOpened(course.slug);
   }, [track, course.slug]);
 
-  const resumeFromProgress = state.course.stagesCompleted.length;
-
-  // When the stage changes (Continue, Back, the step bar), the new stage
-  // opens at its top, and focus moves to it so screen-reader users hear the
-  // new content (WCAG 2.4.3 Focus Order) — without the focus scrolling the
-  // page, which would cut the scroll short (see step-focus.ts).
+  // When the lesson changes (Continue, Back, the step bar, resume), the new
+  // one opens at its top, and focus moves to it so screen-reader users hear
+  // the new content (WCAG 2.4.3 Focus Order) — without the focus scrolling
+  // the page, which would cut the scroll short (see step-focus.ts).
   const stageRef = useRef<HTMLDivElement>(null);
   const firstRender = useRef(true);
   useEffect(() => {
@@ -145,75 +230,48 @@ export function CoursePlayer({
     });
   }, [dispatch, course.slug, course.title]);
 
-  useEffect(() => {
-    // Resume at the learner's last position on mount, from persisted
-    // progress. Intentional one-time setState after hydration. A preview
-    // has no saved progress, and starts where the editor asked. Only this
-    // course's progress counts: opened right after another course, the
-    // store here still holds that one's (setCourseContext above isn't
-    // applied yet), and resuming from it would open this course at the
-    // other's lesson — or complete it, badge included.
-    if (preview || initialStage || state.course.courseSlug !== course.slug)
-      return;
-    /* eslint-disable react-hooks/set-state-in-effect */
-    if (state.course.completedAt) {
-      setCurrent("complete");
-    } else if (
-      resumeFromProgress > 0 &&
-      resumeFromProgress < orderedKeys.length
-    ) {
-      setCurrent(orderedKeys[resumeFromProgress]);
-    }
-    /* eslint-enable react-hooks/set-state-in-effect */
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const indexOf = (key: Stage) => orderedKeys.indexOf(key);
-
   const goNext = useCallback(() => {
-    if (current === "complete") return;
-    dispatch({ type: "completeStage", stage: current });
-    const idx = orderedKeys.indexOf(current);
-    if (idx === orderedKeys.length - 1) {
-      setCurrent("complete");
-    } else {
-      setCurrent(orderedKeys[idx + 1]);
+    if (current === "complete" || current === "empty") return;
+    dispatch({ type: "completeLesson", id: current });
+    const next = afterContinue(ids, done, current, completed);
+    if (next.stillToDo) {
+      announce(tHint.markup("stillToDo", { name: labelOf(next.stillToDo), lesson: (chunks) => chunks }));
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [current, dispatch]);
+    setStillToDo(next.stillToDo ?? null);
+    setCurrent(next.to);
+  }, [current, dispatch, ids, done, completed, announce, tHint, labelOf]);
 
   const goBack = useCallback(() => {
-    if (current === "complete") {
-      setCurrent(orderedKeys[orderedKeys.length - 1]);
-      return;
-    }
-    const idx = orderedKeys.indexOf(current);
-    if (idx === 0) return;
-    setCurrent(orderedKeys[idx - 1]);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [current]);
+    const to = backFrom(ids, current);
+    if (!to) return;
+    setStillToDo(null);
+    setCurrent(to);
+  }, [ids, current]);
 
-  const jumpTo = useCallback((stage: Stage) => {
-    setCurrent(stage);
-  }, []);
+  const currentIndex = indexOf(current);
+  const jumpTo = useCallback(
+    (id: SectionId) => {
+      if (!isReachable(ids.indexOf(id), frontier, currentIndex, preview)) return;
+      setStillToDo(null);
+      setCurrent(id);
+    },
+    [ids, frontier, currentIndex, preview]
+  );
 
-  const breadcrumbCurrent: Stage =
-    current === "complete" ? orderedKeys[orderedKeys.length - 1] : current;
-  const completedStages =
-    current === "complete" ? [...orderedKeys] : state.course.stagesCompleted;
+  const breadcrumbCurrent = current === "complete" ? ids[ids.length - 1] : isLesson ? current : undefined;
+  const completedLessons = current === "complete" ? [...ids] : [...done];
 
   const progressPct =
-    current === "complete"
-      ? 100
-      : Math.round(((indexOf(current) + 1) / orderedKeys.length) * 100);
+    current === "complete" ? 100 : isLesson ? Math.round(((currentIndex + 1) / total) * 100) : 0;
 
-  const currentStage =
-    current === "complete" ? null : stageByKey.get(current) ?? null;
+  const lesson = isLesson ? byId.get(current) : undefined;
+  // A lesson not done, with a later one done: added, shown again or moved
+  // there after the learner started (spec 5.5, 7.4).
+  const isNew =
+    !preview && lesson !== undefined && !done.has(lesson.id) && ids.slice(currentIndex + 1).some((id) => done.has(id));
 
   // This lesson on the course page, in the language being played.
-  const editHref = `/content/courses/${course.slug}?${
-    current === "complete" ? "" : `lesson=${current}&`
-  }lang=${course.locale}`;
+  const editHref = `/content/courses/${course.slug}?${isLesson ? `lesson=${current}&` : ""}lang=${course.locale}`;
 
   // Opened from the course page in a new tab: that page is still open, so go
   // back to it instead of starting a second copy (whose saves could then
@@ -225,8 +283,18 @@ export function CoursePlayer({
     if (window.closed) e.preventDefault();
   };
 
+  const back = backFrom(ids, current);
+
   return (
-    <div className="mx-auto max-w-3xl px-4 py-6 sm:py-8">
+    // Anything the learner does here — a step, an answer, Continue — means
+    // they have started: the resume check then leaves them where they are.
+    <div
+      className="mx-auto max-w-3xl px-4 py-6 sm:py-8"
+      onClickCapture={interacted}
+      onChangeCapture={interacted}
+      onInputCapture={interacted}
+    >
+      <StaleBuildBanner />
       {preview || draftPreview ? (
         <div
           role="status"
@@ -250,8 +318,9 @@ export function CoursePlayer({
         </div>
       ) : null}
 
-      {/* Top bar */}
-      <div className="mb-4 flex items-start justify-between gap-3">
+      {/* Top bar. It wraps on a phone, where an editor's longer links
+          ("Edit this lesson" in Greek) and the title don't fit one line. */}
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
         <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
           <Link
             href="/learner"
@@ -262,7 +331,7 @@ export function CoursePlayer({
           </Link>
           {/* canEdit comes from the server page: roles aren't on the client
               session. Opens the lesson being played on its course page. */}
-          {canEdit && current !== "complete" ? (
+          {canEdit && isLesson ? (
             <Link
               href={editHref}
               locale={editLocale}
@@ -281,74 +350,117 @@ export function CoursePlayer({
         </div>
       </div>
 
-      {/* Breadcrumb — enforces visible sequence */}
-      <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3 mb-2">
-        <StageBreadcrumb
-          current={breadcrumbCurrent}
-          completed={completedStages}
-          onJump={jumpTo}
-          stages={orderedKeys}
-          allReachable={preview}
-        />
-      </div>
-      <Progress value={progressPct} className="mb-6" />
+      {current === "empty" ? (
+        <Card>
+          <CardContent className="p-6 sm:p-8">
+            <p className="text-base">{tPlayer("noLessons")}</p>
+          </CardContent>
+        </Card>
+      ) : (
+        <>
+          {/* Breadcrumb — enforces visible sequence */}
+          <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3 mb-2">
+            <StageBreadcrumb<SectionId>
+              current={breadcrumbCurrent ?? ids[0]}
+              completed={completedLessons}
+              onJump={jumpTo}
+              stages={ids}
+              labelOf={labelOf}
+              langOf={langOf}
+              allReachable={preview}
+              frontier={frontier}
+              doneLabel={tPlayer("stepDone")}
+            />
+          </div>
+          <Progress value={progressPct} className="mb-6" />
 
-      {/* Current stage. Focus moves here on stage change so SR users hear
-          the new content; in-stage feedback uses its own live regions. */}
-      <div
-        key={current}
-        ref={stageRef}
-        tabIndex={-1}
-        className="outline-none space-y-4"
-      >
-        {currentStage?.video ? (
-          <InteractiveVideoPlayer
-            video={currentStage.video}
-            onCueAnswered={onCueAnswered}
-          />
-        ) : null}
-        {currentStage?.documents?.length ? (
-          <LessonDocuments
-            documents={currentStage.documents}
-            stageNumber={
-              current === "complete" ? undefined : indexOf(current) + 1
-            }
-          />
-        ) : null}
-        {currentStage?.key === "context" ||
-        currentStage?.key === "concept" ||
-        currentStage?.key === "behaviour" ? (
-          <NarrativeStage stage={currentStage} onContinue={goNext} />
-        ) : currentStage?.key === "simulation" ? (
-          <SimulationStage stage={currentStage} onContinue={goNext} />
-        ) : currentStage?.key === "scenario" ? (
-          <ScenarioStage stage={currentStage} onContinue={goNext} />
-        ) : currentStage?.key === "reflection" ? (
-          <ReflectionStage stage={currentStage} onContinue={goNext} />
-        ) : currentStage?.key === "assessment" ? (
-          <AssessmentStage stage={currentStage} onContinue={goNext} />
-        ) : (
-          <CompletionStage course={course} />
-        )}
-      </div>
+          {/* Current lesson. Focus moves here on lesson change so SR users
+              hear the new content; in-lesson feedback uses its own live
+              regions, and the player's own messages its one region. */}
+          <div key={current} ref={stageRef} tabIndex={-1} className="outline-none space-y-4">
+            {lesson && stillToDo === lesson.id ? (
+              <LessonNote kind="stillToDo" name={lesson.label} lang={lesson.lang} />
+            ) : isNew ? (
+              <LessonNote kind="new" />
+            ) : null}
+            {current === "complete" ? (
+              <CompletionStage course={completionCourse(course)} />
+            ) : lesson?.kind === "section" ? (
+              <SectionView
+                stage={lesson.section}
+                stageNumber={currentIndex + 1}
+                onContinue={goNext}
+                onCueAnswered={onCueAnswered}
+                replacedPrompts={lesson.replacedPrompts}
+              />
+            ) : lesson?.kind === "stage" ? (
+              <StageLesson
+                lesson={lesson}
+                stageNumber={currentIndex + 1}
+                onContinue={goNext}
+                onCueAnswered={onCueAnswered}
+              />
+            ) : null}
+          </div>
 
-      {/* Nav */}
-      {current !== "complete" ? (
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={goBack}
-            disabled={indexOf(current) === 0}
-          >
-            <ChevronLeft className="h-4 w-4" />
-            {tStage(orderedKeys[Math.max(0, indexOf(current) - 1)])}
-          </Button>
-          <p className="text-xs text-[var(--muted-foreground)] hidden sm:block">
-            {indexOf(current) + 1} / {orderedKeys.length} · {tStage(current)}
-          </p>
-        </div>
-      ) : null}
+          {/* Nav */}
+          {isLesson ? (
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+              <Button variant="ghost" size="sm" onClick={goBack} disabled={back === null}>
+                <ChevronLeft className="h-4 w-4" />
+                {nameOf(back ?? ids[0])}
+              </Button>
+              <p className="text-xs text-[var(--muted-foreground)]">
+                {currentIndex + 1} / {total} · {nameOf(current)}
+              </p>
+            </div>
+          ) : null}
+        </>
+      )}
     </div>
+  );
+}
+
+/**
+ * A standard lesson with only its main content, by its Release 0 stage
+ * screen (spec 5.3), with its video and documents above it. An unknown kind
+ * of stage draws nothing — never the completion screen, which would
+ * complete the course.
+ */
+function StageLesson({
+  lesson,
+  stageNumber,
+  onContinue,
+  onCueAnswered,
+}: {
+  lesson: Extract<LearnerLesson, { kind: "stage" }>;
+  stageNumber: number;
+  onContinue: () => void;
+  onCueAnswered: (cue: { cueId: string; correct: boolean; lessonId: SectionId }) => void;
+}) {
+  const stage = lesson.stage;
+  return (
+    <>
+      {stage.video ? (
+        <InteractiveVideoPlayer
+          video={stage.video}
+          onCueAnswered={(cueId, correct) => onCueAnswered({ cueId, correct, lessonId: lesson.id })}
+        />
+      ) : null}
+      {stage.documents?.length ? (
+        <LessonDocuments documents={stage.documents} stageNumber={stageNumber} />
+      ) : null}
+      {stage.key === "context" || stage.key === "concept" || stage.key === "behaviour" ? (
+        <NarrativeStage stage={stage} onContinue={onContinue} />
+      ) : stage.key === "simulation" ? (
+        <SimulationStage stage={stage} onContinue={onContinue} />
+      ) : stage.key === "scenario" ? (
+        <ScenarioStage stage={stage} onContinue={onContinue} />
+      ) : stage.key === "reflection" ? (
+        <ReflectionStage stage={stage} onContinue={onContinue} />
+      ) : stage.key === "assessment" ? (
+        <AssessmentStage stage={stage} onContinue={onContinue} />
+      ) : null}
+    </>
   );
 }

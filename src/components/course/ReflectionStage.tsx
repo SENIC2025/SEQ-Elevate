@@ -1,5 +1,6 @@
 "use client";
 
+import { useId } from "react";
 import { useTranslations } from "next-intl";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -8,10 +9,21 @@ import { useDemoState } from "@/store/demo-state";
 import type { CourseStage } from "@/lib/cms/types";
 import { ArrowRight, NotebookPen } from "lucide-react";
 import { ReflectionIntro } from "./ReflectionIntro";
+import { AnswerLengthNote, answerLengthState } from "./answer-length";
+import { RefusedNote } from "./refused-note";
 
 /**
  * Reflection stage. Renders authored prompts; answers are private to the
  * learner. Maps the first three prompts to the persisted reflection slots.
+ *
+ * Release 2: each box is named by its question (a <label> tied to it;
+ * before, the boxes had no name at all). An answer may be up to 5,000
+ * characters (owner default 7): from 4,500 a note says how many are left,
+ * and past the limit that the answer is too long to save — it isn't sent
+ * until it is shorter, while every other answer keeps saving — rather than
+ * the browser cutting pasted text short (no maxLength). Held back or
+ * refused as too long, that note is all it needs; any other refusal of
+ * the answers (D62.d) is said under the boxes (RefusedNote).
  */
 export function ReflectionStage({
   stage,
@@ -22,8 +34,10 @@ export function ReflectionStage({
 }) {
   const t = useTranslations("coursePlayer");
   const tCommon = useTranslations("common");
+  const uid = useId();
   const { state, dispatch } = useDemoState();
   const r = state.course.reflection;
+  const refused = state.refusedKeys?.["reflection/main"];
 
   const ref = stage.reflection;
   if (!ref) return null;
@@ -48,21 +62,28 @@ export function ReflectionStage({
         <div className="mt-6 space-y-5">
           {ref.prompts.slice(0, 3).map((prompt, i) => {
             const key = slots[i];
+            const id = `${uid}-${key}`;
+            const length = answerLengthState(r[key]);
             return (
               <div key={i}>
-                <label className="block text-sm font-medium mb-1.5">
+                <label htmlFor={id} className="block text-sm font-medium mb-1.5">
                   {prompt.label}
                 </label>
                 <Textarea
+                  id={id}
                   value={r[key]}
                   onChange={(e) => set(key, e.target.value)}
-                  placeholder={prompt.placeholder}
+                  placeholder={prompt.placeholder || undefined}
+                  aria-describedby={length ? `${id}-length` : undefined}
+                  aria-invalid={length?.kind === "tooLong" ? true : undefined}
                   rows={2}
                 />
+                <AnswerLengthNote id={`${id}-length`} state={length} />
               </div>
             );
           })}
         </div>
+        <RefusedNote reason={refused} reflection />
 
         <div className="mt-6 flex justify-end">
           <Button size="md" onClick={onContinue}>

@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import { useTranslations } from "next-intl";
 import { STAGES, type Stage } from "@/data/course";
 import { Check } from "lucide-react";
@@ -11,11 +12,21 @@ import { cn } from "@/lib/utils";
  * anywhere. `stages` is the steps this course actually has — a course without
  * the interactive steps shows only its own, numbered 1..n.
  *
- * Generic over the step key, so the editor's sectioned preview (Release 1)
- * can list a course's own lessons with their step names (`labelOf`). The
- * defaults are the learner player's: the standard steps, named by
- * course.stageLabel — CoursePlayer passes Stage keys and gets exactly the
- * markup it always had.
+ * Generic over the step key, so the player can list a course's own lessons
+ * with their step names (`labelOf`, D58). The defaults are Release 0's:
+ * the standard steps, named by course.stageLabel, with exactly the markup
+ * they always had.
+ *
+ * Release 2 (Q4, spec 5.6): the player passes `frontier`, the index of the
+ * first lesson the learner hasn't done — the bar reaches up to it and no
+ * further, even to a lesson done before an editor moved it there, which
+ * shows ticked but can't be opened. `doneLabel` says a done step is done
+ * (", done", in its name), where the eye sees only a tick. `langOf` marks a
+ * step name written in another language than the page's (WCAG 3.1.2): a
+ * lesson of the course's own named only in English, on a Greek page. On a phone the bar scrolls
+ * sideways: the current step is kept in view by moving the bar itself,
+ * never the page (scrollIntoView would), at once for a learner who asked
+ * for less motion.
  */
 export function StageBreadcrumb<K extends string = Stage>({
   current,
@@ -24,6 +35,9 @@ export function StageBreadcrumb<K extends string = Stage>({
   stages = STAGES as readonly string[] as readonly K[],
   labelOf,
   allReachable = false,
+  frontier,
+  doneLabel,
+  langOf,
 }: {
   current: K;
   completed: string[];
@@ -32,25 +46,52 @@ export function StageBreadcrumb<K extends string = Stage>({
   /** The step's name. Default: its standard name (course.stageLabel). */
   labelOf?: (stage: K) => string;
   allReachable?: boolean;
+  /** The last step the bar reaches (the first not done); the current one always. */
+  frontier?: number;
+  /** Said after a done step's name, for screen readers (", done"). */
+  doneLabel?: string;
+  /** The language of a step's name when it isn't the page's; nothing otherwise. */
+  langOf?: (stage: K) => string | undefined;
 }) {
   const t = useTranslations("course.stageLabel");
   const tCourse = useTranslations("course");
   const currentIndex = stages.indexOf(current);
   const nameOf = labelOf ?? ((stage: K) => t(stage as string as Stage));
 
+  // The current step in view when the bar is wider than the screen.
+  const navRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const nav = navRef.current;
+    const button = nav?.querySelector<HTMLElement>('[aria-current="step"]');
+    if (!nav || !button) return;
+    const left = button.offsetLeft;
+    const right = left + button.offsetWidth;
+    if (left >= nav.scrollLeft && right <= nav.scrollLeft + nav.clientWidth) return;
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    nav.scrollTo({
+      left: Math.max(0, left - (nav.clientWidth - button.offsetWidth) / 2),
+      behavior: reduce ? "auto" : "smooth",
+    });
+  }, [current]);
+
   return (
     // relative: on a phone the step names are visually hidden, and
     // positioned; without it they escape this scroll box and widen the page.
     <nav
+      ref={navRef}
       aria-label={tCourse("stepsNav")}
       className="relative w-full overflow-x-auto"
     >
       <ol className="flex items-center gap-1 min-w-max">
         {stages.map((stage, i) => {
           const isCurrent = stage === current;
+          const lang = langOf?.(stage);
           const isDone = completed.includes(stage);
           const isPast = i < currentIndex;
-          const reachable = allReachable || isDone || isPast || isCurrent;
+          const reachable =
+            frontier === undefined
+              ? allReachable || isDone || isPast || isCurrent
+              : allReachable || i <= frontier || isCurrent;
 
           return (
             <li key={stage} className="flex items-center">
@@ -95,9 +136,35 @@ export function StageBreadcrumb<K extends string = Stage>({
                 >
                   {isDone ? <Check className="h-3 w-3" /> : i + 1}
                 </span>
-                {/* Hidden on a phone but still the button's name: a
-                    finished step shows only a tick. */}
-                <span className="sr-only sm:not-sr-only">{nameOf(stage)}</span>
+                {isDone && doneLabel ? (
+                  // A done step shows a tick: its name says it's done. The
+                  // whole name in one hidden span — a hidden suffix next to
+                  // the shown name would be read with a space before it
+                  // ("Context , done") — and the shown name, on wider
+                  // screens, left out of it.
+                  <>
+                    <span aria-hidden="true" className="hidden sm:inline" lang={lang}>
+                      {nameOf(stage)}
+                    </span>
+                    <span className="sr-only">
+                      {lang ? (
+                        // The name in its language, ", done" in the page's.
+                        <>
+                          <span lang={lang}>{nameOf(stage)}</span>
+                          {doneLabel}
+                        </>
+                      ) : (
+                        `${nameOf(stage)}${doneLabel}`
+                      )}
+                    </span>
+                  </>
+                ) : (
+                  // Hidden on a phone but still the button's name: a
+                  // finished step shows only a tick.
+                  <span className="sr-only sm:not-sr-only" lang={lang}>
+                    {nameOf(stage)}
+                  </span>
+                )}
               </button>
               {i < stages.length - 1 ? (
                 <span

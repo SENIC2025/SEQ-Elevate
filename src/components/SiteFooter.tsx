@@ -5,7 +5,12 @@ import type { LegalDocId } from "@/data/legal";
 /**
  * Global footer with the legal links (acceptance item O7). Server component;
  * link labels are localised inline so a DE/EL page doesn't show English nav
- * even while the legal bodies await their official translation.
+ * even while the legal bodies await their official translation — the
+ * links' landmark name too.
+ *
+ * Each link is at least 24 px tall (WCAG 2.5.8 target size): on a phone,
+ * in German, the four wrap onto two rows, and 16 px rows 4 px apart failed
+ * axe on the player page at 320 px (spec 5.12).
  */
 
 const LABELS: Record<LegalDocId, Record<Locale, string>> = {
@@ -19,6 +24,11 @@ const LABELS: Record<LegalDocId, Record<Locale, string>> = {
   },
 };
 const ORDER: LegalDocId[] = ["privacy", "terms", "cookies", "accessibility"];
+const NAV_LABEL: Record<Locale, string> = {
+  en: "Legal and policies",
+  de: "Rechtliches und Richtlinien",
+  el: "Νομικά και πολιτικές",
+};
 
 export function SiteFooter({ locale }: { locale: string }) {
   const loc = (["en", "de", "el"].includes(locale) ? locale : "en") as Locale;
@@ -26,14 +36,14 @@ export function SiteFooter({ locale }: { locale: string }) {
     <footer className="mt-auto border-t border-[var(--border)] bg-[var(--surface-muted)]">
       <div className="mx-auto max-w-6xl px-4 py-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <nav
-          aria-label="Legal and policies"
+          aria-label={NAV_LABEL[loc]}
           className="flex flex-wrap gap-x-4 gap-y-1"
         >
           {ORDER.map((doc) => (
             <Link
               key={doc}
               href={`/legal/${doc}`}
-              className="text-xs text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+              className="inline-flex min-h-6 items-center text-xs text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
             >
               {LABELS[doc][loc]}
             </Link>

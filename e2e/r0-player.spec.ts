@@ -14,7 +14,9 @@ import { PrismaPg } from "@prisma/adapter-pg";
  *   questions), which the facilitator view then scores;
  * - "Try again" opens a checked quick check afresh, and the latest check
  *   is the one kept and scored;
- * - while Continue is hidden, the practice steps say what it waits for;
+ * - until a practice step is answered, it says what Continue waits for —
+ *   Continue itself is there from the start since Release 2 (spec 5.7,
+ *   D1), so the hint sits above it;
  * - every step opens at its top, focused.
  *
  * The guest tests need no database. The rest require a real one — gated
@@ -86,9 +88,10 @@ function escapeRe(s: string) {
 
 /**
  * From the built-in course's first step to its quick check, checking the
- * hint on each practice step on the way: it shows while Continue is
- * hidden, goes once the step is answered, and comes back after "Try
- * another" / "Try different choices".
+ * hint on each practice step on the way: it shows until the step is
+ * answered, goes once it is, and comes back after "Try another" / "Try
+ * different choices". Continue is there throughout (Release 2, D1: it was
+ * hidden until an answer before).
  */
 async function walkToQuickCheck(page: Page) {
   await page.goto(`/en/learner/course/${BUILT_IN}`);
@@ -102,20 +105,20 @@ async function walkToQuickCheck(page: Page) {
   // Guided practice.
   const simHint = page.getByText(HINT.simulation);
   await expect(simHint).toBeVisible();
-  await expect(page.getByRole("button", { name: /^continue$/i })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /^continue$/i })).toHaveCount(1);
   await page.getByText(/the bus was late\. when you say/i).click();
   await expect(simHint).toHaveCount(0);
   await expect(cont(page)).toBeVisible();
   await page.getByRole("button", { name: /try another/i }).click();
   await expect(simHint).toBeVisible();
-  await expect(page.getByRole("button", { name: /^continue$/i })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /^continue$/i })).toHaveCount(1);
   await page.getByText(/the bus was late\. when you say/i).click();
   await cont(page).click();
 
   // Applied scenario: a first choice, then its follow-up.
   const rootHint = page.getByText(HINT.scenario);
   await expect(rootHint).toBeVisible();
-  await expect(page.getByRole("button", { name: /^continue$/i })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /^continue$/i })).toHaveCount(1);
   await page.getByText(/wait for a quiet moment, then talk to sam/i).click();
   await expect(rootHint).toHaveCount(0);
   await expect(page.getByText(HINT.scenarioFollowup)).toBeVisible();
@@ -124,7 +127,7 @@ async function walkToQuickCheck(page: Page) {
   await expect(cont(page)).toBeVisible();
   await page.getByRole("button", { name: /try different choices/i }).click();
   await expect(rootHint).toBeVisible();
-  await expect(page.getByRole("button", { name: /^continue$/i })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /^continue$/i })).toHaveCount(1);
   await page.getByText(/wait for a quiet moment, then talk to sam/i).click();
   await page.getByText(/addressed directly from now on/i).click();
   await cont(page).click();
@@ -148,13 +151,13 @@ async function answerQuickCheck(page: Page) {
 /**
  * "Try again" on a checked quick check: focus goes to its heading — the
  * button is gone — and the quiz is open again, nothing chosen, with the
- * hint back in place of Continue.
+ * hint back (and Continue after "Check answers", Release 2, D1).
  */
 async function tryAgain(page: Page, heading: RegExp, answers: string[]) {
   await page.getByRole("button", { name: /^try again$/i }).click();
   await expect(page.getByRole("heading", { name: heading })).toBeFocused();
   await expect(page.getByRole("button", { name: /^try again$/i })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: /^continue$/i })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /^continue$/i })).toHaveCount(1);
   await expect(page.getByText(HINT.assessment)).toBeVisible();
   await expect(page.getByText(/you got \d+ out of \d+ right/i)).toHaveCount(0);
   for (const text of answers) {

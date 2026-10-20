@@ -269,8 +269,8 @@ describe("getLearnerCourse and getLessonPlans agree (golden)", () => {
         const learner = await getLearnerCourse("seq-elevate", "golden", locale, base);
         const plan = (await getLessonPlans("seq-elevate", locale)).get("golden")!;
 
-        expect(learner.lessons.map((l) => [l.id, l.kind, l.label])).toEqual(
-          plan.lessons.map((l) => [l.id, l.kind, l.label])
+        expect(learner.lessons.map((l) => [l.id, l.kind, l.label, l.lang])).toEqual(
+          plan.lessons.map((l) => [l.id, l.kind, l.label, l.lang])
         );
         expect(learner.unseen).toEqual(plan.unseen);
         // A stage lesson is the very stage getCourse built.
@@ -330,6 +330,23 @@ describe("getLearnerCourse", () => {
     ]);
     expect(concept.section.documents?.map((d) => d.id)).toEqual(["d1"]);
     expect(concept.label).toBe("Skill concept");
+  });
+
+  it("says the language of a step name that isn't the page's, as the plan does (WCAG 3.1.2)", async () => {
+    // Review finding 6 on Stream A: "Own" is named in English only, and the
+    // player showed it on Greek pages with nothing to say so.
+    setCourse(CASES.find((c) => c.name === "own lesson")!);
+    const langs = async (locale: Locale) => {
+      const base = (await getDbCourse("seq-elevate", "golden", locale))!;
+      return (await getLearnerCourse("seq-elevate", "golden", locale, base)).lessons.map((l) => [l.label, l.lang]);
+    };
+    expect((await langs("el")).find(([label]) => label === "Own")).toEqual(["Own", "en"]);
+    expect((await langs("el")).filter(([, lang]) => lang !== undefined)).toHaveLength(1);
+    expect((await langs("en")).every(([, lang]) => lang === undefined)).toBe(true);
+    // A built-in course's names are always the page's.
+    const base = (await localProvider.getCourse("seq-elevate", "workplace-conflict", "el"))!;
+    const builtIn = await getLearnerCourse("seq-elevate", "workplace-conflict", "el", base);
+    expect(builtIn.lessons.every((l) => l.lang === undefined)).toBe(true);
   });
 
   it("keeps the count of content left out for an editor's preview only", async () => {

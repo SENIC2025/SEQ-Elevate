@@ -24,6 +24,12 @@ import { PrismaPg } from "@prisma/adapter-pg";
  * pressed button goes, quick-check results not shown by colour alone, the editors' note about the draft,
  * "Edit this lesson" pointing at the lesson of its own — and nothing saved.
  *
+ * Release 2 flips three things on purpose (D63, spec 5.7): the preview is
+ * the learner player itself, with no "learners get it from Release 2"
+ * banner; Continue pressed early says "{item}: {need}" in the player's one
+ * live region; and with a quick check answered but not checked it takes
+ * focus to that check's "Check answers".
+ *
  * Requires a real database — gated on E2E_DB=1, like db-backed-progress.
  * Everything it creates is unique to this run and removed afterwards.
  */
@@ -401,16 +407,15 @@ describe("Release 1 — a flexible course previews with every kind of content", 
     await prisma.$disconnect();
   });
 
-  test("the course's own order and step names, the hidden lesson left out, and the Release 2 banner", async ({
+  test("the course's own order and step names, the hidden lesson left out, and no Release 2 banner", async ({
     page,
     context,
   }) => {
     await useSession(context, editorSession);
     await page.goto(`/en/learner/course/${SLUG}`);
-    await expect(
-      page.getByText(/this preview shows the new layout\. learners get it from release 2/i).first()
-    ).toBeVisible({ timeout: 15000 });
-    await expect(page.getByText(/draft preview/i).first()).toBeVisible();
+    await expect(page.getByText(/draft preview/i).first()).toBeVisible({ timeout: 15000 });
+    // Release 2: the preview is what learners get (D63) — nothing to warn about.
+    await expect(page.getByText(/new layout|release 2/i)).toHaveCount(0);
 
     const names = ["Warm-up", "Skill concept", "Applied scenario", "Behaviour model", "Reflection", "Wrap-up"];
     const buttons = steps(page).getByRole("button");
@@ -452,9 +457,12 @@ describe("Release 1 — a flexible course previews with every kind of content", 
     await expect(counter(page)).toHaveText("1 / 6 · Warm-up", { timeout: 15000 });
 
     // Continue before answering: focus goes to the scenario that's waiting,
-    // and a polite announcement says why. Pressing it again is harmless.
+    // and a polite announcement names it and what it needs. Pressing it
+    // again is harmless.
     const hallway = main.getByRole("heading", { level: 3, name: "The hallway" });
-    const announcement = page.getByRole("status").filter({ hasText: "Answer this first to continue." });
+    const announcement = page
+      .getByRole("status")
+      .filter({ hasText: "The hallway: To continue, choose what you would do." });
     await expect(async () => {
       await continueButton(page).click();
       await expect(hallway).toBeFocused({ timeout: 2000 });
@@ -508,9 +516,10 @@ describe("Release 1 — a flexible course previews with every kind of content", 
     await quiz2.getByRole("button", { name: /Never/ }).click();
     await expect(quiz1.getByRole("button", { name: /Never/ })).toHaveAttribute("aria-pressed", "false");
 
-    // Continue now goes to the first quick check: answered, not checked.
+    // Continue now goes to the first quick check: answered, not checked —
+    // to its "Check answers" (Release 2).
     await continueButton(page).click();
-    await expect(main.getByRole("heading", { level: 3, name: "Quick check", exact: true })).toBeFocused();
+    await expect(quiz1.getByRole("button", { name: /^check answers$/i })).toBeFocused();
     await quiz1.getByRole("button", { name: /^check answers$/i }).click();
     await expect(quiz1.getByText("You got 1 out of 1 right.")).toBeVisible();
     // "Check answers" went: focus is on the quick check's heading, not the page.

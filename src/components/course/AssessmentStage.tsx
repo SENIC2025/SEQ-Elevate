@@ -1,12 +1,13 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { useId, useRef } from "react";
+import { useMemo, useRef } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useDemoState } from "@/store/demo-state";
 import { checkedQuiz } from "@/lib/assessment-progress";
 import type { CourseStage } from "@/lib/cms/types";
+import { answersOf } from "@/lib/learner-progress/answers";
 import {
   CheckCircle2,
   XCircle,
@@ -16,6 +17,8 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { LinkedText } from "@/components/rich-text/RichTextView";
+import { mainPartOf } from "./continue-gate";
+import { ContinueNote, FLAGGED_CLASS, useContinue } from "./useContinue";
 
 /**
  * Micro-assessment. Renders authored questions; answers keyed by question
@@ -26,6 +29,11 @@ import { LinkedText } from "@/components/rich-text/RichTextView";
  * and Continue. "Try again" clears them, as the other practice steps let
  * the learner try again, and the new check is the one saved. In an
  * editor's preview the store is the preview's own, which saves nothing.
+ *
+ * Release 2: Continue is there before the check too, after "Check
+ * answers" (useContinue). Pressed early, it says how many questions are
+ * left, or that the answers need checking, and takes focus to the first
+ * unanswered question — or to "Check answers" once all are answered.
  */
 export function AssessmentStage({
   stage,
@@ -37,11 +45,18 @@ export function AssessmentStage({
   const t = useTranslations("coursePlayer");
   const tHint = useTranslations("continueHint");
   const tCommon = useTranslations("common");
-  const hintId = useId();
   const headingRef = useRef<HTMLHeadingElement>(null);
   const { state, dispatch } = useDemoState();
   const progress = state.course.assessment;
   const answers = progress.answers;
+  const part = useMemo(() => mainPartOf(stage), [stage]);
+  const cont = useContinue({
+    lessonId: "assessment",
+    parts: [part],
+    answers: answersOf(state.course),
+    onContinue,
+  });
+  const hintId = cont.hintId;
 
   const a = stage.assessment;
   if (!a) return null;
@@ -75,97 +90,108 @@ export function AssessmentStage({
         <h2
           ref={headingRef}
           tabIndex={-1}
+          id={cont.ids.heading("main")}
           className="text-2xl font-bold tracking-tight outline-none"
         >
           {stage.title}
         </h2>
+        <ContinueNote api={cont} partId="main" />
         {/* Addresses in the intro are links, as the course page's read
             view shows them to editors (quick links). */}
         <p className="mt-2 text-sm text-[var(--muted-foreground)]">
           <LinkedText text={a.intro} />
         </p>
 
-        <div className="mt-6 space-y-6">
-          {questions.map((q, idx) => (
-            <div key={q.id}>
-              <p className="font-medium mb-3">
-                <span className="text-[var(--muted-foreground)] mr-2">
-                  {idx + 1}.
-                </span>
-                {q.question}
-              </p>
-              <div className="space-y-1.5">
-                {q.options.map((opt, i) => {
-                  const isSelected = answers[q.id] === opt.id;
-                  const isCorrect = opt.id === q.correctOptionId;
-                  const showResult = checked && isSelected;
-                  const showCorrectAfterWrong =
-                    checked &&
-                    !isSelected &&
-                    isCorrect &&
-                    answers[q.id] !== q.correctOptionId;
+        <div className={cn("mt-6 space-y-6", cont.flagged && FLAGGED_CLASS)}>
+          {questions.map((q, idx) => {
+            const questionId = cont.ids.question("main", q.id);
+            return (
+              <div key={q.id}>
+                {/* Where Continue pressed early takes focus, while unanswered. */}
+                <p
+                  id={questionId}
+                  tabIndex={-1}
+                  aria-describedby={cont.describedBy(questionId)}
+                  className="font-medium mb-3 outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] rounded-sm"
+                >
+                  <span className="text-[var(--muted-foreground)] mr-2">
+                    {idx + 1}.
+                  </span>
+                  {q.question}
+                </p>
+                <div className="space-y-1.5">
+                  {q.options.map((opt, i) => {
+                    const isSelected = answers[q.id] === opt.id;
+                    const isCorrect = opt.id === q.correctOptionId;
+                    const showResult = checked && isSelected;
+                    const showCorrectAfterWrong =
+                      checked &&
+                      !isSelected &&
+                      isCorrect &&
+                      answers[q.id] !== q.correctOptionId;
 
-                  return (
-                    <button
-                      key={opt.id}
-                      type="button"
-                      aria-pressed={isSelected}
-                      disabled={checked}
-                      onClick={() =>
-                        dispatch({
-                          type: "answerAssessment",
-                          questionId: q.id,
-                          optionId: opt.id,
-                        })
-                      }
-                      className={cn(
-                        "w-full text-left rounded-lg border px-4 py-3 transition-colors text-sm sm:text-base flex items-start gap-3",
-                        !checked &&
-                          isSelected &&
-                          "border-[var(--accent)] bg-[var(--accent)]/5",
-                        !checked &&
-                          !isSelected &&
-                          "border-[var(--border)] hover:bg-[var(--surface-muted)]",
-                        showResult &&
-                          isCorrect &&
-                          "border-[var(--success)] bg-[var(--success)]/10",
-                        showResult &&
-                          !isCorrect &&
-                          "border-[var(--warning)] bg-[var(--warning)]/10",
-                        showCorrectAfterWrong &&
-                          "border-[var(--success)]/60 bg-[var(--success)]/5"
-                      )}
-                    >
-                      {showResult ? (
-                        isCorrect ? (
-                          <CheckCircle2 className="h-5 w-5 mt-0.5 text-[var(--success)] flex-shrink-0" />
+                    return (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        aria-pressed={isSelected}
+                        disabled={checked}
+                        onClick={() =>
+                          dispatch({
+                            type: "answerAssessment",
+                            questionId: q.id,
+                            optionId: opt.id,
+                          })
+                        }
+                        className={cn(
+                          "w-full text-left rounded-lg border px-4 py-3 transition-colors text-sm sm:text-base flex items-start gap-3",
+                          !checked &&
+                            isSelected &&
+                            "border-[var(--accent)] bg-[var(--accent)]/5",
+                          !checked &&
+                            !isSelected &&
+                            "border-[var(--border)] hover:bg-[var(--surface-muted)]",
+                          showResult &&
+                            isCorrect &&
+                            "border-[var(--success)] bg-[var(--success)]/10",
+                          showResult &&
+                            !isCorrect &&
+                            "border-[var(--warning)] bg-[var(--warning)]/10",
+                          showCorrectAfterWrong &&
+                            "border-[var(--success)]/60 bg-[var(--success)]/5"
+                        )}
+                      >
+                        {showResult ? (
+                          isCorrect ? (
+                            <CheckCircle2 className="h-5 w-5 mt-0.5 text-[var(--success)] flex-shrink-0" />
+                          ) : (
+                            <XCircle className="h-5 w-5 mt-0.5 text-[var(--warning)] flex-shrink-0" />
+                          )
                         ) : (
-                          <XCircle className="h-5 w-5 mt-0.5 text-[var(--warning)] flex-shrink-0" />
-                        )
-                      ) : (
-                        // A, B, C… by position: the option's id is internal
-                        // (the course editor makes ids like "a0k3f"). Hidden
-                        // from screen readers, so the button's name is the
-                        // answer itself.
-                        <span
-                          aria-hidden="true"
-                          className={cn(
-                            "mt-0.5 h-5 w-5 rounded-full border flex items-center justify-center flex-shrink-0 text-[10px] font-semibold uppercase",
-                            isSelected
-                              ? "border-[var(--accent)] bg-[var(--accent)] text-white"
-                              : "border-[var(--border)] text-[var(--muted-foreground)]"
-                          )}
-                        >
-                          {String.fromCharCode(65 + i)}
-                        </span>
-                      )}
-                      <span>{opt.text}</span>
-                    </button>
+                          // A, B, C… by position: the option's id is internal
+                          // (the course editor makes ids like "a0k3f"). Hidden
+                          // from screen readers, so the button's name is the
+                          // answer itself.
+                          <span
+                            aria-hidden="true"
+                            className={cn(
+                              "mt-0.5 h-5 w-5 rounded-full border flex items-center justify-center flex-shrink-0 text-[10px] font-semibold uppercase",
+                              isSelected
+                                ? "border-[var(--accent)] bg-[var(--accent)] text-white"
+                                : "border-[var(--border)] text-[var(--muted-foreground)]"
+                            )}
+                          >
+                            {String.fromCharCode(65 + i)}
+                          </span>
+                        )}
+                        <span>{opt.text}</span>
+                      </button>
                   );
                 })}
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
 
         {checked ? (
@@ -196,26 +222,31 @@ export function AssessmentStage({
               <RotateCcw className="h-4 w-4" />
               {t("tryAgain")}
             </Button>
-            <Button size="md" onClick={onContinue}>
+            <Button size="md" onClick={cont.press}>
               {tCommon("continue")}
               <ArrowRight className="h-4 w-4" />
             </Button>
           </div>
         ) : (
           // Until the answers are checked, what Continue waits for, next to
-          // the button that stands in its place. Plain text, read in page
+          // "Check answers", which comes first. Plain text, read in page
           // order, not a live region.
           <div className="mt-6 flex flex-wrap items-center justify-end gap-x-4 gap-y-3">
             <p id={hintId} className="min-w-0 flex-1 basis-64 text-sm text-[var(--muted-foreground)] sm:text-right">
               {tHint("assessment", { button: t("checkAnswers") })}
             </p>
             <Button
+              id={cont.ids.check("main")}
               size="md"
               disabled={!allAnswered}
-              aria-describedby={hintId}
+              aria-describedby={[hintId, cont.describedBy(cont.ids.check("main"))].filter(Boolean).join(" ")}
               onClick={() => dispatch({ type: "checkAssessment" })}
             >
               {t("checkAnswers")}
+            </Button>
+            <Button size="md" variant="outline" aria-describedby={hintId} onClick={cont.press}>
+              {tCommon("continue")}
+              <ArrowRight className="h-4 w-4" />
             </Button>
           </div>
         )}
