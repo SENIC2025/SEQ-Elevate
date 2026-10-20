@@ -39,6 +39,8 @@ import {
  *          was in view, at once under reduced motion — in en, de and el;
  *          no sideways scroll at 320 px.
  *   A-E9   axe on every kind of content, in en, de and el, at 320 px.
+ *   5.9    on a phone the in-video question shows below the video, not
+ *          over it; focus goes to it and then back to the video.
  *   A-E10  a published course with no lesson to show says so: no
  *          completion, no badge.
  *   A-E11  a save answered "unknown action" (a deploy happened): the reload
@@ -641,6 +643,37 @@ describe("Release 2 — the learner player", () => {
       }
     }
     await removeLearners(prisma, [`e2e-r2-player-axe-${RUN}@example.com`]);
+  });
+
+  test("5.9: on a phone the in-video question shows below the video; focus goes to it, then back to the video", async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 740 });
+    await page.goto("/en/learner/course/workplace-conflict");
+    const concept = page.getByText(/watch: speaking up without blame/i);
+    await clickUntil(page.getByRole("button", { name: "Continue", exact: true }), () =>
+      expect(concept).toBeVisible({ timeout: 2000 })
+    );
+    const video = page.getByTestId("lesson-video");
+    const dialog = page.getByRole("dialog");
+    await expect(async () => {
+      await video.evaluate((v: HTMLVideoElement) => {
+        v.currentTime = 6;
+      });
+      await expect(dialog).toBeVisible({ timeout: 1000 });
+    }).toPass({ timeout: 10000 });
+
+    // Below the video, not over it — so not modal: the page stays usable.
+    const frame = (await video.boundingBox())!;
+    const panel = (await dialog.boundingBox())!;
+    expect(panel.y, "the question starts below the video").toBeGreaterThanOrEqual(frame.y + frame.height - 1);
+    await expect(dialog).not.toHaveAttribute("aria-modal", "true");
+    await expect(dialog.getByRole("heading", { level: 3 })).toBeFocused();
+    await expect(page.locator("#cue-question")).toHaveCount(0);
+
+    await dialog.getByText("Whose fault it is").click();
+    await dialog.getByRole("button", { name: /^submit$/i }).click();
+    await dialog.getByRole("button", { name: /continue watching/i }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(video, "focus back on the video's controls").toBeFocused();
   });
 
   test("A-E10: a published course with no lesson to show says so: no completion, no badge", async ({ page, context }) => {
