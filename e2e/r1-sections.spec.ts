@@ -8,8 +8,9 @@ import { PrismaPg } from "@prisma/adapter-pg";
  * item 5). An editor adds a lesson of the course's own, names it in English
  * and German, moves, hides and deletes lessons — all through the list's
  * "Actions for …" controls, with each change announced and focus kept in a
- * predictable place. Deleting is refused while a learner is enrolled (G4)
- * and otherwise asks first, listing everything that goes. A colleague's
+ * predictable place. Deleting a lesson a learner has done something in is
+ * refused (Release 2, D66: the course's own lessons too), with Hide offered;
+ * otherwise it asks first, listing everything that goes. A colleague's
  * change made in another tab shows up on a stale page instead of being
  * overwritten. A course has at most 15 lessons. The list fits a laptop and
  * a phone, and passes axe with its controls open.
@@ -224,8 +225,8 @@ describe("Release 1 — the lesson list", () => {
     );
     await picker.getByRole("radio", { name: /^text$/i }).check();
     await expect(picker.getByRole("radio", { name: /^text$/i })).toBeChecked();
-    // Said before anything is added: the course is then one for Release 2.
-    await expect(picker.getByText(/can be published from release 2/i)).toBeVisible();
+    // Nothing about a later date: a course with lessons of its own publishes (D66).
+    await expect(picker.getByText(/release 2/i)).toHaveCount(0);
     await expect(picker.getByRole("combobox", { name: /^where/i })).toHaveValue("5");
     await picker.getByRole("button", { name: /^add this lesson$/i }).click();
 
@@ -292,17 +293,14 @@ describe("Release 1 — the lesson list", () => {
 
     const actions = await openActions(page, "1. Context");
     await actions.getByRole("button", { name: /^move down$/i }).click();
-    // A new order makes it a course for Release 2: said with the move.
-    await expect(announcements(page)).toHaveText(
-      "“Context” moved to position 2 of 6. The course can now be published only from Release 2: see Publishing.",
-      { timeout: 15000 }
-    );
+    // Said with the move, and nothing more: a new order publishes (D66).
+    await expect(announcements(page)).toHaveText("“Context” moved to position 2 of 6.", { timeout: 15000 });
     await expect(page.locator(":focus")).toHaveAccessibleName("Move down");
     expect((await ids()).slice(0, 2)).toEqual(["concept", "context"]);
-    // Now out of the standard order: publishing says so.
+    // Out of the standard order, and publishing doesn't mind.
     await expect(
       page.getByRole("region", { name: /^publishing$/i }).getByText("The lessons are in a new order")
-    ).toBeVisible();
+    ).toHaveCount(0);
 
     // Back to the top: Move up is then disabled, so focus moves to Move down.
     await page.locator(":focus").press("Shift+Tab"); // Move up
@@ -321,18 +319,15 @@ describe("Release 1 — the lesson list", () => {
 
     const actions = await openActions(page, "2. Skill concept");
     const hide = actions.getByRole("button", { name: /^hide$/i });
-    // Said before it is pressed: hiding makes it a course for Release 2.
-    await expect(hide).toHaveAccessibleDescription(/can be published only from release 2/i);
+    // Nothing to say before it is pressed: nobody is taking the course, and hiding publishes (D66).
+    await expect(hide).not.toHaveAccessibleDescription(/./);
     await hide.click();
-    await expect(announcements(page)).toHaveText(
-      "“Skill concept” is hidden. The course can now be published only from Release 2: see Publishing.",
-      { timeout: 15000 }
-    );
+    await expect(announcements(page)).toHaveText("“Skill concept” is hidden.", { timeout: 15000 });
     await expect.poll(async () => (await storedOutline())?.sections[1]).toMatchObject({
       id: "concept",
       hidden: true,
     });
-    // Unnumbered while hidden: learners of Release 2 wouldn't see it.
+    // Unnumbered while hidden: learners don't see it.
     const shown = await openActions(page, "Skill concept");
     // "Hidden" is in the lesson's link, and its button now says Show.
     await expect(lessonList(page).getByRole("link", { name: /^skill concept\s*hidden$/i })).toBeVisible();
@@ -344,30 +339,49 @@ describe("Release 1 — the lesson list", () => {
       .toBeUndefined();
   });
 
-  test("delete: refused while a learner is enrolled, otherwise confirmed with everything that goes", async ({
+  test("delete: refused while a learner has done something in the lesson, its own lessons too; otherwise confirmed with everything that goes", async ({
     page,
     context,
   }) => {
     await useSession(context, editorSession);
     const course = await courseId();
-    await prisma.courseEnrollment.create({ data: { userId: learnerId, courseId: course } });
+    const own = (await ids())[5];
+    const blocked = "1 learner has started this course, so this lesson can't be deleted. You can hide it instead.";
+    // Release 2 (D66): what a learner did in a lesson keeps it, whatever the
+    // lesson; a learner who did nothing in it doesn't.
+    await prisma.courseEnrollment.create({
+      data: { userId: learnerId, courseId: course, stagesCompleted: ["BEHAVIOUR"], sectionsCompleted: [own] },
+    });
     try {
       await openCourse(page);
-      // The page knows: Delete says why it can't.
+      // The page knows: Delete says why it can't, and opens the reason with Hide.
       const actions = await openActions(page, "3. Behaviour model");
       const del = actions.getByRole("button", { name: /^delete$/i });
-      await expect(del).toHaveAttribute("aria-disabled", "true");
-      await expect(del).toHaveAccessibleDescription(
-        "1 learner is enrolled in this course, so this lesson can't be deleted."
-      );
+      await expect(del).toHaveAccessibleDescription(blocked);
+      await del.click();
+      const confirm = lessonList(page).getByRole("group", {
+        name: "Delete “Behaviour model” in all languages?",
+      });
+      await expect(confirm).toContainText(blocked);
+      await expect(confirm.getByRole("button", { name: /^delete lesson$/i })).toHaveAttribute("aria-disabled", "true");
+      await expect(confirm.getByRole("button", { name: /^hide it$/i })).toBeVisible();
+      await confirm.getByRole("button", { name: /^keep it$/i }).click();
+      // A lesson of the course's own the learner finished: the same. (Named
+      // in the first test; numbered once it has content learners get.)
+      const ownName = /^Actions for (\d+\. )?(Wrap-up|Abschluss)$/;
+      await lessonList(page).getByRole("button", { name: ownName }).click();
+      const mine = lessonList(page).getByRole("group", { name: ownName });
+      await expect(mine.getByRole("button", { name: /^delete$/i })).toHaveAccessibleDescription(blocked);
     } finally {
       await prisma.courseEnrollment.deleteMany({ where: { userId: learnerId, courseId: course } });
     }
 
-    // A page from before the enrolment: the server refuses (G4).
+    // A page from before the learner did anything in it: the server refuses.
     await openCourse(page);
     const actions = await openActions(page, "3. Behaviour model");
-    await prisma.courseEnrollment.create({ data: { userId: learnerId, courseId: course } });
+    await prisma.courseEnrollment.create({
+      data: { userId: learnerId, courseId: course, stagesCompleted: ["BEHAVIOUR"] },
+    });
     try {
       await actions.getByRole("button", { name: /^delete$/i }).click();
       const confirm = lessonList(page).getByRole("group", {
@@ -375,10 +389,7 @@ describe("Release 1 — the lesson list", () => {
       });
       await expect(confirm.getByRole("heading")).toBeFocused();
       await confirm.getByRole("button", { name: /^delete lesson$/i }).click();
-      await expect(confirm.getByRole("alert")).toHaveText(
-        "1 learner is enrolled in this course, so this lesson can't be deleted.",
-        { timeout: 15000 }
-      );
+      await expect(confirm.getByRole("alert")).toHaveText(blocked, { timeout: 15000 });
       expect(await ids()).toContain("behaviour");
     } finally {
       await prisma.courseEnrollment.deleteMany({ where: { userId: learnerId, courseId: course } });

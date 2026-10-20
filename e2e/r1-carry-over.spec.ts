@@ -354,11 +354,9 @@ describe("Release 1 — a Release 0 course carries over", () => {
     const added = (await rows()).concept.parts as { items: { type: string }[] } | null;
     expect(added?.items.map((i) => i.type)).toEqual(["main", "quiz"]);
 
-    // The course now has content learners only get from Release 2.
+    // Added content holds nothing back: learners get it (Release 2, D66).
     const publishing = page.getByRole("region", { name: /^publishing$/i }).filter({ visible: true });
-    await expect(publishing.getByText("“Skill concept” has added content")).toBeVisible({
-      timeout: 15000,
-    });
+    await expect(publishing.getByText("“Skill concept” has added content")).toHaveCount(0);
 
     page.once("dialog", (dialog) => void dialog.accept());
     await header.getByRole("button", { name: /^remove content 2: quick check$/i }).click();
