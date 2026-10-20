@@ -12,8 +12,8 @@ vi.mock("server-only", () => ({}));
 
 const para = (text: string): NarrativeBlock => ({ kind: "paragraph", text });
 
-let course: { slug: string; meta: unknown; cluster: string; durationMinutes: number; status: string };
-let lessons: { stageKey: string; narrative?: unknown; structure?: unknown }[];
+let course: { slug: string; meta: unknown; cluster: string; durationMinutes: number; status: string; outline?: unknown };
+let lessons: { stageKey: string; narrative?: unknown; structure?: unknown; parts?: unknown }[];
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
@@ -22,12 +22,16 @@ vi.mock("@/lib/prisma", () => ({
       findMany: async () => [course],
     },
     lesson: {
-      findMany: async ({ where }: { where: { NOT?: unknown } }) =>
-        // listDbCourses asks only for lessons with a structure, and groups
-        // them by course, as stored.
-        (where.NOT ? lessons.filter((l) => l.structure != null) : lessons).map(
-          (l) => ({ courseSlug: course.slug, ...l })
-        ),
+      findMany: async ({ where }: { where: { stageKey?: { startsWith: string }; NOT?: { stageKey?: { startsWith: string } } } }) =>
+        // The lesson plans ask for the standard lessons and the course's
+        // own ("s-…") apart, each row with its count of published documents.
+        lessons
+          .filter((l) =>
+            where.stageKey
+              ? l.stageKey.startsWith(where.stageKey.startsWith)
+              : !(where.NOT?.stageKey && l.stageKey.startsWith(where.NOT.stageKey.startsWith))
+          )
+          .map((l) => ({ courseSlug: course.slug, video: null, parts: null, structure: null, ...l, _count: { documents: 0 } })),
     },
   },
 }));
@@ -197,5 +201,32 @@ describe("listDbCourses lessons", () => {
     ]);
     const course = await getDbCourse("p", "asking-for-help", "en");
     expect(summary.stageKeys).toEqual(course?.stages.map((s) => s.key));
+    expect(summary.unseenStageKeys).toEqual([]);
+    expect(summary.stageLabels).toMatchObject({ context: "Context", simulation: "Guided practice" });
+  });
+
+  // Release 2 (D58, D64): the course's own order, lessons and step names,
+  // and the lessons learners don't see, which a finished one counts from.
+  it("lists a flexible course's lessons as the player plays them, with their step names", async () => {
+    course.outline = {
+      v: 1,
+      sections: [
+        { id: "concept", template: "concept", label: { en: "The idea" } },
+        { id: "context", template: "context", hidden: true },
+        { id: "s-abcdefgh", template: "text", label: { en: "My own" } },
+        { id: "behaviour", template: "behaviour" },
+        { id: "reflection", template: "reflection" },
+      ],
+    };
+    lessons = [{ stageKey: "s-abcdefgh", narrative: { en: { title: "Mine", blocks: [para("Text")] } } }];
+    const [summary] = await listDbCourses("p", "en");
+    expect(summary.stageKeys).toEqual(["concept", "s-abcdefgh", "behaviour", "reflection"]);
+    expect(summary.unseenStageKeys).toEqual(["context"]);
+    expect(summary.stageLabels).toEqual({
+      concept: "The idea",
+      "s-abcdefgh": "My own",
+      behaviour: "Behaviour model",
+      reflection: "Reflection",
+    });
   });
 });

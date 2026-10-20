@@ -207,12 +207,24 @@ export interface CourseSummary {
   /** Courses not yet authored render as "coming soon" (not clickable). */
   comingSoon?: boolean;
   /**
-   * The lessons learners see in this course, in order: all seven for a
-   * built-in course; a CMS-created one's four narrative lessons plus each
-   * interactive lesson an editor has written. Progress is counted against
-   * these (src/lib/course-progress.ts). Absent = all seven.
+   * The lessons learners see in this course, in their order: all seven for
+   * a built-in course; a created one's lesson plan (lessonPlanOf,
+   * src/lib/cms/sections/learner-path.ts) — its own lessons ("s-…")
+   * included, hidden ones and ones with nothing to show left out. Progress
+   * is counted against these (src/lib/course-progress.ts). Absent = all
+   * seven.
    */
-  stageKeys?: StageKey[];
+  stageKeys?: string[];
+  /**
+   * A created course's lessons learners don't see (hidden, or nothing to
+   * show): one a learner finished still counts towards their progress (D64).
+   */
+  unseenStageKeys?: string[];
+  /**
+   * A created course's step names (D58) by lesson id, in the list's
+   * language. Absent for a built-in course: its standard names (tStage).
+   */
+  stageLabels?: Record<string, string>;
 }
 
 /** A Comp Card template (fields the learner fills). Configurable per project. */

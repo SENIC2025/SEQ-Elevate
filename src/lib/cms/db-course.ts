@@ -20,7 +20,8 @@ import "server-only";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { introFromBlocks } from "@/lib/rich-text/narrative";
-import { presentStageKeys } from "./course-derive";
+import { getLessonPlans } from "./lesson-plans";
+import type { LessonPlan } from "./sections/learner-path";
 import {
   firstText,
   pickMeta,
@@ -117,7 +118,7 @@ function toSummary(
   durationMinutes: number,
   status: string,
   entry: CourseMetaEntry,
-  stageKeys: StageKey[],
+  plan: LessonPlan,
   badgeSlug: string
 ): CourseSummary {
   return {
@@ -128,7 +129,11 @@ function toSummary(
     tagline: entry.tagline,
     durationMinutes,
     status: status === "draft" || status === "archived" ? status : "published",
-    stageKeys,
+    // The lessons the player plays, in its order, under its step names
+    // (D58), and the ones a finished lesson still counts from (D64).
+    stageKeys: plan.lessons.map((l) => l.id),
+    unseenStageKeys: [...plan.unseen],
+    stageLabels: Object.fromEntries(plan.lessons.map((l) => [l.id, l.label])),
     // The dashboard names a badge from the course list; without these it
     // showed a created course's badge as its slug.
     badgeSlug,
@@ -179,27 +184,15 @@ export async function listDbCourses(
       include: { badge: { select: { slug: true } } },
       orderBy: { createdAt: "asc" },
     });
-    // Which interactive lessons each course has written, so the dashboard
-    // can count a course against its own lessons rather than all seven.
-    const written = await prisma.lesson.findMany({
-      where: {
-        projectId,
-        courseSlug: { in: rows.map((r) => r.slug) },
-        NOT: { structure: { equals: Prisma.DbNull } },
-      },
-      select: { courseSlug: true, stageKey: true, structure: true },
-    });
-    const lessonsBySlug = new Map<string, typeof written>();
-    for (const l of written) {
-      lessonsBySlug.set(l.courseSlug, [
-        ...(lessonsBySlug.get(l.courseSlug) ?? []),
-        l,
-      ]);
-    }
+    // Each course's lessons as the player plays them (lessonPlanOf), so the
+    // dashboard counts a course against its own lessons rather than all
+    // seven, and names them as the player does.
+    const plans = await getLessonPlans(projectId, locale);
     const out: CourseSummary[] = [];
     for (const r of rows) {
       const entry = pickMeta(r.meta as CourseMeta | null, locale);
-      if (!entry) continue;
+      const plan = plans.get(r.slug);
+      if (!entry || !plan) continue;
       out.push(
         toSummary(
           r.slug,
@@ -207,8 +200,7 @@ export async function listDbCourses(
           r.durationMinutes,
           r.status,
           entry,
-          // The same rule getDbCourse builds the player's lessons by.
-          presentStageKeys("cms", lessonsBySlug.get(r.slug) ?? []),
+          plan,
           badgeSlugOf(r)
         )
       );
