@@ -353,17 +353,30 @@ export type SectionsError =
   | "parts-too-large"
   | "changed-elsewhere"
   | "live-course-standard-only"
-  | "has-learners";
+  | "has-learners"
+  /** Release 2 (D66, spec 4.7): the course has learners; send it again with `confirm`. */
+  | "needs-confirmation"
+  /** Release 2 (D67): a published course with learners can't be restructured from `from`. */
+  | "restructure-closed"
+  /** Release 2 (spec 7.2): a published course keeps at least one lesson learners can see. */
+  | "last-lesson";
+
+/** The refusals that carry nothing but their code. */
+export type PlainSectionsError = Exclude<
+  SectionsError,
+  "changed-elsewhere" | "live-course-standard-only" | "has-learners" | "needs-confirmation" | "restructure-closed"
+>;
 
 export type Refused =
-  | {
-      ok: false;
-      error: Exclude<SectionsError, "changed-elsewhere" | "live-course-standard-only" | "has-learners">;
-    }
+  | { ok: false; error: PlainSectionsError }
   /** Structural actions include the fresh outline so the page shows the colleague's change (D39). */
   | { ok: false; error: "changed-elsewhere"; outline?: CourseOutline }
   | { ok: false; error: "live-course-standard-only"; reasons: NewOnlyReason[] }
-  | { ok: false; error: "has-learners"; count: number };
+  | { ok: false; error: "has-learners"; count: number }
+  /** Learners (D53 count) and how many of them finished, counted under the Course lock. */
+  | { ok: false; error: "needs-confirmation"; learners: number; finished: number }
+  /** `from`: the cut-off as an ISO date (RESTRUCTURE_CLOSED_FROM). */
+  | { ok: false; error: "restructure-closed"; from: string };
 
 /** Structural actions (lessons and parts): the whole course outline, to dispatch. */
 export type OutlineResult =
@@ -384,8 +397,21 @@ export type ExerciseDraftResult =
   | Refused
   | { ok: false; error: "too-large"; at: PartLimitBreach };
 export type ExerciseDiscardResult = { ok: true } | Refused;
-/** Added to setCourseStatus's result union (G1). */
-export type PublishRefused = { ok: false; error: "needs-release-2"; reasons: NewOnlyReason[] };
+/**
+ * Release 2 (D66, spec 4.8): what alone stops a created course being
+ * published — a lesson list or a listed lesson's content that can't be read
+ * (`sectionId` names the lesson), or no lesson learners would see.
+ */
+export type PublishBlocker = { code: "unreadable"; sectionId?: SectionId } | { code: "no-lessons" };
+
+/**
+ * Added to setCourseStatus's result union (G1). "cannot-publish" is Release
+ * 2's (D66); "needs-release-2" only while a kill switch puts Release 1's
+ * guard back (R2_PUBLISH_GUARD=on or R2_LEARNER_PLAYER=off, spec 3.4).
+ */
+export type PublishRefused =
+  | { ok: false; error: "needs-release-2"; reasons: NewOnlyReason[] }
+  | { ok: false; error: "cannot-publish"; reasons: PublishBlocker[] };
 
 /* ------------------------------------------------- course-page view types --- */
 
@@ -451,6 +477,19 @@ export interface SectionsMeta {
   hasLabels: boolean;
   max: typeof SECTION_LIMITS.maxSections;
   warnAbove: typeof SECTION_LIMITS.warnAbove;
+  /*
+   * Release 2 (D66, D67, spec 7.3): what the page predicts the editor rules
+   * with. Optional only so a loader from before Release 2 still type-checks;
+   * course-admin.ts always sets them.
+   */
+  /** Learners of the course (D53 count). */
+  learners?: number;
+  /** How many of them finished it. */
+  finished?: number;
+  /** A published course with learners can't be restructured any more (D67). */
+  restructureClosed?: boolean;
+  /** When that starts (ISO), or null when RESTRUCTURE_CLOSED_FROM is "off". */
+  closedFrom?: string | null;
 }
 
 /* --------------------------------------------------------- preview types --- */

@@ -49,10 +49,10 @@ import {
   type PartOpError,
   type PartType,
   type QuestionPartType,
+  type PlainSectionsError,
   type Refused,
   type SectionFacts,
   type SectionId,
-  type SectionsError,
   type StoredPart,
   type VersionResult,
 } from "@/lib/cms/sections/contract";
@@ -95,7 +95,7 @@ async function requireEditor() {
   return canEditContent(roles) ? user : null;
 }
 
-type Plain = Exclude<SectionsError, "changed-elsewhere" | "live-course-standard-only" | "has-learners">;
+type Plain = PlainSectionsError;
 const refuse = (error: Plain) => ({ ok: false, error }) as const;
 
 const PART_TYPES: readonly PartType[] = ["text", "practice", "scenario", "quiz", "reflection", "rating"];

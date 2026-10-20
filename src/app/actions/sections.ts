@@ -43,10 +43,10 @@ import {
   type OutlineOp,
   type OutlineOpError,
   type OutlineResult,
+  type PlainSectionsError,
   type ResolvedOutline,
   type SectionFacts,
   type SectionId,
-  type SectionsError,
   type VersionResult,
 } from "@/lib/cms/sections/contract";
 import { PART_DEFAULTS } from "@/lib/cms/sections/defaults";
@@ -88,7 +88,7 @@ async function requireEditor() {
   return canEditContent(roles) ? user : null;
 }
 
-const refuse = (error: Exclude<SectionsError, "changed-elsewhere" | "live-course-standard-only" | "has-learners">) =>
+const refuse = (error: PlainSectionsError) =>
   ({ ok: false, error }) as const;
 
 const isChoice = (v: unknown): v is AddSectionChoice =>
