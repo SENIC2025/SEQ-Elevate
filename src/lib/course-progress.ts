@@ -98,18 +98,19 @@ export function overallProgress(
  * the seven-step list instead put a learner who had finished a four-lesson
  * course's first three lessons on "Guided practice", a step that course
  * doesn't have.) Every lesson done but the course not marked complete yet
- * reads as the last lesson, as before; a course with no lessons as
- * "complete".
+ * reads as the last lesson, as before. A course with no lessons (every one
+ * emptied or hidden since) is "empty" until the learner completed it:
+ * only completing a course makes it "complete" — the player never
+ * completes an empty one either (CoursePlayer, spec 5.2).
  */
 export function nextStage(
   stageKeys: readonly string[] | null | undefined,
   completedStages: readonly string[],
   completed: boolean
 ): string {
-  const next = nextLesson(
+  return nextLesson(
     courseStageKeys(stageKeys),
     new Set(completedStages.map(lessonId)),
     completed ? "completed" : null
   );
-  return next === "empty" ? "complete" : next;
 }

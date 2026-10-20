@@ -94,7 +94,7 @@ export interface FacilitatorLearner {
   videoCorrect: number;
   /** Where the learner is right now. */
   currentCourse: string | null;
-  currentStage: string | null; // lesson id, or "complete"
+  currentStage: string | null; // lesson id, or "complete"; null: none (no enrolment, or a course with no lessons left)
   /**
    * The current lesson's step name (D58) in a course created in the CMS;
    * null for a bundled course's lesson (its standard name, tStage) or
@@ -265,11 +265,14 @@ async function loadLearners(
       lastActiveAt = recent.updatedAt.toISOString();
       currentCourse =
         contentBySlug.get(recent.course.slug)?.title ?? recent.course.slug;
-      currentStage = nextStage(
+      const next = nextStage(
         stageKeysOf(recent.course.slug),
         completedLessonIds(recent),
         !!recent.completedAt
       );
+      // A course with no lessons left that they never completed: on no
+      // lesson ("—"), never "Completed all".
+      currentStage = next === "empty" ? null : next;
       const current = planOf(recent.course.slug)?.lessons.find(
         (l) => l.id === currentStage
       );

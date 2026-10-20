@@ -130,7 +130,9 @@ export async function buildRealAnalytics(
       const done = completedLessonIds(recent);
       const progress = courseProgress(ownKeys, done, completed, plan?.unseen ?? []);
       // Where they are, on the seven-step funnel: the course's next lesson
-      // (-1, beside the funnel, for one of the course's own).
+      // (-1, beside the funnel, for one of the course's own — or for a
+      // course with no lessons left, "empty", which only completing it
+      // would take past the last step).
       const next = nextStage(ownKeys, done, completed);
       const currentStageIndex =
         next === "complete" ? 7 : (STAGES as readonly string[]).indexOf(next);

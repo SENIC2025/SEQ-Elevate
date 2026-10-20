@@ -161,6 +161,17 @@ describe("buildRealAnalytics, for a course with lessons of its own", () => {
     expect(data?.funnelOther).toEqual({ reached: 1, pct: 100 });
   });
 
+  it("never puts a learner past the last step of a course that only has no lessons left (finding 5)", async () => {
+    // The plan has no lesson (every one emptied or hidden); the learner
+    // finished one before that and never completed the course.
+    lessonPlans.mockImplementation(async () => new Map([["asking-for-help", { lessons: [], unseen: [OWN] }]]));
+    learnersOf.mockImplementation(() => [one("emptied", [enrolment([], null, [OWN])])]);
+    const data = await buildRealAnalytics("en");
+    expect(data?.learners[0].currentStageIndex).not.toBe(7);
+    expect(data?.learners[0].completed).toBe(false);
+    expect(data?.funnel.at(-1)).toEqual({ label: "Completed", reached: 0, pct: 0 });
+  });
+
   it("counts a step the learner finished ahead of the course's next one (a course in its own order)", async () => {
     // Concept before Context: done Concept, now on Context.
     lessonPlans.mockImplementation(async () =>

@@ -217,6 +217,19 @@ describe("getProjectLearners, for a course with lessons of its own", () => {
     expect(done.currentStageLabel).toBeNull();
   });
 
+  it("never says a learner completed a course that only has no lessons left (finding 5)", async () => {
+    // Every lesson emptied or hidden after the learner finished one: the
+    // plan has none, the one they finished still counts (unseen ∩ done),
+    // and they never completed the course.
+    lessonPlans.mockImplementation(async () => new Map([["saying-no", { lessons: [], unseen: [OWN] }]]));
+    learnerEnrolments.mockImplementation(() => [flexible([], [OWN])]);
+    const [learner] = (await getProjectLearners("en")) ?? [];
+    expect(learner.currentStage).not.toBe("complete");
+    expect(learner.currentStage).toBeNull();
+    expect(learner.currentStageLabel).toBeNull();
+    expect(learner.completed).toBe(false);
+  });
+
   it("counts against what the course shows when the plans can't be read, and still lists the learner", async () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     lessonPlans.mockImplementation(async () => {

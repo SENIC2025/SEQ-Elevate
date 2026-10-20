@@ -140,7 +140,13 @@ describe("nextStage", () => {
     expect(nextStage(["context", OWN], ["context"], false)).toBe(OWN);
   });
 
-  it("is complete for a course with no lessons", () => {
-    expect(nextStage([], [], false)).toBe("complete");
+  // Flipped on purpose (integration review, finding 5): a course whose
+  // lessons were all emptied or hidden read as "complete", so staff views
+  // said "Completed all" (and statistics put the learner past the last
+  // step) for a learner who never completed it. Only completing does that.
+  it("is empty, never complete, for a course with no lessons the learner hasn't completed", () => {
+    expect(nextStage([], [], false)).toBe("empty");
+    expect(nextStage([], ["s-abcdefgh"], false)).toBe("empty");
+    expect(nextStage([], [], true)).toBe("complete");
   });
 });
