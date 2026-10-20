@@ -7,11 +7,13 @@ import "server-only";
  * plan is the one the player plays (lessonPlanOf), so their counts and the
  * player can't disagree (D64).
  *
- * Two queries for all courses' lessons, so the dashboard doesn't load every
- * lesson's text: the standard lessons without their narrative (it never
- * changes whether they are shown, nor their names), the course's own with
- * it (their title can name them). Cached per request (React cache), so
- * several callers on one page read once.
+ * Three queries for all courses' lessons, so the dashboard doesn't load
+ * every lesson's text or video: the standard lessons without their
+ * narrative (it never changes whether they are shown, nor their names),
+ * the course's own with it (their title can name them), and which lessons
+ * have a video — only whether they do, read as the player reads it (an
+ * object), never the video and its questions. Cached per request (React
+ * cache), so several callers on one page read once.
  *
  * Its own module, beside learner-course.ts (which re-exports it), because
  * db-course.ts reads it: learner-course.ts reads the platform's defaults,
@@ -28,8 +30,6 @@ import { lessonPlanOf, type LessonFacts, type LessonPlan } from "./sections/lear
 import { learnerPlayerOff } from "./sections/switches";
 import type { Locale } from "./types";
 
-const isRecord = (v: unknown) => typeof v === "object" && v !== null && !Array.isArray(v);
-
 async function readLessonPlans(projectId: string, locale: Locale): Promise<Map<string, LessonPlan>> {
   const courses = await prisma.course.findMany({
     // `meta` present = created in the CMS; DB NULL = bundled course.
@@ -43,11 +43,10 @@ async function readLessonPlans(projectId: string, locale: Locale): Promise<Map<s
     stageKey: true,
     structure: true,
     parts: true,
-    video: true,
     // Learners only ever see published documents (D35).
     _count: { select: { documents: { where: { published: true } } } },
   } as const;
-  const [standard, own] = await Promise.all([
+  const [standard, own, videos] = await Promise.all([
     prisma.lesson.findMany({
       where: { projectId, courseSlug: { in: slugs }, NOT: { stageKey: { startsWith: "s-" } } },
       select: common,
@@ -56,7 +55,9 @@ async function readLessonPlans(projectId: string, locale: Locale): Promise<Map<s
       where: { projectId, courseSlug: { in: slugs }, stageKey: { startsWith: "s-" } },
       select: { ...common, narrative: true },
     }),
+    prisma.$queryRaw<{ courseSlug: string; stageKey: string }[]>`SELECT "courseSlug", "stageKey" FROM "Lesson" WHERE "projectId" = ${projectId} AND "courseSlug" = ANY(${slugs}) AND jsonb_typeof("video") = 'object'`,
   ]);
+  const withVideo = new Set(videos.map((l) => `${l.courseSlug}/${l.stageKey}`));
 
   const factsBySlug = new Map<string, LessonFacts[]>();
   for (const l of [...standard, ...own]) {
@@ -65,7 +66,7 @@ async function readLessonPlans(projectId: string, locale: Locale): Promise<Map<s
       structure: l.structure ?? null,
       parts: l.parts ?? null,
       narrative: "narrative" in l ? (l.narrative ?? null) : null,
-      hasVideo: isRecord(l.video),
+      hasVideo: withVideo.has(`${l.courseSlug}/${l.stageKey}`),
       publishedDocuments: l._count.documents,
     };
     factsBySlug.set(l.courseSlug, [...(factsBySlug.get(l.courseSlug) ?? []), facts]);

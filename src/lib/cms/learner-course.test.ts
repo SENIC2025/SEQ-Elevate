@@ -82,6 +82,17 @@ vi.mock("@/lib/prisma", () => ({
       findMany: async () => db.courses.filter((c) => c.meta !== null).map((c) => courseRow(c.slug)),
     },
     lesson: { findMany: lessonFindMany },
+    // getLessonPlans: which lessons have a video, as an object (Postgres'
+    // jsonb_typeof), without loading it.
+    $queryRaw: async (sql: TemplateStringsArray, projectId: string, slugs: string[]) => {
+      if (db.fail) throw new Error("db down");
+      expect(sql.join("?")).toContain(`jsonb_typeof("video") = 'object'`);
+      expect(projectId).toBe("seq-elevate");
+      const isObject = (v: unknown) => typeof v === "object" && v !== null && !Array.isArray(v);
+      return db.lessons
+        .filter((l) => slugs.includes(l.courseSlug ?? "golden") && isObject(l.video))
+        .map((l) => ({ courseSlug: l.courseSlug ?? "golden", stageKey: l.stageKey }));
+    },
   },
 }));
 
@@ -110,6 +121,7 @@ const QUIZ = {
     { id: "q1", question: { en: "Why?" }, correctOptionId: "x", options: [{ id: "x", text: { en: "A" } }, { id: "y", text: { en: "B" } }] },
   ],
 };
+const VIDEO = { provider: "file", src: "https://x/v.mp4", cues: [{ id: "c1", at: 3, question: { en: "Why?" } }] };
 const narrative = (title: string) => ({ en: { title, blocks: [para(`${title} text`)] }, de: { title: `${title} DE` } });
 
 /** The lessons a standard created course has. */
@@ -192,6 +204,15 @@ const CASES: Case[] = [
           items: [MAIN, { id: "p-reflect1", type: "reflection", data: { kind: "reflection", prompts: [{ id: "r1", label: { en: "Mine?" } }] }, draft: null }],
         },
       },
+    ],
+  },
+  {
+    name: "an own lesson with only a video, and one whose video isn't one",
+    outline: { v: 1, sections: [...stored(STANDARD).sections, { id: OWN, template: "text" }, { id: OWN2, template: "text" }] },
+    lessons: [
+      ...STANDARD,
+      { stageKey: OWN, narrative: { en: { title: "Watch" } }, video: VIDEO },
+      { stageKey: OWN2, narrative: { en: { title: "Broken" } }, video: "not a video" },
     ],
   },
   { name: "unreadable outline", outline: { v: 7, sections: "x" }, lessons: STANDARD },
@@ -373,6 +394,27 @@ describe("getLessonPlans", () => {
     expect(selects).toHaveLength(2);
     expect(selects.find((s) => !s.where.stageKey)?.select.narrative).toBeUndefined();
     expect(selects.find((s) => s.where.stageKey)?.select.narrative).toBe(true);
+  });
+
+  it("tells which lessons have a video without loading any video (spec 3.3), as the player reads one", async () => {
+    db.courses = [
+      {
+        slug: "golden",
+        meta: META,
+        outline: { v: 1, sections: [{ id: OWN, template: "text" }, { id: OWN2, template: "text" }], removed: [...STAGES] },
+        status: "published",
+      },
+    ];
+    db.lessons = [
+      { stageKey: OWN, courseSlug: "golden", narrative: { en: { title: "Watch" } }, video: VIDEO },
+      { stageKey: OWN2, courseSlug: "golden", narrative: { en: { title: "Broken" } }, video: ["not", "a", "video"] },
+    ];
+    const plan = (await getLessonPlans("seq-elevate", "en")).get("golden")!;
+    expect(plan.lessons.map((l) => l.id)).toEqual([OWN]);
+    expect(plan.unseen).toEqual([OWN2]);
+    const selects = lessonFindMany.mock.calls.map((c) => (c[0] as { select: Record<string, unknown> }).select);
+    expect(selects).toHaveLength(2);
+    for (const select of selects) expect(select.video).toBeUndefined();
   });
 
   it("follows the kill switch", async () => {

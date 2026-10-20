@@ -5,6 +5,8 @@ import { describe, it, expect, afterEach, vi } from "vitest";
 const prisma = {
   course: { findMany: vi.fn(), findFirst: vi.fn() },
   lesson: { findMany: vi.fn() },
+  // Release 2: the lesson plans ask which lessons have a video (none here).
+  $queryRaw: vi.fn(async () => []),
 };
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/prisma", () => ({ prisma }));

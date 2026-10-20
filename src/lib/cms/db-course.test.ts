@@ -33,6 +33,8 @@ vi.mock("@/lib/prisma", () => ({
           )
           .map((l) => ({ courseSlug: course.slug, video: null, parts: null, structure: null, ...l, _count: { documents: 0 } })),
     },
+    // The lesson plans ask which lessons have a video: none here.
+    $queryRaw: async () => [],
   },
 }));
 
