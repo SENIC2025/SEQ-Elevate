@@ -361,6 +361,17 @@ model CourseEnrollment {
   reflection       Json   @default("{}")
   // Assessment answers
   assessment       Json   @default("{}")
+  // Release 2 (D62). Lessons of the course's own the learner finished ("s-…"),
+  // in the order finished: a JSON array of strings. Standard lessons stay in
+  // stagesCompleted. Null = none. (Prisma can't make a list optional.)
+  sectionsCompleted Json?
+  // Release 2 (D62). Every answer that has no column above, by
+  // "lessonId/contentId": { v: 1, items: { [key]: StoredAnswer & { at } } }.
+  // simulation/main, scenario/main, reflection/main (p1–p3), assessment/main
+  // stay in the columns above. Null = none.
+  responses         Json?
+  // A database trigger (migration 20261021120000) keeps completedAt and
+  // stagesCompleted from shrinking. Resetting progress means deleting the row.
   updatedAt        DateTime @updatedAt
 
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
