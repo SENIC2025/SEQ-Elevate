@@ -123,6 +123,19 @@ describe("ScenarioStage", () => {
     expect(continued).toBe(1);
   });
 
+  it("lets the follow-up's outcome take focus, where the follow-up buttons were (finding 10)", () => {
+    // The follow-up button pressed goes once chosen: focus fell to <body>
+    // (already in Release 1), while ScenarioPart moves it to the outcome.
+    // Both outcomes stay what they were for the recorded walk (a status).
+    saved("private", "boundary");
+    const html = render();
+    const outcomes = [...html.matchAll(/<div([^>]*role="status"[^>]*)>/g)].map((m) => m[1]);
+    expect(outcomes).toHaveLength(2);
+    expect(outcomes[0]).not.toMatch(/tabindex/);
+    expect(outcomes[1]).toMatch(/tabindex="-1"/);
+    expect(outcomes[1]).toMatch(/\sid="[^"]+"/);
+  });
+
   it("ignores a saved path whose choices the scenario no longer has", () => {
     saved("gone", "boundary");
     expect(render()).toContain("To continue, choose what you would do.");

@@ -1,7 +1,7 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -29,7 +29,8 @@ const RETRYING: ReadonlySet<PartKey> = new Set(["scenario/main"]);
  * there again on Back and after a reload. "Try different choices" starts
  * again on this screen only — the saved path stays until a new first
  * choice replaces it — and focus goes to the heading first, as the button
- * goes. Continue is always there, with the hint above it until the path is
+ * goes. A follow-up chosen takes focus to its outcome, where the follow-up
+ * buttons were. Continue is always there, with the hint above it until the path is
  * complete (useContinue); pressed early, it takes the learner to the first
  * choice or to the follow-up question.
  */
@@ -54,6 +55,18 @@ export function ScenarioStage({
     onContinue,
   });
 
+  // The follow-up button pressed goes once the follow-up is chosen: focus
+  // goes to its outcome, where the buttons were (WCAG 2.4.3), as
+  // ScenarioPart does — never to the page.
+  const followupOutcomeId = useId();
+  const focusFollowupOutcome = useRef(false);
+  const savedFollowup = state.course.scenario.followup;
+  useEffect(() => {
+    if (!focusFollowupOutcome.current || !savedFollowup) return;
+    focusFollowupOutcome.current = false;
+    document.getElementById(followupOutcomeId)?.focus();
+  }, [savedFollowup, followupOutcomeId]);
+
   const sc = stage.scenario;
   if (!sc) return null;
 
@@ -74,6 +87,7 @@ export function ScenarioStage({
     dispatch({ type: "recordScenarioRoot", choice: c.id, label: c.text });
   };
   const pickFollowup = (c: ScenarioChoice) => {
+    focusFollowupOutcome.current = true;
     dispatch({ type: "recordScenarioFollowup", choice: c.id, label: c.text });
   };
   const headingId = cont.ids.heading("main");
@@ -167,6 +181,8 @@ export function ScenarioStage({
           {/* Follow-up outcome */}
           {followupChoice ? (
             <Outcome
+              id={followupOutcomeId}
+              focusable
               quality={followupChoice.quality}
               text={followupChoice.outcome}
             />
@@ -208,9 +224,14 @@ export function ScenarioStage({
 function Outcome({
   quality,
   text,
+  id,
+  focusable = false,
 }: {
   quality: OutcomeQuality;
   text: string;
+  id?: string;
+  /** Takes focus once chosen (the follow-up's). Still a status, as the recorded walk has it. */
+  focusable?: boolean;
 }) {
   const t = useTranslations("coursePlayer");
   const variant =
@@ -224,9 +245,14 @@ function Outcome({
 
   return (
     <div
+      id={id}
       role="status"
       aria-live="polite"
-      className="mt-6 rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] p-4"
+      tabIndex={focusable ? -1 : undefined}
+      className={cn(
+        "mt-6 rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] p-4",
+        focusable && "outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
+      )}
     >
       <div className="flex items-center justify-between gap-2 mb-2">
         <span className="text-xs uppercase tracking-wider text-[var(--muted-foreground)] font-semibold">
