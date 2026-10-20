@@ -154,7 +154,7 @@ export interface DemoState {
   refusedKeys: Partial<Record<string, KeyRefusal>>;
 }
 
-const DEFAULT_STATE: DemoState = {
+export const DEFAULT_STATE: DemoState = {
   projectId: "seq-elevate",
   role: null,
   badges: [],
@@ -265,7 +265,8 @@ function answerChanged(state: DemoState, key: string): DemoState {
   return { ...state, refusedKeys };
 }
 
-function reducer(state: DemoState, action: Action): DemoState {
+/** The store's reducer; exported for its tests (demo-state.test.ts). */
+export function reducer(state: DemoState, action: Action): DemoState {
   switch (action.type) {
     case "setProject":
       // Switching project resets the per-project state.
