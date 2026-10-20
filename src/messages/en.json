@@ -510,7 +510,7 @@
     "noLessons": "This course has no lessons yet.",
     "staleBuild": "A new version is available. Reload the page to keep saving your answers.",
     "reload": "Reload",
-    "charsLeft": "{count} characters left",
+    "charsLeft": "{count, plural, one {# character left} other {# characters left}}",
     "answerTooLong": "This answer is too long to save. Shorten it to {max} characters.",
     "earlierAnswers": "Your earlier answers"
   },

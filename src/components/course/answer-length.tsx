@@ -32,7 +32,9 @@ export function answerLengthState(text: string | undefined): AnswerLength {
 /**
  * The note under the box, which describes it (aria-describedby), shown
  * only near or past the limit. Crossing into either is said once through
- * the player's live region — not every character typed.
+ * the player's live region — not every character typed, and not when a
+ * lesson opens with a long answer already there: that note is read with
+ * the box.
  */
 export function AnswerLengthNote({ id, state }: { id: string; state: AnswerLength }) {
   const t = useTranslations("coursePlayer");
@@ -44,7 +46,8 @@ export function AnswerLengthNote({ id, state }: { id: string; state: AnswerLengt
         ? t("charsLeft", { count: state.left })
         : null;
   const kind = state?.kind ?? null;
-  const said = useRef<string | null>(null);
+  // The kind the box opened with counts as said.
+  const said = useRef<string | null>(kind);
   useEffect(() => {
     if (kind === said.current) return;
     said.current = kind;
