@@ -191,7 +191,7 @@ Sign-in **is** sign-up (passwordless: the first magic-link click creates the acc
 - [x] Rate-limiting on sign-in + uploads — **done**
 - [x] Sentry wiring — **done**; activate by setting the DSN env vars (§6)
 - [ ] Security review pass of the recent server actions / upload routes
-- [x] **Daily off-site DB backups, 30-day retention** — `.github/workflows/db-backup.yml` (see [BACKUP.md](BACKUP.md)); **[Dashboard]** create the S3-compatible EU bucket + add the repo secrets to activate. Neon point-in-time restore is the second layer: 1 day by default on Launch — set the History window to 7 days (BACKUP.md, B1); the Free plan is fixed at 6 hours.
+- [x] **Daily off-site DB backups, 30-day retention** — `.github/workflows/db-backup.yml` (see [BACKUP.md](BACKUP.md)); active since 20 Oct 2026 (Scaleway Paris, D61; first verified run that day). Neon point-in-time restore is the second layer: 1 day by default on Launch — set the History window to 7 days (BACKUP.md, B1); the Free plan is fixed at 6 hours.
 - [ ] **Hosting substitution approved** by the consortium (Vercel/Neon vs the proposal's Hetzner) — send [HOSTING-SUBSTITUTION.md](HOSTING-SUBSTITUTION.md). Needed for a clean Item 2 invoice.
 - [ ] (Optional) external WCAG 2.2 AA audit — internal audit passes today *(O5)*
 

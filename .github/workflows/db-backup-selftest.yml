@@ -1,12 +1,13 @@
 name: DB backup self-test
 
 # Runs scripts/db-backup.sh end to end on the same runner image as the nightly
-# backup, against a throwaway PostgreSQL (16 and 17) and a throwaway S3 store —
-# no secrets, no production data. Proves: the matching pg_dump is used, the
-# read-only role SQL (scripts/db-backup-role.sql) is enough for pg_dump, a
-# writable role and a pooled Neon string are refused, sign-in tokens are left
-# out, the dump verifies and test-restores, age encryption round-trips into a
-# real restore, the stored copy matches, and pruning keeps the newest.
+# backup, against a throwaway PostgreSQL (16, 17, 18) and a throwaway S3 store —
+# no secrets, no production data (production runs 18). Proves: the matching
+# pg_dump is used, the read-only role SQL (scripts/db-backup-role.sql) is enough
+# for pg_dump, a writable role and a pooled Neon string are refused, sign-in
+# tokens and Neon Auth's schema are left out, the dump verifies and
+# test-restores, age encryption round-trips into a real restore, the stored
+# copy matches, and pruning keeps the newest.
 
 on:
   push:
@@ -28,7 +29,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        pg: ["16", "17"]
+        pg: ["16", "17", "18"]
     services:
       postgres:
         image: postgres:${{ matrix.pg }}

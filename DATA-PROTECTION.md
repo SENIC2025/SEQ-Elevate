@@ -197,7 +197,7 @@ unless marked _planned_.
 **Integrity, availability & operations**
 - Version-controlled code; automated CI (type-check, lint, unit + end-to-end tests, automated accessibility checks) gating every change.
 - Database schema changes via reviewed, versioned migrations.
-- **Backups:** Neon point-in-time restore (history window 7 days **[to confirm once set; 6 hours while the project is on Neon's Free plan]**) and a **daily off-site backup** to Scaleway (Paris), kept 30 days: taken with a **read-only** database role, sign-in tokens left out, verified on every run (size, tables, every data block; the stored copy read back and compared), with a restore procedure and quarterly test restores (BACKUP.md). **[Active from: date of the first successful run.]**
+- **Backups:** Neon point-in-time restore (history window 7 days **[to confirm once set; 6 hours while the project is on Neon's Free plan]**) and a **daily off-site backup** to Scaleway (Paris), kept 30 days: taken with a **read-only** database role, sign-in tokens left out, verified on every run (size, tables, every data block; the stored copy read back and compared), with a restore procedure and quarterly test restores (BACKUP.md). Active since **20 October 2026** (first verified run).
 - **Audit log** of security-relevant actions.
 - **WCAG 2.2 AA** accessibility (relevant for equitable access; internally tested).
 
