@@ -1,14 +1,14 @@
-# Building a course's lessons — partner guide (Release 1)
+# Building a course's lessons — partner guide
 
-For course editors in the SEQ Elevate consortium. It covers what is new in Release 1 and what learners get from it now and from Release 2. Everything here happens on a course's own page: **Manage courses**, then open the course.
+For course editors in the SEQ Elevate consortium. It covers the lesson editor that has been live since 13 October, and what learners get from it now and from 13 November. Where the screens say "Release 2" ("Έκδοση 2" in Greek), that means 13 November. Everything here happens on a course's own page: **Manage courses**, then open the course.
 
 ## In one minute
 
-- Each course has a **lesson list**. You can add lessons, give them your own names in each language, move them, hide them and delete them.
+- Each course you create has a **lesson list** (the two courses that came with the platform keep their fixed layout). You can add lessons, give them your own names in each language, move them, hide them and delete them.
 - Inside each lesson you can **add content** around the lesson's main content: text, a practice question, a branching scenario, a quick check, reflection questions, or a 1–5 self-assessment.
 - **Preview as learner** shows the course exactly as you built it, at any time.
-- Learners get the new arrangements from **Release 2**. Until then, a course that uses them can be previewed but **not published**. The course page lists the reasons and how to undo each one.
-- Nothing you wrote before Release 1 moves or changes. Existing courses look and work as they did.
+- Learners get the new arrangements from **13 November**. Until then, a course that uses them can be previewed but **not published**. The course page lists the reasons and how to undo each one.
+- Nothing you wrote before 13 October moves or changes. Existing courses look and work as they did.
 
 ## The lesson list
 
@@ -49,13 +49,13 @@ Added text saves per language. If a colleague saved the same content while you w
 **Preview as learner** (top of the course page) opens the course as a learner would get it.
 
 - A course in the standard layout opens in the learner player itself.
-- A course with your own arrangement opens in the new player that learners get from Release 2. A line at the top says so.
+- A course with your own arrangement opens in the new player that learners get from 13 November. A line at the top says so.
 - **Edit this lesson** takes you back to the lesson you are looking at.
 - Nothing you do in a preview is saved: no progress, no statistics, no badge.
 
-## Publishing in Release 1
+## Publishing until 13 November
 
-Learners' player changes in Release 2. Until then, a course can be published only if learners would get it exactly as built, which means none of these:
+Learners' player changes on 13 November. Until then, a course can be published only if learners would get it exactly as built, which means none of these:
 
 - a new lesson of your own;
 - a hidden lesson;
@@ -63,24 +63,24 @@ Learners' player changes in Release 2. Until then, a course can be published onl
 - lessons in a new order;
 - content added to a lesson.
 
-If any of these apply, **Publish** says **Can't publish yet** and lists each reason, linking to the lesson. You can either undo them (the list empties and Publish works) or keep them and use Preview as learner until Release 2.
+If any of these apply, **Publish** says **Can't publish yet** and lists each reason, linking to the lesson. You can either undo them (the list empties and Publish works) or keep them and use Preview as learner until 13 November.
 
-**Lesson names never block publishing.** Learners see your names from Release 2; until then they see the standard names ("Context", "Skill concept", …).
+**Lesson names never block publishing.** Learners see your names from 13 November; until then they see the standard names ("Context", "Skill concept", …).
 
 ### Courses that are already published
 
-Learners are working through these. Until Release 2 the course keeps its shape:
+Learners are working through these. Until 13 November the course keeps its shape:
 - **Allowed:** editing text and exercises (as before, live at once), naming lessons, adding a video or documents.
-- **Not allowed** until Release 2: moving, hiding, adding or deleting lessons, and adding content to a lesson.
+- **Not allowed** until 13 November: moving, hiding, adding or deleting lessons, and adding content to a lesson.
 
-The buttons say why. Note that unpublishing a course and then restructuring it means it can't be published again until Release 2.
+The buttons say why. Note that unpublishing a course and then restructuring it means it can't be published again until 13 November.
 
 **Remove stage** on an exercise learners already have is refused while learners are enrolled, so nobody loses work in progress.
 
 ## Questions partners have asked
 
 - **Will my existing course change?** No. Its text, exercises, drafts, video and documents stay exactly where they are. The list shows the same lessons in the same order.
-- **Why can't I publish my course with a custom lesson?** Learners' player can't show it until Release 2. Preview it now; publish from Release 2, or undo the change to publish today.
+- **Why can't I publish my course with a custom lesson?** Learners' player can't show it until 13 November. Preview it now; publish from 13 November, or undo the change to publish today.
 - **Can two of us edit at once?** Yes. If you both change the same thing, the second save is refused with a message, and the page shows the other person's version.
 - **Translations:** each lesson name and text is per language. Learners get English (then the first language written) where a translation is missing.
 
