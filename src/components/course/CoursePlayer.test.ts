@@ -82,11 +82,11 @@ function render(props: Partial<CoursePlayerProps> = {}, locale: "en" | "de" = "e
   return renderIn(createElement(CoursePlayer, { course, ...props }), locale);
 }
 
-/** The step bar's buttons: name (without the number's digits run together) and state. */
+/** The step bar's buttons: name (as read: number and name, or the done name) and state. */
 function steps(html: string) {
   const nav = html.slice(html.indexOf('aria-label="Course stages"'), html.indexOf("</nav>"));
   return elements(nav, "button").map((b) => ({
-    name: textOf(b.inner),
+    name: textOf(b.inner.replace(/<span aria-hidden="true"[^>]*>[^<]*<\/span>/g, "")),
     disabled: /\sdisabled=""/.test(b.attrs),
     current: attr(b.attrs, "aria-current") === "step",
   }));
@@ -139,6 +139,19 @@ describe("CoursePlayer", () => {
       { name: "The idea, done", disabled: false, current: false },
       { name: "3Check", disabled: false, current: true },
     ]);
+  });
+
+  it("until the learner's progress has loaded, counts what the server said: lessons before its position are done", () => {
+    // The store doesn't hold the course yet; the quick check is answered on this page.
+    store.over = {
+      courseSlug: null,
+      responses: { "assessment/p-quizaaaa": { type: "quiz", answers: { q1: "b", q2: "a" }, checked: true } },
+    };
+    const html = render({ serverResume: "assessment" });
+    expect(steps(html).map((s) => s.name)).toEqual(["Warm-up, done", "The idea, done", "3Check"]);
+    // The last Continue goes on to the end, not back to a lesson the server has as done.
+    press("Continue");
+    expect(announced).toEqual([]);
   });
 
   it("reaches no further than the first lesson not done, even a done one an editor moved past it (Q4)", () => {

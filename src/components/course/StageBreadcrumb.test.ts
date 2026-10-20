@@ -226,7 +226,7 @@ describe("StageBreadcrumb in order (Release 2)", () => {
     expect(bar({ frontier: 0, allReachable: true }).every((s) => !s.disabled)).toBe(true);
   });
 
-  it("says a done step is done, for screen readers only", () => {
+  it("says a done step is done, in its name (the eye sees a tick, and the name on wider screens)", () => {
     const html = renderOwn<string>({
       current: "concept",
       completed: ["s-abcd1234"],
@@ -235,8 +235,11 @@ describe("StageBreadcrumb in order (Release 2)", () => {
       frontier: 1,
       doneLabel: ", done",
     });
-    expect(steps(html).map((s) => s.label)).toEqual(["Warm-up, done", "2The idea", "3Try it", "4Wrap-up"]);
-    expect(html).toContain('<span class="sr-only sm:not-sr-only">Warm-up</span><span class="sr-only">, done</span>');
+    expect(html).toContain(
+      '<span aria-hidden="true" class="hidden sm:inline">Warm-up</span><span class="sr-only">Warm-up, done</span></button>'
+    );
+    // Steps not done keep their markup.
+    expect(html).toContain('<span class="sr-only sm:not-sr-only">The idea</span>');
   });
 
   it("without the new props, a done step stays reachable as before", () => {

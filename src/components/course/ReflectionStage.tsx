@@ -71,7 +71,7 @@ export function ReflectionStage({
                   id={id}
                   value={r[key]}
                   onChange={(e) => set(key, e.target.value)}
-                  placeholder={prompt.placeholder}
+                  placeholder={prompt.placeholder || undefined}
                   aria-describedby={length ? `${id}-length` : undefined}
                   aria-invalid={length?.kind === "tooLong" ? true : undefined}
                   rows={2}

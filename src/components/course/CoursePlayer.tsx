@@ -121,16 +121,22 @@ function Player({
     initialPosition(ids, { preview, initialLesson, serverResume })
   );
 
-  // What the learner has done in this course: only while the store holds
-  // it (just opened after another course, it still holds that one's).
+  // What the learner has done in this course: the store's, only while it
+  // holds this course (just opened after another course, it still holds
+  // that one's) — and, until the learner's saved progress has loaded into
+  // it, what the server said: every lesson before the one they open at is
+  // done (nextLesson), so the step bar and the last Continue never act as
+  // if it weren't. Progress only grows, so the two are a union.
   const ours = state.course.courseSlug === course.slug;
   const { stagesCompleted, sectionsCompleted } = state.course;
-  const done = useMemo(
-    () => new Set<string>(ours ? [...stagesCompleted, ...sectionsCompleted] : []),
-    [ours, stagesCompleted, sectionsCompleted]
-  );
+  const done = useMemo(() => {
+    const at = serverResume && serverResume !== "complete" ? ids.indexOf(serverResume) : -1;
+    const fromServer = serverResume === "complete" ? ids : at > 0 ? ids.slice(0, at) : [];
+    return new Set<string>([...fromServer, ...(ours ? [...stagesCompleted, ...sectionsCompleted] : [])]);
+  }, [ids, serverResume, ours, stagesCompleted, sectionsCompleted]);
   const completedAt = ours ? state.course.completedAt : null;
-  const frontier = frontierOf(ids, done, !!completedAt);
+  const completed = !!completedAt || serverResume === "complete";
+  const frontier = frontierOf(ids, done, completed);
 
   const indexOf = (id: Position) => (id === "complete" || id === "empty" ? -1 : ids.indexOf(id));
   const total = ids.length;
@@ -209,10 +215,10 @@ function Player({
   const goNext = useCallback(() => {
     if (current === "complete" || current === "empty") return;
     dispatch({ type: "completeLesson", id: current });
-    const next = afterContinue(ids, done, current, !!completedAt);
+    const next = afterContinue(ids, done, current, completed);
     if (next.stillToDo) announce(tHint("stillToDo", { name: labelOf(next.stillToDo) }));
     setCurrent(next.to);
-  }, [current, dispatch, ids, done, completedAt, announce, tHint, labelOf]);
+  }, [current, dispatch, ids, done, completed, announce, tHint, labelOf]);
 
   const goBack = useCallback(() => {
     const to = backFrom(ids, current);
@@ -287,8 +293,9 @@ function Player({
         </div>
       ) : null}
 
-      {/* Top bar */}
-      <div className="mb-4 flex items-start justify-between gap-3">
+      {/* Top bar. It wraps on a phone, where an editor's longer links
+          ("Edit this lesson" in Greek) and the title don't fit one line. */}
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
         <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
           <Link
             href="/learner"

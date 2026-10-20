@@ -21,7 +21,7 @@ import { cn } from "@/lib/utils";
  * first lesson the learner hasn't done — the bar reaches up to it and no
  * further, even to a lesson done before an editor moved it there, which
  * shows ticked but can't be opened. `doneLabel` says a done step is done
- * (", done"), where the eye sees only a tick. On a phone the bar scrolls
+ * (", done", in its name), where the eye sees only a tick. On a phone the bar scrolls
  * sideways: the current step is kept in view by moving the bar itself,
  * never the page (scrollIntoView would), at once for a learner who asked
  * for less motion.
@@ -130,10 +130,23 @@ export function StageBreadcrumb<K extends string = Stage>({
                 >
                   {isDone ? <Check className="h-3 w-3" /> : i + 1}
                 </span>
-                {/* Hidden on a phone but still the button's name: a
-                    finished step shows only a tick. */}
-                <span className="sr-only sm:not-sr-only">{nameOf(stage)}</span>
-                {isDone && doneLabel ? <span className="sr-only">{doneLabel}</span> : null}
+                {isDone && doneLabel ? (
+                  // A done step shows a tick: its name says it's done. The
+                  // whole name in one hidden span — a hidden suffix next to
+                  // the shown name would be read with a space before it
+                  // ("Context , done") — and the shown name, on wider
+                  // screens, left out of it.
+                  <>
+                    <span aria-hidden="true" className="hidden sm:inline">
+                      {nameOf(stage)}
+                    </span>
+                    <span className="sr-only">{`${nameOf(stage)}${doneLabel}`}</span>
+                  </>
+                ) : (
+                  // Hidden on a phone but still the button's name: a
+                  // finished step shows only a tick.
+                  <span className="sr-only sm:not-sr-only">{nameOf(stage)}</span>
+                )}
               </button>
               {i < stages.length - 1 ? (
                 <span
