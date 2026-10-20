@@ -22,7 +22,8 @@ retained 30 days"** (Contract Item 2 §7). Implemented as
    the owner's credentials never sit in GitHub by mistake (the backup uses a read-only role).
 2. Dumps the database with the `pg_dump` matching the server's PostgreSQL version.
    Sign-in session and sign-in-link token rows are left out (useless for recovery,
-   harmful if a dump leaked).
+   harmful if a dump leaked), and so is `neon_auth`: the schema of Neon's own sign-in
+   service, which Neon creates, the app doesn't use, and the read-only role can't read.
 3. Verifies the dump: size, number of tables, every data block readable.
 4. Optionally encrypts it on the runner (Setup, part D).
 5. Uploads it, reads the stored copy back and compares it byte for byte (SHA-256).

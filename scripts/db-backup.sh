@@ -112,10 +112,15 @@ dump() {
   file="seq-elevate-db-$(date -u +%Y-%m-%d-%H%M%S).dump"
   # Session and VerificationToken rows are live sign-in and magic-link tokens:
   # useless for recovery, harmful if a dump leaks. Their definitions stay.
+  # neon_auth is Neon's own sign-in service (Neon Auth), created by Neon, not
+  # used by the app (Auth.js keeps its tables in public) and unreadable to the
+  # read-only role; it holds that service's sessions and signing keys. Any other
+  # schema the role can't read still fails the dump loudly.
   local attempt
   for attempt in 1 2 3; do
     if "$(PG_BIN)/pg_dump" "$DATABASE_URL" --format=custom --no-owner --no-privileges \
          --lock-wait-timeout=120000 \
+         --exclude-schema=neon_auth \
          --exclude-table-data='public."Session"' --exclude-table-data='public."VerificationToken"' \
          --file="$file"; then
       break

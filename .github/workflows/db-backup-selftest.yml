@@ -89,6 +89,10 @@ jobs:
           INSERT INTO "VerificationToken" VALUES ('learner1@example.com', 'live-magic-link-token');
           CREATE TABLE "Lesson" (id serial PRIMARY KEY, narrative jsonb, parts jsonb);
           INSERT INTO "Lesson" (narrative) SELECT jsonb_build_object('en', jsonb_build_object('title', 'Lesson ' || g, 'body', repeat('Text ', 200))) FROM generate_series(1, 200) g;
+          -- Like Neon Auth's schema on Neon: present, not readable by the backup role.
+          CREATE SCHEMA neon_auth;
+          CREATE TABLE neon_auth.jwks (id text PRIMARY KEY, "privateKey" text);
+          INSERT INTO neon_auth.jwks VALUES ('k1', 'live-signing-key');
           DO $$ BEGIN
             FOR i IN 1..18 LOOP
               EXECUTE format('CREATE TABLE %I (id serial PRIMARY KEY, v text)', 'Model' || i);
@@ -102,6 +106,10 @@ jobs:
           # A table the app adds later is readable through the default privileges.
           psql "$OWNER_URL" -X -v ON_ERROR_STOP=1 -qc 'CREATE TABLE "AddedLater" (id int); INSERT INTO "AddedLater" VALUES (1);'
           [ "$(psql "$DATABASE_URL" -XAtqc 'SELECT count(*) FROM "AddedLater"')" = 1 ]
+          # Neon Auth's schema stays unreadable, as on Neon.
+          if psql "$DATABASE_URL" -X -qc 'SELECT 1 FROM neon_auth.jwks' 2>/dev/null; then
+            echo "::error::backup_reader can read neon_auth"; exit 1
+          fi
           # The role really can't write.
           if psql "$DATABASE_URL" -X -qc 'INSERT INTO "User" (email) VALUES ($$x@example.com$$)' 2>/dev/null; then
             echo "::error::backup_reader could write"; exit 1
@@ -142,6 +150,9 @@ jobs:
           grep -q "TABLE DATA public User " toc.txt || { echo "::error::User data missing"; exit 1; }
           if grep -qE "TABLE DATA public (Session|VerificationToken) " toc.txt; then
             echo "::error::sign-in token rows are in the dump"; exit 1
+          fi
+          if grep -q " neon_auth " toc.txt; then
+            echo "::error::the neon_auth schema is in the dump"; exit 1
           fi
           scripts/db-backup.sh verify
           scripts/db-backup.sh test-restore
