@@ -8,7 +8,7 @@ For course editors in the SEQ Elevate consortium. It covers the lesson editor th
 - Inside each lesson you can **add content** around the lesson's main content: text, a practice question, a branching scenario, a quick check, reflection questions, or a 1–5 self-assessment.
 - **Preview as learner** shows what learners get, at any time.
 - From 10 November, **learners get the course as you built it**: your own lessons and names, your order, the content you added. Hidden lessons are left out. A course publishes as long as learners would see at least one lesson.
-- **Once people are taking a course**, adding, moving, hiding or showing lessons, and adding, moving or removing content, first tell you how many learners it affects and ask you to confirm. Deleting a lesson learners have, or a question they may have answered, is refused; hide it instead.
+- **Once people are taking a course**, adding, moving, hiding or showing lessons, and adding, moving or removing content, first tell you how many learners it affects and ask you to confirm. On a published course with learners, no lesson can be deleted: hide it instead. On a course that isn't published, only a lesson no learner has anything in can be deleted. A question learners may have answered can't be removed while they are there; you can still edit it.
 - **From 1 December**, a published course with learners keeps its shape: lessons and content can no longer be added, moved or removed. Hiding and showing lessons, renaming, and editing text and questions stay open.
 - Nothing you wrote before 13 October moves or changes. Existing courses look and work as they did.
 
@@ -27,7 +27,7 @@ The list is on the left of the course page (above the lessons on a phone). Each 
 
 Limits: up to **15 lessons** per course, hidden ones included. Past **12 lessons learners see**, the page asks you to check that learners need them all.
 
-A lesson of your own that has nothing in it yet is marked "Learners get this lesson as soon as it has content": it appears to learners with your first save.
+A lesson of your own that has nothing in it yet is marked "Learners get this lesson as soon as it has content": it appears to learners once it has something they can get — text you saved, a video, a published document, or a question saved with **Save stage** (a draft alone doesn't count).
 
 ## Content in a lesson
 
