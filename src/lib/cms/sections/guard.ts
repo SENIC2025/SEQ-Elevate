@@ -1,12 +1,16 @@
 /**
- * The publish guard's one question (D57, spec 2.2): where does the editor's
- * lesson list differ from what learners get?
+ * Release 1's publish guard's one question (D57, spec 2.2): where does the
+ * editor's lesson list differ from the standard layout? Release 2 lifts the
+ * guard (D66: publish-blockers.ts); the question stays for the kill
+ * switches (R2_PUBLISH_GUARD=on, R2_LEARNER_PLAYER=off, which give learners
+ * Release 1's view again), the pre-deploy check (derivation-check.ts) and
+ * the "can't be read" test every structural change makes (G8).
  *
- * Learners only ever get the Release 0 view of a course (the reader and the
- * player are frozen until Release 2): the four text lessons and each saved
- * exercise, in the standard order, each lesson's main content only. So a
- * course whose list is the standard one is exactly what learners get — and
- * every way a list can differ from it is named here:
+ * Release 1's learners only ever got the Release 0 view of a course: the
+ * four text lessons and each saved exercise, in the standard order, each
+ * lesson's main content only. So a course whose list is the standard one
+ * is exactly that view — and every way a list can differ from it is named
+ * here:
  *
  *   custom-section   a lesson of the course's own (s-xxxxxxxx);
  *   hidden-section   a hidden lesson (learners would still get it);
@@ -17,8 +21,7 @@
  *   unreadable       a stored list or a listed lesson's content that can't
  *                    be read — nothing can be promised about it.
  *
- * Step names are never a reason: learners keep the standard names until
- * Release 2 (D58), and a renamed course publishes as before.
+ * Step names are never a reason (D58): a renamed course always published.
  *
  * Why an empty list means learners get what the editor sees: with no lesson
  * of its own, hidden or deleted, every standard text lesson is listed (one
@@ -27,23 +30,23 @@
  * exercise lessons, is presentStageKeys — what getDbCourse plays. With no
  * extra content, each lesson's content is the main content learners read.
  *
- * Pure and client-safe: the course page greys out what the server would
- * refuse by asking these same functions (predictOutlineOp, predictPartOp).
+ * Also here, the page's forecasts of the rules for changing a course
+ * people are taking (predictOutlineOp, predictPartOp: live-rules.ts), so
+ * the course page offers what the server would take. Pure and client-safe.
  */
 
+import type { CourseKind } from "../course-admin-types";
 import {
   LEGACY_ORDER,
-  reasonKey,
   type InteractiveKey,
-  type LiveWriteAllowed,
   type NewOnlyReason,
   type NewOnlyReasons,
+  type OutlineOp,
   type OutlineReasons,
-  type PredictOutlineOp,
-  type PredictPartOp,
   type ResolvedOutline,
   type SectionId,
 } from "./contract";
+import { liveRule, outlineLiveOp, type LiveFacts, type LiveOp, type LiveVerdict } from "./live-rules";
 import { applyOutlineOpWith } from "./outline";
 import { partsOf } from "./section-parts";
 
@@ -88,71 +91,67 @@ export const newOnlyReasons: NewOnlyReasons = (kind, o, lessons) => {
   return reasons;
 };
 
-/** The reasons in `after` that `before` doesn't have (each lesson's counted on its own). */
-export function introducedReasons(
-  before: readonly NewOnlyReason[],
-  after: readonly NewOnlyReason[]
-): NewOnlyReason[] {
-  const had = new Set(before.map(reasonKey));
-  return after.filter((r) => !had.has(reasonKey(r)));
-}
-
-/**
- * G3: may a published course take this change? Only if it adds no reason.
- * A standard live course therefore stays standard, and one published past
- * the guard (an old page, a rollback) can still be cleaned up.
- */
-export const liveWriteAllowed: LiveWriteAllowed = (before, after) =>
-  introducedReasons(before, after).length === 0;
-
 const unreadable = (reasons: readonly NewOnlyReason[]) =>
   reasons.some((r) => r.code === "unreadable");
 
 /**
- * The page's forecast of G3 for one lesson-list change, from what it was
- * sent: the resolved list, its reasons and the free standard keys. The
- * change is worked out by the server's own rules (applyOutlineOpWith); the
- * extra content of each lesson is known only through its reason, which a
- * lesson keeps while it stays listed and loses when it is deleted. A new
- * "Reflection & self-assessment" lesson comes with extra content.
+ * What the page predicts for one change of a course people may be taking
+ * (live-rules.ts): `verdict` is liveRule's answer, null when the change
+ * can't be made at all (a built-in course, a list that can't be read, or
+ * the change itself refused, at an edge say). `allowed` once nothing but a
+ * confirmation stands in the way.
+ */
+export interface LivePrediction {
+  allowed: boolean;
+  verdict: LiveVerdict | null;
+}
+
+const predicted = (verdict: LiveVerdict | null): LivePrediction => ({
+  allowed: verdict === "allowed" || verdict === "needs-confirmation",
+  verdict,
+});
+
+/**
+ * The page's forecast of the server's answer to one lesson-list change,
+ * from what it was sent: the resolved list, its reasons (only "unreadable"
+ * matters any more), the free standard keys, and the facts the rules need
+ * (learners, the cut-off, who has data in the lesson, whether it is the
+ * last one learners see). The change itself is worked out by the server's
+ * own rules (applyOutlineOpWith); a rename is never guarded (D58).
  *
  * Nothing is offered for a built-in course, nor while anything can't be
  * read: the server refuses every structural write then (G8) until an admin
  * repairs it.
  */
-export const predictOutlineOp: PredictOutlineOp = ({ kind, status, outline, reasons, freeKeys, op }) => {
-  const refused = { allowed: false, introduced: [] };
-  if (kind === "bundled" || outline.unreadable || unreadable(reasons)) return refused;
+export function predictOutlineOp(args: {
+  kind: CourseKind;
+  outline: ResolvedOutline;
+  reasons: readonly NewOnlyReason[];
+  freeKeys: readonly InteractiveKey[];
+  op: OutlineOp;
+  facts: LiveFacts;
+}): LivePrediction {
+  const { kind, outline, reasons, freeKeys, op, facts } = args;
+  if (kind === "bundled" || outline.unreadable || unreadable(reasons)) return predicted(null);
   const r = applyOutlineOpWith(outline, op, {
     isFree: (key: InteractiveKey) => freeKeys.includes(key),
     idTaken: (id) => outline.sections.some((s) => s.id === id),
   });
-  if (!r.ok) return refused;
-
-  const withExtra = new Set(
-    reasons.filter((x) => x.code === "extra-parts").map((x) => x.sectionId)
-  );
-  if (op.op === "add" && op.choice === "reflectionRating") withExtra.add(r.id);
-  const after: NewOnlyReason[] = [
-    ...listReasons(r.outline),
-    ...r.outline.sections
-      .filter((s) => withExtra.has(s.id))
-      .map((s): NewOnlyReason => ({ code: "extra-parts", sectionId: s.id })),
-  ];
-  const introduced = introducedReasons(reasons, after);
-  return { allowed: status !== "published" || introduced.length === 0, introduced };
-};
+  if (!r.ok) return predicted(null);
+  const live = outlineLiveOp(op);
+  return predicted(live ? liveRule(live, facts) : "allowed");
+}
 
 /**
- * The page's forecast of G3 for a content change inside one lesson: on a
- * published course the lesson may end up with extra content only if it
- * already had some (removing it is always allowed). Nothing while anything
- * can't be read.
+ * The page's forecast for a content change inside one lesson (add, move,
+ * remove; partLiveOp says which rule a removal follows). Nothing while
+ * anything can't be read.
  */
-export const predictPartOp: PredictPartOp = ({ status, reasons, sectionId, extraPartsAfter }) => {
-  if (unreadable(reasons)) return { allowed: false };
-  if (status !== "published") return { allowed: true };
-  const had = reasons.some((r) => r.code === "extra-parts" && r.sectionId === sectionId);
-  return { allowed: extraPartsAfter === 0 || had };
-};
-
+export function predictPartOp(args: {
+  reasons: readonly NewOnlyReason[];
+  op: LiveOp;
+  facts: LiveFacts;
+}): LivePrediction {
+  if (unreadable(args.reasons)) return predicted(null);
+  return predicted(liveRule(args.op, args.facts));
+}

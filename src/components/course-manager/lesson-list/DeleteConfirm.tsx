@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useLocale, useTranslations } from "next-intl";
-import { AlertTriangle, Loader2, Trash2 } from "lucide-react";
+import { AlertTriangle, EyeOff, Loader2, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { DeleteSummary } from "@/lib/cms/sections/contract";
 import type { Locale } from "@/lib/cms/types";
@@ -31,6 +31,11 @@ export function deleteLines(
  * pattern of PublishControls' unpublish confirm): its heading takes focus,
  * it lists everything that goes with the lesson, and "Keep it" is one Tab
  * away from "Delete lesson".
+ *
+ * While learners keep the lesson from being deleted (spec 7.2, D66), it
+ * says so instead (`blocked`): "Delete lesson" stays focusable but
+ * aria-disabled, described by that sentence, and "Hide it" is offered when
+ * the lesson isn't hidden yet (`onHide`; with learners, Hide asks first).
  */
 export function DeleteConfirm({
   name,
@@ -38,7 +43,9 @@ export function DeleteConfirm({
   summary,
   busy,
   error,
+  blocked,
   onConfirm,
+  onHide,
   onKeep,
 }: {
   name: string;
@@ -47,10 +54,15 @@ export function DeleteConfirm({
   summary: DeleteSummary;
   busy: boolean;
   error: string | null;
+  /** Why it can't be deleted (liveChanges.hasLearners.delete), or nothing. */
+  blocked?: string | null;
   onConfirm: () => void;
+  /** Offered with `blocked`: hide the lesson instead. */
+  onHide?: (() => void) | null;
   onKeep: () => void;
 }) {
   const t = useTranslations("lessonList");
+  const tLive = useTranslations("liveChanges");
   const tLang = useTranslations("courseManager.languageName");
   const locale = useLocale();
   const ids = React.useId();
@@ -89,7 +101,12 @@ export function DeleteConfirm({
       <h3 id={`${ids}-h`} ref={headingRef} tabIndex={-1} className="text-sm font-semibold">
         <Named format={(n) => t("delete.title", { name: n })} name={name} lang={nameLang} />
       </h3>
-      {lines.length ? (
+      {blocked ? (
+        <p id={`${ids}-blocked`} className="mt-1 flex items-start gap-1.5 text-xs">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-[var(--warning)]" aria-hidden />
+          {blocked}
+        </p>
+      ) : lines.length ? (
         <>
           <p className="mt-1 text-xs">{t("delete.removes")}</p>
           <ul className="mt-1 list-disc space-y-0.5 pl-5 text-xs">
@@ -112,9 +129,11 @@ export function DeleteConfirm({
           type="button"
           size="sm"
           variant="danger"
-          aria-disabled={busy || undefined}
+          aria-disabled={busy || blocked ? true : undefined}
+          aria-describedby={blocked ? `${ids}-blocked` : undefined}
+          className={blocked ? "opacity-60" : undefined}
           onClick={() => {
-            if (!busy) onConfirm();
+            if (!busy && !blocked) onConfirm();
           }}
         >
           {busy ? (
@@ -124,6 +143,12 @@ export function DeleteConfirm({
           )}
           {t("delete.confirm")}
         </Button>
+        {blocked && onHide ? (
+          <Button type="button" size="sm" variant="outline" onClick={onHide}>
+            <EyeOff className="h-4 w-4" aria-hidden />
+            {tLive("confirm.hide")}
+          </Button>
+        ) : null}
         <Button type="button" size="sm" variant="outline" onClick={onKeep}>
           {t("delete.keep")}
         </Button>

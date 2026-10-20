@@ -33,13 +33,11 @@ import {
 } from "@/lib/cms/ensure-course-badge";
 import { slugify } from "@/lib/slug";
 import type { Locale } from "@/lib/cms/types";
-import {
-  LEGACY_ORDER,
-  type NewOnlyReason,
-  type PublishRefused,
-} from "@/lib/cms/sections/contract";
+import { LEGACY_ORDER, type PublishRefused } from "@/lib/cms/sections/contract";
 import { newOnlyReasons } from "@/lib/cms/sections/guard";
 import { resolveOutline, toStoredOutline } from "@/lib/cms/sections/outline";
+import { publishBlockers } from "@/lib/cms/sections/publish-blockers";
+import { publishGuardOn } from "@/lib/cms/sections/switches";
 
 const PROJECT = "seq-elevate";
 
@@ -85,11 +83,13 @@ const FULL_TEMPLATE = toStoredOutline({
 
 /** Thrown in setCourseStatus's transaction to refuse publishing (G1): nothing is written. */
 class GuardRefused extends Error {
-  constructor(readonly reasons: NewOnlyReason[]) {
-    super("needs-release-2");
+  constructor(readonly refused: PublishRefused) {
+    super(refused.error);
     this.name = "GuardRefused";
   }
 }
+
+const isRecord = (v: unknown) => typeof v === "object" && v !== null && !Array.isArray(v);
 
 /**
  * Create a brand-new course from the CMS — no code, no deploy.
@@ -176,13 +176,17 @@ export async function createCourse(input: {
 }
 
 /**
- * G1 (D57): may this course be published? A created course only while its
- * lesson list is what learners get — no lesson of its own, none hidden or
- * deleted, the standard order, no extra content, nothing unreadable
- * (newOnlyReasons). Learners only ever get the Release 0 view of a course
- * until Release 2, so publishing anything else would show them less than
- * the editor built. Step names are no reason: learners keep the standard
- * names. Built-in courses are never checked (G2).
+ * G1, as Release 2 has it (D66, spec 4.8): may this course be published?
+ * Learners get a created course as it is built, so only what can't be
+ * promised stops it: a lesson list or a listed lesson's content that can't
+ * be read, or no lesson learners would see (publishBlockers) — refused as
+ * "cannot-publish". Lessons of its own, hidden or deleted ones, a new order,
+ * extra content and step names all publish. Built-in courses are never
+ * checked (G2).
+ *
+ * Under a kill switch (R2_PUBLISH_GUARD=on, or R2_LEARNER_PLAYER=off, which
+ * gives learners Release 1's view again) Release 1's whole rule (D57,
+ * newOnlyReasons) is back, refused as "needs-release-2" as then.
  *
  * Runs first in the publishing transaction, under the Course row lock, so
  * a lesson-list change (which takes the same lock) can't slip in between
@@ -195,12 +199,36 @@ async function guardPublish(tx: Prisma.TransactionClient, courseId: string, slug
     select: { meta: true, outline: true },
   });
   if (!course?.meta) return;
-  const lessons = await tx.lesson.findMany({
+  const rows = await tx.lesson.findMany({
     where: { projectId: PROJECT, courseSlug: slug },
-    select: { stageKey: true, narrative: true, structure: true, structureDraft: true, parts: true },
+    select: {
+      stageKey: true,
+      narrative: true,
+      structure: true,
+      structureDraft: true,
+      parts: true,
+      video: true,
+      // Learners only ever see published documents (D35).
+      documents: { where: { published: true }, select: { id: true } },
+    },
   });
-  const reasons = newOnlyReasons("cms", resolveOutline("cms", course.outline ?? null, lessons), lessons);
-  if (reasons.length) throw new GuardRefused(reasons);
+  const lessons = rows.map((r) => ({
+    stageKey: r.stageKey,
+    narrative: r.narrative ?? null,
+    structure: r.structure ?? null,
+    structureDraft: r.structureDraft ?? null,
+    parts: r.parts ?? null,
+    video: r.video ?? null,
+    hasVideo: isRecord(r.video),
+    publishedDocuments: r.documents?.length ?? 0,
+  }));
+  if (publishGuardOn()) {
+    const reasons = newOnlyReasons("cms", resolveOutline("cms", course.outline ?? null, lessons), lessons);
+    if (reasons.length) throw new GuardRefused({ ok: false, error: "needs-release-2", reasons });
+    return;
+  }
+  const reasons = publishBlockers("cms", course.outline ?? null, lessons);
+  if (reasons.length) throw new GuardRefused({ ok: false, error: "cannot-publish", reasons });
 }
 
 /**
@@ -213,10 +241,11 @@ async function guardPublish(tx: Prisma.TransactionClient, courseId: string, slug
  * a deploy was building) gives it one in the same transaction, so learners
  * never take a course whose badge can't be saved (ensure-course-badge.ts).
  *
- * Publishing a created course is refused with "needs-release-2" and the
- * reasons while learners couldn't get it as built (G1, guardPublish) —
- * also from published or archived to published. Nothing is written then,
- * and the refusal is audited.
+ * Publishing a created course is refused with "cannot-publish" and the
+ * reasons when its lessons can't be read or learners would see none (G1,
+ * guardPublish; "needs-release-2" under a kill switch) — also from
+ * published or archived to published. Nothing is written then, and the
+ * refusal is audited.
  */
 export async function setCourseStatus(slug: string, status: CourseStatus) {
   const editor = await requireEditor();
@@ -257,14 +286,10 @@ export async function setCourseStatus(slug: string, status: CourseStatus) {
     } catch (error) {
       if (!(error instanceof GuardRefused)) throw error;
       await audit(editor.id, "course.publish_refused", slug, {
-        reasons: error.reasons as unknown as Prisma.InputJsonValue,
+        error: error.refused.error,
+        reasons: error.refused.reasons as unknown as Prisma.InputJsonValue,
       });
-      const refused: PublishRefused = {
-        ok: false,
-        error: "needs-release-2",
-        reasons: error.reasons,
-      };
-      return refused;
+      return error.refused;
     }
   } else {
     await prisma.course.create({

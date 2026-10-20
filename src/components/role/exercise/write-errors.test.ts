@@ -37,7 +37,6 @@ const CODES: (SectionsError | "not-cms-course" | "generic" | "something-new")[] 
   "kind-mismatch",
   "parts-too-large",
   "changed-elsewhere",
-  "live-course-standard-only",
   "has-learners",
   "generic",
   "something-new",
@@ -62,9 +61,6 @@ describe("the exercise editors' refusal messages", () => {
       values: { count: 3 },
     });
     expect(writeErrorMessage({ error: "not-a-section" }).key).toBe("errors.notASection");
-    expect(writeErrorMessage({ error: "live-course-standard-only" }).key).toBe(
-      "errors.liveCourseStandardOnly"
-    );
     expect(writeErrorMessage({ error: "kind-mismatch" }).key).toBe("errors.kindMismatch");
     expect(writeErrorMessage({ error: "outline-unreadable" }).key).toBe("errors.outlineUnreadable");
     expect(writeErrorMessage({ error: "parts-too-large" }).key).toBe("errors.partsTooLarge");

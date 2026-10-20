@@ -219,7 +219,6 @@ function Workspace({
         languages={state.languages}
         lang={lang}
         previewLesson={previewLesson}
-        labelsLater={sections?.hasLabels ?? false}
         lessonName={sections ? nameById : undefined}
         usualOrder={
           sections ? usualOrder(sections.resolved.sections.map((s) => s.id)).map(nameById) : undefined
@@ -298,6 +297,16 @@ function Workspace({
                   rev={state.revs[pair(lesson.key, lang)] ?? 0}
                   enrolled={state.enrolled}
                   reasons={state.sections?.reasons ?? NO_REASONS}
+                  live={
+                    state.sections
+                      ? {
+                          learners: state.sections.learners ?? state.enrolled,
+                          finished: state.sections.finished ?? 0,
+                          closed: state.sections.restructureClosed === true,
+                          closedFrom: state.sections.closedFrom ?? null,
+                        }
+                      : undefined
+                  }
                   headerExtra={
                     sections && lesson.section ? (
                       <button

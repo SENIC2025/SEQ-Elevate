@@ -50,6 +50,7 @@ vi.mock("@/lib/prisma", () => ({
     lesson: {
       findMany: async () =>
         lessons.map((l) => ({
+          courseSlug: "asking-for-help",
           video: null,
           documents: [],
           updatedAt: at,
@@ -312,8 +313,10 @@ describe("getCourseOutline with a stored lesson list", () => {
     };
     const o = await getCourseOutline("asking-for-help");
     expect(o?.lessons.map((l) => [l.key, l.present, l.addable, l.live])).toEqual([
-      [OWN, true, false, false],
-      ["context", true, false, true],
+      // Learners get a lesson of the course's own with something in it (D64).
+      [OWN, true, false, true],
+      // Hidden: learners don't get it.
+      ["context", true, false, false],
       ["concept", true, false, true],
       ["behaviour", true, false, true],
       // Not in the list: today's "Add guided practice", in its standard place.
@@ -357,11 +360,89 @@ describe("getCourseOutline with a stored lesson list", () => {
     ]);
     expect(o?.sections?.hasLabels).toBe(true);
     expect(o?.sections?.freeKeys).toEqual(["simulation", "assessment"]);
-    expect(o?.readiness.slice(0, 2)).toEqual([
-      { level: "blocker", code: "needs-release-2", reason: { code: "custom-section", sectionId: OWN }, stage: OWN },
-      { level: "blocker", code: "needs-release-2", reason: { code: "hidden-section", sectionId: "context" }, stage: "context" },
+    // Release 2 (D66): none of it stops publishing, and names are no news.
+    expect(o?.readiness.filter((r) => r.level === "blocker")).toEqual([]);
+    expect(o?.readiness.map((r) => r.code)).not.toContain("labels-later");
+    // Nobody is taking it: nothing to count, the cut-off not reached.
+    expect(o?.sections).toMatchObject({ learners: 0, finished: 0, restructureClosed: false });
+    expect(o?.sections?.closedFrom).toBe("2026-11-30T23:00:00.000Z");
+    expect(o?.lessons.some((l) => "learnersWithData" in l)).toBe(false);
+  });
+
+  it("numbers only the lessons learners get, leaving out a lesson of its own with nothing in it", async () => {
+    lessons.push({ stageKey: "s-empty000" });
+    outline = {
+      v: 1,
+      sections: [
+        { id: "context", template: "context" },
+        { id: "s-empty000", template: "quiz" },
+        { id: "concept", template: "concept" },
+        { id: "behaviour", template: "behaviour" },
+        { id: "reflection", template: "reflection" },
+      ],
+    };
+    const o = await getCourseOutline("asking-for-help");
+    expect(o?.lessons.filter((l) => l.section).map((l) => [l.key, l.live, l.section?.number])).toEqual([
+      ["context", true, 1],
+      ["s-empty000", false, null],
+      ["concept", true, 2],
+      ["behaviour", true, 3],
+      ["reflection", true, 4],
     ]);
-    expect(o?.readiness).toContainEqual({ level: "info", code: "labels-later" });
+  });
+
+  it("says why learners don't get a lesson: nothing in it yet, or the Release 2 player switched off (spec 3.4)", async () => {
+    lessons.push({ stageKey: OWN, narrative: { en: written("Warm-up text", "Before we start") } }, { stageKey: "s-empty000" });
+    outline = {
+      v: 1,
+      sections: [
+        { id: OWN, template: "text", label: { en: "Warm-up" } },
+        { id: "s-empty000", template: "quiz" },
+        { id: "context", template: "context", hidden: true },
+        { id: "concept", template: "concept" },
+        { id: "behaviour", template: "behaviour" },
+        { id: "reflection", template: "reflection" },
+      ],
+    };
+    const why = (o: Awaited<ReturnType<typeof getCourseOutline>>) =>
+      o?.lessons.filter((l) => l.section).map((l) => [l.key, l.live, l.notLive ?? null]);
+
+    expect(why(await getCourseOutline("asking-for-help"))).toEqual([
+      [OWN, true, null],
+      // Its first content makes it appear.
+      ["s-empty000", false, "empty"],
+      // Hidden says it already.
+      ["context", false, null],
+      ["concept", true, null],
+      ["behaviour", true, null],
+      ["reflection", true, null],
+    ]);
+
+    vi.stubEnv("R2_LEARNER_PLAYER", "off");
+    try {
+      // Learners get Release 1's lessons only: no lesson of the course's
+      // own, with content or without, and not because it is empty.
+      expect(why(await getCourseOutline("asking-for-help"))).toEqual([
+        [OWN, false, "switched-off"],
+        ["s-empty000", false, "switched-off"],
+        // Release 1 never hid a lesson: presentStageKeys.
+        ["context", true, null],
+        ["concept", true, null],
+        ["behaviour", true, null],
+        ["reflection", true, null],
+      ]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("refuses to publish a course with no lesson learners would see", async () => {
+    outline = {
+      v: 1,
+      sections: ["context", "concept", "behaviour", "reflection"].map((id) => ({ id, template: id, hidden: true })),
+    };
+    const o = await getCourseOutline("asking-for-help");
+    expect(o?.readiness[0]).toEqual({ level: "blocker", code: "cannot-publish", blocker: { code: "no-lessons" } });
   });
 
   it("gives every lesson the bases its changes need", async () => {
@@ -409,7 +490,21 @@ describe("getCourseOutline with a stored lesson list", () => {
       "reflection",
     ]);
     expect(o?.sections?.reasons).toEqual([{ code: "unreadable" }]);
-    expect(o?.readiness[0]).toMatchObject({ level: "blocker", code: "needs-release-2" });
+    expect(o?.readiness[0]).toEqual({ level: "blocker", code: "cannot-publish", blocker: { code: "unreadable" } });
+  });
+
+  it("puts Release 1's reasons back as blockers under a kill switch (spec 3.4)", async () => {
+    vi.stubEnv("R2_PUBLISH_GUARD", "on");
+    try {
+      outline = {
+        v: 1,
+        sections: ["concept", "context", "behaviour", "reflection"].map((id) => ({ id, template: id })),
+      };
+      const o = await getCourseOutline("asking-for-help");
+      expect(o?.readiness[0]).toEqual({ level: "blocker", code: "needs-release-2", reason: { code: "reordered" } });
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });
 
@@ -430,13 +525,18 @@ describe("getCourseGrid with a stored lesson list", () => {
     ] as never);
   }
 
-  it("names the lessons of a stored list in the grid's language, hidden ones left out", async () => {
-    lessons.push({ stageKey: OWN });
+  it("names the lessons learners get of a stored list in the grid's language", async () => {
+    lessons.push(
+      { stageKey: OWN, narrative: { en: written("Check-in text", "Hello") } },
+      // A lesson of its own with nothing in it yet: learners don't get it (D64).
+      { stageKey: "s-empty000" }
+    );
     outline = {
       v: 1,
       sections: [
         { id: "context", template: "context", hidden: true },
-        { id: OWN, template: "quiz", label: { en: "Check-in" } },
+        { id: OWN, template: "text", label: { en: "Check-in" } },
+        { id: "s-empty000", template: "quiz" },
         { id: "concept", template: "concept", label: { de: "Die Idee" } },
       ],
     };
@@ -448,6 +548,7 @@ describe("getCourseGrid with a stored lesson list", () => {
       { id: "behaviour", name: "Verhaltens-Modell" },
       { id: "reflection", name: "Reflexion" },
     ]);
+    expect(card.lessonKeys).toEqual([OWN, "concept", "behaviour", "reflection"]);
   });
 
   it("leaves the names to the card while nothing is stored", async () => {

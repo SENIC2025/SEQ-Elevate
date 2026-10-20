@@ -9,9 +9,13 @@ import "server-only";
  * as a second line behind the page gate (viewerCanEditContent), because they
  * include drafts, draft documents and enrolment counts.
  *
- * "What learners see" always comes from getCourse, the one source of truth
- * the player uses; the rows are read alongside only for what getCourse
- * doesn't say (drafts, raw stored values, timestamps). The pure rules live in
+ * "What learners see" comes from the sources the player uses: getCourse
+ * for a lesson's content, and for a created course the lesson plan
+ * (lessonPlanOf, D64) for which lessons learners get, in what order. The
+ * rows are read alongside for what those don't say (drafts, raw stored
+ * values, timestamps), and for a course with learners, the facts the rules
+ * for changing it need (D66, D67: learners, who finished, who has data in
+ * each lesson, the 1 December cut-off). The pure rules live in
  * course-derive.ts.
  */
 
@@ -39,7 +43,9 @@ import {
   presentStageKeys,
   languageCoverage,
   lastEdited,
+  publishBlockerIssues,
   publishReadiness,
+  release1BlockerIssues,
   type LessonFacts,
 } from "./course-derive";
 import {
@@ -64,7 +70,12 @@ import {
   type SectionsMeta,
   type SectionView,
 } from "./sections/contract";
+import { restructureClosedFrom } from "./sections/cutoff";
 import { newOnlyReasons } from "./sections/guard";
+import { lessonPlanOf, type LessonFacts as PlanFacts, type LessonPlan } from "./sections/learner-path";
+import { publishBlockers } from "./sections/publish-blockers";
+import { finishedCount, learnersWithDataByLesson } from "./sections/store.server";
+import { learnerPlayerOff, publishGuardOn } from "./sections/switches";
 import {
   canonicalInsertIndex,
   freeInteractiveKeys,
@@ -142,6 +153,10 @@ export async function getCourseGrid(locale: Locale): Promise<CourseGridEntry[]> 
         // A stored lesson list is read with each lesson's extra content
         // (resolveOutline keeps a standard lesson that has some).
         parts: true,
+        // Whether a lesson has something to show counts its video and the
+        // documents learners see (the lesson plan, D64).
+        video: true,
+        _count: { select: { documents: { where: { published: true } } } },
         updatedAt: true,
         // Only the newest upload matters for "last edited".
         documents: {
@@ -165,10 +180,20 @@ export async function getCourseGrid(locale: Locale): Promise<CourseGridEntry[]> 
     const row = rowBySlug.get(s.slug);
     // `meta` present = created in the CMS (same rule as db-course.ts).
     const kind: CourseKind = row?.meta ? "cms" : "bundled";
-    const courseLessons = lessonsBySlug.get(s.slug) ?? [];
-    const lessonKeys = presentStageKeys(kind, courseLessons);
-    const sections =
-      kind === "cms" ? gridSections(row?.outline ?? null, courseLessons, locale) : null;
+    const courseLessons = (lessonsBySlug.get(s.slug) ?? []).map((l) => ({
+      ...l,
+      structure: l.structure ?? null,
+      parts: l.parts ?? null,
+      narrative: l.narrative ?? null,
+      hasVideo: isRecord(l.video),
+      publishedDocuments: l._count?.documents ?? 0,
+    }));
+    const plan =
+      kind === "cms"
+        ? lessonPlanOf("cms", row?.outline ?? null, courseLessons, locale, { legacyOnly: learnerPlayerOff() })
+        : null;
+    const lessonKeys: string[] = plan ? plan.lessons.map((l) => l.id) : presentStageKeys(kind, courseLessons);
+    const sections = plan ? gridSections(row?.outline ?? null, courseLessons, plan) : null;
     return {
       slug: s.slug,
       title: s.title,
@@ -180,7 +205,12 @@ export async function getCourseGrid(locale: Locale): Promise<CourseGridEntry[]> 
       enrolled: row?._count.enrollments ?? 0,
       lessonKeys,
       ...(sections ? { sections } : {}),
-      languages: languageCoverage(kind, row?.meta ?? null, courseLessons, lessonKeys),
+      languages: languageCoverage(
+        kind,
+        row?.meta ?? null,
+        coverageFacts(kind, row?.outline ?? null, courseLessons),
+        lessonKeys
+      ),
       lastEdited: lastEdited(row?.updatedAt ?? null, courseLessons),
     };
   });
@@ -207,6 +237,7 @@ export async function getCourseOutline(
     prisma.course.findFirst({
       where: { projectId: PROJECT, slug },
       select: {
+        id: true,
         meta: true,
         outline: true,
         copyOverride: true,
@@ -242,13 +273,30 @@ export async function getCourseOutline(
   });
 
   if (kind === "cms") {
+    const outlineRaw = row?.outline ?? null;
+    const planRows = lessons.map(planFactsOf);
+    const switchedOff = learnerPlayerOff();
+    const plan = lessonPlanOf("cms", outlineRaw, planRows, "en", { legacyOnly: switchedOff });
+    const learners = row?._count.enrollments ?? 0;
+    // Who finished, and who has data in each lesson: only asked when there
+    // is anyone to count (store.server.ts, the same counts the actions make).
+    const listed = resolveOutline("cms", outlineRaw, planRows).sections.map((s) => s.id);
+    const [finished, withData] =
+      learners > 0 && row
+        ? await Promise.all([finishedCount(prisma, row.id), learnersWithDataByLesson(prisma, row.id, listed)])
+        : [0, new Map<string, number>()];
     const created = createdCourseLessons({
-      outlineRaw: row?.outline ?? null,
+      outlineRaw,
       lessons,
       byLang,
-      present,
+      plan,
+      switchedOff,
       meta,
+      live: { learners, finished, withData },
     });
+    const blockers = publishGuardOn()
+      ? release1BlockerIssues(created.sections.reasons)
+      : publishBlockerIssues(publishBlockers("cms", outlineRaw, planRows));
     const outline: Omit<CourseOutline, "readiness"> = {
       slug,
       kind,
@@ -262,7 +310,7 @@ export async function getCourseOutline(
       lessons: created.lessons,
       sections: created.sections,
     };
-    return { ...outline, readiness: publishReadiness(outline) };
+    return { ...outline, readiness: publishReadiness(outline, blockers) };
   }
 
   // A built-in course: its seven lessons, exactly as before Release 1.
@@ -364,60 +412,66 @@ const factsOf = (l: LessonRow): SectionFacts => ({
   documentCount: l.documents.length,
 });
 
+const isRecord = (v: unknown) => typeof v === "object" && v !== null && !Array.isArray(v);
+
+/** A row as the lesson plan reads it: a video is an object, documents count once published (D35). */
+const planFactsOf = (l: LessonRow): SectionFacts & PlanFacts => ({
+  ...factsOf(l),
+  structure: l.structure ?? null,
+  parts: l.parts ?? null,
+  narrative: l.narrative ?? null,
+  hasVideo: isRecord(l.video),
+  publishedDocuments: l.documents.filter((d) => d.published).length,
+});
+
 /**
  * A created course's rows (spec 9.1): its lesson list in order — the stored
  * one, or today's while nothing is stored (resolveOutline) — and, for each
  * standard practice, scenario and quick check that isn't in it, today's
  * "Add …" row in its standard place. Each lesson carries its name in every
  * content language, its number, its content with the bases of every
- * change, and (for a lesson learners don't get as built) the preview's view
+ * change, and (for a lesson drawn by the sectioned view) the preview's view
  * of it.
  *
- * Learners get exactly the lessons getCourse gives (`present` there), so
- * `live` comes from it; a lesson of the course's own has no learner stage,
- * and its text editor starts from the stored text.
+ * Learners get exactly the lessons of the course's lesson plan (D64), so
+ * `live` and the numbers come from it, and `notLive` says why a lesson that
+ * isn't hidden is left out of it: nothing in it yet, or (`switchedOff`, the
+ * plan built as Release 1 built it) a lesson of the course's own, which
+ * Release 1's player never plays. A lesson of the course's own has no
+ * learner stage, and its text editor starts from the stored text. `live`
+ * (the facts) feeds the rules for changing a course people are taking.
  */
 function createdCourseLessons(input: {
   outlineRaw: unknown;
   lessons: LessonRow[];
   byLang: (CourseContent | null)[];
-  present: Set<string>;
+  plan: LessonPlan;
+  switchedOff: boolean;
   meta: CourseMeta | null;
+  live: { learners: number; finished: number; withData: Map<string, number> };
 }): {
   lessons: LessonOutline[];
   sections: SectionsMeta;
   languages: CourseOutline["languages"];
 } {
-  const { lessons, byLang, present, meta } = input;
+  const { lessons, byLang, plan, meta, live } = input;
   const rowOf = new Map(lessons.map((l) => [l.stageKey, l]));
   const facts = lessons.map(factsOf);
   const resolved = resolveOutline("cms", input.outlineRaw, facts);
   const reasons = newOnlyReasons("cms", resolved, facts);
 
-  // Numbers follow what learners would get: visible lessons with something
-  // in them (a standard list's are exactly today's numbers, 1 to n).
-  const shown = (s: ResolvedSection) => {
-    if (present.has(s.id)) return true;
-    const row = rowOf.get(s.id);
-    return (
-      resolveSectionStage({
-        section: s,
-        row: row && { ...factsOf(row), documents: documentRefs(row.documents) },
-        locale: "en",
-        label: "",
-        standardTitle: "",
-        defaults: previewDefaults("en"),
-      }) !== null
-    );
-  };
-  const numbers = new Map<string, number>();
-  for (const s of resolved.sections) {
-    if (!s.hidden && shown(s)) numbers.set(s.id, numbers.size + 1);
-  }
+  // Numbers follow what learners get: the plan's lessons, 1 to n (a
+  // standard list's are exactly today's numbers).
+  const present = new Set<string>(plan.lessons.map((l) => l.id));
+  const numbers = new Map<string, number>(plan.lessons.map((l, i) => [l.id, i + 1]));
 
-  const rows: LessonOutline[] = resolved.sections.map((s, i) =>
-    sectionRow(s, i, resolved, rowOf.get(s.id), byLang, present, numbers.get(s.id) ?? null)
-  );
+  const rows: LessonOutline[] = resolved.sections.map((s, i) => ({
+    ...sectionRow(s, i, resolved, rowOf.get(s.id), byLang, present, numbers.get(s.id) ?? null),
+    ...(s.hidden || present.has(s.id)
+      ? {}
+      : { notLive: input.switchedOff && s.custom ? ("switched-off" as const) : ("empty" as const) }),
+    ...(live.learners > 0 ? { learnersWithData: live.withData.get(s.id) ?? 0 } : {}),
+  }));
 
   // Today's "Add guided practice / applied scenario / quick check" for each
   // one that isn't a lesson of the list, where it would go.
@@ -447,15 +501,13 @@ function createdCourseLessons(input: {
     });
   }
 
-  // Coverage counts the lessons learners would get, each read by its main
+  // Coverage counts the lessons learners get, each read by its main
   // content's kind (a lesson of the course's own may have no row yet).
-  const coverageFacts: LessonFacts[] = resolved.sections.map((s) => ({
-    ...(rowOf.get(s.id) ?? {}),
-    stageKey: s.id,
-    mainKind: mainKindOf(s),
-  }));
-  const languages = languageCoverage("cms", meta, coverageFacts, [...numbers.keys()]);
+  const languages = languageCoverage("cms", meta, coverageFacts("cms", input.outlineRaw, lessons), [
+    ...numbers.keys(),
+  ]);
 
+  const cutoff = restructureClosedFrom();
   const sections: SectionsMeta = {
     version: outlineVersion(resolved),
     resolved,
@@ -464,8 +516,31 @@ function createdCourseLessons(input: {
     hasLabels: resolved.sections.some((s) => s.label && Object.keys(s.label).length > 0),
     max: SECTION_LIMITS.maxSections,
     warnAbove: SECTION_LIMITS.warnAbove,
+    learners: live.learners,
+    finished: live.finished,
+    restructureClosed: cutoff.closed,
+    closedFrom: cutoff.from,
   };
   return { lessons: rows, sections, languages };
+}
+
+/**
+ * The rows as language coverage reads them: for a created course, each
+ * listed lesson by its main content's kind (a lesson of the course's own
+ * may have no row yet, and its key doesn't say what it holds).
+ */
+function coverageFacts(
+  kind: CourseKind,
+  outlineRaw: unknown,
+  lessons: readonly (LessonFacts & SectionFacts)[]
+): LessonFacts[] {
+  if (kind !== "cms") return [...lessons];
+  const rowOf = new Map(lessons.map((l) => [l.stageKey, l]));
+  return resolveOutline("cms", outlineRaw, lessons).sections.map((s) => ({
+    ...(rowOf.get(s.id) ?? {}),
+    stageKey: s.id,
+    mainKind: mainKindOf(s),
+  }));
 }
 
 /** One lesson of a created course's list, as the course page shows it. */
@@ -571,27 +646,19 @@ function sectionRow(
 }
 
 /**
- * The grid card's lesson names when a created course's list is stored, in
- * the grid's language, hidden lessons left out. Undefined otherwise: the card
- * names the standard lessons as before (CourseGrid.test.ts).
+ * The grid card's lessons when a created course's list is stored: the
+ * lessons learners get (the plan, D64), named in the grid's language.
+ * Undefined otherwise: the card names the standard lessons as before
+ * (CourseGrid.test.ts).
  */
 function gridSections(
   outlineRaw: unknown,
-  lessons: (SectionFacts & { stageKey: string })[],
-  locale: Locale
+  lessons: readonly (SectionFacts & { stageKey: string })[],
+  plan: LessonPlan
 ): { id: string; name: string }[] | null {
   const resolved = resolveOutline("cms", outlineRaw, lessons);
   if (!resolved.materialised || resolved.unreadable) return null;
-  const rowOf = new Map(lessons.map((l) => [l.stageKey, l]));
-  return resolved.sections
-    .filter((s) => !s.hidden)
-    .map((s, i) => ({
-      id: s.id,
-      name: nameSection(s, locale, {
-        title: sectionTitle(rowOf.get(s.id), mainKindOf(s), locale),
-        n: i + 1,
-      }).text,
-    }));
+  return plan.lessons.map((l) => ({ id: l.id, name: l.label }));
 }
 
 /* --------------------------------- helpers --------------------------------- */

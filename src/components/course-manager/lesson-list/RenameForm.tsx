@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useTranslations } from "next-intl";
-import { AlertTriangle, Info, Loader2 } from "lucide-react";
+import { AlertTriangle, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SECTION_LIMITS } from "@/lib/cms/sections/contract";
 import type { Locale } from "@/lib/cms/types";
@@ -25,7 +25,6 @@ export function RenameForm({
   lang,
   initial,
   placeholder,
-  laterNote,
   busy,
   error,
   onSave,
@@ -39,8 +38,6 @@ export function RenameForm({
   /** The lesson's own name in this language ("" when none). */
   initial: string;
   placeholder: string;
-  /** On a published course: what learners keep seeing until Release 2. */
-  laterNote: string | null;
   busy: boolean;
   error: string | null;
   onSave: (label: string) => void;
@@ -79,7 +76,6 @@ export function RenameForm({
     `${ids}-counter`,
     tooLong ? `${ids}-long` : null,
     error ? `${ids}-error` : null,
-    laterNote ? `${ids}-later` : null,
   ]
     .filter(Boolean)
     .join(" ");
@@ -127,12 +123,6 @@ export function RenameForm({
         <p id={`${ids}-long`} className="flex items-start gap-1.5 text-xs text-[var(--danger)]">
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" aria-hidden />
           {t("rename.tooLong", { max: MAX })}
-        </p>
-      ) : null}
-      {laterNote ? (
-        <p id={`${ids}-later`} className="flex items-start gap-1.5 text-xs text-[var(--muted-foreground)]">
-          <Info className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-[var(--accent)]" aria-hidden />
-          {laterNote}
         </p>
       ) : null}
       {error ? (

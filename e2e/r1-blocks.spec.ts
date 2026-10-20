@@ -15,12 +15,13 @@ import { PrismaPg } from "@prisma/adapter-pg";
  * keyboard-reachable buttons, with focus and an announcement following.
  *
  * On a published course in the standard layout the lesson's main text is
- * still live for learners at once; added content is refused there
- * (Release 2) — the page says why, and a page opened before the course was
- * published is refused by the server ("stale page"). "Remove stage" is
- * refused while learners are enrolled (G5). A lesson of the course's own
- * is edited by its id, video included. axe finds nothing serious with a
- * self-assessment open.
+ * still live for learners at once, and content can be added there too
+ * (Release 2, D66). With learners, adding content asks first: a page opened
+ * before the course had a learner is asked by the server ("stale page"),
+ * with its count. "Remove stage" is refused while learners are enrolled
+ * (G5), on a lesson of the course's own as on a standard one. A lesson of
+ * the course's own is edited by its id, video included. axe finds nothing
+ * serious with a self-assessment open.
  *
  * Requires a real database — gated on E2E_DB=1, like db-backed-progress.
  * Everything it creates is unique to this run and removed afterwards.
@@ -299,7 +300,8 @@ describe("Release 1 — a lesson's content", () => {
       partRegion(lesson, "Self-assessment (1–5)").getByRole("textbox", { name: /^title \(optional\)$/i })
     ).toBeFocused({ timeout: 15000 });
 
-    await expect(lesson.getByText(/learners get the added content from release 2/i)).toBeVisible();
+    // Nothing waits for a later date: learners get added content (D66).
+    await expect(lesson.getByText(/release 2/i)).toHaveCount(0);
     const items = await storedParts(SLUG, "concept");
     expect(items.map((i) => i.type)).toEqual([
       "main",
@@ -452,7 +454,7 @@ describe("Release 1 — a lesson's content", () => {
     ).toBe(1);
   });
 
-  test("a page opened before the course went live is refused by the server, and says why", async ({
+  test("a page opened before the course had a learner is asked by the server, with its count", async ({
     page,
     context,
   }) => {
@@ -461,23 +463,19 @@ describe("Release 1 — a lesson's content", () => {
     const add = lesson.getByRole("button", { name: /^add content after content 1:/i });
     await expect(add).not.toHaveAttribute("aria-disabled", "true");
 
-    // Published meanwhile (as if by a colleague, past the guard: a stale page).
-    await prisma.course.updateMany({
-      where: { projectId: PROJECT, slug: SLUG },
-      data: { status: "published", publishedAt: new Date() },
-    });
+    // A learner meanwhile (a stale page): adding content now asks first (D66).
+    const course = await prisma.course.findFirstOrThrow({ where: { projectId: PROJECT, slug: SLUG }, select: { id: true } });
+    await prisma.courseEnrollment.create({ data: { userId: learnerId, courseId: course.id } });
     try {
       await addContent(lesson, "Text");
-      await expect(lesson.getByRole("alert")).toContainText(
-        /this course is live, so this change has to wait/i,
-        { timeout: 15000 }
-      );
+      const ask = lesson.getByRole("group", { name: /^add content to “context”\?$/i });
+      await expect(ask).toContainText("1 learner is taking this course (0 finished).", { timeout: 15000 });
       expect(await storedParts(SLUG, "context")).toEqual([]);
+      await ask.getByRole("button", { name: /^add it$/i }).click();
+      await expect(lesson.getByRole("group", { name: "Content 2 of 2: Text" })).toBeVisible({ timeout: 15000 });
+      expect((await storedParts(SLUG, "context")).map((i) => i.type)).toEqual(["main", "text"]);
     } finally {
-      await prisma.course.updateMany({
-        where: { projectId: PROJECT, slug: SLUG },
-        data: { status: "draft", publishedAt: null },
-      });
+      await prisma.courseEnrollment.deleteMany({ where: { userId: learnerId, courseId: course.id } });
     }
   });
 
@@ -502,17 +500,17 @@ describe("Release 1 — a lesson's content", () => {
     expect((row?.structure as { kind?: string } | null)?.kind).toBe("assessment");
   });
 
-  test("on a live standard course the lesson's text is live at once; added content waits", async ({
+  test("on a live standard course the lesson's text is live at once, and content can be added", async ({
     page,
     context,
   }) => {
     await useSession(context, editorSession);
     const lesson = await openLesson(page, LIVE, "concept");
 
-    // Added content is refused here (learners get it from Release 2), and the page says why.
+    // Added content is offered here too: learners get it (D66).
     const add = lesson.getByRole("button", { name: /^add content after content 1:/i });
-    await expect(add).toHaveAttribute("aria-disabled", "true");
-    await expect(add).toHaveAccessibleDescription(/can.t add content to this lesson yet/i);
+    await expect(add).not.toHaveAttribute("aria-disabled", "true");
+    await expect(add).not.toHaveAccessibleDescription(/can.t add content/i);
 
     const editor = lesson.getByRole("region", { name: /^lesson text \(english\)$/i });
     const title = editor.getByRole("textbox", { name: /^lesson title$/i });
@@ -535,7 +533,10 @@ describe("Release 1 — a lesson's content", () => {
     expect(await storedParts(LIVE, "concept")).toEqual([]);
   });
 
-  test("Remove stage is refused while learners are enrolled (G5)", async ({ page, context }) => {
+  test("Remove stage is refused while learners are enrolled (G5), on a lesson of the course's own too", async ({
+    page,
+    context,
+  }) => {
     const course = await prisma.course.findFirstOrThrow({
       where: { projectId: PROJECT, slug: LIVE },
       select: { id: true },
@@ -557,5 +558,17 @@ describe("Release 1 — a lesson's content", () => {
     await expect(panel.getByRole("alert")).toContainText(/1 learner is enrolled/i, { timeout: 15000 });
     const row = await prisma.lesson.findUnique({ where: lessonWhere(LIVE, "scenario") });
     expect(row?.structure, "learners keep the scenario").not.toBeNull();
+
+    // Release 2 (D66): the course's own lessons are no longer exempt.
+    const draft = await prisma.course.findFirstOrThrow({ where: { projectId: PROJECT, slug: SLUG }, select: { id: true } });
+    await prisma.courseEnrollment.create({ data: { userId: learnerId, courseId: draft.id } });
+    const own = await openLesson(page, SLUG, OWN);
+    const quiz = own.getByRole("region", { name: /^interactive stage — assessment$/i });
+    await expect(quiz.getByRole("textbox", { name: /^question 1 question$/i })).toBeVisible({ timeout: 15000 });
+    page.once("dialog", (dialog) => void dialog.accept());
+    await quiz.getByRole("button", { name: /^remove stage$/i }).click();
+    await expect(quiz.getByRole("alert")).toContainText(/1 learner is enrolled/i, { timeout: 15000 });
+    const ownRow = await prisma.lesson.findUnique({ where: lessonWhere(SLUG, OWN) });
+    expect(ownRow?.structure, "learners keep the quick check").not.toBeNull();
   });
 });

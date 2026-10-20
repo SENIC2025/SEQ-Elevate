@@ -20,7 +20,7 @@ export type Row = {
   structureDraft: unknown;
   parts: unknown;
   video: unknown;
-  documents: { id: string; url: string }[];
+  documents: { id: string; url: string; published?: boolean }[];
 };
 
 export const db: {
@@ -30,6 +30,10 @@ export const db: {
   course: { id: string; meta: unknown; outline: unknown; status: string } | null;
   lessons: Row[];
   enrolled: number;
+  /** Of the learners, how many finished the course. */
+  finished: number;
+  /** Learners with any trace of a lesson, by lesson id (learnersWithData). */
+  withData: Record<string, number>;
   audit: { action: string; entity: string; entityId: string; metadata?: unknown }[];
   /** Locks and lesson-row touches, in call order. */
   log: string[];
@@ -40,6 +44,8 @@ export const db: {
   course: null,
   lessons: [],
   enrolled: 0,
+  finished: 0,
+  withData: {},
   audit: [],
   log: [],
 };
@@ -76,6 +82,12 @@ function pick(r: Row, select?: Record<string, unknown>) {
 export const prisma = {
   $queryRaw: vi.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
     const sql = strings.join("?");
+    // learnersWithData: one row per lesson id asked about.
+    if (sql.includes('"CourseEnrollment"')) {
+      const ids = values.find(Array.isArray) as string[];
+      db.log.push(`count learners with data in ${ids.join(",")}`);
+      return ids.map((id) => ({ lessonId: id, n: db.withData[id] ?? 0 }));
+    }
     const table = sql.includes('"Course"') ? "Course" : "Lesson";
     const mode = sql.includes("FOR UPDATE") ? "update" : sql.includes("FOR SHARE") ? "share" : "read";
     const key = table === "Lesson" ? `:${String(values.at(-1))}` : "";
@@ -158,7 +170,11 @@ export const prisma = {
     }),
   },
   courseEnrollment: {
-    count: vi.fn(async () => {
+    count: vi.fn(async (args?: { where?: { completedAt?: unknown } }) => {
+      if (args?.where?.completedAt) {
+        db.log.push("count finished");
+        return db.finished;
+      }
       db.log.push("count learners");
       return db.enrolled;
     }),
@@ -194,6 +210,8 @@ export function reset() {
   };
   db.lessons = [];
   db.enrolled = 0;
+  db.finished = 0;
+  db.withData = {};
   db.audit = [];
   db.log = [];
   vi.clearAllMocks();

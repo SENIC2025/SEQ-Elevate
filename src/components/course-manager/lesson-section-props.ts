@@ -44,10 +44,16 @@ export interface LessonSectionProps {
   /** Learners enrolled (D53), for the hints on what they would lose (G4, G5). */
   enrolled: number;
   /**
-   * Why learners couldn't get the course as it stands (course level), for
-   * predicting which content changes a published course refuses.
+   * The course's reasons (course level): only "unreadable" matters now, for
+   * predicting that every content change is refused (G8).
    */
   reasons: readonly NewOnlyReason[];
+  /**
+   * Release 2 (D66, D67): the course's learners and the 1 December
+   * cut-off, for the rules on adding, moving and removing content
+   * (SectionsMeta; absent for a built-in course).
+   */
+  live?: { learners: number; finished: number; closed: boolean; closedFrom: string | null };
   /** Rendered in the lesson's header (the lesson list's Rename shortcut). */
   headerExtra?: ReactNode;
   onOpen(): void;

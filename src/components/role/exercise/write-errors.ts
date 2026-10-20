@@ -7,7 +7,9 @@
  *
  * A refusal says what happened and what to do next, never "try again" when
  * trying again can't work (the lesson left the list, the list can't be
- * read, the course is live).
+ * read, learners would lose what they have). The rules for adding, moving
+ * and removing content on a course people are taking (spec 7.2) are said
+ * by the content list itself, in its own words (liveChanges).
  */
 
 /** A refusal as the editors handle it: the action's error, with its count when it has one. */
@@ -41,8 +43,6 @@ export function writeErrorMessage(r: WriteRefusal): MessageRef {
       return { key: "errors.outlineUnreadable" };
     case "has-learners":
       return { key: "errors.hasLearners", values: { count: r.count ?? 0 } };
-    case "live-course-standard-only":
-      return { key: "errors.liveCourseStandardOnly" };
     case "parts-too-large":
       return { key: "errors.partsTooLarge" };
     case "use-main-editor":
@@ -65,7 +65,6 @@ export function removeErrorMessage(r: WriteRefusal): MessageRef {
     case "outline-unreadable":
     case "kind-mismatch":
     case "not-cms-course":
-    case "live-course-standard-only":
       return writeErrorMessage(r);
     default:
       return { key: "errors.removeFailed" };

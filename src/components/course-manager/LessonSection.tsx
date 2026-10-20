@@ -54,6 +54,7 @@ export function LessonSection(props: LessonSectionProps) {
     onVideoSaved,
     onDocumentsChanged,
     reasons,
+    live,
     onOutline,
     announce,
   } = props;
@@ -196,6 +197,7 @@ export function LessonSection(props: LessonSectionProps) {
         status={status}
         lang={lang}
         reasons={reasons}
+        live={live}
         main={body}
         onOutline={onOutline}
         announce={announce}

@@ -9,11 +9,12 @@ import type { SectionFacts, SectionsMeta, StoredOutline } from "@/lib/cms/sectio
 import type { CourseStatus } from "@/lib/cms/course-status";
 import {
   addChoices,
-  anyAddAllowed,
+  addControl,
   choiceState,
   predictionId,
   reusesStandard,
   rowControls,
+  visibleAfterAdd,
   type ListContext,
 } from "./live-controls";
 
@@ -54,140 +55,126 @@ function meta(raw: StoredOutline | null, rows: SectionFacts[] = STANDARD_ROWS): 
 const ctx = (sections: SectionsMeta, status: CourseStatus = "draft", enrolled = 0): ListContext => ({
   kind: "cms",
   status,
-  sections,
+  sections: { ...sections, learners: enrolled, finished: 0, restructureClosed: false, closedFrom: null },
   enrolled,
 });
 
+/** The same course from the 1 December cut-off (D67). */
+const closed = (c: ListContext): ListContext => ({
+  ...c,
+  sections: { ...c.sections, restructureClosed: true, closedFrom: "2026-11-30T23:00:00.000Z" },
+});
+
 const STANDARD = meta(null);
+const SHOWN = ["context", "concept", "behaviour", "simulation", "reflection"];
 
-describe("a draft course: everything is offered", () => {
-  it("offers every change; a move at either end is natively disabled", () => {
-    const c = ctx(STANDARD);
-    expect(rowControls(c, "context")).toEqual({
-      moveUp: { kind: "edge" },
-      moveDown: { kind: "enabled", nonStandard: true },
-      hide: { kind: "enabled", nonStandard: true },
-      rename: { kind: "enabled" },
-      addAfter: { kind: "enabled" },
-      delete: { kind: "enabled", nonStandard: true },
-    });
-    expect(rowControls(c, "reflection").moveDown).toEqual({ kind: "edge" });
-    expect(rowControls(c, "reflection").moveUp).toEqual({ kind: "enabled", nonStandard: true });
+describe("a course nobody is taking: everything is offered", () => {
+  it("offers every change, published or not; a move at either end is natively disabled", () => {
+    for (const status of ["draft", "published"] as const) {
+      const c = ctx(STANDARD, status);
+      expect(rowControls(c, "context")).toEqual({
+        moveUp: { kind: "edge" },
+        moveDown: { kind: "enabled" },
+        hide: { kind: "enabled" },
+        rename: { kind: "enabled" },
+        addAfter: { kind: "enabled" },
+        delete: { kind: "enabled" },
+      });
+      expect(rowControls(c, "reflection").moveDown).toEqual({ kind: "edge" });
+      expect(rowControls(c, "reflection").moveUp).toEqual({ kind: "enabled" });
+    }
   });
 
-  it("marks the changes that would make it a course for Release 2, so the page can say so first", () => {
-    const row = rowControls(ctx(STANDARD), "concept");
-    // Out of the standard order, hidden, deleted: each one a publishing blocker.
-    expect(row.moveUp).toEqual({ kind: "enabled", nonStandard: true });
-    expect(row.hide).toEqual({ kind: "enabled", nonStandard: true });
-    expect(row.delete).toEqual({ kind: "enabled", nonStandard: true });
-    // A name never is (D58).
-    expect(row.rename).toEqual({ kind: "enabled" });
-  });
-
-  it("doesn't mark a change that puts the standard back", () => {
-    const reordered = meta({
-      v: 1,
-      sections: [
-        { id: "concept", template: "concept" },
-        { id: "context", template: "context" },
-        { id: "behaviour", template: "behaviour" },
-        { id: "simulation", template: "simulation" },
-        { id: "reflection", template: "reflection", hidden: true },
-        { id: "s-abcdefgh", template: "text" },
-      ],
-    });
-    const c = ctx(reordered);
-    expect(rowControls(c, "context").moveUp).toEqual({ kind: "enabled" });
-    expect(rowControls(c, "reflection").hide).toEqual({ kind: "enabled" });
-    // A lesson of the course's own goes without adding a reason.
-    expect(rowControls(c, "s-abcdefgh").delete).toEqual({ kind: "enabled" });
-  });
-
-  it("says when an addition makes the course one to publish from Release 2", () => {
-    const c = ctx(STANDARD);
-    // A free quick check in its usual place keeps the course standard.
-    expect(choiceState(c, "quiz", null)).toEqual({ control: { kind: "enabled" }, nonStandard: false });
-    // The same at the start is a new order.
-    expect(choiceState(c, "quiz", 0).nonStandard).toBe(true);
-    // A lesson of the course's own always is.
-    expect(choiceState(c, "text", null).nonStandard).toBe(true);
+  it("offers any lesson to add, anywhere, on a live course too (Release 1 refused most, D57)", () => {
+    const live = ctx(STANDARD, "published");
+    for (const choice of ["blank", "text", "reflectionRating", "practice", "quiz"] as const) {
+      expect(choiceState(live, choice, null), choice).toEqual({ kind: "enabled" });
+      expect(choiceState(live, choice, 0), choice).toEqual({ kind: "enabled" });
+    }
+    expect(addControl(live)).toEqual({ kind: "enabled" });
     // Practice is taken (it has a saved exercise): a second one is the course's own.
     expect(reusesStandard("practice", STANDARD)).toBe(false);
-    expect(choiceState(c, "practice", null).nonStandard).toBe(true);
+    // The cut-off changes nothing while nobody is taking it.
+    expect(rowControls(closed(live), "concept").moveUp).toEqual({ kind: "enabled" });
   });
 
-  it("deleting needs nobody enrolled, whatever the status", () => {
-    expect(rowControls(ctx(STANDARD, "draft", 3), "concept").delete).toEqual({
-      kind: "learners",
-      count: 3,
-    });
-  });
-
-  it("a lesson learners don't get can go with learners enrolled", () => {
-    const c = { ...ctx(STANDARD, "draft", 3), learnerKeys: ["context", "concept", "behaviour", "reflection"] };
-    expect(rowControls(c, "concept").delete).toEqual({ kind: "learners", count: 3 });
-    expect(rowControls(c, "s-abcdefgh").delete.kind).not.toBe("learners");
+  it("keeps a published course's last lesson learners see from being hidden or deleted (last-lesson)", () => {
+    const live = { ...ctx(STANDARD, "published"), learnerKeys: ["concept"] };
+    expect(rowControls(live, "concept").hide).toEqual({ kind: "locked", why: "last-lesson" });
+    expect(rowControls(live, "concept").delete).toEqual({ kind: "locked", why: "last-lesson" });
+    // Another lesson, or a draft, is free.
+    expect(rowControls(live, "context").hide).toEqual({ kind: "enabled" });
+    expect(rowControls({ ...live, status: "draft" }, "concept").hide).toEqual({ kind: "enabled" });
   });
 });
 
-describe("a published standard course (G3)", () => {
-  const live = ctx(STANDARD, "published");
-
-  it("locks reordering, hiding and deleting a standard text lesson, with the reason", () => {
-    const row = rowControls(live, "concept");
-    expect(row.moveUp).toEqual({ kind: "locked", why: "live" });
-    expect(row.moveDown).toEqual({ kind: "locked", why: "live" });
-    expect(row.hide).toEqual({ kind: "locked", why: "live" });
-    expect(row.delete).toEqual({ kind: "locked", why: "live" });
-  });
-
-  it("still allows renaming, and deleting an exercise lesson while nobody is enrolled", () => {
-    expect(rowControls(live, "concept").rename).toEqual({ kind: "enabled" });
-    expect(rowControls(live, "simulation").delete).toEqual({ kind: "enabled" });
-  });
-
-  it("allows only a free practice, scenario or quick check, in its usual place", () => {
-    expect(choiceState(live, "scenario", null).control).toEqual({ kind: "enabled" });
-    expect(choiceState(live, "quiz", null).control).toEqual({ kind: "enabled" });
-    expect(choiceState(live, "quiz", 0).control).toEqual({ kind: "locked", why: "live" });
-    for (const choice of ["blank", "text", "reflectionRating", "practice"] as const) {
-      expect(choiceState(live, choice, null).control, choice).toEqual({ kind: "locked", why: "live" });
+describe("a course with learners (D66, spec 7.2)", () => {
+  it("asks first before adding, moving, hiding or showing a lesson; a rename never asks", () => {
+    for (const status of ["draft", "published"] as const) {
+      const c = { ...ctx(STANDARD, status, 3), learnerKeys: SHOWN };
+      const row = rowControls(c, "concept");
+      expect(row.moveUp).toEqual({ kind: "enabled", confirm: true });
+      expect(row.moveDown).toEqual({ kind: "enabled", confirm: true });
+      expect(row.hide).toEqual({ kind: "enabled", confirm: true });
+      expect(row.addAfter).toEqual({ kind: "enabled", confirm: true });
+      expect(row.rename).toEqual({ kind: "enabled" });
+      expect(choiceState(c, "text", null)).toEqual({ kind: "enabled", confirm: true });
     }
-    expect(anyAddAllowed(live)).toEqual({ kind: "enabled" });
   });
 
-  it("locks Add lesson when no addition is allowed", () => {
-    const rows: SectionFacts[] = [
-      ...STANDARD_ROWS,
-      { stageKey: "scenario", structure: { kind: "scenario" } },
-      { stageKey: "assessment", structure: { kind: "assessment" } },
-    ];
-    expect(anyAddAllowed(ctx(meta(null, rows), "published"))).toEqual({ kind: "locked", why: "live" });
+  it("refuses a delete on a published course whatever the lesson, offering Hide", () => {
+    const c = { ...ctx(STANDARD, "published", 3), withData: { concept: 0, "s-abcdefgh": 0 } };
+    expect(rowControls(c, "concept").delete).toEqual({ kind: "learners", count: 3 });
+  });
+
+  it("on an unpublished course, deletes a lesson nobody has anything in, without asking", () => {
+    const c = { ...ctx(STANDARD, "draft", 3), withData: { concept: 2, behaviour: 0 } };
+    expect(rowControls(c, "concept").delete).toEqual({ kind: "learners", count: 2 });
+    expect(rowControls(c, "behaviour").delete).toEqual({ kind: "enabled" });
+    // Not told who has what: refused, as the server would until it counts.
+    expect(rowControls(c, "context").delete).toEqual({ kind: "learners", count: 3 });
+  });
+
+  it("from the cut-off, keeps a published course's lessons where they are but lets Hide and Show through (D67)", () => {
+    const c = closed({ ...ctx(STANDARD, "published", 2), learnerKeys: SHOWN });
+    const row = rowControls(c, "concept");
+    expect(row.moveUp).toEqual({ kind: "locked", why: "closed" });
+    expect(row.moveDown).toEqual({ kind: "locked", why: "closed" });
+    expect(row.addAfter).toEqual({ kind: "locked", why: "closed" });
+    expect(addControl(c)).toEqual({ kind: "locked", why: "closed" });
+    expect(row.hide).toEqual({ kind: "enabled", confirm: true });
+    expect(row.rename).toEqual({ kind: "enabled" });
+    // An unpublished course is never closed.
+    expect(rowControls(closed(ctx(STANDARD, "draft", 2)), "concept").moveUp).toEqual({ kind: "enabled", confirm: true });
+  });
+
+  it("counts the learners SectionsMeta sent over the page's enrolment count", () => {
+    const c: ListContext = { ...ctx(STANDARD, "draft", 0), enrolled: 0, sections: { ...STANDARD, learners: 2 } };
+    expect(rowControls(c, "concept").hide).toEqual({ kind: "enabled", confirm: true });
   });
 });
 
-describe("a course published past the guard can be cleaned up", () => {
-  const stored: StoredOutline = {
-    v: 1,
-    sections: [
-      { id: "context", template: "context" },
-      { id: "s-abcdefgh", template: "text" },
-      { id: "concept", template: "concept", hidden: true },
-      { id: "behaviour", template: "behaviour" },
-      { id: "simulation", template: "simulation" },
-      { id: "reflection", template: "reflection" },
-    ],
-  };
-  const bypass = ctx(meta(stored), "published");
+describe("the picker's warning (Q7)", () => {
+  const own = (n: number, hidden = 0) =>
+    meta(
+      {
+        v: 1,
+        sections: Array.from({ length: n }, (_, i) => ({
+          id: `s-${String(i).padStart(8, "0")}` as const,
+          template: "text" as const,
+          ...(i < hidden ? { hidden: true as const } : {}),
+        })),
+        removed: ["context", "concept", "behaviour", "reflection"],
+      },
+      []
+    );
 
-  it("allows deleting its own lesson and showing the hidden one", () => {
-    expect(rowControls(bypass, "s-abcdefgh").delete).toEqual({ kind: "enabled" });
-    expect(rowControls(bypass, "concept").hide).toEqual({ kind: "enabled" });
-  });
-
-  it("refuses hiding another lesson", () => {
-    expect(rowControls(bypass, "behaviour").hide).toEqual({ kind: "locked", why: "live" });
+  it("counts the lessons learners would see once one more is added, hidden ones left out", () => {
+    expect(visibleAfterAdd(own(11))).toBe(12);
+    // The 13th visible lesson is the one to warn about (Release 1 warned from the 14th).
+    expect(visibleAfterAdd(own(12))).toBe(13);
+    expect(visibleAfterAdd(own(12)) > 12).toBe(true);
+    expect(visibleAfterAdd(own(14, 3))).toBe(12);
   });
 });
 
@@ -199,8 +186,8 @@ describe("limits and unreadable lists", () => {
     }));
     const full = ctx(meta({ v: 1, sections, removed: ["context", "concept", "behaviour", "reflection"] }, []));
     expect(full.sections.resolved.sections).toHaveLength(15);
-    expect(anyAddAllowed(full)).toEqual({ kind: "locked", why: "max" });
-    expect(choiceState(full, "text", null).control).toEqual({ kind: "locked", why: "max" });
+    expect(addControl(full)).toEqual({ kind: "locked", why: "max" });
+    expect(choiceState(full, "text", null)).toEqual({ kind: "locked", why: "max" });
     expect(rowControls(full, sections[3].id).addAfter).toEqual({ kind: "locked", why: "max" });
     // A prediction id never collides with a lesson the page has.
     expect(sections.map((s) => s.id)).not.toContain(predictionId(full.sections));
@@ -213,7 +200,7 @@ describe("limits and unreadable lists", () => {
     expect(row.hide).toEqual({ kind: "locked", why: "unreadable" });
     expect(row.rename).toEqual({ kind: "locked", why: "unreadable" });
     expect(row.delete).toEqual({ kind: "locked", why: "unreadable" });
-    expect(anyAddAllowed(broken)).toEqual({ kind: "locked", why: "unreadable" });
+    expect(addControl(broken)).toEqual({ kind: "locked", why: "unreadable" });
   });
 
   it("offers each deleted standard lesson back, after the six kinds", () => {

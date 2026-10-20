@@ -1,19 +1,17 @@
 "use client";
 
 import * as React from "react";
-import { useLocale, useTranslations } from "next-intl";
+import { useTranslations } from "next-intl";
 import {
   AlertTriangle,
   ArrowDown,
   ArrowUp,
   CircleCheck,
   CircleDashed,
-  Clock,
   Ellipsis,
   Eye,
   EyeOff,
   FilePenLine,
-  Info,
   Pencil,
   Plus,
   Trash2,
@@ -24,14 +22,15 @@ import type { Control, RowControls } from "./live-controls";
 import { DeleteConfirm } from "./DeleteConfirm";
 import { RenameForm } from "./RenameForm";
 
-export type RowMode = "actions" | "rename" | "delete";
-export type RowStatus = "live" | "later" | "empty";
+/** "confirm": a change to a course with learners waits for LiveChangeConfirm (spec 7.3). */
+export type RowMode = "actions" | "rename" | "delete" | "confirm";
+export type RowStatus = "live" | "empty";
 /** The row's focusable parts, for the panel to put focus on after a change. */
 export type RowPart = "link" | "actions" | "up" | "down" | "rename" | "hide" | "addAfter" | "delete";
 /** The row's other elements with an id (the panel, and texts that describe). */
-export type RowElement = RowPart | "panel" | "status" | "unnumbered" | "nonStandard";
+export type RowElement = RowPart | "panel" | "status" | "unnumbered" | "emptyNote" | "deleteWhy";
 
-const STATUS_ICON = { live: CircleCheck, later: Clock, empty: CircleDashed };
+const STATUS_ICON = { live: CircleCheck, empty: CircleDashed };
 
 /**
  * One lesson of a created course's lesson list: its link ("2. Skill
@@ -40,9 +39,10 @@ const STATUS_ICON = { live: CircleCheck, later: Clock, empty: CircleDashed };
  * tooltip, and the words as the link's description — never colour alone),
  * and "Actions for 2. Skill concept", which opens the lesson's controls
  * inline (a disclosure, not an ARIA menu): Move up / Move down, Rename,
- * Hide or Show, Add lesson after, Delete. Rename and Delete open in place
- * of the buttons. On a draft, the controls that would make the course one
- * for Release 2 say so before they are pressed.
+ * Hide or Show, Add lesson after, Delete. Rename, Delete and, on a course
+ * with learners, the confirmation of a change (LiveChangeConfirm, passed
+ * in as `confirm`) open in place of the buttons. A lesson of the course's
+ * own with nothing in it says that learners get it once it has content.
  */
 export function SectionRow({
   lesson,
@@ -57,6 +57,9 @@ export function SectionRow({
   error,
   describe,
   rename,
+  emptyNote,
+  deleteBlocked,
+  confirm,
   onToggle,
   onMove,
   onHide,
@@ -66,6 +69,7 @@ export function SectionRow({
   onRenameSave,
   onRenameCancel,
   onDeleteConfirm,
+  onDeleteHide,
   onDeleteKeep,
   announce,
   after,
@@ -84,7 +88,16 @@ export function SectionRow({
   error: string | null;
   /** The id of the shared text that says why a control is refused. */
   describe: (c: Control) => string | undefined;
-  rename: { lang: Locale; initial: string; placeholder: string; laterNote: string | null };
+  rename: { lang: Locale; initial: string; placeholder: string };
+  /** liveChanges.emptyNote, for a lesson of the course's own that learners don't get yet. */
+  emptyNote?: string | null;
+  /**
+   * Why learners keep it from being deleted (spec 7.2): shown in
+   * DeleteConfirm, and the description of the row's Delete.
+   */
+  deleteBlocked?: string | null;
+  /** LiveChangeConfirm for the change waiting on this row (mode "confirm"). */
+  confirm?: React.ReactNode;
   onToggle(): void;
   onMove(dir: -1 | 1): void;
   onHide(): void;
@@ -94,6 +107,8 @@ export function SectionRow({
   onRenameSave(label: string): void;
   onRenameCancel(): void;
   onDeleteConfirm(): void;
+  /** DeleteConfirm's "Hide it", while learners keep the lesson from being deleted. */
+  onDeleteHide?: (() => void) | null;
   onDeleteKeep(): void;
   announce(text: string): void;
   /** Shown under the row (the "Add a lesson" picker opened from it). */
@@ -101,34 +116,20 @@ export function SectionRow({
 }) {
   const t = useTranslations("lessonList");
   const tDraft = useTranslations("exerciseEditor.page");
-  const locale = useLocale();
   const section = lesson.section!;
   const lang = rename.lang;
   const StatusIcon = status ? STATUS_ICON[status] : null;
   const statusText = status ? t(`status.${status}`) : null;
   const unnumbered = section.number === null;
   const actionsFor = t("actionsFor", { label });
-  const anyLive = Object.values(controls).some((c) => c.kind === "locked" && c.why === "live");
   const hideText = section.hidden ? t("show") : t("hide");
 
-  // On a draft: the changes that would make the course one for Release 2, by name.
-  const marked = (
-    [
-      [controls.moveUp, t("moveUp")],
-      [controls.moveDown, t("moveDown")],
-      [controls.hide, hideText],
-      [controls.delete, t("delete.action")],
-    ] as const
-  ).flatMap(([c, text]) => (c.kind === "enabled" && c.nonStandard ? [text] : []));
-  const listFormat = (items: string[]) => {
-    try {
-      return new Intl.ListFormat(locale, { type: "conjunction" }).format(items);
-    } catch {
-      return items.join(", ");
-    }
-  };
-
-  /** One control: native disabled at an end, aria-disabled (and why) when refused. */
+  /**
+   * One control: native disabled at an end, aria-disabled (and why) when
+   * refused. A delete that learners keep from happening still opens its
+   * confirmation, which says why and offers Hide instead; the row's own
+   * words (`deleteBlocked`) describe it.
+   */
   const action = (
     part: RowPart,
     control: Control,
@@ -136,15 +137,16 @@ export function SectionRow({
     icon: React.ReactNode,
     text: string
   ) => {
-    const refused = control.kind === "locked" || control.kind === "learners";
-    const nonStandard = control.kind === "enabled" && control.nonStandard === true;
+    const refused = control.kind === "locked";
     return (
       <button
         id={idOf(part)}
         type="button"
         disabled={control.kind === "edge"}
         aria-disabled={refused || undefined}
-        aria-describedby={refused ? describe(control) : nonStandard ? idOf("nonStandard") : undefined}
+        aria-describedby={
+          control.kind === "learners" && part === "delete" && deleteBlocked ? idOf("deleteWhy") : describe(control)
+        }
         onClick={() => {
           if (!refused && !busy) onClick();
         }}
@@ -162,7 +164,11 @@ export function SectionRow({
         <a
           id={idOf("link")}
           href={`#lesson-${lesson.key}`}
-          aria-describedby={[statusText ? idOf("status") : null, unnumbered ? idOf("unnumbered") : null]
+          aria-describedby={[
+            statusText ? idOf("status") : null,
+            unnumbered ? idOf("unnumbered") : null,
+            emptyNote ? idOf("emptyNote") : null,
+          ]
             .filter(Boolean)
             .join(" ") || undefined}
           className="flex min-h-9 min-w-0 flex-1 flex-wrap items-start gap-1 rounded-md px-2 py-1.5 text-sm hover:bg-[var(--surface-muted)]"
@@ -193,6 +199,11 @@ export function SectionRow({
             {t("notNumbered")}
           </span>
         ) : null}
+        {deleteBlocked ? (
+          <span id={idOf("deleteWhy")} hidden>
+            {deleteBlocked}
+          </span>
+        ) : null}
         {StatusIcon && statusText ? (
           <span
             id={idOf("status")}
@@ -220,6 +231,11 @@ export function SectionRow({
           <Ellipsis className="h-4 w-4" aria-hidden />
         </button>
       </div>
+      {emptyNote ? (
+        <p id={idOf("emptyNote")} className="mb-1 pl-2 text-xs text-[var(--muted-foreground)]">
+          {emptyNote}
+        </p>
+      ) : null}
 
       <div id={idOf("panel")} hidden={!open} className="mt-1 pl-2">
         {open && mode === "rename" ? (
@@ -231,7 +247,6 @@ export function SectionRow({
             lang={rename.lang}
             initial={rename.initial}
             placeholder={rename.placeholder}
-            laterNote={rename.laterNote}
             busy={busy}
             error={error}
             onSave={onRenameSave}
@@ -245,23 +260,15 @@ export function SectionRow({
             summary={section.deleteSummary}
             busy={busy}
             error={error}
+            blocked={deleteBlocked}
             onConfirm={onDeleteConfirm}
+            onHide={onDeleteHide}
             onKeep={onDeleteKeep}
           />
+        ) : open && mode === "confirm" ? (
+          confirm
         ) : open ? (
           <div role="group" aria-label={actionsFor} className="space-y-2">
-            {marked.length ? (
-              <p id={idOf("nonStandard")} className="flex items-start gap-1.5 text-xs">
-                <Info className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-[var(--accent)]" aria-hidden />
-                {t("rowNonStandard", { actions: listFormat(marked) })}
-              </p>
-            ) : null}
-            {anyLive ? (
-              <p className="flex items-start gap-1.5 text-xs text-[var(--muted-foreground)]">
-                <Info className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-[var(--accent)]" aria-hidden />
-                {t("liveLocked")}
-              </p>
-            ) : null}
             <div className="flex flex-wrap gap-1.5">
               {action("up", controls.moveUp, () => onMove(-1), <ArrowUp className="h-3.5 w-3.5" aria-hidden />, t("moveUp"))}
               {action("down", controls.moveDown, () => onMove(1), <ArrowDown className="h-3.5 w-3.5" aria-hidden />, t("moveDown"))}

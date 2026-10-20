@@ -2,12 +2,12 @@
  * The rules of a lesson's content list on the course page (PartList), pure
  * so they are tested without a browser: what each item is called, what its
  * header says about it, where a text in the extra content starts from, which
- * changes a live course takes, where focus goes after a change, and when a
- * text re-read after a conflict has its answer.
+ * changes a course people are taking takes (and which ask first), where
+ * focus goes after a change, and when a text re-read after a conflict has
+ * its answer.
  */
 
 import type { NarrativeInitial } from "@/lib/cms/course-admin-types";
-import type { CourseStatus } from "@/lib/cms/course-status";
 import {
   MAIN_PART_ID,
   type MainKind,
@@ -15,9 +15,9 @@ import {
   type PartId,
   type PartType,
   type PartView,
-  type SectionId,
 } from "@/lib/cms/sections/contract";
 import { predictPartOp } from "@/lib/cms/sections/guard";
+import { partLiveOp, type LiveFacts } from "@/lib/cms/sections/live-rules";
 import { blocksHaveText, fallbackOrder } from "@/lib/cms/text-fallback";
 import type { Locale } from "@/lib/cms/types";
 import { focusAfterMove } from "@/components/role/exercise/item-list";
@@ -100,32 +100,74 @@ export function textInitial(item: TextPartView, lang: Locale): NarrativeInitial 
 
 export type PartOpKind = "add" | "move" | "remove";
 
+/** One content control's state: offered (asking first with learners), or why not. */
+export type PartControl =
+  | { kind: "enabled"; confirm?: true }
+  /**
+   * unreadable: something in the course can't be read (G8); closed: the
+   * 1 December cut-off (D67); learners: a question learners may have
+   * answered, while there are learners (spec 7.2).
+   */
+  | { kind: "locked"; why: "unreadable" | "closed" | "learners" };
+
 /**
- * May this content change go through on this course (G3, as the server
- * will decide)? On a live course a lesson may end up with extra content
- * only if it already had some; removing it is always fine.
+ * What the server will answer for one content change (spec 7.2, as
+ * guardStructure decides it): with learners, adding, moving and removing
+ * text ask first, and from the cut-off a published course takes none of
+ * them; a question with a live version can't be removed while there are
+ * learners. `item` is the content a move or removal is about.
  */
-export function partOpAllowed(args: {
-  status: CourseStatus;
+export function partControl(args: {
   reasons: readonly NewOnlyReason[];
-  sectionId: SectionId;
   op: PartOpKind;
-  extras: number;
-}): boolean {
-  const { op, extras } = args;
-  const extraPartsAfter = op === "add" ? extras + 1 : op === "remove" ? Math.max(extras - 1, 0) : extras;
-  return predictPartOp({
-    status: args.status,
-    reasons: args.reasons,
-    sectionId: args.sectionId,
-    op,
-    extraPartsAfter,
-  }).allowed;
+  item?: PartView;
+  facts: LiveFacts;
+}): PartControl {
+  const { item } = args;
+  const live = partLiveOp(
+    args.op,
+    item && { type: item.type, live: item.type !== "main" && item.type !== "text" && item.data !== null }
+  );
+  switch (predictPartOp({ reasons: args.reasons, op: live, facts: args.facts }).verdict) {
+    case "allowed":
+      return { kind: "enabled" };
+    case "needs-confirmation":
+      return { kind: "enabled", confirm: true };
+    case "restructure-closed":
+      return { kind: "locked", why: "closed" };
+    case "has-learners":
+      return { kind: "locked", why: "learners" };
+    default:
+      return { kind: "locked", why: "unreadable" };
+  }
 }
 
 /** Where focus goes after a change to the list (spec 11.3: predictable, 2.4.3). */
 export type PartFocus =
-  | { id: PartId; target: "up" | "down" | "label" | "field" | "add"; n: number };
+  | { id: PartId; target: "up" | "down" | "remove" | "label" | "field" | "add"; n: number };
+
+/** A content change that asks first (LiveChangeConfirm), as far as focus is concerned. */
+export type AskedPartChange =
+  | { op: "add"; after: PartId }
+  | { op: "move"; id: PartId; dir: -1 | 1 }
+  | { op: "remove"; id: PartId };
+
+/**
+ * After its confirmation is cancelled (or Escape, spec 7.3): back on the
+ * button that asked for the change — the "Add content" it was opened from,
+ * the move button pressed, or the content's Remove. Nothing changed, so
+ * each is still there.
+ */
+export function focusAfterCancel(change: AskedPartChange): { id: PartId; target: "add" | "up" | "down" | "remove" } {
+  switch (change.op) {
+    case "add":
+      return { id: change.after, target: "add" };
+    case "move":
+      return { id: change.id, target: change.dir === -1 ? "up" : "down" };
+    case "remove":
+      return { id: change.id, target: "remove" };
+  }
+}
 
 /** After a move: the button pressed, or the other at the end it reached. */
 export function focusAfterPartMove(

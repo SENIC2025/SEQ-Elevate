@@ -2,9 +2,10 @@ import "server-only";
 
 /**
  * The database side of the flexible editor's actions (D56, spec 8): the
- * locks, the reads every action starts from, new ids, the learner count and
- * the audit rows. The rules themselves are the pure modules beside this one
- * (outline.ts, section-parts.ts, guard.ts); this only feeds them rows.
+ * locks, the reads every action starts from, new ids, the learner counts
+ * and the audit rows. The rules themselves are the pure modules beside this
+ * one (outline.ts, section-parts.ts, live-rules.ts); this only feeds them
+ * rows.
  *
  * Lock order, everywhere: the Course row first, then a Lesson row. Changes
  * to the lesson list or to a lesson's content list (and publishing, G1) take
@@ -21,11 +22,15 @@ import "server-only";
 import { randomInt } from "node:crypto";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { learnerUserWhere } from "@/lib/learner-scope";
+import { STAFF_ROLES, learnerUserWhere } from "@/lib/learner-scope";
 import { normaliseStatus, type CourseStatus } from "../course-status";
 import { ChangedElsewhere } from "../stored-json";
-import { introducedReasons, liveWriteAllowed, newOnlyReasons } from "./guard";
+import { restructureClosedFrom } from "./cutoff";
+import { newOnlyReasons } from "./guard";
+import { lessonPlanOf, type LessonFacts } from "./learner-path";
+import { liveRule, type LiveFacts, type LiveOp } from "./live-rules";
 import { resolveOutline } from "./outline";
+import { learnerPlayerOff } from "./switches";
 import { mainKindOf } from "./contract";
 import type {
   CustomSectionId,
@@ -35,6 +40,7 @@ import type {
   Refused,
   ResolvedOutline,
   SectionFacts,
+  SectionId,
 } from "./contract";
 
 export const PROJECT = "seq-elevate";
@@ -130,6 +136,8 @@ export async function lockLessonRowIfAny(
 export interface LessonRowFacts extends SectionFacts {
   documentIds: string[];
   documentUrls: string[];
+  /** Documents learners see (D35): whether the lesson has something to show counts these. */
+  publishedDocuments: number;
 }
 
 /** Every Lesson row of a course, as the pure rules read them. */
@@ -146,7 +154,7 @@ export async function loadLessonFacts(
       structureDraft: true,
       parts: true,
       video: true,
-      documents: { select: { id: true, url: true } },
+      documents: { select: { id: true, url: true, published: true } },
     },
   });
   return rows.map((r) => {
@@ -161,6 +169,7 @@ export async function loadLessonFacts(
       documentCount: documents.length,
       documentIds: documents.map((d) => d.id),
       documentUrls: documents.map((d) => d.url),
+      publishedDocuments: documents.filter((d) => d.published === true).length,
     };
   });
 }
@@ -225,12 +234,88 @@ export function newPartId(taken: (id: string) => boolean): ExtraPartId {
  * "N learners enrolled" — learners only, not staff trying the course out.
  */
 export async function learnerCount(
-  tx: Prisma.TransactionClient,
+  tx: Pick<Prisma.TransactionClient, "courseEnrollment">,
   courseId: string
 ): Promise<number> {
   return tx.courseEnrollment.count({
     where: { courseId, user: learnerUserWhere(PROJECT) },
   });
+}
+
+/** Of those learners, how many finished the course. */
+export async function finishedCount(
+  tx: Pick<Prisma.TransactionClient, "courseEnrollment">,
+  courseId: string
+): Promise<number> {
+  return tx.courseEnrollment.count({
+    where: { courseId, completedAt: { not: null }, user: learnerUserWhere(PROJECT) },
+  });
+}
+
+/**
+ * For each lesson id, how many learners (D53, as learnerCount) have any
+ * trace of it (spec 4.7): the lesson finished (a standard one in
+ * stagesCompleted, one of the course's own in sectionsCompleted), an
+ * answer stored under it in `responses` ("<id>/…"), or, for a standard
+ * exercise or the reflection, its answer column (Release 1's whole-row
+ * saves left untouched columns at their empty defaults, which don't count).
+ *
+ * Plain SQL, since Prisma can't filter JSON keys by prefix; the learner
+ * rule is learnerUserWhere's, spelled out on Membership with the same
+ * STAFF_ROLES. Every JSON value is checked for its shape before it is
+ * read, so a malformed row counts by what can be read of it rather than
+ * failing the editor's action. Learner saves take the Course row FOR KEY
+ * SHARE (learner.ts), so under the editor's FOR UPDATE this can't change
+ * before the write.
+ */
+export async function learnersWithDataByLesson(
+  tx: Pick<Prisma.TransactionClient, "$queryRaw">,
+  courseId: string,
+  ids: readonly string[]
+): Promise<Map<string, number>> {
+  if (!ids.length) return new Map();
+  const rows = await tx.$queryRaw<{ lessonId: string; n: number }[]>`
+    SELECT l.id AS "lessonId", count(e.id)::int AS n
+    FROM unnest(${[...ids]}::text[]) AS l(id)
+    JOIN "CourseEnrollment" e ON e."courseId" = ${courseId}
+    WHERE EXISTS (
+        SELECT 1 FROM "Membership" m
+        WHERE m."userId" = e."userId" AND m."projectId" = ${PROJECT} AND m."role" = 'LEARNER')
+      AND NOT EXISTS (
+        SELECT 1 FROM "Membership" m
+        WHERE m."userId" = e."userId" AND m."projectId" = ${PROJECT} AND m."role"::text = ANY(${[...STAFF_ROLES]}::text[]))
+      AND (
+        upper(l.id) = ANY (e."stagesCompleted"::text[])
+        OR jsonb_exists(
+          CASE WHEN jsonb_typeof(e."sectionsCompleted") = 'array' THEN e."sectionsCompleted" ELSE '[]'::jsonb END,
+          l.id)
+        OR EXISTS (
+          SELECT 1 FROM jsonb_object_keys(
+            CASE WHEN jsonb_typeof(e."responses"->'items') = 'object' THEN e."responses"->'items' ELSE '{}'::jsonb END
+          ) AS k(key)
+          WHERE left(k.key, length(l.id) + 1) = l.id || '/')
+        OR (l.id = 'simulation' AND e."simulationChoice" IS NOT NULL)
+        OR (l.id = 'scenario' AND e."scenarioRoot" IS NOT NULL)
+        OR (l.id = 'reflection' AND EXISTS (
+          SELECT 1 FROM jsonb_each(
+            CASE WHEN jsonb_typeof(e."reflection") = 'object' THEN e."reflection" ELSE '{}'::jsonb END
+          ) AS r(key, value)
+          WHERE jsonb_typeof(r.value) = 'string' AND btrim(r.value #>> '{}') <> ''))
+        OR (l.id = 'assessment' AND jsonb_typeof(e."assessment") = 'object' AND (
+          (jsonb_typeof(e."assessment"->'answers') = 'object' AND e."assessment"->'answers' <> '{}'::jsonb)
+          OR e."assessment"->'checked' = 'true'::jsonb))
+      )
+    GROUP BY l.id`;
+  return new Map(rows.map((r) => [r.lessonId, Number(r.n)]));
+}
+
+/** learnersWithDataByLesson for one lesson. */
+export async function learnersWithData(
+  tx: Pick<Prisma.TransactionClient, "$queryRaw">,
+  courseId: string,
+  sectionId: string
+): Promise<number> {
+  return (await learnersWithDataByLesson(tx, courseId, [sectionId])).get(sectionId) ?? 0;
 }
 
 /** A change to a course's lesson list, audited after it commits (as structure.ts does). */
@@ -272,20 +357,89 @@ export function member(state: CourseState, id: string): ResolvedOutline["section
   return section;
 }
 
+const isRecord = (v: unknown) => typeof v === "object" && v !== null && !Array.isArray(v);
+
+/** A Lesson row as the lesson plan reads it (learner-path.ts). */
+export const planFacts = (l: LessonRowFacts): LessonFacts => ({
+  stageKey: l.stageKey,
+  structure: l.structure ?? null,
+  parts: l.parts ?? null,
+  narrative: l.narrative ?? null,
+  // As the player reads a video: an object (lesson-plans.ts).
+  hasVideo: isRecord(l.video),
+  publishedDocuments: l.publishedDocuments,
+});
+
 /**
- * G3: on a published course, a change may not add a reason learners
- * couldn't get it yet (liveWriteAllowed). A standard live course stays
- * standard; one published past the guard can still be put right.
+ * Is `id` the only lesson learners get now? From the plan the player plays
+ * (lessonPlanOf, under the same kill switch), so "can see" means what it
+ * means to them: listed, not hidden, and something in it.
  */
-export function guardLive(state: CourseState, after: NewOnlyReason[]): void {
-  if (state.course.status === "published" && !liveWriteAllowed(state.reasons, after)) {
-    throw new Refusal({
-      ok: false,
-      error: "live-course-standard-only",
-      reasons: introducedReasons(state.reasons, after),
-    });
+function onlyLessonShown(state: CourseState, id: string): boolean {
+  const plan = lessonPlanOf("cms", state.course.outline, state.lessons.map(planFacts), "en", {
+    legacyOnly: learnerPlayerOff(),
+  });
+  return plan.lessons.length === 1 && plan.lessons[0].id === id;
+}
+
+/** A structural change let through: the learners it touches, and whether the editor confirmed it. */
+export interface Guarded {
+  learners: number;
+  confirmed: boolean;
+}
+
+/**
+ * The rules for changing a course people are taking (D66, D67, spec 7.2;
+ * live-rules.ts), inside the transaction that holds the Course row FOR
+ * UPDATE (openCourse), so the learners counted here are the learners the
+ * change meets. Throws a Refusal for needs-confirmation (with how many
+ * learners and how many finished), restructure-closed (with the date),
+ * has-learners (with how many) or last-lesson; otherwise says how many
+ * learners there are and whether the editor confirmed, for the audit row.
+ *
+ * `confirm` is the action's trailing argument: a page from before Release 2
+ * never sends it, so it is asked first. `sectionId` names the lesson for a
+ * hide or a delete (last-lesson, and who has data in it). The clock is
+ * passed in for tests; the cut-off date comes from RESTRUCTURE_CLOSED_FROM.
+ */
+export async function guardStructure(
+  tx: Pick<Prisma.TransactionClient, "courseEnrollment" | "$queryRaw">,
+  state: CourseState,
+  op: LiveOp,
+  opts: { confirm?: boolean; sectionId?: SectionId; now?: Date } = {}
+): Promise<Guarded> {
+  const published = state.course.status === "published";
+  const learners = await learnerCount(tx, state.course.id);
+  const cutoff = restructureClosedFrom(process.env, opts.now ?? new Date());
+  const facts: LiveFacts = { status: state.course.status, learners, closed: cutoff.closed };
+  if (published && opts.sectionId && (op === "hide" || op === "delete-lesson")) {
+    facts.lastVisible = onlyLessonShown(state, opts.sectionId);
+  }
+  if (op === "delete-lesson" && learners > 0 && !published && opts.sectionId) {
+    facts.withData = await learnersWithData(tx, state.course.id, opts.sectionId);
+  }
+  switch (liveRule(op, facts)) {
+    case "allowed":
+      return { learners, confirmed: false };
+    case "needs-confirmation":
+      if (opts.confirm === true) return { learners, confirmed: true };
+      throw new Refusal({
+        ok: false,
+        error: "needs-confirmation",
+        learners,
+        finished: await finishedCount(tx, state.course.id),
+      });
+    case "restructure-closed":
+      throw new Refusal({ ok: false, error: "restructure-closed", from: cutoff.from ?? "" });
+    case "has-learners":
+      throw new Refusal({ ok: false, error: "has-learners", count: facts.withData ?? learners });
+    case "last-lesson":
+      throw new Refusal({ ok: false, error: "last-lesson" });
   }
 }
+
+/** What an audit row of a structural change adds when the editor confirmed it (spec 4.7). */
+export const confirmedAudit = (g: Guarded) => (g.confirmed ? { learners: g.learners, confirmed: true } : {});
 
 export type Settled<T, R = Refused> =
   | { ok: true; value: T }

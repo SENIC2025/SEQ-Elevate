@@ -4,10 +4,9 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { NextIntlClientProvider } from "next-intl";
 import en from "@/messages/en.json";
 import de from "@/messages/de.json";
-import el from "@/messages/el.json";
 import type { CourseStatus } from "@/lib/cms/course-status";
 import type { LessonOutline } from "@/lib/cms/course-admin-types";
-import type { NewOnlyReason } from "@/lib/cms/sections/contract";
+import type { NewOnlyReason, PartView } from "@/lib/cms/sections/contract";
 
 vi.mock("@/i18n/navigation", () => ({ useRouter: () => ({ refresh: () => {} }) }));
 vi.mock("@/app/actions/parts", () => ({}));
@@ -32,6 +31,7 @@ function render(
     reasons?: NewOnlyReason[];
     messages?: typeof en;
     lang?: "en" | "de" | "el";
+    live?: { learners: number; finished: number; closed: boolean; closedFrom: string | null };
   } = {}
 ) {
   return renderToStaticMarkup(
@@ -49,6 +49,7 @@ function render(
           status: opts.status ?? "draft",
           lang: opts.lang ?? "en",
           reasons: opts.reasons ?? [],
+          ...(opts.live ? { live: opts.live } : {}),
           main: createElement("p", null, "MAIN EDITOR"),
           onOutline: () => {},
           announce: () => {},
@@ -69,7 +70,6 @@ describe("PartList — a lesson with only its main content", () => {
     expect(html).toContain("MAIN EDITOR");
     expect(html).not.toContain('role="group"');
     expect(html).not.toContain("Move up");
-    expect(html).not.toContain(en.lessonBlocks.notInLearnerView);
   });
 
   it("offers Add content after it, named by what it follows", () => {
@@ -116,8 +116,8 @@ describe("PartList — a lesson with added content", () => {
     expect(html).toContain("Not ready (2)");
   });
 
-  it("says learners get the added content from Release 2", () => {
-    expect(html).toContain(en.lessonBlocks.notInLearnerView);
+  it("says nothing about Release 2: learners get added content (D63)", () => {
+    expect(html).not.toContain("Release 2");
   });
 
   it("has an Add content after every item, and no live region of its own", () => {
@@ -136,39 +136,54 @@ describe("PartList — a lesson with added content", () => {
   });
 });
 
-describe("PartList — on a live course", () => {
-  it("doesn't let a standard lesson gain added content: Add content is aria-disabled, with the reason", () => {
+const LIVE_QUIZ: PartView = {
+  ...QUIZ,
+  id: "p-quiz0009",
+  data: { kind: "assessment", questions: [] } as never,
+  draft: null,
+} as PartView;
+const learners = (n: number, closed = false) => ({
+  learners: n,
+  finished: 0,
+  closed,
+  closedFrom: "2026-11-30T23:00:00.000Z",
+});
+
+describe("PartList — on a live course (D66)", () => {
+  it("lets a live course nobody is taking gain added content (Release 1 refused it, D57)", () => {
     const html = render(lesson([MAIN]), { status: "published" });
-    const add = tagWith(html, 'aria-label="Add content after content 1: Text"')!;
-    expect(add).toContain('aria-disabled="true"');
-    const describedBy = /aria-describedby="([^"]+)"/.exec(add)![1];
-    expect(html).toContain(`id="${describedBy}"`);
-    expect(html).toContain(en.lessonBlocks.liveLocked.replace(/'/g, "&#x27;"));
+    expect(tagWith(html, 'aria-label="Add content after content 1: Text"')).not.toContain('aria-disabled="');
+    expect(render(lesson([MAIN, QUIZ]), { status: "published", live: learners(0) })).not.toContain('aria-disabled="');
   });
 
-  it("says plainly that adding is what's blocked, and only for this lesson", () => {
-    for (const m of [en, de, el]) {
-      expect(m.lessonBlocks.liveLocked).not.toBe(m.lessonBlocks.notInLearnerView);
+  it("with learners, offers every change (each asks first) but keeps a question they may have answered", () => {
+    const html = render(lesson([MAIN, TEXT, LIVE_QUIZ]), { status: "published", live: learners(2) });
+    expect(tagWith(html, 'aria-label="Add content after content 1: Text"')).not.toContain('aria-disabled="');
+    expect(tagWith(html, 'aria-label="Remove content 2: Text"')).not.toContain('aria-disabled="');
+    expect(tagWith(html, 'aria-label="Move up content 3: Quick check"')).not.toContain('aria-disabled="');
+    const remove = tagWith(html, 'aria-label="Remove content 3: Quick check"')!;
+    expect(remove).toContain('aria-disabled="true"');
+    const why = /aria-describedby="([^"]+)"/.exec(remove)![1];
+    expect(html).toContain(`<p id="${why}" class="text-sm text-[var(--muted-foreground)]">${en.liveChanges.hasLearners.part.replace(/'/g, "&#x27;")}</p>`);
+  });
+
+  it("from 1 December, a published course with learners takes no content change, saying why (D67)", () => {
+    const html = render(lesson([MAIN, TEXT]), { status: "published", live: learners(2, true) });
+    for (const name of ["Add content after content 1: Text", "Move up content 2: Text", "Remove content 2: Text"]) {
+      const tag = tagWith(html, `aria-label="${name}"`)!;
+      expect(tag, name).toContain('aria-disabled="true"');
+      const why = /aria-describedby="([^"]+)"/.exec(tag)![1];
+      expect(html, name).toContain(`<p id="${why}"`);
     }
-    expect(en.lessonBlocks.liveLocked).toMatch(/can.t add/i);
-    expect(en.lessonBlocks.liveLocked).toMatch(/this lesson/);
-  });
-
-  it("lets a lesson that already has added content keep changing it", () => {
-    const html = render(lesson([MAIN, QUIZ]), {
-      status: "published",
-      reasons: [{ code: "extra-parts", sectionId: "concept" }],
-    });
-    expect(html).not.toContain('aria-disabled="');
-    expect(html).not.toContain(en.lessonBlocks.liveLocked.replace(/'/g, "&#x27;"));
+    expect(html).toContain("From 1 December 2026, lessons and content in a published course with learners");
   });
 });
 
 describe("PartList — limits and unreadable content", () => {
-  it("says it is the unreadable course, not a live one, that stops changes", () => {
+  it("says it is the unreadable course, not the date, that stops changes", () => {
     const html = render(lesson([MAIN, QUIZ]), { reasons: [{ code: "unreadable" }] });
     expect(html).toContain(en.lessonBlocks.courseUnreadable.replace(/'/g, "&#x27;"));
-    expect(html).not.toContain(en.lessonBlocks.liveLocked.replace(/'/g, "&#x27;"));
+    expect(html).not.toContain("From 1 December");
     expect(tagWith(html, 'aria-label="Add content after content 2: Quick check"')).toContain(
       'aria-disabled="true"'
     );

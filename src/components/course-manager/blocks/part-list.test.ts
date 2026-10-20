@@ -1,11 +1,13 @@
 import { describe, it, expect } from "vitest";
 import type { NewOnlyReason, PartView } from "@/lib/cms/sections/contract";
+import type { LiveFacts } from "@/lib/cms/sections/live-rules";
 import { emptyExercise } from "@/lib/cms/sections/part-kinds";
 import {
   extraCount,
+  focusAfterCancel,
   focusAfterPartMove,
   focusAfterRemove,
-  partOpAllowed,
+  partControl,
   partStatus,
   partTypeOf,
   settleRereads,
@@ -102,37 +104,62 @@ describe("textInitial", () => {
   });
 });
 
-describe("partOpAllowed", () => {
-  const extra: NewOnlyReason[] = [{ code: "extra-parts", sectionId: "concept" }];
+describe("partControl (spec 7.2)", () => {
+  const question = (live: boolean): PartView => ({
+    id: "p-q0000001",
+    type: "quiz",
+    data: live ? ({ kind: "assessment", questions: [] } as never) : null,
+    draft: live ? null : ({ kind: "assessment", questions: [] } as never),
+    versions: { data: null, draft: null },
+    itemVersion: "i",
+    issues: [],
+  });
+  const facts = (over: Partial<LiveFacts> = {}): LiveFacts => ({ status: "published", learners: 0, closed: false, ...over });
 
-  it("allows everything on a course that isn't live", () => {
+  it("allows everything on a course nobody is taking, published or not (Release 1 refused it, D57)", () => {
     for (const op of ["add", "move", "remove"] as const) {
-      expect(partOpAllowed({ status: "draft", reasons: [], sectionId: "concept", op, extras: 0 })).toBe(true);
+      expect(partControl({ reasons: [], op, item: question(true), facts: facts() }), op).toEqual({ kind: "enabled" });
+      expect(partControl({ reasons: [], op, item: question(true), facts: facts({ closed: true }) }), op).toEqual({
+        kind: "enabled",
+      });
     }
   });
 
-  it("refuses the first added content of a live course's lesson (learners get it from Release 2)", () => {
-    expect(partOpAllowed({ status: "published", reasons: [], sectionId: "concept", op: "add", extras: 0 })).toBe(false);
-    // Moving the main content alone changes nothing learners get.
-    expect(partOpAllowed({ status: "published", reasons: [], sectionId: "concept", op: "move", extras: 0 })).toBe(true);
+  it("asks first with learners, and refuses removing a question they may have answered", () => {
+    const f = facts({ learners: 2 });
+    expect(partControl({ reasons: [], op: "add", facts: f })).toEqual({ kind: "enabled", confirm: true });
+    expect(partControl({ reasons: [], op: "move", item: question(true), facts: f })).toEqual({ kind: "enabled", confirm: true });
+    expect(partControl({ reasons: [], op: "remove", item: text, facts: f })).toEqual({ kind: "enabled", confirm: true });
+    // Only a draft: nobody could answer it.
+    expect(partControl({ reasons: [], op: "remove", item: question(false), facts: f })).toEqual({
+      kind: "enabled",
+      confirm: true,
+    });
+    expect(partControl({ reasons: [], op: "remove", item: question(true), facts: f })).toEqual({
+      kind: "locked",
+      why: "learners",
+    });
+    // On a draft too.
+    expect(partControl({ reasons: [], op: "remove", item: question(true), facts: { ...f, status: "draft" } })).toEqual({
+      kind: "locked",
+      why: "learners",
+    });
   });
 
-  it("lets a live course's lesson that already has added content keep changing it", () => {
-    const args = { status: "published" as const, reasons: extra, sectionId: "concept" as const, extras: 1 };
-    expect(partOpAllowed({ ...args, op: "add" })).toBe(true);
-    expect(partOpAllowed({ ...args, op: "move" })).toBe(true);
-    expect(partOpAllowed({ ...args, op: "remove" })).toBe(true);
-    // Another lesson's reason doesn't count.
-    expect(partOpAllowed({ ...args, sectionId: "context", op: "add" })).toBe(false);
-  });
-
-  it("always allows removing the last added content (back to standard)", () => {
-    expect(partOpAllowed({ status: "published", reasons: [], sectionId: "concept", op: "remove", extras: 1 })).toBe(true);
+  it("from 1 December, a published course with learners takes no content change (D67)", () => {
+    const f = facts({ learners: 2, closed: true });
+    for (const op of ["add", "move", "remove"] as const) {
+      expect(partControl({ reasons: [], op, item: text, facts: f }), op).toEqual({ kind: "locked", why: "closed" });
+    }
+    expect(partControl({ reasons: [], op: "add", facts: { ...f, status: "draft" } })).toEqual({
+      kind: "enabled",
+      confirm: true,
+    });
   });
 
   it("allows nothing while anything can't be read", () => {
     const unreadable: NewOnlyReason[] = [{ code: "unreadable" }];
-    expect(partOpAllowed({ status: "draft", reasons: unreadable, sectionId: "concept", op: "add", extras: 0 })).toBe(false);
+    expect(partControl({ reasons: unreadable, op: "add", facts: facts() })).toEqual({ kind: "locked", why: "unreadable" });
   });
 });
 
@@ -155,6 +182,14 @@ describe("focus after a change", () => {
       id: "p-quiz0001",
       target: "label",
     });
+  });
+
+  it("goes back to the button that asked for a change when its confirmation is cancelled (spec 7.3)", () => {
+    expect(focusAfterCancel({ op: "add", after: "main" })).toEqual({ id: "main", target: "add" });
+    expect(focusAfterCancel({ op: "move", id: "p-text0001", dir: -1 })).toEqual({ id: "p-text0001", target: "up" });
+    expect(focusAfterCancel({ op: "move", id: "p-text0001", dir: 1 })).toEqual({ id: "p-text0001", target: "down" });
+    // Its Remove button, not the content's name.
+    expect(focusAfterCancel({ op: "remove", id: "p-text0001" })).toEqual({ id: "p-text0001", target: "remove" });
   });
 
   it("goes to the main content's Add content when nothing else is left", () => {

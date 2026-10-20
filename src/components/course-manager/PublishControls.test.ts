@@ -48,7 +48,14 @@ function render(
   ).replaceAll("<!-- -->", "");
 }
 
+/** Release 2's blockers (D66): a lesson whose content can't be read, and no lesson learners see. */
 const BLOCKERS: ReadinessIssue[] = [
+  { level: "blocker", code: "cannot-publish", blocker: { code: "unreadable", sectionId: "s-abcdefgh" }, stage: "s-abcdefgh" },
+  { level: "blocker", code: "cannot-publish", blocker: { code: "no-lessons" } },
+];
+
+/** Release 1's, back only under a kill switch (spec 3.4). */
+const RELEASE_1: ReadinessIssue[] = [
   { level: "blocker", code: "needs-release-2", reason: { code: "custom-section", sectionId: "s-abcdefgh" }, stage: "s-abcdefgh" },
   { level: "blocker", code: "needs-release-2", reason: { code: "removed-section", sectionId: "concept" }, stage: "concept" },
   { level: "blocker", code: "needs-release-2", reason: { code: "reordered" } },
@@ -60,22 +67,31 @@ const esc = (s: string) => s.replaceAll("&", "&amp;").replaceAll("'", "&#x27;").
 const publishButton = (html: string) => /<button([^>]*)>(?:(?!<\/button>).)*Publish<\/button>/.exec(html)?.[1] ?? "";
 
 describe("PublishControls", () => {
-  it("lists the blockers first, each linking to its lesson where it is on the page", () => {
+  it("lists the blockers first, each linking to its lesson where there is one (D66)", () => {
     const html = render([{ level: "warning", code: "copy-missing", locale: "de" }, ...BLOCKERS]);
     const blocked = html.indexOf(esc(en.lessonList.publish.blockedTitle));
     expect(blocked).toBeGreaterThan(-1);
     expect(blocked).toBeLessThan(html.indexOf(esc(en.courseManager.page.readiness.title)));
+    expect(html).toContain(esc(en.lessonList.publish.blockedIntro));
     expect(html).toContain('<a href="#lesson-s-abcdefgh" class="underline');
+    expect(html).toContain(">“Wrap-up” has content that can&#x27;t be read</a>");
+    expect(html).toContain("<span>No lesson has anything learners can see yet</span>");
+    // The warning still shows, after them.
+    expect(html).toContain("No German title and subtitle yet.");
+    expect(html).not.toContain("Release 2");
+  });
+
+  it("under a kill switch, lists Release 1's reasons the same way, saying the usual order", () => {
+    const html = render(RELEASE_1);
     expect(html).toContain(">“Wrap-up” is a new lesson</a>");
     // A deleted lesson isn't on the page: named, not linked.
     expect(html).toContain("<span>“Die Idee” was deleted</span>");
     expect(html).toContain("<span>The lessons are in a new order. Usually: Context, Die Idee</span>");
-    // The warning still shows, after them.
-    expect(html).toContain("No German title and subtitle yet.");
+    expect(publishButton(html)).toContain('aria-disabled="true"');
   });
 
   it("says the usual order, and marks lesson names with the content language", () => {
-    const html = render(BLOCKERS, "draft", (id) => NAMES[id] ?? id, {
+    const html = render(RELEASE_1, "draft", (id) => NAMES[id] ?? id, {
       nameLang: "de",
       usualOrder: ["Context", "Die Idee", "Reflexion"],
     });
@@ -95,17 +111,16 @@ describe("PublishControls", () => {
   });
 
   it("publishes as before without blockers", () => {
-    const html = render([{ level: "info", code: "labels-later" }]);
+    const html = render([{ level: "info", code: "no-interactive" }]);
     expect(publishButton(html)).not.toContain("aria-disabled");
     expect(html).not.toContain(esc(en.lessonList.publish.blockedTitle));
-    expect(html).toContain(esc(en.lessonList.labelsLater));
   });
 
-  it("on a course live past the guard, says what learners don't get yet", () => {
+  it("on a live course, says nothing about blockers (Release 1 listed what learners didn't get)", () => {
     const html = render(BLOCKERS, "published");
-    expect(html).toContain(esc(en.lessonList.publish.liveBypass));
     expect(html).not.toContain(esc(en.lessonList.publish.blockedTitle));
-    expect(html).toContain(">“Wrap-up” is a new lesson</a>");
+    expect(html).not.toContain("has content that can");
+    expect(html).not.toContain("Release 2");
   });
 
   it("names the new warnings with the lesson's own name", () => {
@@ -118,7 +133,7 @@ describe("PublishControls", () => {
       '<a href="#lesson-s-abcdefgh" class="underline underline-offset-2 hover:text-[var(--accent)]">“Wrap-up” has content with a draft that learners don&#x27;t see yet.</a>'
     );
     expect(html).toContain("The “Die Idee” lesson has no content yet.");
-    expect(html).toContain("This course has more than 12 lessons.");
+    expect(html).toContain("Learners would see more than 12 lessons in this course.");
   });
 
   it("marks the lesson names in the warnings with the content language", () => {
