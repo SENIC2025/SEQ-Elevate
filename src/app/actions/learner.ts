@@ -41,7 +41,9 @@ import {
 import { parseProgressPatch, readIds, readResponses } from "@/lib/learner-progress/parse";
 import { Prisma, type StageKey, type PrivacyChoice } from "@prisma/client";
 
-export type { SaveProgressResult };
+// SaveProgressResult is imported from @/lib/learner-progress/contract, not
+// from here: a "use server" module may export only async functions, and
+// Next's action transform takes a re-exported type for a value.
 
 const PROJECT = "seq-elevate";
 

@@ -88,10 +88,20 @@ export function lessonRenderKind(id: SectionId, parts: unknown): RenderKind {
   return items === "unreadable" || items.length <= 1 ? "stage" : "section";
 }
 
+/** A listed lesson without a Lesson row: nothing written in it yet. */
+const noRow = (stageKey: string): LessonFacts => ({
+  stageKey,
+  structure: null,
+  parts: null,
+  narrative: null,
+  hasVideo: false,
+  publishedDocuments: 0,
+});
+
 /** Release 1's rule for a lesson drawn by its stage screen: text lessons always, exercises once saved. */
-function stageShown(section: ResolvedSection, row: LessonFacts | undefined): boolean {
+function stageShown(section: ResolvedSection, row: LessonFacts): boolean {
   const kind = mainKindOf(section);
-  return kind === "narrative" || kind === "reflection" || row?.structure != null;
+  return kind === "narrative" || kind === "reflection" || row.structure != null;
 }
 
 const standardLesson = (id: (typeof STAGES)[number], locale: Locale): PlanLesson => ({
@@ -122,20 +132,17 @@ export function lessonPlanOf(
   const lessons: PlanLesson[] = [];
   const unseen: SectionId[] = [];
   for (const section of outline.sections) {
-    const row = rowOf.get(section.id);
-    const render = lessonRenderKind(section.id, row?.parts ?? null);
+    const row = rowOf.get(section.id) ?? noRow(section.id);
+    const render = lessonRenderKind(section.id, row.parts);
     const shown =
-      !section.hidden &&
-      (render === "stage"
-        ? stageShown(section, row)
-        : lessonHasContent(section, row ?? { stageKey: section.id, structure: null, parts: null, narrative: null, hasVideo: false, publishedDocuments: 0 }));
+      !section.hidden && (render === "stage" ? stageShown(section, row) : lessonHasContent(section, row));
     if (!shown) {
       unseen.push(section.id);
       continue;
     }
     const label = nameSection(section, locale, {
       // Never the draft: learners don't get it, so it can't name their step.
-      title: sectionTitle({ narrative: row?.narrative, structure: row?.structure }, mainKindOf(section), locale),
+      title: sectionTitle({ narrative: row.narrative, structure: row.structure }, mainKindOf(section), locale),
       n: lessons.length + 1,
     }).text;
     lessons.push({ id: section.id, kind: render, label });
