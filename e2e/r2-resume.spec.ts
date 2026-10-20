@@ -64,6 +64,7 @@ const COURSES = {
   reorderFlex: `e2e-r2-resume-rflex-${RUN}`,
   answers: `e2e-r2-resume-ans-${RUN}`,
   order: `e2e-r2-resume-order-${RUN}`,
+  orderPreview: `e2e-r2-resume-orderp-${RUN}`,
   guest: `e2e-r2-resume-guest-${RUN}`,
 };
 const emails: string[] = [];
@@ -105,6 +106,13 @@ function ownLessons(names: string[]): { ids: string[]; lessons: R2LessonSeed[] }
 }
 /** The standard text lessons are always listed unless deleted. */
 const NO_STANDARD = ["context", "concept", "behaviour", "reflection"];
+
+/** A course of five text lessons of its own, "One" to "Five", and nothing else. */
+async function seedOrderCourse(slug: string) {
+  const own = ownLessons(["One", "Two", "Three", "Four", "Five"]);
+  await seedR2Course(prisma, { slug, lessons: own.lessons, outline: { ...outlineOf(own.lessons), removed: NO_STANDARD } });
+  return own;
+}
 
 // ---------------------------------------------------------------------------
 // The page. Only what's on screen.
@@ -378,12 +386,7 @@ describe("Release 2 — resume and order", () => {
     page,
     context,
   }) => {
-    const own = ownLessons(["One", "Two", "Three", "Four", "Five"]);
-    await seedR2Course(prisma, {
-      slug: COURSES.order,
-      lessons: own.lessons,
-      outline: { ...outlineOf(own.lessons), removed: NO_STANDARD },
-    });
+    const own = await seedOrderCourse(COURSES.order);
     const { sessionToken, userId } = await learner("order");
     // "Four" was done before an editor moved "Three" in front of it.
     await enrol(userId, COURSES.order, { sections: [own.ids[0], own.ids[1], own.ids[3]] });
@@ -417,12 +420,11 @@ describe("Release 2 — resume and order", () => {
   test("A-E7: after the last lesson, Continue goes to the lesson still to do and says so", async ({ page, context }) => {
     // An editor's preview reaches any lesson (D35); learners in order only
     // get past the last with every lesson done.
+    const own = await seedOrderCourse(COURSES.orderPreview);
     const editor = await learner("order-editor");
     await prisma.membership.create({ data: { userId: editor.userId, projectId: PROJECT, role: "CONTENT_EDITOR" } });
     await signIn(context, editor.sessionToken);
-    const course = await prisma.course.findFirstOrThrow({ where: { slug: COURSES.order }, select: { outline: true } });
-    const last = (course.outline as { sections: { id: string }[] }).sections[4].id;
-    await page.goto(`/en/learner/course/${COURSES.order}?preview=1&lesson=${last}`);
+    await page.goto(`/en/learner/course/${COURSES.orderPreview}?preview=1&lesson=${own.ids[4]}`);
     await expect(counter(page)).toHaveText("5 / 5 · Five", { timeout: 15000 });
     await expect(async () => {
       if ((await counter(page).textContent())?.startsWith("5 /")) await continueButton(page).click();

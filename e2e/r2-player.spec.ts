@@ -70,6 +70,7 @@ const SLUG = `e2e-r2-player-${RUN}`;
 const EMPTY = `e2e-r2-player-empty-${RUN}`;
 const EMAILS = {
   plays: `e2e-r2-player-plays-${RUN}@example.com`,
+  done: `e2e-r2-player-done-${RUN}@example.com`,
   answers: `e2e-r2-player-answers-${RUN}@example.com`,
   cont: `e2e-r2-player-continue-${RUN}@example.com`,
   empty: `e2e-r2-player-empty-${RUN}@example.com`,
@@ -450,8 +451,20 @@ describe("Release 2 — the learner player", () => {
     page,
     context,
   }) => {
-    await signIn(context, users.plays.sessionToken);
-    // Completed above: it opens on its completion screen; every step can be opened.
+    // A learner who completed the course: it opens on its completion
+    // screen; every step can be opened.
+    const course = await prisma.course.findFirstOrThrow({ where: { slug: SLUG }, select: { id: true } });
+    await prisma.courseEnrollment.create({
+      data: {
+        userId: users.done.userId,
+        courseId: course.id,
+        stagesCompleted: ["CONCEPT", "SCENARIO", "BEHAVIOUR", "ASSESSMENT"],
+        sectionsCompleted: [WARMUP, WRAPUP],
+        completedAt: new Date(),
+      },
+      select: { id: true },
+    });
+    await signIn(context, users.done.sessionToken);
     await page.goto(`/de/learner/course/${SLUG}`);
     await expect(stepButtons(page)).toHaveCount(6, { timeout: 15000 });
     for (const [i, name] of NAMES.de.entries()) {
