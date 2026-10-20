@@ -24,13 +24,24 @@ import {
  * tab's answers gone. Release 2 sends only what changed since the server
  * last confirmed (D62.b) and merges it under the enrolment's lock, and a
  * database trigger keeps a completion even from code that tries to clear
- * it (D62.c). Each test below is red on Release 1:
+ * it (D62.c). Each F-E test is red on Release 1's build (main b357cc7) run
+ * one of two ways (spec 9): against this database once migrated, as it
+ * serves while Release 2's migration applies, or against Release 1's own
+ * schema, which has no trigger:
  *
- *   F-E1  completedAt cleared, the finished course's answers wiped
- *   F-E2  the last tab to save a reflection wins
- *   F-E3  a stale tab's practice answer replaces the newer one
- *   F-E4  no trigger: the database lets a completion be cleared
- *   F-E5  "Download my data" leaves out the new columns
+ *   F-E1  migrated: the finished course's answers wiped (the trigger keeps
+ *         completedAt); Release 1's schema: completedAt cleared as well
+ *   F-E2  the last tab to save a reflection wins (both ways)
+ *   F-E3  a stale tab's practice answer replaces the newer one (both ways)
+ *   F-E4  Release 1's schema: no trigger, a completion can be cleared.
+ *         Migrated, it is a guard: the trigger is the database's, so it
+ *         holds whichever build writes.
+ *   F-E5  migrated: "Download my data" leaves out the new columns (Release
+ *         1's schema has none to seed)
+ *
+ * The guard after them (D68) passes on Release 1, which has no outbox: an
+ * answer this tab kept while the server didn't know its build must never
+ * come back over a newer one.
  *
  * They play the bundled workplace-conflict course in the player as it is
  * (Release 1's, until Stream A), in two tabs of one browser signed in as
@@ -58,6 +69,7 @@ const EMAILS = {
   stalePractice: `e2e-r2-stale-practice-${RUN}@example.com`,
   trigger: `e2e-r2-trigger-${RUN}@example.com`,
   exported: `e2e-r2-export-${RUN}@example.com`,
+  outbox: `e2e-r2-outbox-${RUN}@example.com`,
 };
 const SLUG = "workplace-conflict";
 const FLEXIBLE = `e2e-r2-safety-${RUN}`;
@@ -293,6 +305,68 @@ describe("Release 2: a learner's progress is never taken back", () => {
     // Resetting a learner's progress deletes the row.
     await prisma.courseEnrollment.delete({ where: { id }, select: { id: true } });
     expect(await enrolment(userId)).toBeNull();
+  });
+
+  test("Guard (D68): an answer kept while the build was gone never comes back over a newer one", async ({
+    context,
+  }) => {
+    test.setTimeout(90_000);
+    const { userId, sessionToken } = users.outbox;
+    await signIn(context, sessionToken);
+    const page = `**/en/learner/course/${SLUG}`;
+
+    // Tab A answers the practice while the server doesn't know this page's
+    // build (a deploy, or the rollback of spec 10.6): the save is answered
+    // "unknown action", and the answer goes to the tab's outbox.
+    const a = await openTab(context);
+    await toPractice(a);
+    let unknown = 0;
+    await a.route(page, async (route) => {
+      const req = route.request();
+      if (
+        unknown === 0 &&
+        req.method() === "POST" &&
+        !!(await req.headerValue("next-action")) &&
+        (req.postData() ?? "").includes("iStatement")
+      ) {
+        unknown++;
+        return route.fulfill({ status: 200, headers: { "x-nextjs-action-not-found": "1" }, body: "" });
+      }
+      await route.continue();
+    });
+    await practice(a, BEST);
+    await cont(a).click();
+    await expect.poll(() => unknown).toBe(1);
+    await a.unroute(page);
+
+    // The build is back: tab A's next save gets through, the kept answer
+    // with it.
+    const through = nextSave(a, "private");
+    await a.getByText(/wait for a quiet moment, then talk to sam/i).click();
+    await through;
+    await expect
+      .poll(async () => (await enrolment(userId))?.simulationChoice)
+      .toBe("iStatement");
+
+    // In another tab, the learner changes the practice answer.
+    const b = await openTab(context);
+    await toPractice(b);
+    await practice(b, SORRY);
+    const changed = nextSave(b, "shrink");
+    await cont(b).click();
+    await changed;
+    await b.close();
+    expect((await enrolment(userId))?.simulationChoice).toBe("shrink");
+
+    // Tab A loads the course again. What its outbox kept is on the server
+    // already, and older than that change: it mustn't come back over it.
+    const loaded = a.waitForResponse(
+      (r) => r.request().method() === "POST" && r.request().postData() === JSON.stringify([SLUG, "en"])
+    );
+    await a.reload();
+    await loaded;
+    await a.waitForTimeout(2500); // a save of anything restored is in by now
+    expect((await enrolment(userId))?.simulationChoice, "the newer answer stays").toBe("shrink");
   });
 
   test("F-E5: Download my data holds sectionsCompleted and responses", async ({ context }) => {
