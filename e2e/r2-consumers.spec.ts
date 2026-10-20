@@ -352,7 +352,9 @@ describe("Release 2: dashboards and reports follow the course's lessons", () => 
     await expect(stats.locator("td").nth(2)).toContainText("60%");
     await expect(stats.locator("td").nth(3)).toHaveText("3m");
     await expect(
-      page.getByText("Courses with their own lessons; statistics per lesson follow after launch.")
+      page.getByText(
+        "Learners now on one of their course's own lessons, outside the seven steps. Figures for each of those lessons come later."
+      )
     ).toBeVisible();
   });
 

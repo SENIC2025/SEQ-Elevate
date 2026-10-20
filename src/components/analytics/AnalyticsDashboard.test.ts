@@ -12,8 +12,9 @@ vi.mock("@/i18n/navigation", async () => {
 
 const { AnalyticsDashboard } = await import("./AnalyticsDashboard");
 
+/** The live screen's markup, apostrophes unescaped so text reads as written. */
 const render = (data: AnalyticsData) =>
-  renderToStaticMarkup(createElement(AnalyticsDashboard, { data, isSample: false }));
+  renderToStaticMarkup(createElement(AnalyticsDashboard, { data, isSample: false })).replace(/&#x27;/g, "'");
 
 /** The funnel's bars, in order: [label, "reached · pct%"]. */
 function funnel(html: string): [string, string][] {
@@ -83,6 +84,10 @@ function withOwnLessons(): AnalyticsData {
   return { ...data, learners, funnelOther: { reached: 2, pct: 8 } };
 }
 
+/** The note under the "Other lessons" bar. */
+const NOTE =
+  "Learners now on one of their course's own lessons, outside the seven steps. Figures for each of those lessons come later.";
+
 describe("AnalyticsDashboard: learners on lessons of their course's own (spec 6)", () => {
   it("shows them as one bar after the funnel's steps, with what it means", () => {
     const html = render(withOwnLessons());
@@ -100,7 +105,16 @@ describe("AnalyticsDashboard: learners on lessons of their course's own (spec 6)
     ]);
     expect(bars.at(-1)).toEqual(["Other lessons", "2 · 8%"]);
     expect(html).toContain("width:8%");
-    expect(html).toContain("Courses with their own lessons; statistics per lesson follow after launch.");
+    expect(html).toContain(NOTE);
+  });
+
+  it("says under that bar what it counts, in words that still hold after launch", () => {
+    // Review finding 9: the spec's "statistics per lesson follow after
+    // launch" is read on live data, i.e. after launch, and didn't say who
+    // the bar counts.
+    const html = render(withOwnLessons());
+    expect(html).toContain(NOTE);
+    expect(html).not.toContain("follow after launch");
   });
 
   it("says where each of them is in the table, not an empty cell", () => {
@@ -148,7 +162,18 @@ describe("AnalyticsDashboard: learners on lessons of their course's own (spec 6)
       expect(funnel(html)).toHaveLength(8);
       expect(timeColumns(html)).toHaveLength(7);
       expect(html).not.toContain("Other lesson");
-      expect(html).not.toContain("statistics per lesson follow after launch");
+      expect(html).not.toContain(NOTE);
+    }
+  });
+});
+
+describe("AnalyticsDashboard: language", () => {
+  // Review finding 7b: the staff statistics are English only (like
+  // STAGE_LABELS), but /de/analytics and /el/analytics serve the page as
+  // German or Greek; the screen says it is English, so it is read as such.
+  it("marks the whole screen as English, whatever the page's language", () => {
+    for (const data of [buildSampleAnalytics(), withOwnLessons()]) {
+      expect(render(data)).toMatch(/^<div lang="en"/);
     }
   });
 });

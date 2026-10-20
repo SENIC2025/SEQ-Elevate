@@ -94,7 +94,9 @@ export function AnalyticsDashboard({
   const slowAvg = fmtDuration(timeColumns[slowestIndex]?.avgSeconds ?? 0);
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-8">
+    // The staff statistics are English only, whatever the page's language
+    // (like STAGE_LABELS): say so, so the screen is read as English.
+    <div lang="en" className="mx-auto max-w-6xl px-4 py-8">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">
           Learner statistics
@@ -215,8 +217,9 @@ export function AnalyticsDashboard({
                     />
                   </div>
                   <p className="mt-1 text-[11px] text-[var(--muted-foreground)]">
-                    Courses with their own lessons; statistics per lesson
-                    follow after launch.
+                    Learners now on one of their course&apos;s own lessons,
+                    outside the seven steps. Figures for each of those
+                    lessons come later.
                   </p>
                 </div>
               ) : null}
