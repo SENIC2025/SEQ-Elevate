@@ -618,6 +618,8 @@
     "skillAreaChoose": "Choose a skill area",
     "skillAreaFromCourse": "Starts on the skill area of their current course, {course}.",
     "skillAreaNone": "Choose the skill area you saw in practice.",
+    "skillAreaFixed": "Check it before you save: a saved validation can't be changed here.",
+    "skillAreaAgain": "Saving again adds another validation. The one already saved, for {saved}, stays.",
     "redacted": "Redacted by learner",
     "redactedHint": "The learner chose not to share this field with you.",
     "videoCheckins": "Video check-ins: {answered} answered · {correct} correct",

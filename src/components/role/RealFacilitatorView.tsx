@@ -65,8 +65,13 @@ export function RealFacilitatorView({
   const [observation, setObservation] = useState("");
   const [validated, setValidated] = useState(false);
   // The skill area a validation is for: it starts on the one of the
-  // learner's current course, or on none when that names none.
+  // learner's current course, or on none when that names none. A note on
+  // its own has none, so it's asked for only with "Validate this evidence".
   const [skill, setSkill] = useState<SkillCluster | "">("");
+  // The skill area of the validation saved last for this learner. A saved
+  // validation can't be changed here: saving again adds another one, which
+  // the screen says before it's done.
+  const [savedFor, setSavedFor] = useState<SkillCluster | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   // What the server already has of this note and validation, so a Save
@@ -104,6 +109,7 @@ export function RealFacilitatorView({
           recordValidation(learnerId, cluster, evidence),
       }
     );
+    if (result.done.validation && !done.validation && cluster) setSavedFor(cluster);
     setDone(result.done);
     setFailure(result.failure);
     setSaved(!result.failure);
@@ -131,6 +137,7 @@ export function RealFacilitatorView({
             setObservation("");
             setValidated(false);
             setSkill("");
+            setSavedFor(null);
             setSaved(false);
             setDone(NOTHING_SAVED);
             setFailure(null);
@@ -218,43 +225,57 @@ export function RealFacilitatorView({
                   </p>
                 </div>
               </label>
-              <div className="mt-3 pl-7">
-                <label
-                  htmlFor={`${ids}-skill`}
-                  className="block mb-1 text-xs font-medium text-[var(--muted-foreground)]"
-                >
-                  {t("skillArea")}
-                </label>
-                <select
-                  id={`${ids}-skill`}
-                  value={skill}
-                  onChange={(e) => {
-                    setSkill(e.target.value as SkillCluster | "");
-                    edited("validation");
-                  }}
-                  aria-describedby={`${ids}-skill-hint`}
-                  className="w-full max-w-sm rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--foreground)]"
-                >
-                  {skill === "" ? (
-                    <option value="">{t("skillAreaChoose")}</option>
-                  ) : null}
-                  {SKILL_CLUSTERS.map((c) => (
-                    <option key={c} value={c}>
-                      {tSkill(c)}
-                    </option>
-                  ))}
-                </select>
-                <p
-                  id={`${ids}-skill-hint`}
-                  className="mt-1 text-xs text-[var(--muted-foreground)]"
-                >
-                  {selected.currentCluster
-                    ? t("skillAreaFromCourse", {
-                        course: selected.currentCourse ?? "",
-                      })
-                    : t("skillAreaNone")}
-                </p>
-              </div>
+              {validated ? (
+                <div className="mt-3 pl-7">
+                  <label
+                    htmlFor={`${ids}-skill`}
+                    className="block mb-1 text-xs font-medium text-[var(--muted-foreground)]"
+                  >
+                    {t("skillArea")}
+                  </label>
+                  <select
+                    id={`${ids}-skill`}
+                    value={skill}
+                    onChange={(e) => {
+                      setSkill(e.target.value as SkillCluster | "");
+                      edited("validation");
+                    }}
+                    aria-describedby={`${ids}-skill-hint ${ids}-skill-again`}
+                    className="w-full max-w-sm rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--foreground)]"
+                  >
+                    {skill === "" ? (
+                      <option value="">{t("skillAreaChoose")}</option>
+                    ) : null}
+                    {SKILL_CLUSTERS.map((c) => (
+                      <option key={c} value={c}>
+                        {tSkill(c)}
+                      </option>
+                    ))}
+                  </select>
+                  <p
+                    id={`${ids}-skill-hint`}
+                    className="mt-1 text-xs text-[var(--muted-foreground)]"
+                  >
+                    {selected.currentCluster
+                      ? t("skillAreaFromCourse", {
+                          course: selected.currentCourse ?? "",
+                        })
+                      : t("skillAreaNone")}{" "}
+                    {t("skillAreaFixed")}
+                  </p>
+                  {/* Saving again after a validation was saved adds a
+                      second one; it doesn't correct the first. */}
+                  <p
+                    id={`${ids}-skill-again`}
+                    role="status"
+                    className="mt-1 text-xs font-medium text-[var(--foreground)] empty:hidden"
+                  >
+                    {savedFor && !done.validation
+                      ? t("skillAreaAgain", { saved: tSkill(savedFor) })
+                      : null}
+                  </p>
+                </div>
+              ) : null}
             </div>
 
             <div className="mt-5 flex flex-wrap items-center justify-end gap-3">

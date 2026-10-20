@@ -10,7 +10,7 @@ import { getCurrentUser, getProjectMemberships } from "@/lib/auth-helpers";
 import { getCourse } from "@/lib/cms";
 import { readAssessment, scoreAssessment } from "@/lib/assessment-progress";
 import { learnerMembershipWhere } from "@/lib/learner-scope";
-import { courseSkillCluster } from "@/lib/facilitator-access";
+import { skillClusterOfCourse } from "@/lib/facilitator-access";
 import type { SkillCluster } from "@/data/course";
 import {
   courseProgress,
@@ -89,7 +89,8 @@ export interface FacilitatorLearner {
   currentStage: string | null; // stage key, or "complete"
   /**
    * The skill cluster of that course, which a validation starts on; null
-   * when its skill area names none (courseSkillCluster) or there's no course.
+   * when its skill area names none (skillClusterOfCourse) or there's no
+   * course.
    */
   currentCluster: SkillCluster | null;
   lastActiveAt: string | null; // ISO
@@ -238,7 +239,7 @@ async function loadLearners(
       lastActiveAt = recent.updatedAt.toISOString();
       currentCourse =
         contentBySlug.get(recent.course.slug)?.title ?? recent.course.slug;
-      currentCluster = courseSkillCluster(recent.course.cluster);
+      currentCluster = skillClusterOfCourse(recent.course);
       currentStage = nextStage(
         stageKeysOf(recent.course.slug),
         recent.stagesCompleted,

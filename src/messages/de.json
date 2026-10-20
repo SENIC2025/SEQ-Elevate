@@ -618,6 +618,8 @@
     "skillAreaChoose": "Skill-Bereich wählen",
     "skillAreaFromCourse": "Voreingestellt ist der Skill-Bereich des aktuellen Kurses, {course}.",
     "skillAreaNone": "Wähle den Skill-Bereich, den du in der Praxis beobachtet hast.",
+    "skillAreaFixed": "Prüf ihn vor dem Speichern: Eine gespeicherte Bestätigung kannst du hier nicht mehr ändern.",
+    "skillAreaAgain": "Wenn du noch einmal speicherst, kommt eine weitere Bestätigung dazu. Die schon gespeicherte, für {saved}, bleibt.",
     "redacted": "Von Lernender:m ausgeblendet",
     "redactedHint": "Die lernende Person hat dieses Feld nicht mit dir geteilt.",
     "videoCheckins": "Video-Check-ins: {answered} beantwortet · {correct} richtig",

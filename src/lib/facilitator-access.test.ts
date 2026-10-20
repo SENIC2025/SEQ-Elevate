@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   canRecordForLearner,
   courseSkillCluster,
+  skillClusterOfCourse,
   facilitatorText,
   FACILITATOR_TEXT_MAX,
   isSkillCluster,
@@ -86,5 +87,41 @@ describe("courseSkillCluster", () => {
     expect(courseSkillCluster("")).toBeNull();
     expect(courseSkillCluster(null)).toBeNull();
     expect(courseSkillCluster(undefined)).toBeNull();
+  });
+});
+
+/*
+ * The course row a learner is on. A bundled course has no copy of its own
+ * (meta) and its `cluster` is the cluster's key. A course created in the
+ * platform says its skill area in each language's copy, which the course
+ * page can change; the key it was made with doesn't follow.
+ */
+describe("skillClusterOfCourse", () => {
+  const copy = (clusterLabel: string) => ({ title: "T", tagline: "", clusterLabel });
+
+  it("takes a bundled course's key", () => {
+    expect(skillClusterOfCourse({ cluster: "resilience", meta: null })).toBe("resilience");
+  });
+
+  it("reads a created course's skill area, not the key it was made with", () => {
+    expect(
+      skillClusterOfCourse({ cluster: "teamwork", meta: { en: copy("Leadership") } })
+    ).toBe("leadership");
+    // "Skill": what a course made without a skill area shows.
+    expect(
+      skillClusterOfCourse({ cluster: "communication", meta: { en: copy("Skill") } })
+    ).toBeNull();
+  });
+
+  it("goes by the languages that name a skill area, when they agree", () => {
+    const meta = { en: copy("Problem solving"), de: copy("Problemlösen") };
+    expect(skillClusterOfCourse({ cluster: "x", meta })).toBe("problemSolving");
+    expect(
+      skillClusterOfCourse({
+        cluster: "x",
+        meta: { en: copy("Leadership"), el: copy("Teamwork") },
+      })
+    ).toBeNull();
+    expect(skillClusterOfCourse({ cluster: "teamwork", meta: {} })).toBeNull();
   });
 });

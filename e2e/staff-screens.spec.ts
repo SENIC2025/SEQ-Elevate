@@ -1,4 +1,4 @@
-import { test, expect, type BrowserContext, type Page } from "@playwright/test";
+import { test, expect, type BrowserContext, type Page, type Request } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { PrismaClient, type Role } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
@@ -14,6 +14,13 @@ import { PrismaPg } from "@prisma/adapter-pg";
  * - every validation was recorded for Communication & Emotional
  *   Intelligence. It is recorded for the skill area the facilitator
  *   chooses, which starts on the one of the learner's current course.
+ *
+ * And what their review found (October 2026): on a phone the question
+ * opened off screen, "Keep" seemed to keep someone whose removal was
+ * already on its way, a failed removal left a spinner, a cohort's people
+ * were counted once per role, the question's explanation wasn't read with
+ * it, the Skill area was offered for a note alone, and the question said
+ * the person leaves the list for good.
  *
  * Requires a real database — gated on E2E_DB=1. Every email and name is
  * unique to the run, and everything the run made is removed afterwards.
@@ -38,7 +45,9 @@ const PERSON = email("person");
 const FACILITATOR = email("facilitator");
 const LEARNER = email("learner");
 const NEWBIE = email("newbie");
-const EMAILS = [ADMIN, OTHER_ADMIN, PERSON, FACILITATOR, LEARNER, NEWBIE];
+const SLOW = email("slow");
+const PAIR = email("pair");
+const EMAILS = [ADMIN, OTHER_ADMIN, PERSON, FACILITATOR, LEARNER, NEWBIE, SLOW, PAIR];
 const LEARNER_NAME = `Staff Learner ${RUN}`;
 const NEWBIE_NAME = `Staff Newbie ${RUN}`;
 const ORG = `E2E Staff Org ${RUN}`;
@@ -93,6 +102,10 @@ async function noSeriousViolations(page: Page) {
   expect(serious, JSON.stringify(serious.map((v) => v.id))).toEqual([]);
 }
 
+/** A server action posted from the People page (the bins' removals). */
+const isAction = (req: Request) =>
+  req.method() === "POST" && new URL(req.url()).pathname === "/en/admin/people";
+
 const rolesOf = async (userId: string) =>
   (
     await prisma.membership.findMany({
@@ -109,6 +122,8 @@ describe("Staff screens", () => {
   let person: { userId: string; sessionToken: string };
   let facilitator: { userId: string; sessionToken: string };
   let learner: { userId: string; sessionToken: string };
+  let slow: { userId: string; sessionToken: string };
+  let pair: { userId: string; sessionToken: string };
   let orgId = "";
   let busyOrgId = "";
   let cohortId = "";
@@ -141,6 +156,8 @@ describe("Staff screens", () => {
     facilitator = await makeUser(FACILITATOR, ["FACILITATOR"]);
     learner = await makeUser(LEARNER, ["LEARNER"], LEARNER_NAME);
     await makeUser(NEWBIE, ["LEARNER"], NEWBIE_NAME);
+    slow = await makeUser(SLOW, ["LEARNER"]);
+    pair = await makeUser(PAIR, ["LEARNER", "FACILITATOR"]);
 
     const org = await prisma.organisation.create({
       data: { projectId: PROJECT, name: ORG, shortName: `Staff ${RUN}` },
@@ -154,8 +171,13 @@ describe("Staff screens", () => {
       data: { projectId: PROJECT, name: BUSY_ORG, shortName: `Busy ${RUN}` },
     });
     busyOrgId = busy.id;
-    await prisma.cohort.create({
+    const busyCohort = await prisma.cohort.create({
       data: { projectId: PROJECT, organisationId: busy.id, name: BUSY_COHORT },
+    });
+    // One person with two roles (two memberships) in the busy cohort.
+    await prisma.membership.updateMany({
+      where: { userId: pair.userId, projectId: PROJECT },
+      data: { cohortId: busyCohort.id, organisationId: busy.id },
     });
     // The person to remove and the learner are both in the cohort.
     await prisma.membership.updateMany({
@@ -198,6 +220,14 @@ describe("Staff screens", () => {
     await expect(question).toBeFocused();
     await expect(confirm).toContainText(/lose their roles and their cohort/i);
     await expect(confirm).toContainText(/account and data stay/i);
+    // Not that they leave the list for good: they aren't signed out, and
+    // come back on their next page (as a learner, or as an admin named in
+    // the server setting).
+    await expect(confirm).not.toContainText(/leave this list/i);
+    await expect(confirm).toContainText(
+      /on their next page they're back on this list as a learner/i
+    );
+    await expect(confirm).toContainText(/admin and editor/i);
     expect(await rolesOf(person.userId)).toEqual(["FACILITATOR", "LEARNER"]);
     await noSeriousViolations(page);
 
@@ -224,6 +254,174 @@ describe("Staff screens", () => {
     await expect(page.locator(":focus")).toHaveAccessibleName(
       /^Remove .+ from the project$/
     );
+
+    // As the question said: on their next page they're back, as a learner.
+    await signInAs(context, person.sessionToken);
+    await page.goto("/en");
+    await expect.poll(() => rolesOf(person.userId), { timeout: 15000 }).toEqual(["LEARNER"]);
+  });
+
+  test("the question's explanation is read with it", async ({ page, context }) => {
+    await signInAs(context, admin.sessionToken);
+    await page.goto("/en/admin/people");
+    await page
+      .locator("tr", { hasText: SLOW })
+      .first()
+      .getByRole("button", { name: `Remove ${SLOW} from the project` })
+      .click();
+    const confirm = page.getByRole("group", { name: `Remove ${SLOW} from the project?` });
+    // Tabbing from the question straight to the action still hears what
+    // it does.
+    await expect(confirm).toHaveAccessibleDescription(/lose their roles and their cohort/i);
+    await expect(
+      confirm.getByRole("button", { name: "Remove from project" })
+    ).toHaveAccessibleDescription(/lose their roles and their cohort/i);
+    await confirm.getByRole("button", { name: "Keep them" }).click();
+
+    await page.goto("/en/admin/cohorts");
+    await page
+      .getByRole("region", { name: BUSY_ORG })
+      .getByRole("button", { name: `Delete ${BUSY_COHORT}` })
+      .click();
+    const cohortQuestion = page.getByRole("group", {
+      name: `Delete the cohort “${BUSY_COHORT}”?`,
+    });
+    await expect(
+      cohortQuestion.getByRole("button", { name: "Delete cohort" })
+    ).toHaveAccessibleDescription(/will have no cohort/i);
+    await cohortQuestion.getByRole("button", { name: "Keep it" }).click();
+  });
+
+  test("on a phone, the question opens on screen, in full", async ({ page, context }) => {
+    await signInAs(context, admin.sessionToken);
+    await page.setViewportSize({ width: 320, height: 800 });
+    await page.goto("/en/admin/people");
+    const bin = page
+      .locator("tr", { hasText: SLOW })
+      .first()
+      .getByRole("button", { name: `Remove ${SLOW} from the project` });
+    const confirm = page.getByRole("group", { name: `Remove ${SLOW} from the project?` });
+
+    // The table scrolls sideways to reach the bin at the end of the row…
+    await bin.click();
+    await expect(confirm.getByRole("heading")).toBeFocused();
+    // …and the question, what happens and both buttons are on screen.
+    const what = confirm.getByText(/lose their roles/);
+    for (const part of [
+      confirm.getByRole("heading"),
+      what,
+      confirm.getByRole("button", { name: "Remove from project" }),
+      confirm.getByRole("button", { name: "Keep them" }),
+    ]) {
+      await expect(part).toBeInViewport({ ratio: 1 });
+    }
+    // What happens wraps inside the table's box (WCAG 1.4.10), and the
+    // page doesn't scroll sideways.
+    const box = (await page.locator("table", { has: confirm }).locator("..").boundingBox())!;
+    const text = (await what.boundingBox())!;
+    expect(text.x).toBeGreaterThanOrEqual(box.x);
+    expect(text.x + text.width).toBeLessThanOrEqual(box.x + box.width);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
+    await noSeriousViolations(page);
+
+    await confirm.getByRole("button", { name: "Keep them" }).click();
+    await expect(bin).toBeFocused();
+    expect(await rolesOf(slow.userId)).toEqual(["LEARNER"]);
+  });
+
+  test("a removal that fails says so, and can be tried again or kept", async ({
+    page,
+    context,
+  }) => {
+    await signInAs(context, admin.sessionToken);
+    await page.goto("/en/admin/people");
+    const confirm = page.getByRole("group", { name: `Remove ${SLOW} from the project?` });
+    const remove = confirm.getByRole("button", { name: "Remove from project" });
+    const keep = confirm.getByRole("button", { name: "Keep them" });
+
+    // The server can't be reached.
+    await page.route(
+      (url) => url.pathname === "/en/admin/people",
+      (route) => (isAction(route.request()) ? route.abort("failed") : route.continue())
+    );
+    await page
+      .locator("tr", { hasText: SLOW })
+      .first()
+      .getByRole("button", { name: `Remove ${SLOW} from the project` })
+      .click();
+    await remove.click();
+    await expect(confirm.getByRole("alert")).toContainText(/no answer from the server/i);
+    // Not stuck on a spinner: both buttons work again.
+    await expect(remove).not.toHaveAttribute("aria-disabled", "true");
+    await expect(keep).not.toHaveAttribute("aria-disabled", "true");
+    expect(await rolesOf(slow.userId)).toEqual(["LEARNER"]);
+    await keep.click();
+    await expect(confirm).toHaveCount(0);
+  });
+
+  test("once Remove is pressed, Keep doesn't pretend to keep them", async ({
+    page,
+    context,
+  }) => {
+    await signInAs(context, admin.sessionToken);
+    await page.goto("/en/admin/people");
+    const confirm = page.getByRole("group", { name: `Remove ${SLOW} from the project?` });
+    const remove = confirm.getByRole("button", { name: "Remove from project" });
+    const keep = confirm.getByRole("button", { name: "Keep them" });
+
+    // The removal is held on its way to a slow server.
+    let release = () => {};
+    const held = new Promise<void>((done) => (release = done));
+    await page.route(
+      (url) => url.pathname === "/en/admin/people",
+      async (route) => {
+        if (isAction(route.request())) await held;
+        await route.continue();
+      }
+    );
+    await page
+      .locator("tr", { hasText: SLOW })
+      .first()
+      .getByRole("button", { name: `Remove ${SLOW} from the project` })
+      .click();
+    await remove.click();
+    // It can't be stopped now: Keep and Escape don't close the question
+    // as if it were.
+    await expect(remove).toHaveAttribute("aria-disabled", "true");
+    await expect(keep).toHaveAttribute("aria-disabled", "true");
+    await keep.focus();
+    await page.keyboard.press("Enter");
+    await page.keyboard.press("Escape");
+    await expect(confirm).toBeVisible();
+    await expect(keep).toBeFocused();
+
+    release();
+    await expect(page.locator("tr", { hasText: SLOW })).toHaveCount(0);
+    await expect(page.getByText(`Removed ${SLOW} from the project.`)).toBeVisible();
+    expect(await rolesOf(slow.userId)).toEqual([]);
+  });
+
+  test("a cohort's people are counted once, whatever their roles", async ({
+    page,
+    context,
+  }) => {
+    await signInAs(context, admin.sessionToken);
+    await page.goto("/en/admin/cohorts");
+    const busy = page.getByRole("region", { name: BUSY_ORG });
+    // One person, with the Learner and Facilitator roles.
+    await expect(
+      busy
+        .getByRole("listitem")
+        .filter({ hasText: BUSY_COHORT })
+        .getByText(/^\d+ members?$/)
+    ).toHaveText("1 member");
+    await busy.getByRole("button", { name: `Delete ${BUSY_COHORT}` }).click();
+    const question = page.getByRole("group", {
+      name: `Delete the cohort “${BUSY_COHORT}”?`,
+    });
+    await expect(question).toContainText(/its 1 member will have no cohort/i);
+    await question.getByRole("button", { name: "Keep it" }).click();
+    expect(await rolesOf(pair.userId)).toEqual(["FACILITATOR", "LEARNER"]);
   });
 
   test("deleting a cohort or an organisation asks first", async ({ page, context }) => {
@@ -330,17 +528,26 @@ describe("Staff screens", () => {
       .getByRole("button", { name: /open learner/i })
       .click();
 
-    // Starts on the course's skill area: Resilience.
+    // A note alone has no skill area: it's asked for with the validation.
     const skill = page.getByLabel(/^skill area$/i);
-    await expect(skill).toHaveValue("resilience");
+    await expect(skill).toHaveCount(0);
     await page.getByPlaceholder(/what did you notice/i).fill("Took the feedback calmly.");
     await page.getByLabel(/validate this evidence/i).check();
+    // Starts on the course's skill area, Resilience, and says to check it:
+    // a saved validation can't be changed on screen.
+    await expect(skill).toHaveValue("resilience");
+    await expect(skill).toHaveAccessibleDescription(/a saved validation can't be changed here/i);
     await page.getByRole("button", { name: /^save$/i }).click();
     await expect(page.getByText(/^saved$/i)).toBeVisible({ timeout: 15000 });
     await noSeriousViolations(page);
 
-    // Another skill area, chosen: a validation for it; the note isn't sent again.
+    // Another skill area, chosen after saving: it says that this adds a
+    // second validation and the first one stays (it doesn't correct it).
+    // The note isn't sent again.
     await skill.selectOption("teamwork");
+    await expect(
+      page.getByRole("status").filter({ hasText: /adds another validation/i })
+    ).toContainText(/the one already saved, for resilience, stays/i);
     await page.getByRole("button", { name: /^save$/i }).click();
     await expect(page.getByText(/^saved$/i)).toBeVisible({ timeout: 15000 });
     const validations = await prisma.validation.findMany({
@@ -365,12 +572,19 @@ describe("Staff screens", () => {
       .filter({ hasText: NEWBIE_NAME })
       .getByRole("button", { name: /open learner/i })
       .click();
-    await expect(skill).toHaveValue("");
+    await expect(skill).toHaveCount(0);
     await page.getByLabel(/validate this evidence/i).check();
+    await expect(skill).toHaveValue("");
     const save = page.getByRole("button", { name: /^save$/i });
     await expect(save).toBeDisabled();
     await expect(page.getByText(/choose the skill area you saw/i)).toBeVisible();
     await skill.selectOption("initiative");
+    await expect(save).toBeEnabled();
+    // Unticked, a note saves without a skill area, and none is asked for.
+    await page.getByPlaceholder(/what did you notice/i).fill("Asked who to call.");
+    await page.getByLabel(/validate this evidence/i).uncheck();
+    await expect(skill).toHaveCount(0);
+    await expect(page.getByText(/choose the skill area you saw/i)).toHaveCount(0);
     await expect(save).toBeEnabled();
   });
 });

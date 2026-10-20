@@ -32,17 +32,19 @@ const enrollments = [
   },
 ];
 
-const membershipFindMany = vi.fn(async () => [
+/** A learner whose enrollments are `list` (the last-updated one is current). */
+const learnerOn = (list: unknown[]) => [
   {
     user: {
       id: "u1",
       name: "Ana",
       email: "ana@example.test",
-      enrollments,
+      enrollments: list,
       compCards: [],
     },
   },
-]);
+];
+const membershipFindMany = vi.fn(async (): Promise<unknown[]> => learnerOn(enrollments));
 const membershipCount = vi.fn(async () => 1);
 vi.mock("@/lib/prisma", () => ({
   prisma: {
@@ -89,6 +91,47 @@ describe("getProjectLearners", () => {
     const [learner] = (await getProjectLearners("en")) ?? [];
     // The course they used last, not the first one or always Communication.
     expect(learner.currentCluster).toBe("resilience");
+  });
+
+  /*
+   * A course created in the platform says its skill area in each
+   * language's copy (meta), which an editor can change on the course page.
+   * The `cluster` key it was given when it was made ("communication" when
+   * it had none) never follows.
+   */
+  const onCreatedCourse = (cluster: string, meta: Record<string, object>) =>
+    learnerOn([
+      {
+        ...enrollments[1],
+        course: { slug: "created-course", cluster, meta },
+      },
+    ]);
+  const copy = (clusterLabel: string) => ({ title: "Created", tagline: "", clusterLabel });
+
+  it("follows a created course's skill area after it was renamed", async () => {
+    // Made as "Teamwork", renamed to "Leadership" on the course page.
+    membershipFindMany.mockImplementationOnce(async () =>
+      onCreatedCourse("teamwork", { en: copy("Leadership") })
+    );
+    const [learner] = (await getProjectLearners("en")) ?? [];
+    expect(learner.currentCluster).toBe("leadership");
+  });
+
+  it("starts on none for a created course with no skill area", async () => {
+    // Its key is "communication", but it names no skill area: "Skill".
+    membershipFindMany.mockImplementationOnce(async () =>
+      onCreatedCourse("communication", { en: copy("Skill") })
+    );
+    const [learner] = (await getProjectLearners("en")) ?? [];
+    expect(learner.currentCluster).toBeNull();
+  });
+
+  it("starts on none when a created course's languages name different skill areas", async () => {
+    membershipFindMany.mockImplementationOnce(async () =>
+      onCreatedCourse("teamwork", { en: copy("Leadership"), de: copy("Teamwork") })
+    );
+    const [learner] = (await getProjectLearners("en")) ?? [];
+    expect(learner.currentCluster).toBeNull();
   });
 });
 

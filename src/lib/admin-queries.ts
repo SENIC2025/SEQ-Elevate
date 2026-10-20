@@ -26,6 +26,7 @@ export interface AdminCohort {
   name: string;
   startsAt: string | null;
   endsAt: string | null;
+  /** The people in it: someone with two roles is one member. */
   memberCount: number;
 }
 
@@ -61,7 +62,8 @@ export async function getAdminOrgs(): Promise<AdminOrg[] | null> {
       include: {
         cohorts: {
           orderBy: { createdAt: "asc" },
-          include: { _count: { select: { memberships: true } } },
+          // A membership per role: two for a learner who facilitates too.
+          include: { memberships: { select: { userId: true } } },
         },
       },
       orderBy: { createdAt: "asc" },
@@ -75,7 +77,7 @@ export async function getAdminOrgs(): Promise<AdminOrg[] | null> {
         name: c.name,
         startsAt: c.startsAt?.toISOString().slice(0, 10) ?? null,
         endsAt: c.endsAt?.toISOString().slice(0, 10) ?? null,
-        memberCount: c._count.memberships,
+        memberCount: new Set(c.memberships.map((m) => m.userId)).size,
       })),
     }));
   } catch {

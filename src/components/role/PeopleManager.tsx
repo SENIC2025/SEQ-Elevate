@@ -67,6 +67,8 @@ function errorText(error?: string): string {
       return "You can't remove yourself. Another admin can.";
     case "own-admin":
       return "You can't switch off your own Admin role. Another admin can.";
+    case "no-answer":
+      return "There was no answer from the server. Reload the page to see whether it was done.";
     default:
       return "Something went wrong.";
   }
@@ -253,7 +255,16 @@ export function PeopleManager({
     // focus once they've gone; the Email field when nobody is left.
     const at = shown.findIndex((x) => x.id === m.id);
     const near = shown[at + 1] ?? shown[at - 1];
-    const res = await removeMember(m.id);
+    let res: Awaited<ReturnType<typeof removeMember>>;
+    try {
+      res = await removeMember(m.id);
+    } catch {
+      // A dropped connection or a server error: the question stays, says
+      // so, and can be tried again or kept.
+      setConfirmError(errorText("no-answer"));
+      setPending(null);
+      return;
+    }
     if (!res.ok) {
       setConfirmError(errorText(res.error));
       setPending(null);
@@ -412,8 +423,9 @@ export function PeopleManager({
       {/* People */}
       <Card>
         {/* relative: the table's visually hidden headings are positioned,
-            and would otherwise escape this scroll box and widen the page. */}
-        <CardContent className="relative p-0 overflow-x-auto">
+            and would otherwise escape this scroll box and widen the page.
+            @container: the remove question is as wide as this box (cqw). */}
+        <CardContent className="@container relative p-0 overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-[var(--border)] text-left text-xs text-[var(--muted-foreground)]">
@@ -585,24 +597,32 @@ export function PeopleManager({
                     </tr>
                     {confirming === m.id ? (
                       <tr className="border-b border-[var(--border)] last:border-0">
-                        <td colSpan={6} className="px-4 pb-3">
-                          <InlineConfirm
-                            heading="h2"
-                            title={`Remove ${m.name || m.email} from the project?`}
-                            confirmLabel="Remove from project"
-                            keepLabel="Keep them"
-                            busy={pending === `rm-${m.id}`}
-                            error={confirmError}
-                            onConfirm={() => onRemove(m)}
-                            onKeep={() => keep(m)}
-                          >
-                            <p className="mt-1 text-xs">
-                              They lose their roles and their cohort, and leave
-                              this list. Their account and data stay: progress,
-                              Comp Card and notes about them are kept. They can
-                              still sign in, as a learner.
-                            </p>
-                          </InlineConfirm>
+                        <td colSpan={6} className="p-0">
+                          {/* On a phone the table is scrolled sideways to
+                              reach the bin: the question stays at the left
+                              of the box and as wide as it, so it opens on
+                              screen and wraps (WCAG 1.4.10). */}
+                          <div className="sticky left-0 w-[100cqw] px-4 pb-3">
+                            <InlineConfirm
+                              heading="h2"
+                              title={`Remove ${m.name || m.email} from the project?`}
+                              confirmLabel="Remove from project"
+                              keepLabel="Keep them"
+                              busy={pending === `rm-${m.id}`}
+                              error={confirmError}
+                              onConfirm={() => onRemove(m)}
+                              onKeep={() => keep(m)}
+                            >
+                              <p className="mt-1 text-xs">
+                                They lose their roles and their cohort. Their
+                                account and data stay: progress, Comp Card and
+                                notes about them are kept. They aren&apos;t
+                                signed out: on their next page they&apos;re back
+                                on this list as a learner, or with Admin and
+                                Editor if they are named in the server setting.
+                              </p>
+                            </InlineConfirm>
+                          </div>
                         </td>
                       </tr>
                     ) : null}

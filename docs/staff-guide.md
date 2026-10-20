@@ -47,7 +47,7 @@ Below them are **Organisations & cohorts** and **People & roles**. Most of these
 
 - The dates are for information only. Nothing happens when a cohort ends.
 - You can't change names or dates yet. Ask SENIC.
-- The bin icons ask first and say what will happen. Press **Delete cohort** or **Delete organisation** to go ahead, or **Keep it**. If you delete a cohort, its people have no cohort, but their data stays. You can delete an organisation only when it has no cohorts.
+- The bin icons ask first and say what will happen, with the number of people in the cohort. Press **Delete cohort** or **Delete organisation** to go ahead, or **Keep it**. Once you have pressed Delete, it can't be stopped. If you delete a cohort, its people have no cohort, but their data stays. You can delete an organisation only when it has no cohorts.
 
 ### Add a person
 
@@ -87,9 +87,9 @@ Choose a cohort in the person's **Cohort** column. Cohorts are shown as "short n
 
 ### Remove someone
 
-Press the bin icon at the end of a row. The page asks first and says what will happen. Press **Remove from project** to go ahead, or **Keep them**. You can't remove yourself. Another admin can.
+Press the bin icon at the end of a row. The page asks first and says what will happen. Press **Remove from project** to go ahead, or **Keep them**. Once you have pressed Remove, it can't be stopped. You can't remove yourself. Another admin can.
 
-**Remove** takes away all their roles and their cohort, and they disappear from the list. It does **not**:
+**Remove** takes away all their roles and their cohort, and they disappear from the list until their next page. It does **not**:
 - delete their account, progress, Comp Card, or notes about them;
 - sign them out or stop them signing in. On their next page they get the **Learner** role and show up as a learner.
 
@@ -139,14 +139,15 @@ This means "Only me" doesn't hide the whole card yet. Read only what you need. T
 
 1. Open the learner.
 2. Write in **Observation note** (up to 2,000 characters). Describe what the learner did, not what kind of person they are.
-3. If you saw the competence in practice, tick **Validate this evidence**. Your note becomes the evidence.
+3. If you saw the competence in practice, tick **Validate this evidence**. Your note becomes the evidence, and **Skill area** appears. A note on its own has no skill area.
 4. Check the **Skill area**. It starts on the skill area of the learner's current course. Choose another if that is what you saw.
 5. Press **Save**.
 
 - Each time you press Save, a new entry is added. You can't read, edit or delete notes on screen afterwards.
+- You can't change a validation's skill area after you save. If you choose another skill area and save again, a second validation is added and the first one stays. The screen says so before you save.
 - Learners don't see notes in the platform, but the notes are in the file they get from **Download my data**. Write as if they will read it.
 - If the learner hasn't started a course, or their course's skill area isn't one of the platform's seven, choose the skill area yourself before you save.
-- To correct or delete a note, contact SENIC.
+- To correct or delete a note or a validation, contact SENIC.
 
 ## Statistics
 

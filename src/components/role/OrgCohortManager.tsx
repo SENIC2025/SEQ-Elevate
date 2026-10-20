@@ -35,6 +35,8 @@ function errorText(error?: string): string {
       return "Delete the organisation's cohorts first.";
     case "name-required":
       return "A name is required.";
+    case "no-answer":
+      return "There was no answer from the server. Reload the page to see whether it was done.";
     default:
       return "Something went wrong.";
   }
@@ -125,7 +127,16 @@ export function OrgCohortManager({ orgs }: { orgs: AdminOrg[] }) {
     const list = kind === "org" ? shown : org.cohorts;
     const at = list.findIndex((x) => x.id === id);
     const near = list[at + 1] ?? list[at - 1];
-    const res = kind === "org" ? await deleteOrganisation(id) : await deleteCohort(id);
+    let res: Awaited<ReturnType<typeof deleteOrganisation | typeof deleteCohort>>;
+    try {
+      res = kind === "org" ? await deleteOrganisation(id) : await deleteCohort(id);
+    } catch {
+      // A dropped connection or a server error: the question stays, says
+      // so, and can be tried again or kept.
+      setConfirmError(errorText("no-answer"));
+      setPending(null);
+      return;
+    }
     if (!res.ok) {
       setConfirmError(errorText(res.error));
       setPending(null);
