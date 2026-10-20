@@ -1,23 +1,26 @@
 "use server";
 
 /**
- * Release 1: a lesson's extra content around its main content (D56, spec
- * 8.2) — add, move and remove content (a change to the lesson: Course row
- * FOR UPDATE, G3, the whole outline back), and save text and question
- * content with Release 0's draft model per piece of content (D52: Course
- * row FOR SHARE, then the lesson's row). The main content keeps today's
- * editors and actions (lesson.ts, structure.ts); every action here sends
- * the editor there for it (use-main-editor), and removing it is refused
- * (main-required).
+ * A lesson's extra content around its main content (D56, spec 8.2) — add,
+ * move and remove content (a change to the lesson: Course row FOR UPDATE,
+ * the rules for a course people are taking, the whole outline back), and
+ * save text and question content with Release 0's draft model per piece of
+ * content (D52: Course row FOR SHARE, then the lesson's row). The main
+ * content keeps today's editors and actions (lesson.ts, structure.ts);
+ * every action here sends the editor there for it (use-main-editor), and
+ * removing it is refused (main-required).
  *
  * The steps are those of sections.ts (spec 8): editors only; arguments
  * checked; the course locked and readable (G8), the lesson in its list; the
  * lesson's row made, locked and read; the base compared — fingerprints
  * (versions.ts), never whole JSON; the content rebuilt by the same checks
  * "Save stage" makes (part-kinds.ts), with what is stored already allowed to
- * stay over a limit; G3 for changes to the lesson; then the write
- * (storedPartsValue: the main content alone is SQL NULL again); audited
- * after the commit.
+ * stay over a limit; for adding, moving and removing, the rules of spec 7.2
+ * (guardStructure: with learners a confirmation, no live question removed,
+ * the 1 December cut-off); then the write (storedPartsValue: the main
+ * content alone is SQL NULL again); audited after the commit, with the
+ * learners and `confirmed: true` when the editor confirmed. Text and
+ * question saves are never guarded: they are live at once (D33).
  */
 
 import { Prisma } from "@prisma/client";
@@ -51,13 +54,12 @@ import {
   type QuestionPartType,
   type PlainSectionsError,
   type Refused,
-  type SectionFacts,
   type SectionId,
   type StoredPart,
   type VersionResult,
 } from "@/lib/cms/sections/contract";
 import { PART_DEFAULTS } from "@/lib/cms/sections/defaults";
-import { newOnlyReasons } from "@/lib/cms/sections/guard";
+import { partLiveOp } from "@/lib/cms/sections/live-rules";
 import { sanitizeExercise, validateExercise } from "@/lib/cms/sections/part-kinds";
 import {
   applyPartOp,
@@ -76,7 +78,8 @@ import {
   Refusal,
   SLUG,
   auditLesson,
-  guardLive,
+  confirmedAudit,
+  guardStructure,
   isVersion,
   lockLessonRow,
   member,
@@ -84,6 +87,7 @@ import {
   openCourse,
   settle,
   type CourseState,
+  type Guarded,
   type Settled,
 } from "@/lib/cms/sections/store.server";
 import type { Locale, NarrativeBlock } from "@/lib/cms/types";
@@ -103,6 +107,9 @@ const PART_TYPES: readonly PartType[] = ["text", "practice", "scenario", "quiz",
 const lessonWhere = (slug: string, sectionId: string) => ({
   projectId_courseSlug_stageKey: { projectId: PROJECT, courseSlug: slug, stageKey: sectionId },
 });
+
+/** The trailing `confirm`: true, false, or left out (a page from before Release 2). */
+const isConfirm = (v: unknown): v is boolean | undefined => v === undefined || typeof v === "boolean";
 
 const isPartBase = (v: unknown): v is PartBase =>
   typeof v === "object" &&
@@ -162,14 +169,9 @@ async function writeParts(
   });
 }
 
-/** The reasons once the lesson holds `items` (G3 compares them with today's). */
-function reasonsWith(state: CourseState, sectionId: SectionId, items: readonly StoredPart[]) {
-  const parts = storedPartsValue(items);
-  const lessons: SectionFacts[] = state.lessons.some((l) => l.stageKey === sectionId)
-    ? state.lessons.map((l) => (l.stageKey === sectionId ? { ...l, parts } : l))
-    : [...state.lessons, { stageKey: sectionId, parts }];
-  return newOnlyReasons("cms", state.outline, lessons);
-}
+/** Did learners get this item: a question with a live version (`data`)? */
+const liveQuestion = (item: StoredPart | undefined) =>
+  item !== undefined && item.type !== "main" && item.type !== "text" && item.data !== null;
 
 function partOpRefusal(error: PartOpError): Refusal {
   return new Refusal({ ok: false, error });
@@ -200,15 +202,18 @@ async function outlineResult(
 /**
  * One change to the lesson's content list (add, move, remove), under the
  * Course row's FOR UPDATE: the base is the list's order (and, to remove, the
- * item itself); on a published course the lesson may end up with extra
- * content only if it already had some (G3).
+ * item itself); then the rules of spec 7.2 for that change (partLiveOp:
+ * removing a question learners may have answered is refused while there are
+ * learners; the rest needs `confirm` with learners, and is closed from the
+ * cut-off on a published course with learners).
  */
 async function changeParts(
   slug: string,
   sectionId: SectionId,
   orderBase: string,
+  confirm: boolean | undefined,
   op: (items: StoredPart[]) => { op: PartOp; itemBase?: { id: string; version: string | null } }
-): Promise<Settled<{ before: StoredPart[]; after: StoredPart[] }>> {
+): Promise<Settled<{ before: StoredPart[]; after: StoredPart[]; guarded: Guarded }>> {
   return settle(() =>
     prisma.$transaction(async (tx) => {
       const { state, items } = await openLesson(tx, slug, sectionId, "update");
@@ -221,9 +226,11 @@ async function changeParts(
       }
       const r = applyPartOp(items, change);
       if (!r.ok) throw partOpRefusal(r.error);
-      guardLive(state, reasonsWith(state, sectionId, r.items));
+      const removed = change.op === "remove" ? items.find((i) => i.id === change.id) : undefined;
+      const live = partLiveOp(change.op, removed && { type: removed.type, live: liveQuestion(removed) });
+      const guarded = await guardStructure(tx, state, live, { confirm });
       await writeParts(tx, slug, sectionId, items, r.items);
-      return { before: items, after: r.items };
+      return { before: items, after: r.items, guarded };
     })
   );
 }
@@ -265,14 +272,16 @@ export async function getPart(
  * Add content to a lesson: at the top (`after` null) or after the named
  * part. Text starts with no language written; a question starts as a draft
  * (the standard questions, or the standard end labels, for reflection and
- * self-assessment). At most 12 items, the main content included.
+ * self-assessment). At most 12 items, the main content included. With
+ * learners it needs `confirm` (spec 7.2).
  */
 export async function addPart(
   slug: string,
   sectionId: SectionId,
   type: PartType,
   after: PartId | null,
-  orderBase: string
+  orderBase: string,
+  confirm?: boolean
 ): Promise<OutlineResult> {
   const editor = await requireEditor();
   if (!editor) return refuse("forbidden");
@@ -281,28 +290,34 @@ export async function addPart(
     !PART_TYPES.includes(type) ||
     !(after === null || isPartId(after)) ||
     typeof orderBase !== "string" ||
-    !isVersion(orderBase)
+    !isVersion(orderBase) ||
+    !isConfirm(confirm)
   ) {
     return refuse("bad-input");
   }
   let id: ExtraPartId | undefined;
-  const settled = await changeParts(slug, sectionId, orderBase, (items) => {
+  const settled = await changeParts(slug, sectionId, orderBase, confirm, (items) => {
     id = newPartId((p) => items.some((i) => i.id === p));
     return { op: { op: "add", part: emptyPart(type, id, PART_DEFAULTS), after } };
   });
   if (settled.ok && id) {
-    await auditLesson(editor.id, "part.added", slug, sectionId, { partId: id, type });
+    await auditLesson(editor.id, "part.added", slug, sectionId, {
+      partId: id,
+      type,
+      ...confirmedAudit(settled.value.guarded),
+    });
   }
   return outlineResult(slug, settled, id);
 }
 
-/** Move a part (the main content too) one place up (-1) or down (1). */
+/** Move a part (the main content too) one place up (-1) or down (1). With learners it needs `confirm`. */
 export async function movePart(
   slug: string,
   sectionId: SectionId,
   partId: PartId,
   dir: -1 | 1,
-  orderBase: string
+  orderBase: string,
+  confirm?: boolean
 ): Promise<OutlineResult> {
   const editor = await requireEditor();
   if (!editor) return refuse("forbidden");
@@ -311,11 +326,12 @@ export async function movePart(
     !isPartId(partId) ||
     (dir !== -1 && dir !== 1) ||
     typeof orderBase !== "string" ||
-    !isVersion(orderBase)
+    !isVersion(orderBase) ||
+    !isConfirm(confirm)
   ) {
     return refuse("bad-input");
   }
-  const settled = await changeParts(slug, sectionId, orderBase, () => ({
+  const settled = await changeParts(slug, sectionId, orderBase, confirm, () => ({
     op: { op: "move", id: partId, dir },
   }));
   if (settled.ok) {
@@ -323,6 +339,7 @@ export async function movePart(
       partId,
       from: settled.value.before.findIndex((i) => i.id === partId),
       to: settled.value.after.findIndex((i) => i.id === partId),
+      ...confirmedAudit(settled.value.guarded),
     });
   }
   return outlineResult(slug, settled, partId === MAIN_PART_ID ? sectionId : partId);
@@ -333,13 +350,19 @@ export async function movePart(
  * showed it (itemVersion): nobody removes what they haven't seen. The main
  * content can't be removed. A lesson left with its main content alone is a
  * standard lesson again (Lesson.parts back to SQL NULL).
+ *
+ * With learners (spec 7.2): a question with a live version — one they may
+ * have answered — is refused (has-learners; it can still be edited); text,
+ * or a question that is only a draft, needs `confirm`, and from the cut-off
+ * a published course with learners keeps it.
  */
 export async function removePart(
   slug: string,
   sectionId: SectionId,
   partId: ExtraPartId,
   orderBase: string,
-  itemBase: string | null
+  itemBase: string | null,
+  confirm?: boolean
 ): Promise<OutlineResult> {
   const editor = await requireEditor();
   if (!editor) return refuse("forbidden");
@@ -349,11 +372,12 @@ export async function removePart(
     !isExtraPartId(partId) ||
     typeof orderBase !== "string" ||
     !isVersion(orderBase) ||
-    !isVersion(itemBase)
+    !isVersion(itemBase) ||
+    !isConfirm(confirm)
   ) {
     return refuse("bad-input");
   }
-  const settled = await changeParts(slug, sectionId, orderBase, () => ({
+  const settled = await changeParts(slug, sectionId, orderBase, confirm, () => ({
     op: { op: "remove", id: partId },
     itemBase: { id: partId, version: itemBase },
   }));
@@ -362,6 +386,7 @@ export async function removePart(
     await auditLesson(editor.id, "part.removed", slug, sectionId, {
       partId,
       type: removed?.type ?? null,
+      ...confirmedAudit(settled.value.guarded),
     });
   }
   return outlineResult(slug, settled, sectionId);

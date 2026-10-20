@@ -8,10 +8,11 @@ import type { StoredScenario } from "@/lib/cms/structure";
 /*
  * A lesson's extra content (spec 8.2) against an in-memory course: adding,
  * moving and removing content is a change to the lesson (Course FOR UPDATE,
- * then the Lesson; G3; the whole outline back); saving a text or a question
- * is a save inside it (Course FOR SHARE, then the Lesson) with Release 0's
- * draft model per piece of content (D52), fingerprint bases, and what is
- * stored already allowed to stay over a limit.
+ * then the Lesson; the rules for a course people are taking, Release 2 spec
+ * 7.2; the whole outline back); saving a text or a question is a save inside
+ * it (Course FOR SHARE, then the Lesson) with Release 0's draft model per
+ * piece of content (D52), fingerprint bases, and what is stored already
+ * allowed to stay over a limit.
  */
 
 vi.mock("server-only", () => ({}));
@@ -206,14 +207,47 @@ describe("addPart", () => {
     });
   });
 
-  it("adds no content to a lesson of a live course (G3)", async () => {
+  it("adds content to a lesson of a live course nobody is taking (Release 1 refused it, D57)", async () => {
     db.course!.status = "published";
+    expect(await addPart(SLUG, "concept", "text", null, order())).toMatchObject({ ok: true });
+    expect(items()).toHaveLength(2);
+  });
+
+  it("asks first on a course with learners, then adds it and audits the confirmation", async () => {
+    db.course!.status = "published";
+    db.enrolled = 3;
+    db.finished = 2;
     expect(await addPart(SLUG, "concept", "text", null, order())).toEqual({
       ok: false,
-      error: "live-course-standard-only",
-      reasons: [{ code: "extra-parts", sectionId: "concept" }],
+      error: "needs-confirmation",
+      learners: 3,
+      finished: 2,
     });
     expect(db.lessons.find((l) => l.stageKey === "concept")?.parts ?? null).toBeNull();
+    const res = await addPart(SLUG, "concept", "text", null, order(), true);
+    expect(res).toMatchObject({ ok: true });
+    expect(db.audit[0]).toMatchObject({
+      action: "part.added",
+      metadata: { type: "text", learners: 3, confirmed: true },
+    });
+  });
+
+  it("takes no new content from the cut-off on a published course with learners (D67)", async () => {
+    vi.stubEnv("RESTRUCTURE_CLOSED_FROM", "2020-01-01T00:00:00Z");
+    try {
+      db.course!.status = "published";
+      db.enrolled = 1;
+      expect(await addPart(SLUG, "concept", "text", null, order(), true)).toEqual({
+        ok: false,
+        error: "restructure-closed",
+        from: "2020-01-01T00:00:00.000Z",
+      });
+      // The same course before anyone took it: open.
+      db.enrolled = 0;
+      expect(await addPart(SLUG, "concept", "text", null, order())).toMatchObject({ ok: true });
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });
 
@@ -230,9 +264,65 @@ describe("movePart and removePart", () => {
     expect(db.audit[0]).toMatchObject({ action: "part.moved", metadata: { partId: "main", from: 0, to: 1 } });
   });
 
-  it("is allowed on a live course that already has the content", async () => {
+  it("moves content on a live course nobody is taking", async () => {
     db.course!.status = "published";
     expect(await movePart(SLUG, "concept", T1, -1, order())).toMatchObject({ ok: true });
+  });
+
+  it("with learners, asks before a move, and keeps the order from the cut-off (D67)", async () => {
+    db.course!.status = "published";
+    db.enrolled = 2;
+    expect(await movePart(SLUG, "concept", T1, -1, order())).toMatchObject({ error: "needs-confirmation", learners: 2 });
+    expect(await movePart(SLUG, "concept", T1, -1, order(), true)).toMatchObject({ ok: true });
+    expect(db.audit[0]).toMatchObject({ action: "part.moved", metadata: { learners: 2, confirmed: true } });
+    vi.stubEnv("RESTRUCTURE_CLOSED_FROM", "2020-01-01T00:00:00Z");
+    try {
+      expect(await movePart(SLUG, "concept", T1, 1, order(), true)).toMatchObject({ error: "restructure-closed" });
+      expect(items().map((i) => i.id)).toEqual([T1, "main"]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("never removes a question learners may have answered while they are there; text, once confirmed", async () => {
+    const live: StoredPart = { id: Q1, type: "quiz", data: { kind: "assessment", questions: [] } as never, draft: null };
+    const draftOnly: StoredPart = {
+      id: "p-quiz0002",
+      type: "quiz",
+      data: null,
+      draft: { kind: "assessment", questions: [] } as never,
+    };
+    concept([MAIN, { id: T1, type: "text", blocks: { en: [para("More")] } }, live, draftOnly]);
+    db.enrolled = 2;
+    // Even confirmed, and on a draft: learners keep what they answered.
+    expect(await removePart(SLUG, "concept", Q1, order(), itemVersion(item(Q1)), true)).toEqual({
+      ok: false,
+      error: "has-learners",
+      count: 2,
+    });
+    expect(items()).toHaveLength(4);
+    // A question nobody could answer yet, and text, go once confirmed.
+    expect(await removePart(SLUG, "concept", "p-quiz0002", order(), itemVersion(item("p-quiz0002")))).toMatchObject({
+      error: "needs-confirmation",
+    });
+    expect(
+      await removePart(SLUG, "concept", "p-quiz0002", order(), itemVersion(item("p-quiz0002")), true)
+    ).toMatchObject({ ok: true });
+    expect(await removePart(SLUG, "concept", T1, order(), itemVersion(item(T1)))).toEqual({
+      ok: false,
+      error: "needs-confirmation",
+      learners: 2,
+      finished: 0,
+    });
+    expect(await removePart(SLUG, "concept", T1, order(), itemVersion(item(T1)), true)).toMatchObject({ ok: true });
+    expect(items().map((i) => i.id)).toEqual(["main", Q1]);
+    expect(db.audit.map((a) => a.metadata)).toEqual([
+      { partId: "p-quiz0002", type: "quiz", learners: 2, confirmed: true },
+      { partId: T1, type: "text", learners: 2, confirmed: true },
+    ]);
+    // Nobody left: the question can go.
+    db.enrolled = 0;
+    expect(await removePart(SLUG, "concept", Q1, order(), itemVersion(item(Q1)))).toMatchObject({ ok: true });
   });
 
   it("removes content, and a lesson left with its main content is standard again", async () => {

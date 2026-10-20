@@ -301,18 +301,26 @@ describe("setCourseStatus on a created course without a badge", () => {
 });
 
 /*
- * Release 1's publish guard (G1, D57): a created course whose lesson list
- * learners couldn't get as built — a lesson of its own, a hidden or deleted
- * standard lesson, a new order, extra content — isn't published. Checked
- * under the Course row lock, before anything is written; refused with the
- * reasons, and audited.
+ * Publishing a created course (Release 2, D66, spec 4.8): Release 1's guard
+ * (G1, D57) is lifted, so a course with lessons of its own, hidden or
+ * deleted standard lessons, a new order or extra content publishes. Only a
+ * lesson list (or a listed lesson's content) that can't be read, or a
+ * course with no lesson learners would see, is refused — checked under the
+ * Course row lock before anything is written, with the reasons, and
+ * audited. The kill switches put Release 1's guard back (spec 3.4).
  */
 describe("setCourseStatus: the publish guard", () => {
-  afterEach(() => vi.clearAllMocks());
+  afterEach(() => {
+    vi.clearAllMocks();
+    vi.unstubAllEnvs();
+  });
 
   const META = { en: { title: "Speaking up", tagline: "Say it", clusterLabel: "Communication" } };
+  const TEXT = { en: { title: "T", blocks: [{ kind: "paragraph", text: "x" }] } };
+  const OWN = { id: "s-abcdefgh", template: "text" };
+  const NARRATIVE = ["context", "concept", "behaviour", "reflection"];
 
-  function createdCourse(outline: unknown, lessons: unknown[] = [], meta: unknown = META) {
+  function createdCourse(outline: unknown, lessons: unknown[] = [], meta: unknown = META, badgeId: string | null = "badge-1") {
     signedInEditor();
     listCourses.mockResolvedValue([
       { slug: "speaking-up", cluster: "communicationEi", durationMinutes: 15, status: "draft" },
@@ -325,7 +333,7 @@ describe("setCourseStatus: the publish guard", () => {
       slug: "speaking-up",
       meta,
       outline,
-      badgeId: "badge-1",
+      badgeId,
     });
     prisma.course.update.mockResolvedValue({});
     prisma.lesson.findMany.mockResolvedValue(lessons);
@@ -334,41 +342,44 @@ describe("setCourseStatus: the publish guard", () => {
   const lockSql = () =>
     prisma.$queryRaw.mock.calls.map((c) => (c[0] as TemplateStringsArray).join("?"));
 
-  it("refuses a course with a lesson of its own: nothing written, no badge, audited", async () => {
-    createdCourse({
-      v: 1,
-      sections: ["context", "concept", "behaviour", "reflection"]
-        .map((id) => ({ id, template: id }))
-        .concat([{ id: "s-abcdefgh", template: "text" }]),
-    });
-    prisma.course.findUnique.mockResolvedValueOnce({
-      id: "course-1",
-      projectId: "seq-elevate",
-      slug: "speaking-up",
-      meta: META,
-      outline: {
+  it("publishes a course with a lesson of its own, a hidden one, a new order and extra content (D66)", async () => {
+    createdCourse(
+      {
         v: 1,
-        sections: [{ id: "s-abcdefgh", template: "text" }],
+        sections: [
+          { id: "context", template: "context", hidden: true },
+          { id: "concept", template: "concept" },
+          { id: "reflection", template: "reflection" },
+          { id: "behaviour", template: "behaviour" },
+          { ...OWN, label: { en: "Wrap-up" } },
+        ],
       },
-      badgeId: null,
-    });
+      [
+        { stageKey: "s-abcdefgh", narrative: TEXT, documents: [] },
+        {
+          stageKey: "concept",
+          narrative: TEXT,
+          parts: { v: 1, items: [{ id: "main", type: "main" }, { id: "p-12345678", type: "text", blocks: { en: [] } }] },
+          documents: [],
+        },
+      ]
+    );
+    expect(await setCourseStatus("speaking-up", "published")).toEqual({ ok: true, status: "published" });
+    expect(prisma.course.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: "published" }) })
+    );
+    expect(prisma.auditLog.create.mock.calls.map((c) => c[0].data.action)).toEqual(["course.published"]);
+  });
+
+  it("refuses a list that can't be read: nothing written, no badge, audited", async () => {
+    createdCourse("not a list", [], META, null);
     const res = await setCourseStatus("speaking-up", "published");
-    expect(res).toEqual({
-      ok: false,
-      error: "needs-release-2",
-      reasons: [{ code: "custom-section", sectionId: "s-abcdefgh" }],
-    });
+    expect(res).toEqual({ ok: false, error: "cannot-publish", reasons: [{ code: "unreadable" }] });
     // The lock comes first, then the read of the list and the lessons.
     expect(lockSql()[0]).toBe('SELECT id FROM "Course" WHERE "id" = ? FOR UPDATE');
     expect(prisma.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
       prisma.lesson.findMany.mock.invocationCallOrder[0]
     );
-    expect(prisma.lesson.findMany.mock.calls[0]).toEqual([
-      {
-        where: { projectId: "seq-elevate", courseSlug: "speaking-up" },
-        select: { stageKey: true, narrative: true, structure: true, structureDraft: true, parts: true },
-      },
-    ]);
     expect(prisma.course.update).not.toHaveBeenCalled();
     expect(prisma.badge.create).not.toHaveBeenCalled();
     expect(prisma.auditLog.create).toHaveBeenCalledTimes(1);
@@ -376,25 +387,39 @@ describe("setCourseStatus: the publish guard", () => {
       action: "course.publish_refused",
       entity: "Course",
       entityId: "speaking-up",
-      metadata: { reasons: [{ code: "custom-section", sectionId: "s-abcdefgh" }] },
+      metadata: { error: "cannot-publish", reasons: [{ code: "unreadable" }] },
     });
   });
 
-  it("refuses extra content and a list that can't be read", async () => {
-    createdCourse(null, [
-      {
-        stageKey: "concept",
-        parts: { v: 1, items: [{ id: "main", type: "main" }, { id: "p-12345678", type: "text", blocks: {} }] },
-      },
-    ]);
-    expect(await setCourseStatus("speaking-up", "published")).toMatchObject({
-      error: "needs-release-2",
-      reasons: [{ code: "extra-parts", sectionId: "concept" }],
+  it("refuses a listed lesson whose content can't be read, naming it", async () => {
+    createdCourse(null, [{ stageKey: "concept", narrative: TEXT, parts: "garbage", documents: [] }]);
+    expect(await setCourseStatus("speaking-up", "published")).toEqual({
+      ok: false,
+      error: "cannot-publish",
+      reasons: [{ code: "unreadable", sectionId: "concept" }],
     });
-    createdCourse("not a list");
-    expect(await setCourseStatus("speaking-up", "published")).toMatchObject({
-      error: "needs-release-2",
-      reasons: [{ code: "unreadable" }],
+    expect(prisma.course.update).not.toHaveBeenCalled();
+  });
+
+  it("refuses a course with no lesson learners would see, which would hand out its badge for nothing", async () => {
+    // Every standard text lesson deleted, and a lesson of its own with nothing in it.
+    createdCourse({ v: 1, sections: [OWN], removed: NARRATIVE });
+    expect(await setCourseStatus("speaking-up", "published")).toEqual({
+      ok: false,
+      error: "cannot-publish",
+      reasons: [{ code: "no-lessons" }],
+    });
+    // Hidden lessons don't count either.
+    createdCourse({ v: 1, sections: NARRATIVE.map((id) => ({ id, template: id, hidden: true })) });
+    expect(await setCourseStatus("speaking-up", "published")).toMatchObject({ reasons: [{ code: "no-lessons" }] });
+    // A video alone is something to see.
+    createdCourse({ v: 1, sections: [OWN], removed: NARRATIVE }, [
+      { stageKey: "s-abcdefgh", video: { provider: "file", src: "https://blob.example/v.mp4" }, documents: [] },
+    ]);
+    expect(await setCourseStatus("speaking-up", "published")).toEqual({ ok: true, status: "published" });
+    expect((prisma.lesson.findMany.mock.calls as unknown[][])[0][0]).toMatchObject({
+      where: { projectId: "seq-elevate", courseSlug: "speaking-up" },
+      select: { stageKey: true, parts: true, video: true, documents: { where: { published: true } } },
     });
   });
 
@@ -403,24 +428,39 @@ describe("setCourseStatus: the publish guard", () => {
     expect(await setCourseStatus("speaking-up", "published")).toEqual({ ok: true, status: "published" });
     createdCourse({
       v: 1,
-      sections: ["context", "concept", "behaviour", "reflection"].map((id) => ({
-        id,
-        template: id,
-        label: { en: `My ${id}`, de: `Mein ${id}` },
-      })),
+      sections: NARRATIVE.map((id) => ({ id, template: id, label: { en: `My ${id}`, de: `Mein ${id}` } })),
     });
     expect(await setCourseStatus("speaking-up", "published")).toEqual({ ok: true, status: "published" });
-    expect(prisma.course.update).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ status: "published" }) })
-    );
+  });
+
+  it.each([
+    ["R2_PUBLISH_GUARD", "on"],
+    ["R2_LEARNER_PLAYER", "off"],
+  ])("with %s=%s, refuses what Release 1 refused, audited as then", async (name, value) => {
+    vi.stubEnv(name, value);
+    createdCourse({ v: 1, sections: [...NARRATIVE.map((id) => ({ id, template: id })), OWN] }, [
+      { stageKey: "s-abcdefgh", narrative: TEXT, documents: [] },
+    ]);
+    expect(await setCourseStatus("speaking-up", "published")).toEqual({
+      ok: false,
+      error: "needs-release-2",
+      reasons: [{ code: "custom-section", sectionId: "s-abcdefgh" }],
+    });
+    expect(prisma.auditLog.create.mock.calls[0][0].data).toMatchObject({
+      action: "course.publish_refused",
+      metadata: { reasons: [{ code: "custom-section", sectionId: "s-abcdefgh" }] },
+    });
+    // A standard course still publishes.
+    createdCourse(null);
+    expect(await setCourseStatus("speaking-up", "published")).toEqual({ ok: true, status: "published" });
   });
 
   it("never checks a move to draft or archive, or a built-in course", async () => {
-    createdCourse({ v: 1, sections: [{ id: "s-abcdefgh", template: "text" }] });
+    createdCourse({ v: 1, sections: [OWN], removed: NARRATIVE });
     expect(await setCourseStatus("speaking-up", "draft")).toEqual({ ok: true, status: "draft" });
     expect(await setCourseStatus("speaking-up", "archived")).toEqual({ ok: true, status: "archived" });
     expect(prisma.lesson.findMany).not.toHaveBeenCalled();
-    createdCourse({ v: 1, sections: [{ id: "s-abcdefgh", template: "text" }] }, [], null);
+    createdCourse({ v: 1, sections: [OWN], removed: NARRATIVE }, [], null);
     expect(await setCourseStatus("speaking-up", "published")).toEqual({ ok: true, status: "published" });
     expect(prisma.lesson.findMany).not.toHaveBeenCalled();
   });

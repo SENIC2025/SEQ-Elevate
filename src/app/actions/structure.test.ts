@@ -422,13 +422,20 @@ describe("a lesson of the course's own", () => {
     expect(db.lesson).toBeNull();
   });
 
-  it("removes its exercise with learners enrolled: learners don't get it before Release 2", async () => {
+  it("keeps its exercise while learners are enrolled: learners get own lessons from Release 2 (D66)", async () => {
     db.lesson = { structure: complete, structureDraft: null };
     db.courseStatus = "draft";
     db.enrolled = 3;
     expect(await clearStructure(SLUG, OWN as never, { structure: complete, draft: null })).toEqual({
-      ok: true,
+      ok: false,
+      error: "has-learners",
+      count: 3,
     });
+    expect(db.lesson).toEqual({ structure: complete, structureDraft: null });
+    expect(db.locks[0]).toBe(COURSE_UPDATE);
+    // With nobody enrolled it goes, as a standard exercise does.
+    db.enrolled = 0;
+    expect(await clearStructure(SLUG, OWN as never, { structure: complete, draft: null })).toEqual({ ok: true });
     expect(db.lesson).toEqual({ structure: null, structureDraft: null });
   });
 
@@ -439,9 +446,10 @@ describe("a lesson of the course's own", () => {
 });
 
 /*
- * G5: "Remove stage" takes away an exercise learners have now. With learners
- * enrolled it is refused, whatever the course's status, as deleteSection is
- * (G4): otherwise unpublishing, removing and publishing again would take the
+ * G5, and spec 7.2's "Remove stage" row: it takes away an exercise learners
+ * have now. With learners enrolled it is refused, whatever the course's
+ * status and whatever the lesson (own lessons included, Release 2):
+ * otherwise unpublishing, removing and publishing again would take the
  * exercise from them in three steps. The Course row is locked FOR UPDATE
  * first, which an enrolment's foreign-key check (FOR KEY SHARE) waits for
  * (addendum 7).

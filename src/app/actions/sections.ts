@@ -1,12 +1,12 @@
 "use server";
 
 /**
- * Release 1: the lesson list of a course created here (D56, spec 8.1) —
- * add, move, hide, rename and delete lessons. Each writes Course.outline
- * (and, for a delete or a new "Reflection & self-assessment" lesson, the
- * lesson's row) under the Course lock, refuses on a published course what
- * learners couldn't get yet (G3), and returns the whole course outline so
- * the page shows exactly what was stored.
+ * The lesson list of a course created here (D56, spec 8.1) — add, move,
+ * hide, rename and delete lessons. Each writes Course.outline (and, for a
+ * delete or a new "Reflection & self-assessment" lesson, the lesson's row)
+ * under the Course lock, follows the rules for a course people are taking
+ * (Release 2, D66 and D67: live-rules.ts), and returns the whole course
+ * outline so the page shows exactly what was stored.
  *
  * Every action, in this order (spec 8):
  *   1. editors only;
@@ -15,10 +15,17 @@
  *      course created here), its lessons read, the list resolved and
  *      readable (G8); the lesson must be in the list; any lesson row locked
  *      after the Course; the base compared (a stale page gets
- *      changed-elsewhere and the list as it is now, D39); the published
- *      course's rule (G3) and, for a delete, the learners (G4); then the
- *      write — always the list as the rules rebuilt it, never client JSON;
- *   4. audited after the commit (structure.ts's shape).
+ *      changed-elsewhere and the list as it is now, D39); the rules for a
+ *      course with learners (guardStructure: a confirmation, the delete
+ *      rules, last-lesson, the 1 December cut-off); then the write —
+ *      always the list as the rules rebuilt it, never client JSON;
+ *   4. audited after the commit (structure.ts's shape), with the learners
+ *      and `confirmed: true` when the editor confirmed the change.
+ *
+ * Add, move, hide and delete take a trailing `confirm`: the page sends it
+ * once the editor has seen how many learners the change touches
+ * (LiveChangeConfirm). A page from before Release 2 never sends it, so on a
+ * course with learners it is asked first (needs-confirmation).
  *
  * The rules are the pure modules in src/lib/cms/sections, the same the page
  * predicts with, so what the page offers and what the server does agree.
@@ -29,7 +36,6 @@ import { getCurrentUser, getProjectMemberships, hasRole } from "@/lib/auth-helpe
 import { canEditContent } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
 import { getCourseOutline } from "@/lib/cms/course-admin";
-import { presentStageKeys } from "@/lib/cms/course-derive";
 import { isContentLocale } from "@/lib/cms/course-admin-types";
 import type { CourseOutline } from "@/lib/cms/course-admin-types";
 import { ChangedElsewhere } from "@/lib/cms/stored-json";
@@ -45,12 +51,11 @@ import {
   type OutlineResult,
   type PlainSectionsError,
   type ResolvedOutline,
-  type SectionFacts,
   type SectionId,
   type VersionResult,
 } from "@/lib/cms/sections/contract";
 import { PART_DEFAULTS } from "@/lib/cms/sections/defaults";
-import { newOnlyReasons } from "@/lib/cms/sections/guard";
+import { outlineLiveOp } from "@/lib/cms/sections/live-rules";
 import {
   applyOutlineOp,
   labelVersion,
@@ -65,18 +70,19 @@ import {
   Refusal,
   SLUG,
   auditCourse,
+  confirmedAudit,
+  guardStructure,
   isVersion,
-  learnerCount,
   loadLessonFacts,
   lockCourse,
   lockLessonRow,
   newPartId,
   newSectionId,
-  guardLive,
   member,
   openCourse,
   settle,
   type CourseState,
+  type Guarded,
   type Settled,
 } from "@/lib/cms/sections/store.server";
 import type { Locale } from "@/lib/cms/types";
@@ -90,6 +96,9 @@ async function requireEditor() {
 
 const refuse = (error: PlainSectionsError) =>
   ({ ok: false, error }) as const;
+
+/** The trailing `confirm`: true, false, or left out (a page from before Release 2). */
+const isConfirm = (v: unknown): v is boolean | undefined => v === undefined || typeof v === "boolean";
 
 const isChoice = (v: unknown): v is AddSectionChoice =>
   (NEW_SECTION_TEMPLATES as readonly unknown[]).includes(v) ||
@@ -144,12 +153,15 @@ async function outlineResult(
  * before; null = its standard place for a standard lesson, the end for one
  * of the course's own. A "Reflection & self-assessment" lesson starts with
  * the platform's three reflection questions and a self-assessment to finish.
+ * With learners it needs `confirm`, and from the cut-off a published course
+ * with learners takes no new lesson (D67).
  */
 export async function addSection(
   slug: string,
   choice: AddSectionChoice,
   at: number | null,
-  base: string
+  base: string,
+  confirm?: boolean
 ): Promise<OutlineResult> {
   const editor = await requireEditor();
   if (!editor) return refuse("forbidden");
@@ -159,7 +171,8 @@ export async function addSection(
     !isChoice(choice) ||
     !(at === null || (Number.isInteger(at) && at >= 0 && at <= SECTION_LIMITS.maxSections)) ||
     typeof base !== "string" ||
-    !isVersion(base)
+    !isVersion(base) ||
+    !isConfirm(confirm)
   ) {
     return refuse("bad-input");
   }
@@ -189,10 +202,7 @@ export async function addSection(
       };
       const items = section.custom ? prefillParts(choice, partId, PART_DEFAULTS) : null;
       const parts = items ? storedPartsValue(items) : null;
-      const lessonsAfter: SectionFacts[] = parts
-        ? [...state.lessons, { stageKey: r.id, parts }]
-        : state.lessons;
-      guardLive(state, newOnlyReasons("cms", r.outline, lessonsAfter));
+      const guarded = await guardStructure(tx, state, "add-lesson", { confirm });
 
       await writeOutline(tx, state, r.outline);
       if (parts) {
@@ -206,6 +216,7 @@ export async function addSection(
         id: r.id,
         template: section.template,
         reused: isLegacySectionId(r.id) && !choice.startsWith("restore:"),
+        guarded,
       };
     })
   );
@@ -216,6 +227,7 @@ export async function addSection(
     template: added.template,
     choice,
     reused: added.reused,
+    ...confirmedAudit(added.guarded),
   });
   return outlineResult(slug, settled, added.id);
 }
@@ -238,8 +250,9 @@ function badTarget(slug: unknown, id: unknown, base: unknown): boolean {
 async function simpleChange(
   slug: string,
   op: Extract<OutlineOp, { op: "move" | "hide" }>,
-  base: string
-): Promise<Settled<{ from: number; to: number }>> {
+  base: string,
+  confirm: boolean | undefined
+): Promise<Settled<{ from: number; to: number; guarded: Guarded }>> {
   return settle(() =>
     prisma.$transaction(async (tx) => {
       const state = await openCourse(tx, slug, "update");
@@ -247,51 +260,68 @@ async function simpleChange(
       if (outlineVersion(state.outline) !== base) throw new ChangedElsewhere();
       const r = applyOutlineOp(state.outline, op, state.lessons);
       if (!r.ok) throw opRefusal(r.error);
-      guardLive(state, newOnlyReasons("cms", r.outline, state.lessons));
+      const guarded = await guardStructure(tx, state, outlineLiveOp(op)!, { confirm, sectionId: op.id });
       await writeOutline(tx, state, r.outline);
       return {
         from: state.outline.sections.findIndex((s) => s.id === op.id),
         to: r.outline.sections.findIndex((s) => s.id === op.id),
+        guarded,
       };
     })
   );
 }
 
-/** Move a lesson one place up (-1) or down (1). Refused at either end. */
+/**
+ * Move a lesson one place up (-1) or down (1). Refused at either end. With
+ * learners it needs `confirm`; from the cut-off a published course with
+ * learners keeps its order (D67).
+ */
 export async function moveSection(
   slug: string,
   id: SectionId,
   dir: -1 | 1,
-  base: string
+  base: string,
+  confirm?: boolean
 ): Promise<OutlineResult> {
   const editor = await requireEditor();
   if (!editor) return refuse("forbidden");
-  if (badTarget(slug, id, base) || (dir !== -1 && dir !== 1)) return refuse("bad-input");
-  const settled = await simpleChange(slug, { op: "move", id, dir }, base);
+  if (badTarget(slug, id, base) || (dir !== -1 && dir !== 1) || !isConfirm(confirm)) {
+    return refuse("bad-input");
+  }
+  const settled = await simpleChange(slug, { op: "move", id, dir }, base, confirm);
   if (settled.ok) {
     await auditCourse(editor.id, "section.moved", slug, {
       sectionId: id,
       from: settled.value.from,
       to: settled.value.to,
+      ...confirmedAudit(settled.value.guarded),
     });
   }
   return outlineResult(slug, settled, id);
 }
 
-/** Hide a lesson from the course, or show it again. Never on a published course (G3). */
+/**
+ * Hide a lesson from the course, or show it again. With learners it needs
+ * `confirm`, also from the cut-off ("use Hide", D67). A published course
+ * keeps at least one lesson learners see (last-lesson).
+ */
 export async function setSectionHidden(
   slug: string,
   id: SectionId,
   hidden: boolean,
-  base: string
+  base: string,
+  confirm?: boolean
 ): Promise<OutlineResult> {
   const editor = await requireEditor();
   if (!editor) return refuse("forbidden");
-  if (badTarget(slug, id, base) || typeof hidden !== "boolean") return refuse("bad-input");
-  const settled = await simpleChange(slug, { op: "hide", id, hidden }, base);
+  if (badTarget(slug, id, base) || typeof hidden !== "boolean" || !isConfirm(confirm)) {
+    return refuse("bad-input");
+  }
+  const settled = await simpleChange(slug, { op: "hide", id, hidden }, base, confirm);
   if (settled.ok) {
     await auditCourse(editor.id, hidden ? "section.hidden" : "section.shown", slug, {
       sectionId: id,
+      ...confirmedAudit(settled.value.guarded),
     });
   }
   return outlineResult(slug, settled, id);
@@ -300,9 +330,9 @@ export async function setSectionHidden(
 /**
  * Name a lesson in one language (D58): at most 40 characters, refused
  * rather than cut; blank removes the name. Its base is that one name, so a
- * colleague's move or another language's rename never refuses it. Allowed
- * on a published course: learners see the standard names until Release 2.
- * Returns the name's new base.
+ * colleague's move or another language's rename never refuses it. Never
+ * guarded: a course with learners, published or past the cut-off, can
+ * always be renamed. Returns the name's new base.
  */
 export async function renameSection(
   slug: string,
@@ -331,7 +361,6 @@ export async function renameSection(
       if (labelVersion(state.outline, id, locale) !== base) throw new ChangedElsewhere();
       const r = applyOutlineOp(state.outline, { op: "rename", id, locale, label }, state.lessons);
       if (!r.ok) throw opRefusal(r.error);
-      guardLive(state, newOnlyReasons("cms", r.outline, state.lessons));
       await writeOutline(tx, state, r.outline);
       return labelVersion(r.outline, id, locale);
     })
@@ -356,17 +385,18 @@ export async function renameSection(
  * video and documents (LessonDocument rows cascade). Uploaded files are kept,
  * as removeLessonDocument keeps them; their addresses go in the audit row.
  *
- * Refused while any learner is enrolled (G4), counted again under the
- * Course lock — for a lesson learners get now (presentStageKeys: the text
- * lessons, and exercise lessons with an exercise saved for them). A lesson
- * of the course's own, or an exercise lesson with nothing saved for
- * learners, is nobody's yet: it can always go, so a course reworked while
- * it has learners can be put back as they had it. Also refused when the
- * lesson's content changed since the page opened
- * (`contentBase`, sectionContentVersion): nobody deletes what they haven't
- * seen. An enrolment is created without the Course lock (learner.ts), but
- * its foreign-key check takes the row FOR KEY SHARE, which this FOR UPDATE
- * waits for — so a first enrolment and a delete are serialised.
+ * The delete rules of spec 7.2 (D66), with the learners counted under the
+ * Course lock: refused (has-learners) on a published course with learners,
+ * whatever the lesson — Hide is what the page offers instead; on a course
+ * that isn't published, refused only while some learner has any trace of
+ * this lesson (learnersWithData), so a course reworked while it has
+ * learners can lose what nobody has; and a published course keeps at least
+ * one lesson learners see (last-lesson). Never needs a confirmation: the
+ * page's own "Delete … in all languages?" is it. Also refused when the
+ * lesson's content changed since the page opened (`contentBase`,
+ * sectionContentVersion): nobody deletes what they haven't seen. Learner
+ * saves take the Course row FOR KEY SHARE (learner.ts), which this FOR
+ * UPDATE waits for — so a first enrolment and a delete are serialised.
  */
 export async function deleteSection(
   slug: string,
@@ -417,15 +447,9 @@ export async function deleteSection(
       );
       if (version !== contentBase) throw new ChangedElsewhere();
 
-      if ((presentStageKeys("cms", state.lessons) as string[]).includes(id)) {
-        const count = await learnerCount(tx, state.course.id);
-        if (count > 0) throw new Refusal({ ok: false, error: "has-learners", count });
-      }
-
       const r = applyOutlineOp(state.outline, { op: "delete", id }, state.lessons);
       if (!r.ok) throw opRefusal(r.error);
-      const rest = state.lessons.filter((l) => l.stageKey !== id);
-      guardLive(state, newOnlyReasons("cms", r.outline, rest));
+      await guardStructure(tx, state, "delete-lesson", { sectionId: id });
 
       await writeOutline(tx, state, r.outline);
       await tx.lesson.deleteMany({ where: { projectId: PROJECT, courseSlug: slug, stageKey: id } });

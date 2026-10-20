@@ -6,9 +6,11 @@ import type { SectionFacts, SectionId } from "@/lib/cms/sections/contract";
 
 /*
  * The lesson-list actions (spec 8.1) against an in-memory course: every
- * refusal, the lock order, the bases, the live-course rule (G3), the
- * learner rule for deleting (G4), and the audit rows. Each structural change
- * returns the whole course outline as the loader builds it after the commit.
+ * refusal, the lock order, the bases, the rules for a course people are
+ * taking (Release 2, D66 and D67, spec 7.2: confirmation, the delete rules,
+ * last-lesson, the 1 December cut-off), and the audit rows. Each structural
+ * change returns the whole course outline as the loader builds it after the
+ * commit.
  */
 
 vi.mock("server-only", () => ({}));
@@ -220,6 +222,8 @@ describe("addSection", () => {
     expect(items[2]).toMatchObject({ data: null, draft: { kind: "rating", statements: [] } });
     expect(db.log).toEqual([
       "lock Course update",
+      // The learners, counted under the Course lock (none: nothing to ask).
+      "count learners",
       `upsert Lesson:${id}`,
       `lock Lesson:${id} update`,
       `write Lesson:${id}`,
@@ -247,27 +251,54 @@ describe("addSection", () => {
     expect(await addSection(SLUG, "text", null, base())).toEqual({ ok: false, error: "too-many-sections" });
   });
 
-  it("on a live course, adds only what learners already get (G3)", async () => {
+  it("adds any lesson to a live course nobody is taking yet (Release 1 refused it, D57)", async () => {
     db.course!.status = "published";
-    expect(await addSection(SLUG, "text", null, base())).toEqual({
-      ok: false,
-      error: "live-course-standard-only",
-      reasons: [{ code: "custom-section", sectionId: expect.stringMatching(/^s-/) }],
-    });
-    expect(await addSection(SLUG, "reflectionRating", null, base())).toMatchObject({
-      error: "live-course-standard-only",
-    });
-    expect(db.lessons).toEqual([]);
+    expect(await addSection(SLUG, "text", null, base())).toMatchObject({ ok: true, id: expect.stringMatching(/^s-/) });
+    expect(await addSection(SLUG, "practice", 0, base())).toMatchObject({ ok: true, id: "simulation" });
+    expect(storedIds()?.[0]).toBe("simulation");
+    expect(db.audit.map((a) => a.metadata)).not.toContainEqual(expect.objectContaining({ confirmed: true }));
+  });
+
+  it("asks first on a course with learners, counted under the course lock, and audits the confirmation", async () => {
+    db.enrolled = 3;
+    db.finished = 1;
+    const refused = await addSection(SLUG, "text", null, base());
+    expect(refused).toEqual({ ok: false, error: "needs-confirmation", learners: 3, finished: 1 });
     expect(db.course?.outline).toBeNull();
-    // A free quick check in its standard place is what "Add a quick check" did.
-    expect(await addSection(SLUG, "quiz", null, base())).toMatchObject({ ok: true, id: "assessment" });
-    // ... but not out of place.
-    db.course!.outline = null;
-    expect(await addSection(SLUG, "practice", 0, base())).toEqual({
-      ok: false,
-      error: "live-course-standard-only",
-      reasons: [{ code: "reordered" }],
+    expect(db.log.indexOf("count learners")).toBeGreaterThan(db.log.indexOf("lock Course update"));
+    // A page from before Release 2 sends no `confirm` and gets the same answer.
+    expect(await addSection(SLUG, "text", null, base(), false)).toMatchObject({ error: "needs-confirmation" });
+
+    const res = await addSection(SLUG, "text", null, base(), true);
+    expect(res).toMatchObject({ ok: true });
+    expect(db.audit).toHaveLength(1);
+    expect(db.audit[0]).toMatchObject({
+      action: "section.added",
+      metadata: { template: "text", choice: "text", learners: 3, confirmed: true },
     });
+  });
+
+  it("is refused from the cut-off on a published course with learners, confirmed or not (D67)", async () => {
+    vi.stubEnv("RESTRUCTURE_CLOSED_FROM", "2020-01-01T00:00:00Z");
+    try {
+      db.course!.status = "published";
+      db.enrolled = 1;
+      const closed = { ok: false, error: "restructure-closed", from: "2020-01-01T00:00:00.000Z" };
+      expect(await addSection(SLUG, "text", null, base(), true)).toEqual(closed);
+      expect(db.course?.outline).toBeNull();
+      // A draft, or a course nobody is taking, is never closed.
+      db.course!.status = "draft";
+      expect(await addSection(SLUG, "text", null, base(), true)).toMatchObject({ ok: true });
+      db.course!.status = "published";
+      db.enrolled = 0;
+      expect(await addSection(SLUG, "quiz", null, base())).toMatchObject({ ok: true });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("refuses a confirmation that isn't true or false", async () => {
+    expect(await addSection(SLUG, "text", null, base(), "yes" as never)).toEqual({ ok: false, error: "bad-input" });
   });
 });
 
@@ -284,17 +315,43 @@ describe("moveSection", () => {
     });
   });
 
-  it("is refused on a live course, unless it puts the standard order back", async () => {
+  it("moves a lesson of a live course nobody is taking yet (Release 1 refused it, D57)", async () => {
     db.course!.status = "published";
+    expect(await moveSection(SLUG, "concept", -1, base())).toMatchObject({ ok: true });
+    expect(storedIds()).toEqual(["concept", "context", "behaviour", "reflection"]);
+  });
+
+  it("asks first with learners, then moves it and audits the confirmation", async () => {
+    db.course!.status = "published";
+    db.enrolled = 2;
     expect(await moveSection(SLUG, "concept", -1, base())).toEqual({
       ok: false,
-      error: "live-course-standard-only",
-      reasons: [{ code: "reordered" }],
+      error: "needs-confirmation",
+      learners: 2,
+      finished: 0,
     });
-    // Published past the guard (an old page): moving back is allowed.
-    db.course!.outline = { v: 1, sections: ["concept", "context", "behaviour", "reflection"].map((id) => ({ id, template: id })) };
-    expect(await moveSection(SLUG, "context", -1, base())).toMatchObject({ ok: true });
-    expect(storedIds()).toEqual(STANDARD);
+    expect(db.course?.outline).toBeNull();
+    expect(await moveSection(SLUG, "concept", -1, base(), true)).toMatchObject({ ok: true });
+    expect(db.audit[0]).toMatchObject({
+      action: "section.moved",
+      metadata: { sectionId: "concept", from: 1, to: 0, learners: 2, confirmed: true },
+    });
+  });
+
+  it("is refused from the cut-off on a published course with learners (D67)", async () => {
+    vi.stubEnv("RESTRUCTURE_CLOSED_FROM", "2020-01-01T00:00:00Z");
+    try {
+      db.course!.status = "published";
+      db.enrolled = 2;
+      expect(await moveSection(SLUG, "concept", -1, base(), true)).toEqual({
+        ok: false,
+        error: "restructure-closed",
+        from: "2020-01-01T00:00:00.000Z",
+      });
+      expect(db.course?.outline).toBeNull();
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });
 
@@ -317,13 +374,53 @@ describe("setSectionHidden", () => {
     ]);
   });
 
-  it("never hides a lesson of a live course", async () => {
+  it("hides a lesson of a live course nobody is taking yet (Release 1 refused it, D57)", async () => {
     db.course!.status = "published";
-    expect(await setSectionHidden(SLUG, "behaviour", true, base())).toEqual({
-      ok: false,
-      error: "live-course-standard-only",
-      reasons: [{ code: "hidden-section", sectionId: "behaviour" }],
-    });
+    expect(await setSectionHidden(SLUG, "behaviour", true, base())).toMatchObject({ ok: true });
+  });
+
+  it("asks first with learners, and still hides and shows from the cut-off: \"use Hide\" (D67)", async () => {
+    vi.stubEnv("RESTRUCTURE_CLOSED_FROM", "2020-01-01T00:00:00Z");
+    try {
+      db.course!.status = "published";
+      db.enrolled = 4;
+      db.finished = 4;
+      expect(await setSectionHidden(SLUG, "behaviour", true, base())).toEqual({
+        ok: false,
+        error: "needs-confirmation",
+        learners: 4,
+        finished: 4,
+      });
+      expect(await setSectionHidden(SLUG, "behaviour", true, base(), true)).toMatchObject({ ok: true });
+      expect(await setSectionHidden(SLUG, "behaviour", false, base(), true)).toMatchObject({ ok: true });
+      expect(db.audit.map((a) => [a.action, a.metadata])).toEqual([
+        ["section.hidden", { sectionId: "behaviour", learners: 4, confirmed: true }],
+        ["section.shown", { sectionId: "behaviour", learners: 4, confirmed: true }],
+      ]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("never hides the last lesson learners see on a published course (last-lesson)", async () => {
+    db.course!.status = "published";
+    db.lessons = [row("context", { narrative: { en: { title: "C", blocks: [{ kind: "paragraph", text: "x" }] } } })];
+    db.course!.outline = {
+      v: 1,
+      sections: [
+        { id: "context", template: "context" },
+        { id: "concept", template: "concept", hidden: true },
+        { id: "behaviour", template: "behaviour", hidden: true },
+        { id: "reflection", template: "reflection", hidden: true },
+        // A lesson of its own with nothing in it: learners don't get it.
+        { id: "s-empty000", template: "text" },
+      ],
+    };
+    expect(await setSectionHidden(SLUG, "context", true, base(), true)).toEqual({ ok: false, error: "last-lesson" });
+    expect(await setSectionHidden(SLUG, "s-empty000", true, base())).toMatchObject({ ok: true });
+    // A draft may be emptied while it is being built.
+    db.course!.status = "draft";
+    expect(await setSectionHidden(SLUG, "context", true, base())).toMatchObject({ ok: true });
   });
 });
 
@@ -370,9 +467,16 @@ describe("renameSection", () => {
     ).toMatchObject({ ok: true });
   });
 
-  it("is allowed on a live course: learners see the name from Release 2", async () => {
-    db.course!.status = "published";
-    expect(await renameSection(SLUG, "context", "en", "Start here", null)).toMatchObject({ ok: true });
+  it("is allowed on a live course with learners, never asking (D58)", async () => {
+    vi.stubEnv("RESTRUCTURE_CLOSED_FROM", "2020-01-01T00:00:00Z");
+    try {
+      db.course!.status = "published";
+      db.enrolled = 5;
+      expect(await renameSection(SLUG, "context", "en", "Start here", null)).toMatchObject({ ok: true });
+      expect(db.log).not.toContain("count learners");
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });
 
@@ -404,27 +508,44 @@ describe("deleteSection", () => {
     });
   });
 
-  it("refuses while learners are enrolled, counting them under the course lock (G4)", async () => {
+  it("refuses any lesson of a published course with learners, own lessons included (D66)", async () => {
+    db.course!.status = "published";
     db.enrolled = 2;
-    const res = await deleteSection(SLUG, "context", base(), null);
+    const added = await addSection(SLUG, "text", null, base(), true);
+    const id = (added.ok ? added.id : "") as SectionId;
+    db.log = [];
+    const res = await deleteSection(SLUG, id, base(), null);
     expect(res).toEqual({ ok: false, error: "has-learners", count: 2 });
     expect(db.log.indexOf("count learners")).toBeGreaterThan(db.log.indexOf("lock Course update"));
-    expect(db.course?.outline).toBeNull();
+    expect(await deleteSection(SLUG, "context", base(), null)).toMatchObject({ error: "has-learners" });
+    expect(storedIds()).toContain(id);
   });
 
-  it("deletes a lesson learners don't get, even with learners enrolled", async () => {
-    // A course unpublished to rework it, with learners: a lesson of its own
-    // (learners never get one in Release 1) must stay removable, or the
-    // course could never be published again.
+  it("on an unpublished course with learners, deletes only a lesson nobody has anything in", async () => {
+    // A course unpublished to rework it: learners keep what they did.
     db.enrolled = 2;
-    const added = await addSection(SLUG, "text", null, base());
-    const id = added.ok ? added.id : "";
-    expect(await deleteSection(SLUG, id as SectionId, base(), null)).toMatchObject({ ok: true });
-    expect(storedIds()).toEqual(STANDARD);
-    // An exercise lesson with nothing saved for learners: they don't have it either.
-    const practice = await addSection(SLUG, "practice", null, base());
-    expect(practice).toMatchObject({ ok: true, id: "simulation" });
-    expect(await deleteSection(SLUG, "simulation", base(), null)).toMatchObject({ ok: true });
+    const added = await addSection(SLUG, "text", null, base(), true);
+    const id = (added.ok ? added.id : "") as SectionId;
+    db.withData = { [id]: 1, concept: 0 };
+    db.log = [];
+    expect(await deleteSection(SLUG, id, base(), null)).toEqual({ ok: false, error: "has-learners", count: 1 });
+    expect(db.log.indexOf(`count learners with data in ${id}`)).toBeGreaterThan(db.log.indexOf("lock Course update"));
+    expect(storedIds()).toContain(id);
+    // Nobody has anything in the skill concept: it goes, without asking.
+    expect(await deleteSection(SLUG, "concept", base(), null)).toMatchObject({ ok: true });
+    expect(storedIds()).not.toContain("concept");
+  });
+
+  it("deletes from a live course nobody is taking, but not its last lesson learners see", async () => {
+    db.course!.status = "published";
+    db.lessons = [row("scenario", { structure: SCENARIO })];
+    expect(await deleteSection(SLUG, "concept", base(), null)).toMatchObject({ ok: true });
+    expect(await deleteSection(SLUG, "scenario", base(), contentBase("scenario"))).toMatchObject({ ok: true });
+    // Context, behaviour model and reflection are left; hide two, then the last can't go.
+    await setSectionHidden(SLUG, "behaviour", true, base());
+    await setSectionHidden(SLUG, "reflection", true, base());
+    expect(await deleteSection(SLUG, "context", base(), null)).toEqual({ ok: false, error: "last-lesson" });
+    expect(storedIds()).toContain("context");
   });
 
   it("locks the lesson's row even when it has none, so a first save waits for the delete", async () => {
@@ -437,8 +558,9 @@ describe("deleteSection", () => {
     expect(db.lessons).toEqual([]);
   });
 
-  it("still refuses a lesson learners have while they are enrolled", async () => {
+  it("still refuses a lesson a learner has done, on a draft", async () => {
     db.enrolled = 1;
+    db.withData = { scenario: 1 };
     db.lessons = [row("scenario", { structure: SCENARIO })];
     expect(await deleteSection(SLUG, "scenario", base(), contentBase("scenario"))).toEqual({
       ok: false,
@@ -459,19 +581,6 @@ describe("deleteSection", () => {
     expect(db.lessons).toHaveLength(1);
   });
 
-  it("on a live course, deletes a practice lesson but not a standard text lesson", async () => {
-    db.course!.status = "published";
-    db.lessons = [row("scenario", { structure: SCENARIO })];
-    expect(await deleteSection(SLUG, "concept", base(), null)).toEqual({
-      ok: false,
-      error: "live-course-standard-only",
-      reasons: [{ code: "removed-section", sectionId: "concept" }],
-    });
-    expect(await deleteSection(SLUG, "scenario", base(), contentBase("scenario"))).toMatchObject({
-      ok: true,
-    });
-    expect(db.lessons).toEqual([]);
-  });
 });
 
 describe("repairOutline", () => {

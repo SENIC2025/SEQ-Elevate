@@ -19,8 +19,9 @@
  * course's lesson list and only with its own kind (mainKindOf), checked
  * again under the Course row's FOR SHARE before the write. The standard
  * lessons' path is unchanged and never asks for the Course lock — except
- * "Remove stage", which on a published course with learners is refused
- * (G5), with the Course row locked FOR UPDATE first.
+ * "Remove stage", which with learners enrolled is refused (G5; spec 7.2,
+ * own lessons included from Release 2), with the Course row locked FOR
+ * UPDATE first.
  */
 
 import { Prisma } from "@prisma/client";
@@ -39,6 +40,7 @@ import {
   mainKindOf,
   type CustomSectionId,
 } from "@/lib/cms/sections/contract";
+import { liveRule } from "@/lib/cms/sections/live-rules";
 import { resolveOutline } from "@/lib/cms/sections/outline";
 import {
   Refusal,
@@ -212,10 +214,10 @@ type WriteRefused =
  * A lesson of the course's own (`kind` given) is checked again under the
  * Course row's FOR SHARE, taken before the Lesson row: it must still be in
  * the lesson list with that kind (G6). Removing a stage (`guardLearners`)
- * locks the Course row FOR UPDATE first — an enrolment's foreign-key check
- * takes FOR KEY SHARE, which FOR SHARE wouldn't hold off — and is refused
- * while learners are enrolled and have the stage, whatever the course's
- * status (G5).
+ * locks the Course row FOR UPDATE first — learner saves take FOR KEY SHARE,
+ * which FOR SHARE wouldn't hold off — and is refused while learners are
+ * enrolled and the stage is one they get, whatever the course's status
+ * and whatever the lesson (G5; live-rules.ts "remove-stage").
  */
 async function writeIfUnchanged(
   courseSlug: string,
@@ -264,18 +266,15 @@ async function writeIfUnchanged(
       ) {
         throw new ChangedElsewhere();
       }
-      // Whatever the status, as for deleting a lesson (G4): otherwise
-      // unpublishing, removing and publishing again would take the exercise
-      // from learners in three steps. Only a standard lesson's: learners
-      // don't get a lesson of the course's own before Release 2.
-      if (
-        opts.guardLearners &&
-        course &&
-        !isCustomSectionId(stageKey) &&
-        (current?.structure ?? null) !== null
-      ) {
+      // Whatever the status: otherwise unpublishing, removing and
+      // publishing again would take the exercise from learners in three
+      // steps. A lesson of the course's own too: learners get those from
+      // Release 2 (D66). Only a stage they get: a draft alone can go.
+      if (opts.guardLearners && course && (current?.structure ?? null) !== null) {
         const count = await learnerCount(tx, course.id);
-        if (count > 0) throw new Refusal({ ok: false, error: "has-learners", count });
+        if (liveRule("remove-stage", { status: course.status, learners: count, closed: false }) === "has-learners") {
+          throw new Refusal({ ok: false, error: "has-learners", count });
+        }
       }
       await tx.lesson.update({ where, data });
     });
@@ -440,10 +439,10 @@ export async function discardStructureDraft(
  * not delete it unseen.
  *
  * Refused with "has-learners" while learners are enrolled and the stage is
- * one they have (G5): they would lose it. (A lesson of the course's own
- * isn't theirs before Release 2.) This holds on a draft or archived
- * course too, as for deleting a lesson (G4), since the course can be
- * published again. A stage that is only a draft can always go.
+ * one they have (G5, spec 7.2): they would lose it — a lesson of the
+ * course's own as much as a standard one. This holds on a draft or
+ * archived course too, since the course can be published again. A stage
+ * that is only a draft can always go.
  */
 export async function clearStructure(
   courseSlug: string,
