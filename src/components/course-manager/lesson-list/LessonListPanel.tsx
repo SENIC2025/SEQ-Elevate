@@ -33,6 +33,7 @@ import { LiveChangeConfirm } from "./LiveChangeConfirm";
 import { addControl, choiceState, learnersOf, rowControls, type Control, type ListContext } from "./live-controls";
 import {
   closedDate,
+  deleteBlockedValues,
   fallbackName,
   focusAfterDelete,
   focusAfterMove,
@@ -80,9 +81,11 @@ type ErrorAt = { at: string; text: string } | null;
  * row's buttons (or the picker's) with how many learners are taking the
  * course, and only its own button sends the change, confirmed. When the
  * server knew of learners the page didn't, it asks with its own counts. A
- * delete that learners keep from happening says so in its confirmation,
- * with Hide instead; from the 1 December cut-off the changes a published
- * course with learners refuses say why (D67).
+ * delete that learners keep from happening says so in its confirmation
+ * (whose learners: the course's when it is published, else those with
+ * something in that lesson), with Hide instead where Hide can be pressed;
+ * from the 1 December cut-off the changes a published course with learners
+ * refuses say why (D67).
  */
 export function LessonListPanel({
   slug,
@@ -187,21 +190,34 @@ export function LessonListPanel({
 
   /**
    * Ids of the shared texts that say why a control is refused, or, for a
-   * change that asks first, how many learners it touches.
+   * change that asks first, how many learners it touches. A delete that
+   * learners keep from happening is described by its row's own words
+   * (SectionRow's `deleteBlocked`): who keeps it differs per lesson.
    */
   const describe = (c: Control): string | undefined => {
     if (c.kind === "locked") return `${uid}-why-${c.why}`;
-    if (c.kind === "learners") return `${uid}-why-learners`;
     if (c.kind === "enabled" && c.confirm) return `${uid}-learners`;
     return undefined;
   };
 
-  /** A refusal in words: the lesson list's, or the rules' for a course people are taking. */
-  function refusalText(res: Refused): string {
+  /** Can the lesson be hidden instead of deleted: not hidden yet, and Hide not refused (last-lesson)? */
+  const hideOffered = (id: string): boolean =>
+    byId.get(id)?.section?.hidden !== true && rowControls(ctx, id as SectionId).hide.kind === "enabled";
+
+  /** Why `count` learners keep lesson `id` from being deleted (spec 7.2). */
+  const deleteBlockedText = (id: string, count: number): string =>
+    tLive(
+      "hasLearners.delete",
+      deleteBlockedValues({ published: status === "published", count, canHide: hideOffered(id) })
+    );
+
+  /** A refusal in words (of the change at `at`): the lesson list's, or the rules' for a course people are taking. */
+  function refusalText(res: Refused, at: string): string {
+    if (res.error === "has-learners") return deleteBlockedText(at, res.count);
     const words = refusalWords(res.error);
     if (words.ns === "liveChanges") {
       return tLive(words.key, {
-        count: res.error === "has-learners" ? res.count : learners,
+        count: learners,
         date: res.error === "restructure-closed" ? closedDate(res.from, locale) : date,
       });
     }
@@ -215,7 +231,7 @@ export function LessonListPanel({
    * colleague deleted it), its row goes too: the refusal is then said above
    * "Add lesson", and focus moves to the next lesson (or "Add lesson").
    */
-  function refused(res: Refused, at: string, text = refusalText(res)) {
+  function refused(res: Refused, at: string, text = refusalText(res, at)) {
     const fresh = res.error === "changed-elsewhere" && res.outline ? res.outline : null;
     if (fresh) onOutline(fresh);
     else if (refusalRefreshes(res.error)) refresh();
@@ -418,7 +434,11 @@ export function LessonListPanel({
   const rowStatus = (lesson: LessonOutline): RowStatus | null => {
     // Hidden: its "Hidden" says it (learners don't get it as it stands).
     if (lesson.section?.hidden) return null;
-    return lesson.live ? "live" : "empty";
+    if (lesson.live) return "live";
+    // With the Release 2 player switched off (notLive "switched-off"),
+    // nothing about its content is the reason: its missing number says
+    // learners wouldn't see it.
+    return lesson.notLive === "empty" ? "empty" : null;
   };
 
   /** The row's LiveChangeConfirm for the change waiting on it. */
@@ -511,11 +531,8 @@ export function LessonListPanel({
         <p id={`${uid}-why-last-lesson`} hidden>
           {tLive("lastLesson")}
         </p>
-        <p id={`${uid}-why-learners`} hidden>
-          {tLive("hasLearners.delete", { count: learners })}
-        </p>
         <p id={`${uid}-learners`} hidden>
-          {tLive("learners", pageCounts)}
+          {tLive("learners", { count: pageCounts.learners, finished: pageCounts.finished })}
         </p>
         {unreadable ? (
           <p className="mb-2 rounded-md bg-[var(--surface-muted)] p-2 text-xs">{t("errors.unreadable")}</p>
@@ -551,9 +568,9 @@ export function LessonListPanel({
                   initial: section.label[lang] ?? "",
                   placeholder: fallbackName(section, lang, names, { title: titleOf(lesson, lang), n }),
                 }}
-                emptyNote={section.custom && !section.hidden && !lesson.live ? tLive("emptyNote") : null}
+                emptyNote={section.custom && lesson.notLive === "empty" ? tLive("emptyNote") : null}
                 deleteBlocked={
-                  controls.delete.kind === "learners" ? tLive("hasLearners.delete", { count: learners }) : null
+                  controls.delete.kind === "learners" ? deleteBlockedText(id, controls.delete.count) : null
                 }
                 confirm={confirmFor(id)}
                 onToggle={() => toggleRow(id)}
@@ -575,9 +592,7 @@ export function LessonListPanel({
                   focusEl(elId(id, "rename"));
                 }}
                 onDeleteConfirm={() => remove(lesson)}
-                onDeleteHide={
-                  !section.hidden && controls.hide.kind === "enabled" ? () => hide(id, true) : null
-                }
+                onDeleteHide={hideOffered(id) ? () => hide(id, true) : null}
                 onDeleteKeep={() => {
                   setError(null);
                   setWhere({ row: id, mode: "actions" });

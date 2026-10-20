@@ -127,7 +127,7 @@ export function PublishControls({
         onStatusChange(res.status);
       } else if (res.error === "cannot-publish" || res.error === "needs-release-2") {
         // Changed since this page loaded: say why, and bring the page up to date.
-        setError(tList("publish.needsRelease2"));
+        setError(tList("publish.refused"));
         const refused = "reasons" in res ? (res as PublishRefused) : null;
         setRefusedReasons(
           !refused

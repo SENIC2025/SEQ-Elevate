@@ -28,7 +28,7 @@ export type RowStatus = "live" | "empty";
 /** The row's focusable parts, for the panel to put focus on after a change. */
 export type RowPart = "link" | "actions" | "up" | "down" | "rename" | "hide" | "addAfter" | "delete";
 /** The row's other elements with an id (the panel, and texts that describe). */
-export type RowElement = RowPart | "panel" | "status" | "unnumbered" | "emptyNote";
+export type RowElement = RowPart | "panel" | "status" | "unnumbered" | "emptyNote" | "deleteWhy";
 
 const STATUS_ICON = { live: CircleCheck, empty: CircleDashed };
 
@@ -91,7 +91,10 @@ export function SectionRow({
   rename: { lang: Locale; initial: string; placeholder: string };
   /** liveChanges.emptyNote, for a lesson of the course's own that learners don't get yet. */
   emptyNote?: string | null;
-  /** Why learners keep it from being deleted (spec 7.2), shown in DeleteConfirm. */
+  /**
+   * Why learners keep it from being deleted (spec 7.2): shown in
+   * DeleteConfirm, and the description of the row's Delete.
+   */
   deleteBlocked?: string | null;
   /** LiveChangeConfirm for the change waiting on this row (mode "confirm"). */
   confirm?: React.ReactNode;
@@ -124,7 +127,8 @@ export function SectionRow({
   /**
    * One control: native disabled at an end, aria-disabled (and why) when
    * refused. A delete that learners keep from happening still opens its
-   * confirmation, which says why and offers Hide instead.
+   * confirmation, which says why and offers Hide instead; the row's own
+   * words (`deleteBlocked`) describe it.
    */
   const action = (
     part: RowPart,
@@ -140,7 +144,9 @@ export function SectionRow({
         type="button"
         disabled={control.kind === "edge"}
         aria-disabled={refused || undefined}
-        aria-describedby={describe(control)}
+        aria-describedby={
+          control.kind === "learners" && part === "delete" && deleteBlocked ? idOf("deleteWhy") : describe(control)
+        }
         onClick={() => {
           if (!refused && !busy) onClick();
         }}
@@ -191,6 +197,11 @@ export function SectionRow({
         {unnumbered ? (
           <span id={idOf("unnumbered")} hidden>
             {t("notNumbered")}
+          </span>
+        ) : null}
+        {deleteBlocked ? (
+          <span id={idOf("deleteWhy")} hidden>
+            {deleteBlocked}
           </span>
         ) : null}
         {StatusIcon && statusText ? (

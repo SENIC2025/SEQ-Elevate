@@ -123,6 +123,8 @@ function sectionLesson(s: ResolvedSection, number: number | null, rows: SectionF
  * "Add …" slots. `enrolled` learners (of whom `finished` finished), each
  * lesson's learners with data (`withData`, 0 unless given), and whether the
  * 1 December cut-off has passed (`closed`) feed the editor rules (D66, D67).
+ * `switchedOff`: the Release 2 player is switched off (R2_LEARNER_PLAYER=off),
+ * so learners get no lesson of the course's own.
  */
 export function createdOutline(
   raw: StoredOutline | null,
@@ -133,6 +135,7 @@ export function createdOutline(
     finished?: number;
     withData?: Record<string, number>;
     closed?: boolean;
+    switchedOff?: boolean;
   } = {}
 ): CourseOutline {
   const rows = opts.rows ?? STANDARD_ROWS;
@@ -147,9 +150,14 @@ export function createdOutline(
   let n = 0;
   const lessons: LessonOutline[] = sections.resolved.sections.map((s) => {
     const row = rows.find((r) => r.stageKey === s.id);
-    const numbered = !s.hidden && (row?.narrative != null || row?.structure != null);
+    const filled = row?.narrative != null || row?.structure != null;
+    const off = opts.switchedOff === true && s.custom;
+    const numbered = !s.hidden && filled && !off;
     return {
       ...sectionLesson(s, numbered ? ++n : null, rows),
+      live: numbered,
+      // Why learners don't get a lesson that isn't hidden (course-admin.ts).
+      ...(s.hidden || numbered ? {} : { notLive: off ? ("switched-off" as const) : ("empty" as const) }),
       ...(learners > 0 ? { learnersWithData: opts.withData?.[s.id] ?? 0 } : {}),
     };
   });

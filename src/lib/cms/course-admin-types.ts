@@ -168,6 +168,15 @@ export interface LessonOutline {
    */
   live: boolean;
   /**
+   * Why learners don't get a lesson of a created course's list that isn't
+   * hidden (unset when `live`, or hidden): "empty", nothing in it they could
+   * be shown yet, so the content save that gives it some makes it appear;
+   * "switched-off", the Release 2 player is switched off
+   * (R2_LEARNER_PLAYER=off, spec 3.4), which gives learners Release 1's
+   * lessons only — never one of the course's own, whatever is in it.
+   */
+  notLive?: "empty" | "switched-off";
+  /**
    * How many learners have any trace of this lesson (store.server.ts
    * learnersWithData): set for the lessons of a created course's list
    * while the course has learners, for the delete rule (spec 7.2).

@@ -133,7 +133,7 @@ describe("PublishControls", () => {
       '<a href="#lesson-s-abcdefgh" class="underline underline-offset-2 hover:text-[var(--accent)]">“Wrap-up” has content with a draft that learners don&#x27;t see yet.</a>'
     );
     expect(html).toContain("The “Die Idee” lesson has no content yet.");
-    expect(html).toContain("This course has more than 12 lessons.");
+    expect(html).toContain("Learners would see more than 12 lessons in this course.");
   });
 
   it("marks the lesson names in the warnings with the content language", () => {

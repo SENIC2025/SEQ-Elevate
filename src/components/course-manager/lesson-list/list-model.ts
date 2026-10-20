@@ -208,6 +208,27 @@ export function closedDate(iso: string | null | undefined, locale: string): stri
 }
 
 /**
+ * The values of liveChanges.hasLearners.delete for one lesson (spec 7.2).
+ * On a published course every learner of the course keeps every lesson
+ * from being deleted ("course": "2 learners have started this course");
+ * on one that isn't, only the learners with something in that lesson do
+ * ("lesson", learnersWithData: "1 learner has already worked on this
+ * lesson"). "You can hide it instead" is said only where Hide can be
+ * pressed: not for a hidden lesson, nor for the last one learners see.
+ */
+export function deleteBlockedValues(args: {
+  published: boolean;
+  count: number;
+  canHide: boolean;
+}): { count: number; scope: "course" | "lesson"; hide: "yes" | "no" } {
+  return {
+    count: args.count,
+    scope: args.published ? "course" : "lesson",
+    hide: args.canHide ? "yes" : "no",
+  };
+}
+
+/**
  * Whether a refused change was about a lesson that the page's fresh list
  * no longer has (a colleague deleted it): then the refusal is said for the
  * whole list, since the lesson's row and its message box are gone.
@@ -222,7 +243,7 @@ export function refusalGone(at: string, error: SectionsError | "invalid", after:
 /**
  * The message that explains a refused lesson-list change: a key under
  * `lessonList`, or under `liveChanges` for the rules for a course people
- * are taking (has-learners is a delete's: "… You can hide it instead";
+ * are taking (has-learners is a delete's, with deleteBlockedValues;
  * restructure-closed takes the date, closedDate).
  */
 export function refusalWords(error: SectionsError | "invalid"): { ns: "lessonList" | "liveChanges"; key: string } {

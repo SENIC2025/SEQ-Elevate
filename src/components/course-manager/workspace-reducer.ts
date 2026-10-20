@@ -311,7 +311,10 @@ function takeServerOutline(state: WorkspaceState, outline: CourseOutline): Works
  * is what the refresh was for. It never adds, removes or reorders lessons
  * (D39). The server's own view of each lesson in the list (its section,
  * content and bases, and that it is a lesson with media) is taken too, so
- * each base matches what is shown. A row without a section keeps the page's
+ * each base matches what is shown, and so are the facts the rules for a
+ * course with learners read of it (learners with data in it, why learners
+ * don't get it): a learner's save changes those without changing the
+ * list. A row without a section keeps the page's
  * present, addable and editable, as in Release 0: a refresh that raced a
  * save or a removal must not flip it back.
  */
@@ -331,6 +334,8 @@ function takeRefreshedOutline(state: WorkspaceState, outline: CourseOutline): Wo
       parts: f.parts,
       contentVersion: f.contentVersion,
       live: f.live,
+      notLive: f.notLive,
+      learnersWithData: f.learnersWithData,
       ...(listed(f) ? { present: f.present, addable: f.addable, editable: f.editable } : {}),
     };
   });

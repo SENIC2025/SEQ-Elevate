@@ -4,6 +4,7 @@ import type { LiveFacts } from "@/lib/cms/sections/live-rules";
 import { emptyExercise } from "@/lib/cms/sections/part-kinds";
 import {
   extraCount,
+  focusAfterCancel,
   focusAfterPartMove,
   focusAfterRemove,
   partControl,
@@ -181,6 +182,14 @@ describe("focus after a change", () => {
       id: "p-quiz0001",
       target: "label",
     });
+  });
+
+  it("goes back to the button that asked for a change when its confirmation is cancelled (spec 7.3)", () => {
+    expect(focusAfterCancel({ op: "add", after: "main" })).toEqual({ id: "main", target: "add" });
+    expect(focusAfterCancel({ op: "move", id: "p-text0001", dir: -1 })).toEqual({ id: "p-text0001", target: "up" });
+    expect(focusAfterCancel({ op: "move", id: "p-text0001", dir: 1 })).toEqual({ id: "p-text0001", target: "down" });
+    // Its Remove button, not the content's name.
+    expect(focusAfterCancel({ op: "remove", id: "p-text0001" })).toEqual({ id: "p-text0001", target: "remove" });
   });
 
   it("goes to the main content's Add content when nothing else is left", () => {

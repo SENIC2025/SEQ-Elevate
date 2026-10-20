@@ -359,7 +359,7 @@ describe("Release 1 — the publish guard", () => {
     const publish = region.getByRole("button", { name: /^publish$/i });
     await expect(publish).not.toHaveAttribute("aria-disabled", "true");
     // Nobody is taking the course: no change asks first.
-    const asks = lessonList(page).getByRole("group", { name: /in a live course\?|from learners\?|to learners again\?/ });
+    const asks = lessonList(page).getByRole("group", { name: /learners are taking\?|from learners\?|to learners again\?/ });
 
     // Delete the lesson of its own.
     const own = await openActions(page, "5. Wrap-up");
@@ -443,7 +443,7 @@ describe("Release 1 — the publish guard", () => {
 
     // The server asks first; the page asks the editor, with the server's count.
     await actions.getByRole("button", { name: /^move down$/i }).click();
-    const ask = lessonList(page).getByRole("group", { name: "Move “Skill concept” in a live course?" });
+    const ask = lessonList(page).getByRole("group", { name: "Move “Skill concept” in a course learners are taking?" });
     await expect(ask).toContainText("1 learner is taking this course (0 finished).", { timeout: 15000 });
     await expect(ask.getByRole("heading")).toBeFocused();
     expect(await order()).toEqual(before);

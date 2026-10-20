@@ -17,6 +17,7 @@ import {
   parseWhere,
   blockerText,
   closedDate,
+  deleteBlockedValues,
   reasonText,
   refusalGone,
   refusalRefreshes,
@@ -138,6 +139,42 @@ describe("words", () => {
     expect(refusalWords("has-learners")).toEqual({ ns: "liveChanges", key: "hasLearners.delete" });
   });
 
+  it("says why learners keep a lesson from being deleted, offering Hide only where it can be pressed (spec 7.2)", () => {
+    // Published: every learner of the course keeps every lesson.
+    const published = deleteBlockedValues({ published: true, count: 2, canHide: true });
+    expect(published).toEqual({ count: 2, scope: "course", hide: "yes" });
+    // Not published: only the learners with something in that lesson.
+    const draft = deleteBlockedValues({ published: false, count: 1, canHide: false });
+    expect(draft).toEqual({ count: 1, scope: "lesson", hide: "no" });
+
+    const t = tr("en", "liveChanges");
+    expect(t("hasLearners.delete", published)).toBe(
+      "2 learners have started this course, so this lesson can't be deleted. You can hide it instead."
+    );
+    expect(t("hasLearners.delete", { ...published, count: 1, hide: "no" })).toBe(
+      "1 learner has started this course, so this lesson can't be deleted."
+    );
+    expect(t("hasLearners.delete", { ...draft, hide: "yes" })).toBe(
+      "1 learner has already worked on this lesson, so it can't be deleted. You can hide it instead."
+    );
+    expect(t("hasLearners.delete", { ...draft, count: 3 })).toBe(
+      "3 learners have already worked on this lesson, so it can't be deleted."
+    );
+    for (const locale of ["de", "el"] as const) {
+      const tl = tr(locale, "liveChanges");
+      for (const scope of ["course", "lesson"]) {
+        const hide = tl("hasLearners.delete", { count: 2, scope, hide: "yes" });
+        const noHide = tl("hasLearners.delete", { count: 2, scope, hide: "no" });
+        expect(hide, `${locale} ${scope}`).not.toMatch(/liveChanges\./);
+        expect(hide.startsWith(noHide), `${locale} ${scope}`).toBe(true);
+        expect(hide.length).toBeGreaterThan(noHide.length);
+      }
+      expect(tl("hasLearners.delete", { count: 2, scope: "course", hide: "no" })).not.toBe(
+        tl("hasLearners.delete", { count: 2, scope: "lesson", hide: "no" })
+      );
+    }
+  });
+
   it("says what the usual order is when the lessons are in a new one", () => {
     const t = tr("en", "lessonList.publish.reason");
     const r = reasonText({ code: "reordered" }, nameOf, t, "Context, Skill concept, Reflection");
@@ -199,7 +236,7 @@ describe("words", () => {
     for (const locale of ["en", "de", "el"] as const) {
       for (const e of errors) {
         const { ns, key } = refusalWords(e);
-        const text = tr(locale, ns)(key, { count: 2, max: 15, date: "1 December 2026" });
+        const text = tr(locale, ns)(key, { count: 2, max: 15, date: "1 December 2026", scope: "course", hide: "yes" });
         expect(text, `${locale} ${e}`).not.toMatch(/(lessonList|liveChanges)\./);
       }
       const t = tr(locale, "lessonList");

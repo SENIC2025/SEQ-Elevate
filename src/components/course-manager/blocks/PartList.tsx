@@ -32,6 +32,7 @@ import { PartCard } from "./PartCard";
 import { PartTypePicker } from "./PartTypePicker";
 import {
   extraCount,
+  focusAfterCancel,
   focusAfterPartMove,
   focusAfterRemove,
   partControl,
@@ -168,6 +169,7 @@ export function PartList({
   const labelId = (id: PartId) => `${ids}-label-${id}`;
   const upId = (id: PartId) => `${ids}-up-${id}`;
   const downId = (id: PartId) => `${ids}-down-${id}`;
+  const removeId = (id: PartId) => `${ids}-remove-${id}`;
   const addId = (id: PartId) => `${ids}-add-${id}`;
   const bodyId = (id: PartId) => `${ids}-body-${id}`;
   const pickerId = (id: PartId) => `${ids}-picker-${id}`;
@@ -187,6 +189,10 @@ export function PartList({
     }
     if (focus.target === "add") {
       byId(addId(focus.id))?.focus();
+      return;
+    }
+    if (focus.target === "remove") {
+      byId(removeId(focus.id))?.focus();
       return;
     }
     const name = byId(labelId(focus.id));
@@ -402,14 +408,14 @@ export function PartList({
     else removeNow(item.id, confirm);
   }
 
-  /** LiveChangeConfirm cancelled (or Escape): nothing changes, focus goes back where the editor was. */
+  /** LiveChangeConfirm cancelled (or Escape): nothing changes, focus goes back to the button that asked. */
   function cancelPending() {
     const p = pending;
     setPendingChange(null);
     setError(null);
     if (!p) return;
-    const target = p.op === "add" ? "add" : p.op === "move" ? (p.dir === -1 ? "up" : "down") : "label";
-    setFocus((f) => ({ id: p.op === "add" ? p.after : p.id, target, n: (f?.n ?? 0) + 1 }));
+    const back = focusAfterCancel(p);
+    setFocus((f) => ({ ...back, n: (f?.n ?? 0) + 1 }));
   }
 
   /** The confirmation for the change waiting at `item` (`where`: its add area, or its card). */
@@ -549,6 +555,7 @@ export function PartList({
                   label: labelId(item.id),
                   up: upId(item.id),
                   down: downId(item.id),
+                  remove: removeId(item.id),
                   body: bodyId(item.id),
                 }}
                 groupLabel={t("groupLabel", { n: i + 1, total: items.length, type })}

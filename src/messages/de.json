@@ -847,13 +847,12 @@
       "chooseFirst": "Wähle zuerst, was du hinzufügen möchtest."
     },
     "where": "Wo",
-    "many": "Dieser Kurs hat mehr als {count} Lektionen. Prüfe, ob Lernende alle brauchen.",
+    "many": "Lernende würden in diesem Kurs mehr als {count} Lektionen sehen. Prüfe, ob sie alle brauchen.",
     "max": "Ein Kurs kann höchstens {max} Lektionen haben.",
     "conflict": "Jemand anderes hat die Lektionsliste geändert, seit du sie geöffnet hast, deshalb wurde nichts geändert. Die Liste zeigt jetzt diese Änderungen.",
     "publish": {
       "blockedTitle": "Noch nicht veröffentlichbar",
       "blockedIntro": "Lernende könnten diesen Kurs so nicht machen:",
-      "needsRelease2": "Dieser Kurs lässt sich so nicht veröffentlichen, deshalb wurde er nicht veröffentlicht.",
       "reason": {
         "customSection": "„{name}“ ist eine neue Lektion",
         "hiddenSection": "„{name}“ ist ausgeblendet",
@@ -864,7 +863,8 @@
         "noLessons": "Noch keine Lektion hat etwas, das Lernende sehen können",
         "unreadableLesson": "„{name}“ hat Inhalt, der sich nicht lesen lässt"
       },
-      "partDraft": "„{name}“ hat Inhalt mit einem Entwurf, den Lernende noch nicht sehen."
+      "partDraft": "„{name}“ hat Inhalt mit einem Entwurf, den Lernende noch nicht sehen.",
+      "refused": "Dieser Kurs wurde nicht veröffentlicht: Lernende könnten ihn so, wie er jetzt ist, nicht machen."
     },
     "fullTemplate": "Mit der vollständigen Vorlage beginnen (alle sieben Standardlektionen)",
     "added": "„{name}“ hinzugefügt.",
@@ -1241,7 +1241,7 @@
   },
   "liveChanges": {
     "title": {
-      "move": "„{name}“ in einem laufenden Kurs verschieben?",
+      "move": "„{name}“ in einem Kurs verschieben, den Lernende gerade machen?",
       "hide": "„{name}“ für Lernende ausblenden?",
       "show": "„{name}“ für Lernende wieder einblenden?",
       "addLesson": "Eine Lektion zu einem Kurs hinzufügen, den Lernende gerade machen?",
@@ -1267,7 +1267,7 @@
     "cancel": "Abbrechen",
     "closed": "Ab dem {date} können in einem veröffentlichten Kurs mit Lernenden keine Lektionen und Inhalte mehr hinzugefügt, verschoben oder entfernt werden. Du kannst Lektionen weiterhin aus- und einblenden, umbenennen und Texte und Fragen bearbeiten.",
     "hasLearners": {
-      "delete": "{count, plural, one {# Person hat} other {# Personen haben}} diesen Kurs begonnen, deshalb kann diese Lektion nicht gelöscht werden. Du kannst sie stattdessen ausblenden.",
+      "delete": "{scope, select, lesson {{count, plural, one {# Person hat} other {# Personen haben}} bereits an dieser Lektion gearbeitet, deshalb kann sie nicht gelöscht werden.} other {{count, plural, one {# Person hat} other {# Personen haben}} diesen Kurs begonnen, deshalb kann diese Lektion nicht gelöscht werden.}}{hide, select, yes { Du kannst sie stattdessen ausblenden.} other {}}",
       "part": "Lernende machen diesen Kurs, deshalb kann eine Frage, die sie vielleicht beantwortet haben, nicht entfernt werden. Du kannst sie weiterhin bearbeiten."
     },
     "lastLesson": "Ein veröffentlichter Kurs braucht mindestens eine Lektion, die Lernende sehen können.",

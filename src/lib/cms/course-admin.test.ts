@@ -391,6 +391,51 @@ describe("getCourseOutline with a stored lesson list", () => {
     ]);
   });
 
+  it("says why learners don't get a lesson: nothing in it yet, or the Release 2 player switched off (spec 3.4)", async () => {
+    lessons.push({ stageKey: OWN, narrative: { en: written("Warm-up text", "Before we start") } }, { stageKey: "s-empty000" });
+    outline = {
+      v: 1,
+      sections: [
+        { id: OWN, template: "text", label: { en: "Warm-up" } },
+        { id: "s-empty000", template: "quiz" },
+        { id: "context", template: "context", hidden: true },
+        { id: "concept", template: "concept" },
+        { id: "behaviour", template: "behaviour" },
+        { id: "reflection", template: "reflection" },
+      ],
+    };
+    const why = (o: Awaited<ReturnType<typeof getCourseOutline>>) =>
+      o?.lessons.filter((l) => l.section).map((l) => [l.key, l.live, l.notLive ?? null]);
+
+    expect(why(await getCourseOutline("asking-for-help"))).toEqual([
+      [OWN, true, null],
+      // Its first content makes it appear.
+      ["s-empty000", false, "empty"],
+      // Hidden says it already.
+      ["context", false, null],
+      ["concept", true, null],
+      ["behaviour", true, null],
+      ["reflection", true, null],
+    ]);
+
+    vi.stubEnv("R2_LEARNER_PLAYER", "off");
+    try {
+      // Learners get Release 1's lessons only: no lesson of the course's
+      // own, with content or without, and not because it is empty.
+      expect(why(await getCourseOutline("asking-for-help"))).toEqual([
+        [OWN, false, "switched-off"],
+        ["s-empty000", false, "switched-off"],
+        // Release 1 never hid a lesson: presentStageKeys.
+        ["context", true, null],
+        ["concept", true, null],
+        ["behaviour", true, null],
+        ["reflection", true, null],
+      ]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("refuses to publish a course with no lesson learners would see", async () => {
     outline = {
       v: 1,

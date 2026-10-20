@@ -847,13 +847,12 @@
       "chooseFirst": "Choose what to add first."
     },
     "where": "Where",
-    "many": "This course has more than {count} lessons. Check that learners need them all.",
+    "many": "Learners would see more than {count} lessons in this course. Check that they need them all.",
     "max": "A course can have at most {max} lessons.",
     "conflict": "Someone else changed the lesson list since you opened it, so nothing was changed. The list now shows their changes.",
     "publish": {
       "blockedTitle": "Can't publish yet",
       "blockedIntro": "Learners couldn't take this course as it is:",
-      "needsRelease2": "This course can't be published as it is, so it wasn't published.",
       "reason": {
         "customSection": "“{name}” is a new lesson",
         "hiddenSection": "“{name}” is hidden",
@@ -864,7 +863,8 @@
         "noLessons": "No lesson has anything learners can see yet",
         "unreadableLesson": "“{name}” has content that can't be read"
       },
-      "partDraft": "“{name}” has content with a draft that learners don't see yet."
+      "partDraft": "“{name}” has content with a draft that learners don't see yet.",
+      "refused": "This course wasn't published: learners couldn't take it as it is now."
     },
     "fullTemplate": "Start from the full template (all seven standard lessons)",
     "added": "“{name}” added.",
@@ -1241,7 +1241,7 @@
   },
   "liveChanges": {
     "title": {
-      "move": "Move “{name}” in a live course?",
+      "move": "Move “{name}” in a course learners are taking?",
       "hide": "Hide “{name}” from learners?",
       "show": "Show “{name}” to learners again?",
       "addLesson": "Add a lesson to a course learners are taking?",
@@ -1267,7 +1267,7 @@
     "cancel": "Cancel",
     "closed": "From {date}, lessons and content in a published course with learners can't be added, moved or removed. You can still hide or show lessons, rename them, and edit text and questions.",
     "hasLearners": {
-      "delete": "{count, plural, one {# learner has} other {# learners have}} started this course, so this lesson can't be deleted. You can hide it instead.",
+      "delete": "{scope, select, lesson {{count, plural, one {# learner has} other {# learners have}} already worked on this lesson, so it can't be deleted.} other {{count, plural, one {# learner has} other {# learners have}} started this course, so this lesson can't be deleted.}}{hide, select, yes { You can hide it instead.} other {}}",
       "part": "Learners are taking this course, so a question they may have answered can't be removed. You can still edit it."
     },
     "lastLesson": "A published course needs at least one lesson learners can see.",

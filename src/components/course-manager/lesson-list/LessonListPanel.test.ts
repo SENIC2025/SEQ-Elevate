@@ -192,6 +192,89 @@ describe("the lesson list of a created course", () => {
     // A lesson of the course's own with text is numbered like any other.
     expect(html).toContain('aria-label="Actions for 2. Wrap-up"');
   });
+
+  it("describes the changes that ask first by how many learners take the course and how many finished", () => {
+    const html = panel(createdOutline(null, { status: "published", enrolled: 2, finished: 1 }));
+    // Both of the message's values are given: never its key instead.
+    expect(html).not.toContain("liveChanges.");
+    const id = /aria-describedby="([^"]+)"/.exec(button(html, "Add lesson"))![1];
+    expect(html).toContain(`<p id="${id}" hidden="">2 learners are taking this course (1 finished).</p>`);
+  });
+
+  /** The words that say why learners keep `key` from being deleted (its Delete's description), if any. */
+  const deleteWhy = (html: string, key: string) =>
+    new RegExp(`<span id="[^"]*-${key}-deleteWhy" hidden="">([^<]*)</span>`).exec(html)?.[1]?.replaceAll("&#x27;", "'");
+
+  it("on a published course with learners, says why no lesson can be deleted, offering Hide only where it can be pressed", () => {
+    const stored: StoredOutline = {
+      v: 1,
+      sections: [
+        { id: "context", template: "context" },
+        { id: "concept", template: "concept", hidden: true },
+        { id: "behaviour", template: "behaviour" },
+        { id: "simulation", template: "simulation" },
+        { id: "reflection", template: "reflection" },
+      ],
+    };
+    const html = panel(createdOutline(stored, { status: "published", enrolled: 2 }));
+    expect(deleteWhy(html, "context")).toBe(
+      "2 learners have started this course, so this lesson can't be deleted. You can hide it instead."
+    );
+    // Hidden already: there is nothing to hide it with.
+    expect(deleteWhy(html, "concept")).toBe("2 learners have started this course, so this lesson can't be deleted.");
+
+    // The last lesson learners see can't be hidden either (last-lesson).
+    const last: StoredOutline = {
+      v: 1,
+      sections: [
+        { id: "context", template: "context" },
+        ...(["concept", "behaviour", "simulation", "reflection"] as const).map((id) => ({
+          id,
+          template: id,
+          hidden: true as const,
+        })),
+      ],
+    };
+    const one = panel(createdOutline(last, { status: "published", enrolled: 1 }));
+    expect(deleteWhy(one, "context")).toBe("1 learner has started this course, so this lesson can't be deleted.");
+  });
+
+  it("on a course that isn't published, names only the learners with something in that lesson", () => {
+    const html = panel(createdOutline(null, { enrolled: 3, withData: { context: 1 } }));
+    expect(deleteWhy(html, "context")).toBe(
+      "1 learner has already worked on this lesson, so it can't be deleted. You can hide it instead."
+    );
+    // Nobody has anything in it: it deletes, so nothing says it can't.
+    expect(deleteWhy(html, "concept")).toBeUndefined();
+    expect(html).not.toContain("3 learners have started this course");
+  });
+
+  it("with the Release 2 player switched off, doesn't call a lesson of the course's own empty (spec 3.4)", () => {
+    const stored: StoredOutline = {
+      v: 1,
+      sections: [
+        { id: "context", template: "context" },
+        { id: "s-abcdefgh", template: "text", label: { en: "Wrap-up" } },
+        { id: "s-empty000", template: "text", label: { en: "Later" } },
+        { id: "concept", template: "concept" },
+        { id: "behaviour", template: "behaviour" },
+        { id: "simulation", template: "simulation" },
+        { id: "reflection", template: "reflection" },
+      ],
+    };
+    const rows = [...STANDARD_ROWS, { stageKey: "s-abcdefgh", narrative: TEXT }];
+    const html = panel(createdOutline(stored, { rows, switchedOff: true }));
+    for (const own of ["s-abcdefgh", "s-empty000"]) {
+      // Not "No content yet" (it has some), nor "Learners get this lesson as
+      // soon as it has content" (they don't while the switch is off) ...
+      expect(html, own).not.toMatch(new RegExp(`id="[^"]*-${own}-(status|emptyNote)"`));
+      // ... but, unnumbered, "Not numbered: learners wouldn't see it".
+      const link = new RegExp(`<a ([^>]*href="#lesson-${own}"[^>]*)>`).exec(html)![1];
+      expect(link, own).toMatch(/aria-describedby="[^"]*-unnumbered"/);
+    }
+    // With the player on, an own lesson with nothing in it says how it will appear.
+    expect(panel(createdOutline(stored, { rows }))).toMatch(/id="[^"]*-s-empty000-emptyNote"/);
+  });
 });
 
 describe("a lesson's actions", () => {
@@ -255,6 +338,11 @@ describe("a lesson's actions", () => {
     const del = button(html, "Delete");
     expect(del).not.toContain('aria-disabled="true"');
     expect(del).toContain('aria-describedby="why-learners"');
+    // Given the row's own words (the panel's), Delete is described by them.
+    const blocked = "2 learners have started this course, so this lesson can't be deleted. You can hide it instead.";
+    const own = row(createdOutline(null, { status: "published", enrolled: 2 }), "concept", "actions", { deleteBlocked: blocked });
+    expect(button(own, "Delete")).toContain('aria-describedby="r-concept-deleteWhy"');
+    expect(own).toContain(`<span id="r-concept-deleteWhy" hidden="">${blocked.replaceAll("'", "&#x27;")}</span>`);
   });
 
   it("from 1 December, a published course with learners keeps its order; Hide stays (D67)", () => {
@@ -283,7 +371,7 @@ describe("a lesson's actions", () => {
     const html = row(o, "concept", "confirm", { confirm });
     expect(html).not.toContain('role="group" aria-label="Actions for 2. Skill concept"');
     expect(html).toMatch(
-      /<h3 [^>]*tabindex="-1"[^>]*>Move “<span lang="en">Skill concept<\/span>” in a live course\?<\/h3>/
+      /<h3 [^>]*tabindex="-1"[^>]*>Move “<span lang="en">Skill concept<\/span>” in a course learners are taking\?<\/h3>/
     );
     expect(html).toContain("3 learners are taking this course (1 finished).");
     expect(html).toContain(en.liveChanges.effect.move.replaceAll("'", "&#x27;"));
@@ -443,11 +531,13 @@ describe("Add a lesson", () => {
     );
 
   it("warns when the lesson added would be the 13th learners see (Q7)", () => {
-    const many = "This course has more than 12 lessons.";
+    const many = "Learners would see more than 12 lessons in this course.";
     // 12 visible: the next is the 13th (Release 1 waited for the 14th).
     const html = picker(visible(12));
     expect(html).toContain(many);
-    const why = /<p id="([^"]+)"[^>]*><svg[^>]*>.*?<\/svg>This course has more than 12 lessons/.exec(html)?.[1];
+    // The course has 12 now: it is the lesson being added that makes it more.
+    expect(html).not.toContain("has more than 12 lessons");
+    const why = /<p id="([^"]+)"[^>]*><svg[^>]*>.*?<\/svg>Learners would see more than 12 lessons/.exec(html)?.[1];
     expect(why).toBeTruthy();
     expect(picker(visible(11))).not.toContain(many);
     // Hidden lessons don't count towards the warning (they do towards the 15).

@@ -144,7 +144,30 @@ export function partControl(args: {
 
 /** Where focus goes after a change to the list (spec 11.3: predictable, 2.4.3). */
 export type PartFocus =
-  | { id: PartId; target: "up" | "down" | "label" | "field" | "add"; n: number };
+  | { id: PartId; target: "up" | "down" | "remove" | "label" | "field" | "add"; n: number };
+
+/** A content change that asks first (LiveChangeConfirm), as far as focus is concerned. */
+export type AskedPartChange =
+  | { op: "add"; after: PartId }
+  | { op: "move"; id: PartId; dir: -1 | 1 }
+  | { op: "remove"; id: PartId };
+
+/**
+ * After its confirmation is cancelled (or Escape, spec 7.3): back on the
+ * button that asked for the change — the "Add content" it was opened from,
+ * the move button pressed, or the content's Remove. Nothing changed, so
+ * each is still there.
+ */
+export function focusAfterCancel(change: AskedPartChange): { id: PartId; target: "add" | "up" | "down" | "remove" } {
+  switch (change.op) {
+    case "add":
+      return { id: change.after, target: "add" };
+    case "move":
+      return { id: change.id, target: change.dir === -1 ? "up" : "down" };
+    case "remove":
+      return { id: change.id, target: "remove" };
+  }
+}
 
 /** After a move: the button pressed, or the other at the end it reached. */
 export function focusAfterPartMove(

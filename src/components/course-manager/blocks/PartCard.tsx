@@ -38,8 +38,8 @@ export function PartCard({
   onRemove,
   children,
 }: {
-  /** Element ids of the header's name and move buttons, for the list to move focus to. */
-  ids: { label: string; up: string; down: string; body: string };
+  /** Element ids of the header's name, move and Remove buttons, for the list to move focus to. */
+  ids: { label: string; up: string; down: string; remove: string; body: string };
   groupLabel: string;
   /**
    * Move up, Move down and Remove named with their content ("Remove content
@@ -114,6 +114,7 @@ export function PartCard({
             </Button>
             {removable ? (
               <Button
+                id={ids.remove}
                 size="sm"
                 variant="ghost"
                 className={`${lockedCls} hover:text-[var(--danger)]`}

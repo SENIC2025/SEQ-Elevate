@@ -301,7 +301,9 @@ describe("Release 2 — changing a course people are taking", () => {
     await openActions(page, "1. Context"); // hydrated
     await prisma.course.updateMany({ where: { projectId: PROJECT, slug: BLOCKED }, data: { outline: { v: 2 } } });
     await publish.click();
-    await expect(region.getByRole("alert")).toContainText("so it wasn't published", { timeout: 15000 });
+    await expect(region.getByRole("alert")).toContainText("This course wasn't published: learners couldn't take it as it is now.", {
+      timeout: 15000,
+    });
     await expect(region.getByText("The lesson list can't be read")).toBeVisible({ timeout: 15000 });
     await expect(publish).toHaveAttribute("aria-disabled", "true", { timeout: 15000 });
     expect(await statusOf(BLOCKED)).toBe("draft");
@@ -324,7 +326,9 @@ describe("Release 2 — changing a course people are taking", () => {
       },
     });
     await publish.click();
-    await expect(region.getByRole("alert")).toContainText("so it wasn't published", { timeout: 15000 });
+    await expect(region.getByRole("alert")).toContainText("This course wasn't published: learners couldn't take it as it is now.", {
+      timeout: 15000,
+    });
     await expect(region.getByText("No lesson has anything learners can see yet")).toBeVisible({ timeout: 15000 });
     expect(await statusOf(BLOCKED)).toBe("draft");
     await expect
@@ -348,10 +352,14 @@ describe("Release 2 — changing a course people are taking", () => {
     await signIn(context, editorSession);
     await openCourse(page, MOVE);
     const actions = await openActions(page, "1. Context");
+    // Before it is pressed, it says how many learners it touches.
+    await expect(actions.getByRole("button", { name: /^move down$/i })).toHaveAccessibleDescription(
+      "2 learners are taking this course (1 finished)."
+    );
     await actions.getByRole("button", { name: /^move down$/i }).click();
 
     // Asked in place: what it is, how many learners, what they notice.
-    const ask = lessonList(page).getByRole("group", { name: "Move “Context” in a live course?" });
+    const ask = lessonList(page).getByRole("group", { name: "Move “Context” in a course learners are taking?" });
     await expect(ask.getByRole("heading")).toBeFocused();
     await expect(ask).toContainText("2 learners are taking this course (1 finished).");
     await expect(ask).toContainText("Their progress is kept.");
@@ -405,6 +413,10 @@ describe("Release 2 — changing a course people are taking", () => {
     const done = await openActions(page, "1. Context");
     await done.getByRole("button", { name: /^delete$/i }).click();
     const keep = lessonList(page).getByRole("group", { name: "Delete “Context” in all languages?" });
+    // Whose work keeps it: that lesson's, not the course's.
+    await expect(keep).toContainText(
+      "1 learner has already worked on this lesson, so it can't be deleted. You can hide it instead."
+    );
     await expect(keep.getByRole("button", { name: /^delete lesson$/i })).toHaveAttribute("aria-disabled", "true");
     await keep.getByRole("button", { name: /^keep it$/i }).click();
 
@@ -443,10 +455,16 @@ describe("Release 2 — changing a course people are taking", () => {
 
     // The text asks first, with the count, then goes.
     const textPart = lesson.getByRole("group", { name: /^content 2 of 3: text$/i });
-    await textPart.getByRole("button", { name: /^remove content 2: text$/i }).click();
+    const removeText = textPart.getByRole("button", { name: /^remove content 2: text$/i });
+    await removeText.click();
     const ask = lesson.getByRole("group", { name: "Remove this text from “Skill concept”?" });
     await expect(ask.getByRole("heading")).toBeFocused();
     await expect(ask).toContainText("1 learner is taking this course (0 finished).");
+    // Escape leaves it, focus back on the Remove that asked.
+    await page.keyboard.press("Escape");
+    await expect(ask).toHaveCount(0);
+    await expect(removeText).toBeFocused();
+    await removeText.click();
     await ask.getByRole("button", { name: /^remove it$/i }).click();
     await expect(lesson.getByRole("group", { name: /^content 2 of 2: quick check$/i })).toBeVisible({
       timeout: 15000,
@@ -481,7 +499,7 @@ describe("Release 2 — changing a course people are taking", () => {
 
   test("the 13th visible lesson warns", async ({ page, context }) => {
     await signIn(context, editorSession);
-    const warning = /^This course has more than 12 lessons\. Check that learners need them all\.$/;
+    const warning = /^Learners would see more than 12 lessons in this course\. Check that they need them all\.$/;
 
     // Twelve lessons learners see: the next one is the 13th.
     await openCourse(page, MANY);

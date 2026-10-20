@@ -346,7 +346,8 @@ describe("Release 1 — the lesson list", () => {
     await useSession(context, editorSession);
     const course = await courseId();
     const own = (await ids())[5];
-    const blocked = "1 learner has started this course, so this lesson can't be deleted. You can hide it instead.";
+    // A draft: it is the learners with something in that lesson who keep it (spec 7.2).
+    const blocked = "1 learner has already worked on this lesson, so it can't be deleted. You can hide it instead.";
     // Release 2 (D66): what a learner did in a lesson keeps it, whatever the
     // lesson; a learner who did nothing in it doesn't.
     await prisma.courseEnrollment.create({

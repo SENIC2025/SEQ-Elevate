@@ -275,7 +275,8 @@ export async function getCourseOutline(
   if (kind === "cms") {
     const outlineRaw = row?.outline ?? null;
     const planRows = lessons.map(planFactsOf);
-    const plan = lessonPlanOf("cms", outlineRaw, planRows, "en", { legacyOnly: learnerPlayerOff() });
+    const switchedOff = learnerPlayerOff();
+    const plan = lessonPlanOf("cms", outlineRaw, planRows, "en", { legacyOnly: switchedOff });
     const learners = row?._count.enrollments ?? 0;
     // Who finished, and who has data in each lesson: only asked when there
     // is anyone to count (store.server.ts, the same counts the actions make).
@@ -289,6 +290,7 @@ export async function getCourseOutline(
       lessons,
       byLang,
       plan,
+      switchedOff,
       meta,
       live: { learners, finished, withData },
     });
@@ -432,7 +434,10 @@ const planFactsOf = (l: LessonRow): SectionFacts & PlanFacts => ({
  * of it.
  *
  * Learners get exactly the lessons of the course's lesson plan (D64), so
- * `live` and the numbers come from it; a lesson of the course's own has no
+ * `live` and the numbers come from it, and `notLive` says why a lesson that
+ * isn't hidden is left out of it: nothing in it yet, or (`switchedOff`, the
+ * plan built as Release 1 built it) a lesson of the course's own, which
+ * Release 1's player never plays. A lesson of the course's own has no
  * learner stage, and its text editor starts from the stored text. `live`
  * (the facts) feeds the rules for changing a course people are taking.
  */
@@ -441,6 +446,7 @@ function createdCourseLessons(input: {
   lessons: LessonRow[];
   byLang: (CourseContent | null)[];
   plan: LessonPlan;
+  switchedOff: boolean;
   meta: CourseMeta | null;
   live: { learners: number; finished: number; withData: Map<string, number> };
 }): {
@@ -461,6 +467,9 @@ function createdCourseLessons(input: {
 
   const rows: LessonOutline[] = resolved.sections.map((s, i) => ({
     ...sectionRow(s, i, resolved, rowOf.get(s.id), byLang, present, numbers.get(s.id) ?? null),
+    ...(s.hidden || present.has(s.id)
+      ? {}
+      : { notLive: input.switchedOff && s.custom ? ("switched-off" as const) : ("empty" as const) }),
     ...(live.learners > 0 ? { learnersWithData: live.withData.get(s.id) ?? 0 } : {}),
   }));
 

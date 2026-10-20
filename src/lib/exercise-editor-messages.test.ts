@@ -339,6 +339,8 @@ describe("no release names or the release date in the editor's words", () => {
       "lessonList.status.later",
       "lessonList.errors.liveLocked",
       "lessonList.publish.liveBypass",
+      // Said why publishing was refused; named after a release (lessonList.publish.refused).
+      "lessonList.publish.needsRelease2",
       "lessonBlocks.notInLearnerView",
       "lessonBlocks.liveLocked",
       "exerciseEditor.errors.liveCourseStandardOnly",
@@ -349,5 +351,17 @@ describe("no release names or the release date in the editor's words", () => {
         locale
       ).toEqual([]);
     }
+  });
+
+  it("names no key after a release, and says why publishing was refused without going in circles", () => {
+    for (const [locale, messages] of Object.entries(FILES)) {
+      const named = paths(messages)
+        .map(([path]) => path)
+        .filter((path) => /release ?2/i.test(path) && !LEFT_TO_THE_OLD_PREVIEW.has(path));
+      expect(named, locale).toEqual([]);
+    }
+    expect(at(en, "lessonList.publish.refused")).toBe(
+      "This course wasn't published: learners couldn't take it as it is now."
+    );
   });
 });

@@ -282,6 +282,28 @@ describe("a refreshed page (the server-rendered outline)", () => {
     });
   });
 
+  it("with the same lesson list, takes what the rules for a course with learners need of each lesson", () => {
+    // A learner saved in the lesson (or enrolled) after the page loaded: no
+    // structural change, so the list's version is the same (spec 7.2).
+    const section = sectionView("concept", "concept");
+    const first = outline([lesson("concept", { section, learnersWithData: 0 })]);
+    const state = initWorkspace(first);
+    const refreshed = outline([lesson("concept", { section, learnersWithData: 1 })]);
+    const next = workspaceReducer(state, { type: "outline", outline: refreshed });
+    expect(next.lessons[0].learnersWithData).toBe(1);
+    // Nobody left to count: the count goes with them.
+    const after = workspaceReducer(next, { type: "outline", outline: outline([lesson("concept", { section })]) });
+    expect(after.lessons[0].learnersWithData).toBeUndefined();
+
+    // Why learners don't get it, as the server says now (course-admin.ts).
+    const own = sectionView("s-abcdefgh", "text");
+    const empty = outline([lesson("s-abcdefgh", { section: own, live: false, notLive: "empty" })]);
+    const filled = outline([lesson("s-abcdefgh", { section: own, live: true })]);
+    const taken = workspaceReducer(initWorkspace(empty), { type: "outline", outline: filled });
+    expect(taken.lessons[0]).toMatchObject({ live: true });
+    expect(taken.lessons[0].notLive).toBeUndefined();
+  });
+
   it("with the same lesson list, leaves a slot outside the list as the page has it", () => {
     const slot = () => lesson("simulation", { body: "interactive", mainKind: "simulation" });
     const first = outline([lesson("context"), slot()]);
