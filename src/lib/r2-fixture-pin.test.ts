@@ -17,8 +17,12 @@ import { fileURLToPath } from "node:url";
  *                             A-E1 course (e2e/fixtures/r2-ae1-course.ts),
  *                             step by step in English and German, recorded
  *                             once at integration (walk phase 3,
- *                             R2_WALK_RECORD=1). The editor's preview of the
- *                             same course is held to it too.
+ *                             R2_WALK_RECORD=1), and once again by the same
+ *                             run when the integration review's fixes changed
+ *                             its lesson 2 on purpose (a quick check says
+ *                             what it waits for once; no two regions named
+ *                             alike). The editor's preview of the same course
+ *                             is held to it too.
  *
  * A failure means a recording changed. Put it back; a recording is never
  * edited by hand.
@@ -32,7 +36,7 @@ const PINNED: Record<string, string> = {
   "e2e/fixtures/r1-learner-baseline.json":
     "de2330466e49e0939e75512202b5f8350b0781a7959bec8868150fd25321176e",
   "e2e/fixtures/r2-learner-baseline.json":
-    "0620f06912b59c36b6b5be989977dda6e2a4efd367468517c09aeba74c7a8e31",
+    "1f5676a809397284f943467cd011f57319c91cb2290bdf843e495d4d48d603ef",
 };
 
 describe("the learner recordings are pinned", () => {

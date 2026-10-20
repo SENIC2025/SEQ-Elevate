@@ -630,6 +630,48 @@ describe("Release 2 — the learner player", () => {
     }
   });
 
+  // Found at integration review (finding 9): every piece of content was a
+  // region named by its heading, so the two text pieces of "The idea"
+  // (each headed "Text", for screen readers) made two landmarks named
+  // "Text" — axe's landmark-unique, a best practice A-E9's WCAG tags leave
+  // out. Learners get the published course's lesson; the same course as a
+  // draft is the editor's preview of it, which Release 1 drew with the
+  // same markup: red there for this reason, not for what it plays.
+  test("no two landmarks of a lesson are named alike (axe landmark-unique): the A-E1 course's lesson 2", async ({
+    page,
+    context,
+  }) => {
+    const DRAFT = `${SLUG}-draft`;
+    await seedR2Course(prisma, { slug: DRAFT, title: AE1_TITLE, lessons: LESSONS, status: "draft" });
+    try {
+      const editor = await moreLearner("landmarks");
+      await prisma.membership.create({ data: { userId: editor.userId, projectId: "seq-elevate", role: "CONTENT_EDITOR" } });
+      await signIn(context, editor.sessionToken);
+      const words = {
+        en: { title: "Why speaking up works", text: "E2E extra text: say it early." },
+        de: { title: "Warum es wirkt", text: "E2E Zusatztext: sag es früh." },
+      };
+      for (const slug of [DRAFT, SLUG]) {
+        for (const locale of ["en", "de"] as const) {
+          await page.goto(`/${locale}/learner/course/${slug}?preview=1&lesson=concept`);
+          const main = page.getByRole("main");
+          await expect(main.getByRole("heading", { level: 2, name: words[locale].title })).toBeVisible({ timeout: 15000 });
+          // As learners get it: the lesson's extra content is there — on
+          // Release 1 only in the draft's preview.
+          if (slug === DRAFT) await expect(main.getByText(words[locale].text)).toBeVisible();
+          const results = await new AxeBuilder({ page }).include("main").withRules(["landmark-unique"]).analyze();
+          expect(
+            results.violations.map((v) => [v.id, v.nodes.map((n) => n.target)]),
+            `${slug} (${locale}): landmarks named alike`
+          ).toEqual([]);
+          if (slug === SLUG) await expect(main.getByText(words[locale].text)).toBeVisible();
+        }
+      }
+    } finally {
+      await removeR2Course(prisma, DRAFT);
+    }
+  });
+
   test("5.9: on a phone the in-video question shows below the video; focus goes to it, then back to the video", async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 740 });
     await page.goto("/en/learner/course/workplace-conflict");

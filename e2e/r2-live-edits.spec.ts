@@ -71,7 +71,9 @@ const PARTS = `e2e-r2-live-parts-${RUN}`;
 const STAGE = `e2e-r2-live-stage-${RUN}`;
 /** B-E8: a draft with twelve lessons learners see. */
 const MANY = `e2e-r2-live-many-${RUN}`;
-const SLUGS = [FLEX, BLOCKED, MOVE, KEEP, DRAFT, PARTS, STAGE, MANY];
+/** Finding 1: published, a learner, no guided practice yet. */
+const SLOT = `e2e-r2-live-slot-${RUN}`;
+const SLUGS = [FLEX, BLOCKED, MOVE, KEEP, DRAFT, PARTS, STAGE, MANY, SLOT];
 
 const text = (title: string): R2LessonSeed["narrative"] => narrative({ en: { title, text: `E2E ${title} text.` } });
 /** A standard text lesson, ready for learners. */
@@ -253,6 +255,9 @@ describe("Release 2 — changing a course people are taking", () => {
       "draft",
       Array.from({ length: 12 }, (_, i) => ownText(ownLessonId(), `Lesson ${i + 1}`))
     );
+
+    await seed(SLOT, "published", [standardText("context"), standardText("concept"), standardText("behaviour")]);
+    await enrol(learner[2], SLOT, { stages: ["context"] });
   });
 
   test.afterAll(async () => {
@@ -495,6 +500,57 @@ describe("Release 2 — changing a course people are taking", () => {
       select: { structure: true },
     });
     expect(row.structure, "learners keep the practice").not.toBeNull();
+  });
+
+  // Found at integration review (finding 1): the first "Save stage" of
+  // "Add guided practice" adds the lesson to what learners get, and asked
+  // nothing — the picker's route to the same lesson asks first. Red on
+  // Release 1, which saved it straight away.
+  test("Add guided practice on a course with a learner asks first when it is saved, and is audited", async ({
+    page,
+    context,
+  }) => {
+    await signIn(context, editorSession);
+    await openCourse(page, SLOT);
+    const slot = lessonList(page).getByRole("button", { name: /^add guided practice$/i });
+    // Nothing is asked to open it: only the save would add the lesson.
+    await expect(slot).not.toHaveAttribute("aria-disabled", "true");
+    const lesson = page.locator("#lesson-simulation").filter({ visible: true });
+    const panel = lesson.getByRole("region", { name: /^interactive stage — /i });
+    const prompt = panel.getByRole("textbox", { name: /^prompt/i });
+    await expect(async () => {
+      if (!(await prompt.isVisible())) await slot.click();
+      await expect(prompt).toBeVisible({ timeout: 2000 });
+    }).toPass({ timeout: 15000 });
+    await prompt.fill("E2E slot: a colleague asks for help.");
+    await panel.getByRole("textbox", { name: /^option 1 option text$/i }).fill("Ask what they tried");
+    await panel.getByRole("textbox", { name: /^option 2 option text$/i }).fill("Do it for them");
+    const save = panel.getByRole("button", { name: /^save stage$/i });
+    await save.click();
+
+    // Asked in place, with the server's count and what learners notice.
+    const ask = lesson.getByRole("group", { name: "Add a lesson to a course learners are taking?" });
+    await expect(ask.getByRole("heading")).toBeFocused({ timeout: 15000 });
+    await expect(ask).toContainText("1 learner is taking this course (0 finished).");
+    await expect(ask).toContainText("Learners who haven't finished will have one more lesson to do");
+    const practice = () =>
+      prisma.lesson.findFirst({
+        where: { projectId: PROJECT, courseSlug: SLOT, stageKey: "simulation" },
+        select: { structure: true },
+      });
+    // Escape: nothing saved, focus back on "Save stage".
+    await page.keyboard.press("Escape");
+    await expect(ask).toHaveCount(0);
+    await expect(save).toBeFocused();
+    expect((await practice())?.structure ?? null).toBeNull();
+
+    // Confirmed: saved, in the list, audited with the count.
+    await save.click();
+    await ask.getByRole("button", { name: /^add it$/i }).click();
+    await expect(lessonList(page).getByRole("link", { name: /^4\. Guided practice$/ })).toBeVisible({ timeout: 15000 });
+    expect((await practice())?.structure).toBeTruthy();
+    const [saved] = await auditOf("structure.saved", `${SLOT}:simulation`);
+    expect(saved.metadata).toMatchObject({ kind: "simulation", added: true, learners: 1, confirmed: true });
   });
 
   test("the 13th visible lesson warns", async ({ page, context }) => {

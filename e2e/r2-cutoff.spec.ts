@@ -60,7 +60,11 @@ const STALE = `e2e-r2-cutoff-stale-${RUN}`;
 const UNPUBLISHED = `e2e-r2-cutoff-unpub-${RUN}`;
 /** Not published; its learner arrives after the page opened. */
 const STALE_DRAFT = `e2e-r2-cutoff-stale-draft-${RUN}`;
-const SLUGS = [CLOSED, STALE, UNPUBLISHED, STALE_DRAFT];
+/** Published with a learner, no guided practice: its "Add guided practice" would add a lesson. */
+const SLOT = `e2e-r2-cutoff-slot-${RUN}`;
+/** Published; its learner arrives while the editor writes its guided practice. */
+const SLOT_STALE = `e2e-r2-cutoff-slot-stale-${RUN}`;
+const SLUGS = [CLOSED, STALE, UNPUBLISHED, STALE_DRAFT, SLOT, SLOT_STALE];
 
 /** liveChanges.closed with the cut-off of the `cutoff` server, as the page says it in English. */
 const CLOSED_TEXT =
@@ -143,6 +147,9 @@ describe("Release 2 — the 1 December cut-off", () => {
     await seed(UNPUBLISHED, [lesson("context"), lesson("concept"), lesson("behaviour")]);
     await enrol(learnerId, UNPUBLISHED);
     await seed(STALE_DRAFT, [lesson("context"), lesson("concept")], "draft");
+    await seed(SLOT, [lesson("context"), lesson("concept"), lesson("behaviour")]);
+    await enrol(learnerId, SLOT);
+    await seed(SLOT_STALE, [lesson("context"), lesson("concept"), lesson("behaviour")]);
   });
 
   test.afterAll(async () => {
@@ -193,6 +200,56 @@ describe("Release 2 — the 1 December cut-off", () => {
     await move.click();
     await expect(lessonList(page).getByRole("alert")).toHaveText(CLOSED_TEXT, { timeout: 15000 });
     expect(await ids(STALE)).toEqual(["context", "concept"]);
+  });
+
+  // Found at integration review (finding 1): "Add guided practice" (and
+  // scenario, quick check) opens the exercise editor, whose first "Save
+  // stage" adds the lesson to what learners get. Release 2 as built asked
+  // nothing of it: from the cut-off a course with learners gained a lesson.
+  // Red on Release 1, which has no cut-off.
+  test("Add guided practice is refused with the date, in the list and on its card; a page from before the course had learners is refused on Save stage", async ({
+    page,
+    context,
+  }) => {
+    await signIn(context, editorSession);
+    await openCourse(page, SLOT);
+    const slot = lessonList(page).getByRole("button", { name: /^add guided practice$/i });
+    await expect(slot).toHaveAttribute("aria-disabled", "true");
+    await expect(slot).toHaveAccessibleDescription(CLOSED_TEXT);
+    const card = page.locator("#lesson-simulation").filter({ visible: true });
+    const cardAdd = card.getByRole("button", { name: /^add guided practice$/i });
+    await expect(cardAdd).toHaveAttribute("aria-disabled", "true");
+    await expect(cardAdd).toHaveAccessibleDescription(CLOSED_TEXT);
+    // Pressed anyway (by keyboard: it stays focusable), no editor opens.
+    await slot.focus();
+    await page.keyboard.press("Enter");
+    await cardAdd.focus();
+    await page.keyboard.press("Enter");
+    await expect(card.getByRole("region", { name: /^interactive stage — /i })).toHaveCount(0);
+
+    // A page opened before the course had learners: the editor opens, and
+    // the server refuses its "Save stage", with the date.
+    await openCourse(page, SLOT_STALE);
+    const staleSlot = lessonList(page).getByRole("button", { name: /^add guided practice$/i });
+    const stale = page.locator("#lesson-simulation").filter({ visible: true });
+    const panel = stale.getByRole("region", { name: /^interactive stage — /i });
+    const prompt = panel.getByRole("textbox", { name: /^prompt/i });
+    await expect(async () => {
+      if (!(await prompt.isVisible())) await staleSlot.click();
+      await expect(prompt).toBeVisible({ timeout: 2000 });
+    }).toPass({ timeout: 15000 });
+    await prompt.fill("E2E cut-off: a colleague asks for help.");
+    await panel.getByRole("textbox", { name: /^option 1 option text$/i }).fill("Ask what they tried");
+    await panel.getByRole("textbox", { name: /^option 2 option text$/i }).fill("Do it for them");
+    await enrol(learnerId, SLOT_STALE);
+    await panel.getByRole("button", { name: /^save stage$/i }).click();
+    await expect(panel.getByRole("alert").filter({ hasText: CLOSED_TEXT })).toBeVisible({ timeout: 15000 });
+    const row = await prisma.lesson.findFirst({
+      where: { projectId: PROJECT, courseSlug: SLOT_STALE, stageKey: "simulation" },
+      select: { structure: true },
+    });
+    expect(row?.structure ?? null, "no guided practice was added").toBeNull();
+    expect(await ids(SLOT_STALE)).toEqual(["context", "concept", "behaviour"]);
   });
 
   test("unpublishing doesn't get round it: a course with learners keeps its shape, published or not", async ({

@@ -294,6 +294,39 @@ test.describe("R0 player — as a guest", () => {
     );
   });
 
+  // Found at integration review (finding 10, already in Release 1): the
+  // follow-up button pressed goes once the follow-up is chosen, and focus
+  // fell to the page; the sectioned view's scenario moves it to the
+  // outcome. Red on Release 1.
+  test("choosing the scenario's follow-up by keyboard keeps focus, on its outcome", async ({ page }) => {
+    await page.goto(`/en/learner/course/${BUILT_IN}`);
+    await expect(page.getByRole("heading", { name: /three weeks into the new job/i })).toBeVisible();
+    await next(page, /speaking up without making it worse/i);
+    await cont(page).click(); // concept → behaviour
+    await cont(page).click(); // behaviour → simulation
+    await page.getByText(/the bus was late\. when you say/i).click();
+    await cont(page).click();
+
+    const root = page.getByRole("button", { name: /wait for a quiet moment, then talk to sam/i });
+    await root.focus();
+    await page.keyboard.press("Enter");
+    await expect(page.getByText(HINT.scenarioFollowup)).toBeVisible();
+    const followup = page.getByRole("button", { name: /addressed directly from now on/i });
+    await followup.focus();
+    await page.keyboard.press("Enter");
+    await expect(page.getByText(HINT.scenarioFollowup)).toHaveCount(0);
+    // Focus is on the follow-up's outcome, where its buttons were — not the page.
+    await expect
+      .poll(() => page.evaluate(() => document.activeElement?.tagName ?? "none"))
+      .not.toBe("BODY");
+    const focused = page.locator(":focus");
+    await expect(focused).toHaveAttribute("role", "status");
+    await expect(focused).toContainText(/what just happened/i);
+    // Next in the tab order: "Try different choices", then Continue.
+    await page.keyboard.press("Tab");
+    await expect(page.getByRole("button", { name: /try different choices/i })).toBeFocused();
+  });
+
   test("the hints are there, in German too, and pass axe with every reading-help setting on", async ({
     page,
   }) => {
