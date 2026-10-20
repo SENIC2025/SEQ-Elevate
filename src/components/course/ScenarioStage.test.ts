@@ -1,16 +1,31 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createElement, type FC, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { NextIntlClientProvider } from "next-intl";
 import en from "@/messages/en.json";
 import type { CourseStage } from "@/lib/cms/types";
 
-vi.mock("@/store/demo-state", () => ({
-  useDemoState: () => ({ state: {}, dispatch: () => {} }),
+// The learner store, as the stage reads it: the saved scenario path.
+const store = vi.hoisted(() => ({
+  scenario: { root: null, followup: null, rootLabel: null, followupLabel: null } as Record<string, string | null>,
+  dispatched: [] as unknown[],
 }));
+vi.mock("@/store/demo-state", async () => {
+  const { fakeCourse } = await import("./press.test-helpers");
+  return {
+    useDemoState: () => ({
+      state: { course: fakeCourse({ scenario: store.scenario }), refusedKeys: {} },
+      dispatch: (a: unknown) => store.dispatched.push(a),
+    }),
+  };
+});
+const announced = vi.hoisted(() => [] as string[]);
+vi.mock("./PlayerAnnouncer", () => ({ useAnnounce: () => (t: string) => announced.push(t) }));
+vi.mock("@/components/ui/button", async () => ({ Button: (await import("./press.test-helpers")).MockButton }));
 
 import { ScenarioStage } from "./ScenarioStage";
 import { scenarioContinueHint } from "./continue-hint";
+import { did, fakePage, press } from "./press.test-helpers";
 
 const IntlProvider = NextIntlClientProvider as FC<{
   locale: string;
@@ -41,18 +56,86 @@ const stage = {
   },
 } as CourseStage;
 
+let continued = 0;
+function render(): string {
+  return renderToStaticMarkup(
+    createElement(
+      IntlProvider,
+      { locale: "en", messages: en, timeZone: "UTC" },
+      createElement(ScenarioStage, { stage, onContinue: () => continued++ })
+    )
+  );
+}
+
+const saved = (root: string | null, followup: string | null = null) => {
+  store.scenario = { root, followup, rootLabel: null, followupLabel: null };
+};
+
+beforeEach(() => {
+  saved(null);
+  store.dispatched.length = 0;
+  announced.length = 0;
+  continued = 0;
+  const page = fakePage();
+  vi.stubGlobal("document", page.document);
+  vi.stubGlobal("window", page.window);
+});
+afterEach(() => vi.unstubAllGlobals());
+
 describe("ScenarioStage", () => {
-  it("says what's needed to continue while Continue is hidden, as plain text", () => {
-    const html = renderToStaticMarkup(
-      createElement(
-        IntlProvider,
-        { locale: "en", messages: en, timeZone: "UTC" },
-        createElement(ScenarioStage, { stage, onContinue: () => {} })
-      )
-    );
-    expect(html).not.toContain(">Continue<");
-    expect(html).toContain("To continue, choose what you would do.");
+  // UA5 (spec 5.7): Release 1 hid Continue until the path was complete.
+  it("shows Continue from the start, with what it waits for above it, as plain text", () => {
+    const html = render();
+    const hintId = html.match(/<p id="([^"]+)"[^>]*>To continue, choose what you would do.<\/p>/)?.[1];
+    expect(hintId).toBeTruthy();
+    expect(html).toMatch(new RegExp(`<button type="button" aria-describedby="${hintId}">Continue`));
     expect(html).not.toMatch(/aria-live|role="status"|role="alert"/);
+  });
+
+  it("pressed before the first choice: focuses the heading and says what's needed", () => {
+    const headingId = render().match(/<h2 id="([^"]+)" tabindex="-1"/)?.[1];
+    press("Continue");
+    expect(continued).toBe(0);
+    expect(announced).toEqual(["Applied scenario: To continue, choose what you would do."]);
+    expect(did).toEqual([`focus ${headingId} preventScroll`]);
+  });
+
+  it("pressed before the follow-up: focuses the follow-up question", () => {
+    saved("private");
+    const html = render();
+    const followupId = html.match(/<p id="([^"]+)" tabindex="-1"[^>]*>And then\?<\/p>/)?.[1];
+    expect(followupId).toBeTruthy();
+    expect(html).toContain("Answer the follow-up question to continue.");
+    press("Continue");
+    expect(announced).toEqual(["Applied scenario: Answer the follow-up question to continue."]);
+    expect(did).toEqual([`focus ${followupId} preventScroll`]);
+  });
+
+  // UA5 (spec 5.8): Release 1 kept the path in the screen's own state.
+  it("shows the learner's saved path again: both choices, both outcomes, and Continue goes on", () => {
+    saved("private", "boundary");
+    const html = render();
+    expect(html).toContain("Calm.");
+    expect(html).toContain("Ok.");
+    expect(html).toMatch(/disabled=""[^>]*>Snap back/);
+    expect(html).not.toContain("And then?");
+    press("Continue");
+    expect(continued).toBe(1);
+  });
+
+  it("ignores a saved path whose choices the scenario no longer has", () => {
+    saved("gone", "boundary");
+    expect(render()).toContain("To continue, choose what you would do.");
+    saved("private", "gone");
+    expect(render()).toContain("And then?");
+  });
+
+  it("'Try different choices' keeps the saved path, and moves focus to the heading first", () => {
+    saved("public");
+    const headingId = render().match(/<h2 id="([^"]+)"/)?.[1];
+    press("Try different choices");
+    expect(did).toEqual([`focus ${headingId}`]);
+    expect(store.dispatched).toEqual([]);
   });
 });
 
@@ -66,7 +149,7 @@ describe("scenarioContinueHint", () => {
     );
   });
 
-  it("has nothing to say once Continue shows", () => {
+  it("has nothing to say once the path is complete", () => {
     expect(scenarioContinueHint({ rootChosen: true, followups: 0, followupChosen: false })).toBe(
       null
     );
