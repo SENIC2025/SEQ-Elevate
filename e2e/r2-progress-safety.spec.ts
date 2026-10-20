@@ -126,12 +126,30 @@ function nextSave(page: Page, holding?: string) {
   });
 }
 
-/** From the course's first lesson to its practice (the player opens at the first). */
+/**
+ * To the course's practice. Release 2's player opens a signed-in learner
+ * where they left off (Stream A, spec 5.5): a tab opened after the practice
+ * was done elsewhere opens past it, and the step bar takes it back there;
+ * otherwise it opens at the first lesson, three before the practice.
+ */
 async function toPractice(page: Page) {
-  for (let i = 0; i < 3; i++) await cont(page).click();
+  const step = page
+    .getByRole("navigation", { name: /^course stages$/i })
+    .filter({ visible: true })
+    .getByRole("button", { name: /guided practice/i });
+  if (await step.isEnabled()) await step.click();
+  else for (let i = 0; i < 3; i++) await cont(page).click();
   await expect(page.getByText(/look who finally showed up/i)).toBeVisible();
 }
-const practice = (page: Page, option: RegExp) => page.getByText(option).click();
+/**
+ * Answer the practice with `option`. Release 2 shows the learner's saved
+ * answer (Stream A, spec 5.8): to change it they press "Try another" first.
+ */
+async function practice(page: Page, option: RegExp) {
+  const again = page.getByRole("button", { name: /^try another$/i });
+  if (await again.isVisible()) await again.click();
+  await page.getByText(option).click();
+}
 const BEST = /the bus was late\. when you say/i;
 const SORRY = /sorry, sorry, won't happen again/i;
 

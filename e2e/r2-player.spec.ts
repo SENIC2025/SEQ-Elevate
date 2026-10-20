@@ -1,0 +1,723 @@
+import { test, expect, type Locator, type Page } from "@playwright/test";
+import AxeBuilder from "@axe-core/playwright";
+import { PrismaClient } from "@prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
+import {
+  learnerWithSession,
+  narrative,
+  ownLessonId,
+  parts,
+  removeLearners,
+  removeR2Course,
+  runId,
+  seedR2Course,
+  signIn,
+  structures,
+  type R2LessonSeed,
+} from "./fixtures/r2-course";
+
+/**
+ * Release 2, Stream A: the one learner player (D63, spec 5, 10.2 A-E1,
+ * A-E2, A-E6, A-E9, A-E10, A-E11).
+ *
+ * A published course is seeded the way the course editor leaves it: two
+ * lessons of its own, "context" and "reflection" hidden, the scenario moved before
+ * "behaviour", every step named in English and German, extra content of
+ * every kind on "concept", a video with an in-video question on a lesson
+ * of its own, and documents (one published, one not).
+ *
+ *   A-E1   it plays as built: its own lessons, its order, the hidden one
+ *          left out, the step names in the bar, Back and the counter (en,
+ *          de), every kind of content, the video and the documents.
+ *   A-E2   answers per item survive a reload, signed in (the row holds
+ *          them by "lesson/content", the four standard ones in their
+ *          columns, standard lessons in stagesCompleted only) and as a
+ *          guest (the browser's store).
+ *   A-E6   Continue before an answer: visible, says what it waits for;
+ *          pressed, it names the item and the need, focuses the item —
+ *          its top below the sticky header, the page not moved when it
+ *          was in view, at once under reduced motion — in en, de and el;
+ *          no sideways scroll at 320 px.
+ *   A-E9   axe on every kind of content, in en, de and el, at 320 px.
+ *   A-E10  a published course with no lesson to show says so: no
+ *          completion, no badge.
+ *   A-E11  a save answered "unknown action" (a deploy happened): the reload
+ *          banner, the answer kept, and saved after the reload (D68).
+ *
+ * Each is red on the Release 1 build (main b357cc7): it gives learners
+ * the standard lessons only, keeps no answer but the four standard ones,
+ * hides Continue until an answer, completes an empty course on opening,
+ * and drops a save the server doesn't recognise.
+ *
+ * Requires a real database — gated on E2E_DB=1, like db-backed-progress.
+ * Everything it creates is unique to this run and removed afterwards.
+ */
+
+const DB = process.env.E2E_DB === "1";
+const prisma = DB
+  ? new PrismaClient({
+      adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }),
+    })
+  : (null as unknown as PrismaClient);
+
+const describe = DB ? test.describe : test.describe.skip;
+test.describe.configure({ mode: "serial" });
+
+const RUN = runId();
+const SLUG = `e2e-r2-player-${RUN}`;
+const EMPTY = `e2e-r2-player-empty-${RUN}`;
+const EMAILS = {
+  plays: `e2e-r2-player-plays-${RUN}@example.com`,
+  answers: `e2e-r2-player-answers-${RUN}@example.com`,
+  cont: `e2e-r2-player-continue-${RUN}@example.com`,
+  empty: `e2e-r2-player-empty-${RUN}@example.com`,
+  stale: `e2e-r2-player-stale-${RUN}@example.com`,
+};
+const TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
+
+// ---------------------------------------------------------------------------
+// The course.
+
+const WARMUP = ownLessonId();
+const WRAPUP = ownLessonId();
+const P = {
+  hallway: "p-hallway1",
+  text: "p-extratx1",
+  quiz: "p-extraqz1",
+  reflection: "p-ownrefl1",
+  rating: "p-ownrate1",
+  practice: "p-extrapr1",
+  ownPractice: "p-ownprac1",
+};
+
+const HALLWAY = {
+  id: P.hallway,
+  type: "scenario",
+  data: {
+    kind: "scenario",
+    title: { en: "The hallway", de: "Der Flur" },
+    setup: { en: "A colleague talks over you in the hallway." },
+    question: { en: "What do you do first?" },
+    followupQuestion: { en: "They stop. What do you say next?" },
+    choices: [
+      {
+        id: "hall-raise",
+        quality: "best",
+        text: { en: "Raise a hand and say you'd like to finish" },
+        outcome: { en: "They pause and listen." },
+        followups: [
+          { id: "hall-finish", quality: "best", text: { en: "Finish your point briefly" }, outcome: { en: "Your point lands." } },
+          { id: "hall-again", quality: "okay", text: { en: "Start again from the top" }, outcome: { en: "They drift off." } },
+        ],
+      },
+      { id: "hall-walk", quality: "poor", text: { en: "Walk away" }, outcome: { en: "Nothing changes." } },
+    ],
+  },
+  draft: null,
+} as const;
+
+const OWN_PRACTICE = {
+  id: P.ownPractice,
+  type: "practice",
+  data: {
+    kind: "simulation",
+    prompt: { en: "Your lead asks how the week went." },
+    instruction: { en: "Choose what you would say." },
+    options: [
+      { id: "wrap-name", isBest: true, text: { en: "Name one thing that worked and one to change." }, feedback: { en: "Specific and fair." } },
+      { id: "wrap-fine", isBest: false, text: { en: "It was fine." }, feedback: { en: "Nothing to build on." } },
+    ],
+  },
+  draft: null,
+} as const;
+
+const VIDEO = {
+  provider: "file",
+  src: "/demo/sample-lesson.webm",
+  title: "E2E lesson video",
+  captions: [{ src: "/demo/sample-lesson.en.vtt", label: "English", lang: "en", default: true }],
+  cues: [
+    {
+      id: `e2e-cue-${RUN}`,
+      atSeconds: 4,
+      question: "E2E: what helps most?",
+      options: [
+        { id: "early", text: "Speaking early" },
+        { id: "late", text: "Waiting it out" },
+      ],
+      correctOptionId: "early",
+    },
+  ],
+};
+
+const LESSONS: R2LessonSeed[] = [
+  {
+    id: WARMUP,
+    label: { en: "Warm-up", de: "Aufwärmen" },
+    narrative: narrative({
+      en: { title: "Before you start", text: "E2E warm-up text." },
+      de: { title: "Bevor du anfängst", text: "E2E Aufwärmtext." },
+    }),
+    parts: [HALLWAY as never],
+    documents: [
+      { name: "E2E checklist.pdf", url: "https://example.org/e2e-r2-checklist.pdf" },
+      { name: "E2E unpublished.pdf", url: "https://example.org/e2e-r2-draft.pdf", published: false },
+    ],
+  },
+  {
+    id: "context",
+    hidden: true,
+    narrative: narrative({ en: { title: "Hidden", text: "E2E hidden context text." } }),
+  },
+  {
+    id: "concept",
+    label: { en: "The idea", de: "Die Idee" },
+    narrative: narrative({
+      en: { title: "Why speaking up works", text: "E2E concept text." },
+      de: { title: "Warum es wirkt", text: "E2E Konzepttext." },
+    }),
+    parts: [
+      parts.text({ en: "E2E extra text: say it early.", de: "E2E Zusatztext: sag es früh." }, P.text),
+      parts.quiz("E2E: when do you speak up?", P.quiz),
+      parts.reflection([{ en: "E2E: when did you hold back?" }, { en: "E2E: what stopped you?" }], P.reflection),
+      parts.rating([{ en: "E2E: I say when I disagree." }, { en: "E2E: I ask for time to finish." }], P.rating),
+      parts.practice("E2E: you're interrupted a third time.", P.practice),
+    ],
+  },
+  {
+    id: "scenario",
+    label: { en: "Try it", de: "Probier es" },
+    structure: structures.scenario("E2E: your lead cuts you off in a meeting."),
+  },
+  {
+    id: "behaviour",
+    narrative: narrative({
+      en: { title: "What it looks like", text: "E2E behaviour text." },
+      de: { title: "So sieht es aus", text: "E2E Verhaltenstext." },
+    }),
+  },
+  {
+    id: WRAPUP,
+    label: { en: "Wrap-up", de: "Abschluss" },
+    narrative: narrative({
+      en: { title: "Bringing it together", text: "E2E wrap-up text." },
+      de: { title: "Alles zusammen", text: "E2E Abschlusstext." },
+    }),
+    parts: [OWN_PRACTICE as never],
+    video: VIDEO,
+  },
+  // A standard text lesson is always in the list unless deleted: hidden here.
+  { id: "reflection", hidden: true },
+  {
+    id: "assessment",
+    structure: structures.assessment("E2E: what do you say first?"),
+  },
+];
+
+const NAMES = {
+  en: ["Warm-up", "The idea", "Try it", "Behaviour model", "Wrap-up", "Quick check"],
+  de: ["Aufwärmen", "Die Idee", "Probier es", "Verhaltens-Modell", "Abschluss", "Schnellcheck"],
+  el: ["Warm-up", "The idea", "Try it", "Μοντέλο συμπεριφοράς", "Wrap-up", "Σύντομος έλεγχος"],
+};
+
+// ---------------------------------------------------------------------------
+// The page. Only what's on screen: while the page streams in, the server's
+// copy can sit in a hidden block for a moment.
+
+const stepButtons = (page: Page) =>
+  page.getByRole("navigation", { name: /^(course stages|kursschritte|βήματα μαθήματος)$/i }).filter({ visible: true }).getByRole("button");
+const counter = (page: Page) => page.getByText(/^\d+ \/ \d+ · /).filter({ visible: true });
+const continueButton = (page: Page) =>
+  page.getByRole("main").getByRole("button", { name: /^(continue|weiter|συνέχεια)$/i }).filter({ visible: true });
+const region = (page: Page, name: string) => page.getByRole("main").getByRole("region", { name, exact: true });
+const announcer = (page: Page) => page.locator("[data-player-announcer]");
+
+/** Continue to step n, retried against the hydration race, never past it. */
+async function continueTo(page: Page, n: number) {
+  await expect(async () => {
+    const at = (await counter(page).textContent())?.trim() ?? "";
+    if (at.startsWith(`${n - 1} /`)) await continueButton(page).click();
+    await expect(counter(page)).toHaveText(new RegExp(`^${n} / `), { timeout: 5000 });
+  }).toPass({ timeout: 20_000 });
+}
+
+/** Click until `done` holds — once hydrated a single click does it; never clicks again after. */
+async function clickUntil(target: Locator, done: () => Promise<void>) {
+  await expect(async () => {
+    try {
+      await done();
+      return;
+    } catch {
+      await target.click();
+    }
+    await done();
+  }).toPass({ timeout: 20_000 });
+}
+
+/** The answers to lesson 1's scenario: a first choice and its follow-up. */
+async function answerHallway(page: Page) {
+  const hallway = region(page, "The hallway");
+  await clickUntil(hallway.getByRole("button", { name: "Raise a hand and say you'd like to finish" }), () =>
+    expect(hallway.getByText("They pause and listen.")).toBeVisible({ timeout: 2000 })
+  );
+  await hallway.getByRole("button", { name: "Finish your point briefly" }).click();
+  await expect(hallway.getByText("Your point lands.")).toBeVisible();
+}
+
+/** Lesson 2: the extra quick check checked, two ratings, an own reflection, the practice. */
+async function answerConcept(page: Page) {
+  const quiz = region(page, "Quick check");
+  await quiz.getByRole("button", { name: /^Early/ }).click();
+  await quiz.getByRole("button", { name: /^check answers$/i }).click();
+  await expect(quiz.getByText("You got 1 out of 1 right.")).toBeVisible();
+  const reflection = region(page, "Reflection questions");
+  await reflection.getByRole("textbox", { name: "E2E: what stopped you?" }).fill("E2E: the clock.");
+  const rating = region(page, "Self-assessment");
+  await rating.getByRole("group", { name: "E2E: I say when I disagree." }).getByRole("radio", { name: "4 of 5" }).check();
+  await rating.getByRole("group", { name: "E2E: I ask for time to finish." }).getByRole("radio", { name: "2 of 5" }).check();
+  const practice = region(page, "Try a small move");
+  await practice.getByRole("button", { name: "Let me finish, please." }).click();
+  await expect(practice.getByText("Clear and calm.")).toBeVisible();
+}
+
+/** A learner's row in the course, Release 1's columns and Release 2's. */
+async function rowOf(userId: string, slug = SLUG) {
+  return prisma.courseEnrollment.findFirst({
+    where: { userId, course: { slug } },
+    select: {
+      completedAt: true,
+      stagesCompleted: true,
+      sectionsCompleted: true,
+      simulationChoice: true,
+      scenarioRoot: true,
+      scenarioFollowup: true,
+      assessment: true,
+      responses: true,
+    },
+  });
+}
+
+async function noSideScroll(page: Page, where = "") {
+  const [overflow, wide] = await page.evaluate(() => {
+    const width = document.documentElement.clientWidth;
+    // The elements reaching past the screen outside any scroll box, to say which.
+    const clipped = (el: Element) => {
+      for (let p = el.parentElement; p; p = p.parentElement) {
+        if (getComputedStyle(p).overflowX !== "visible") return true;
+      }
+      return false;
+    };
+    const past = [...document.querySelectorAll("body *")]
+      .filter((el) => el.getBoundingClientRect().right > width + 0.5 && !clipped(el))
+      .slice(-3)
+      .map((el) => `${el.tagName.toLowerCase()}.${el.className}: ${el.textContent?.slice(0, 40)}`);
+    // And where the extra width comes from: the widest boxes, outside any scroll box.
+    const wide = [...document.querySelectorAll("body *")]
+      .filter((el) => !clipped(el) && el.scrollWidth > width)
+      .slice(-4)
+      .map((el) => `${el.tagName.toLowerCase()}.${String(el.className).slice(0, 60)} sw=${el.scrollWidth} r=${Math.round(el.getBoundingClientRect().right)}`);
+    past.push(...wide);
+    return [document.documentElement.scrollWidth - width, past] as const;
+  });
+  expect(overflow, `no sideways scrolling ${where} ${JSON.stringify(wide)}`).toBeLessThanOrEqual(0);
+}
+
+/** The player's page (main); the header and footer are scanned in accessibility.spec. */
+async function axeClean(page: Page, where: string) {
+  // Once colours have finished fading (transition-colors): mid-fade they
+  // are a blend of two.
+  await page.waitForFunction(() => document.getAnimations().every((a) => a.playState !== "running"));
+  const results = await new AxeBuilder({ page }).include("main").withTags(TAGS).analyze();
+  const bad = results.violations.filter((v) => v.impact === "serious" || v.impact === "critical");
+  expect(bad, `${where}: ${JSON.stringify(bad.map((v) => [v.id, v.nodes.map((n) => n.target)]))}`).toEqual([]);
+}
+
+describe("Release 2 — the learner player", () => {
+  const users: Record<keyof typeof EMAILS, { userId: string; sessionToken: string }> = {} as never;
+
+  test.beforeAll(async () => {
+    await seedR2Course(prisma, {
+      slug: SLUG,
+      title: { en: "E2E Speak up as built", de: "E2E Sprich es an, wie gebaut" },
+      lessons: LESSONS,
+    });
+    for (const [k, email] of Object.entries(EMAILS)) {
+      users[k as keyof typeof EMAILS] = await learnerWithSession(prisma, email);
+    }
+  });
+
+  test.afterAll(async () => {
+    const ids = Object.values(users).map((u) => u.userId);
+    await prisma.auditLog.deleteMany({ where: { actorId: { in: ids } } });
+    await removeLearners(prisma, Object.values(EMAILS));
+    await removeR2Course(prisma, SLUG);
+    await removeR2Course(prisma, EMPTY);
+    await prisma.$disconnect();
+  });
+
+  test("A-E1: a published flexible course plays as built: its lessons, order, names, every kind of content, video and documents", async ({
+    page,
+    context,
+  }) => {
+    test.setTimeout(120_000);
+    await signIn(context, users.plays.sessionToken);
+    await page.goto(`/en/learner/course/${SLUG}`);
+    const main = page.getByRole("main");
+
+    // Its own lessons, in its order, by their names; the hidden one left out.
+    await expect(stepButtons(page)).toHaveCount(6, { timeout: 15000 });
+    for (const [i, name] of NAMES.en.entries()) {
+      await expect(stepButtons(page).nth(i)).toHaveAccessibleName(i === 0 ? `1 ${name}` : `${i + 1} ${name}`);
+    }
+    await expect(page.getByText("E2E hidden context text.")).toHaveCount(0);
+    await expect(counter(page)).toHaveText("1 / 6 · Warm-up");
+    await expect(main.getByRole("heading", { level: 2 })).toHaveText("Before you start");
+
+    // Its published document, not the other.
+    await expect(main.getByRole("button", { name: "E2E checklist.pdf" })).toBeVisible();
+    await expect(page.getByText("E2E unpublished.pdf")).toHaveCount(0);
+
+    // A scenario with a follow-up, in a lesson of its own.
+    await answerHallway(page);
+    await continueTo(page, 2);
+
+    // Every kind of extra content on a standard lesson, its main text first.
+    await expect(counter(page)).toHaveText("2 / 6 · The idea");
+    await expect(main.getByRole("heading", { level: 2 })).toHaveText("Why speaking up works");
+    await expect(main.getByText("E2E concept text.")).toBeVisible();
+    await expect(main.getByText("E2E extra text: say it early.")).toBeVisible();
+    for (const name of ["Quick check", "Reflection questions", "Self-assessment", "Try a small move"]) {
+      await expect(main.getByRole("heading", { level: 3, name, exact: true })).toHaveCount(1);
+    }
+    // Back is named by the lesson it goes to; the first step is done.
+    const back = main.getByRole("button", { name: "Warm-up", exact: true });
+    await expect(back).toBeEnabled();
+    await expect(stepButtons(page).first()).toHaveAccessibleName("Warm-up, done");
+    await answerConcept(page);
+    await continueTo(page, 3);
+
+    // A standard lesson, moved before "behaviour", by its stage screen, renamed.
+    await expect(counter(page)).toHaveText("3 / 6 · Try it");
+    await expect(main.getByRole("heading", { level: 2 })).toHaveText("The bigger moment");
+    await expect(main.getByRole("button", { name: "The idea", exact: true })).toBeVisible();
+    await clickUntil(main.getByRole("button", { name: "Ask to finish your point" }), () =>
+      expect(main.getByText("You finish.")).toBeVisible({ timeout: 2000 })
+    );
+    await continueTo(page, 4);
+    await expect(counter(page)).toHaveText("4 / 6 · Behaviour model");
+    await expect(main.getByText("E2E behaviour text.")).toBeVisible();
+    await continueTo(page, 5);
+
+    // A lesson of its own with a video and an in-video question, answered
+    // and recorded with the lesson's id (spec 5.9).
+    await expect(counter(page)).toHaveText("5 / 6 · Wrap-up");
+    const video = page.getByTestId("lesson-video");
+    await expect(video).toBeVisible();
+    await expect(video.locator("track[kind='captions']")).toHaveCount(1);
+    const dialog = page.getByRole("dialog");
+    await expect(async () => {
+      await video.evaluate((v: HTMLVideoElement) => {
+        v.currentTime = 6;
+      });
+      await expect(dialog).toBeVisible({ timeout: 1000 });
+    }).toPass({ timeout: 15000 });
+    await dialog.getByText("Speaking early").click();
+    await dialog.getByRole("button", { name: /^submit$/i }).click();
+    await dialog.getByRole("button", { name: /continue watching/i }).click();
+    await expect
+      .poll(async () => {
+        const row = await prisma.auditLog.findFirst({
+          where: { actorId: users.plays.userId, action: "video.cue_answered", entityId: `e2e-cue-${RUN}` },
+          select: { metadata: true },
+        });
+        return row?.metadata ?? null;
+      }, { timeout: 15000 })
+      .toMatchObject({ courseSlug: SLUG, correct: true, lessonId: WRAPUP });
+    await region(page, "Practice question").getByRole("button", { name: "It was fine." }).click();
+    await continueTo(page, 6);
+
+    // The standard quick check, then the course is complete.
+    await expect(counter(page)).toHaveText("6 / 6 · Quick check");
+    await main.getByRole("button", { name: /^Early/ }).click();
+    await main.getByRole("button", { name: /^check answers$/i }).click();
+    await continueButton(page).click();
+    await expect(page.getByRole("heading", { name: /course complete/i })).toBeVisible({ timeout: 15000 });
+  });
+
+  test("A-E1: the same course in German: the step names in the bar, Back and the counter", async ({
+    page,
+    context,
+  }) => {
+    await signIn(context, users.plays.sessionToken);
+    // Completed above: it opens on its completion screen; every step can be opened.
+    await page.goto(`/de/learner/course/${SLUG}`);
+    await expect(stepButtons(page)).toHaveCount(6, { timeout: 15000 });
+    for (const [i, name] of NAMES.de.entries()) {
+      await expect(stepButtons(page).nth(i)).toHaveAccessibleName(`${name}, erledigt`);
+    }
+    await stepButtons(page).nth(1).click();
+    await expect(counter(page)).toHaveText("2 / 6 · Die Idee");
+    await expect(page.getByRole("main").getByRole("heading", { level: 2 })).toHaveText("Warum es wirkt");
+    await expect(page.getByRole("main").getByRole("button", { name: "Aufwärmen", exact: true })).toBeEnabled();
+  });
+
+  test("A-E2: answers per item survive a reload, stored by lesson and item; standard lessons stay in their column", async ({
+    page,
+    context,
+  }) => {
+    test.setTimeout(120_000);
+    const { userId, sessionToken } = users.answers;
+    await signIn(context, sessionToken);
+    await page.goto(`/en/learner/course/${SLUG}`);
+    await expect(counter(page)).toHaveText("1 / 6 · Warm-up", { timeout: 15000 });
+    await answerHallway(page);
+    await continueTo(page, 2);
+    await answerConcept(page);
+    await continueTo(page, 3);
+    const main = page.getByRole("main");
+    await clickUntil(main.getByRole("button", { name: "Ask to finish your point" }), () =>
+      expect(main.getByText("You finish.")).toBeVisible({ timeout: 2000 })
+    );
+    await continueTo(page, 4);
+
+    // Saved: per item, the four standard answers in their columns.
+    await expect
+      .poll(async () => (await rowOf(userId))?.stagesCompleted ?? [], { timeout: 15000 })
+      .toEqual(["CONCEPT", "SCENARIO"]);
+    const row = (await rowOf(userId))!;
+    expect(row.sectionsCompleted).toEqual([WARMUP]);
+    expect(row.scenarioRoot).toBe("c1");
+    expect(row.simulationChoice).toBeNull();
+    const items = (row.responses as { items: Record<string, unknown> }).items;
+    expect(Object.keys(items).sort()).toEqual(
+      [`${WARMUP}/${P.hallway}`, `concept/${P.quiz}`, `concept/${P.rating}`, `concept/${P.reflection}`, `concept/${P.practice}`].sort()
+    );
+    expect(items[`${WARMUP}/${P.hallway}`]).toMatchObject({ type: "scenario", rootId: "hall-raise", followupId: "hall-finish" });
+    expect(items[`concept/${P.quiz}`]).toMatchObject({ type: "quiz", answers: { q1: "a" }, checked: true });
+    expect(items[`concept/${P.rating}`]).toMatchObject({ type: "rating", values: { s1: 4, s2: 2 } });
+    expect(items[`concept/${P.reflection}`]).toMatchObject({ type: "reflection", text: { r2: "E2E: the clock." } });
+    expect(items[`concept/${P.practice}`]).toMatchObject({ type: "practice", optionId: "o1", correct: true });
+
+    // A reload: they all come back.
+    await page.reload();
+    await expect(counter(page)).toHaveText("4 / 6 · Behaviour model", { timeout: 15000 });
+    await stepButtons(page).nth(1).click();
+    await expect(counter(page)).toHaveText("2 / 6 · The idea");
+    await expect(region(page, "Quick check").getByText("You got 1 out of 1 right.")).toBeVisible();
+    await expect(
+      region(page, "Reflection questions").getByRole("textbox", { name: "E2E: what stopped you?" })
+    ).toHaveValue("E2E: the clock.");
+    await expect(
+      region(page, "Self-assessment").getByRole("group", { name: "E2E: I say when I disagree." }).getByRole("radio", { name: "4 of 5" })
+    ).toBeChecked();
+    await expect(region(page, "Try a small move").getByText("Clear and calm.")).toBeVisible();
+    await stepButtons(page).first().click();
+    await expect(region(page, "The hallway").getByText("Your point lands.")).toBeVisible();
+  });
+
+  test("A-E2: as a guest, the same answers survive a reload in the browser's store", async ({ page }) => {
+    test.setTimeout(90_000);
+    await page.goto(`/en/learner/course/${SLUG}`);
+    await expect(counter(page)).toHaveText("1 / 6 · Warm-up", { timeout: 15000 });
+    await answerHallway(page);
+    await continueTo(page, 2);
+    await answerConcept(page);
+    await continueTo(page, 3);
+
+    await page.reload();
+    // The guest's progress is read from the browser: they open where they left off.
+    await expect(counter(page)).toHaveText("3 / 6 · Try it", { timeout: 15000 });
+    await stepButtons(page).nth(1).click();
+    await expect(region(page, "Quick check").getByText("You got 1 out of 1 right.")).toBeVisible();
+    await expect(
+      region(page, "Reflection questions").getByRole("textbox", { name: "E2E: what stopped you?" })
+    ).toHaveValue("E2E: the clock.");
+    await expect(
+      region(page, "Self-assessment").getByRole("group", { name: "E2E: I ask for time to finish." }).getByRole("radio", { name: "2 of 5" })
+    ).toBeChecked();
+    await stepButtons(page).first().click();
+    await expect(region(page, "The hallway").getByText("Your point lands.")).toBeVisible();
+  });
+
+  for (const locale of ["en", "de", "el"] as const) {
+    test(`A-E6: Continue before an answer says what it waits for; pressed, it names the item and takes the learner there (${locale})`, async ({
+      page,
+      context,
+    }) => {
+      test.setTimeout(90_000);
+      const words = {
+        en: {
+          hint: "To continue, choose what you would do.",
+          announce: "The hallway: To continue, choose what you would do.",
+          several: "2 questions above still need an answer.",
+        },
+        de: {
+          hint: "Wähle, was du tun würdest, um weiterzumachen.",
+          announce: "Der Flur: Wähle, was du tun würdest, um weiterzumachen.",
+          several: "2 Fragen oben brauchen noch eine Antwort.",
+        },
+        el: {
+          hint: "Για να συνεχίσεις, διάλεξε τι θα έκανες.",
+          announce: "The hallway: Για να συνεχίσεις, διάλεξε τι θα έκανες.",
+          several: "2 ερωτήσεις παραπάνω χρειάζονται ακόμη απάντηση.",
+        },
+      }[locale];
+      // Each language's own learner: each starts afresh.
+      const { sessionToken } = await learnerWithSession(prisma, `e2e-r2-player-cont-${locale}-${RUN}@example.com`);
+      await signIn(context, sessionToken);
+      await page.goto(`/${locale}/learner/course/${SLUG}`);
+      await expect(counter(page)).toHaveText(/^1 \/ 6 · /, { timeout: 15000 });
+
+      // Visible before any answer, with what it waits for above it.
+      const cont = continueButton(page);
+      await expect(cont).toBeVisible();
+      await expect(cont).toHaveAccessibleDescription(words.hint);
+
+      // The heading in view, Continue in view: pressing moves nothing.
+      const heading = page
+        .getByRole("main")
+        .getByRole("heading", { level: 3, name: locale === "de" ? "Der Flur" : "The hallway" });
+      await cont.scrollIntoViewIfNeeded();
+      await heading.scrollIntoViewIfNeeded();
+      const before = await page.evaluate(() => window.scrollY);
+      await expect(async () => {
+        await cont.click();
+        await expect(heading).toBeFocused({ timeout: 2000 });
+      }).toPass({ timeout: 20_000 });
+      expect(await page.evaluate(() => window.scrollY), "focus doesn't scroll a target in view").toBe(before);
+      await expect(counter(page)).toHaveText(/^1 \/ 6 · /);
+      // Named, with its need: in the live region and as the heading's description.
+      await expect(announcer(page)).toHaveText(new RegExp(`^${words.announce.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s?$`));
+      await expect(heading).toHaveAccessibleDescription(words.hint);
+
+      // Lesson 2 at a phone's width, under reduced motion: Continue from the
+      // bottom takes the learner up to the first item, its top just below
+      // the sticky header, at once.
+      await page.emulateMedia({ reducedMotion: "reduce" });
+      await page.setViewportSize({ width: 320, height: 640 });
+      await answerHallwayIn(page, locale);
+      await continueTo(page, 2);
+      await noSideScroll(page);
+      await expect(page.getByRole("main").getByText(words.several)).toBeVisible();
+      await cont.scrollIntoViewIfNeeded();
+      await page.evaluate(() => {
+        const w = window as unknown as { __scrolls: string[] };
+        w.__scrolls = [];
+        const scrollTo = window.scrollTo.bind(window);
+        window.scrollTo = ((o: ScrollToOptions) => {
+          w.__scrolls.push(o.behavior ?? "auto");
+          scrollTo(o);
+        }) as typeof window.scrollTo;
+      });
+      await cont.click();
+      // The quick check's first unanswered question, the first item missing.
+      const question = page.getByRole("main").getByRole("group", { name: /E2E: when do you speak up\?/ });
+      await expect(question).toBeFocused();
+      await expect(question).toHaveAccessibleDescription(/^(Answer 1 more question|Beantworte noch 1 Frage|Απάντησε σε 1 ακόμη ερώτηση)/);
+      expect(await page.evaluate(() => (window as unknown as { __scrolls: string[] }).__scrolls)).toEqual(["auto"]);
+      const [headerBottom, top] = await page.evaluate(() => {
+        const header = document.querySelector("header")!.getBoundingClientRect().bottom;
+        return [header, (document.activeElement as HTMLElement).getBoundingClientRect().top];
+      });
+      expect(top, "the item's top is below the sticky header").toBeGreaterThanOrEqual(headerBottom);
+      expect(top - headerBottom).toBeLessThanOrEqual(17);
+      await noSideScroll(page);
+    });
+  }
+
+  test("A-E9: every kind of content passes axe in en, de and el, and reflows at 320 px", async ({ page, context }) => {
+    test.setTimeout(180_000);
+    // The preview shows exactly what learners get (D35) and reaches every lesson.
+    const editor = await learnerWithSession(prisma, `e2e-r2-player-axe-${RUN}@example.com`);
+    await prisma.membership.create({ data: { userId: editor.userId, projectId: "seq-elevate", role: "CONTENT_EDITOR" } });
+    await signIn(context, editor.sessionToken);
+    await page.setViewportSize({ width: 320, height: 720 });
+    for (const locale of ["en", "de", "el"] as const) {
+      for (const lesson of [WARMUP, "concept", "scenario", "behaviour", WRAPUP, "assessment"]) {
+        await page.goto(`/${locale}/learner/course/${SLUG}?preview=1&lesson=${lesson}`);
+        await expect(counter(page)).toBeVisible({ timeout: 15000 });
+        await noSideScroll(page, `${locale} ${lesson}`);
+        await axeClean(page, `${locale} ${lesson}`);
+      }
+    }
+    await removeLearners(prisma, [`e2e-r2-player-axe-${RUN}@example.com`]);
+  });
+
+  test("A-E10: a published course with no lesson to show says so: no completion, no badge", async ({ page, context }) => {
+    const { userId, sessionToken } = users.empty;
+    // Its only lesson has nothing to show; the standard text lessons are deleted.
+    const nothing = ownLessonId();
+    await seedR2Course(prisma, {
+      slug: EMPTY,
+      lessons: [{ id: nothing, label: { en: "Nothing yet" } }],
+      outline: {
+        v: 1,
+        sections: [{ id: nothing, template: "text", label: { en: "Nothing yet" } }],
+        removed: ["context", "concept", "behaviour", "reflection"],
+      },
+    });
+    await signIn(context, sessionToken);
+    await page.goto(`/en/learner/course/${EMPTY}`);
+    await expect(page.getByRole("main").getByText("This course has no lessons yet.")).toBeVisible({ timeout: 15000 });
+    await expect(page.getByRole("heading", { name: /course complete/i })).toHaveCount(0);
+    await page.waitForTimeout(2500);
+    expect(await rowOf(userId, EMPTY), "no enrolment: nothing done, nothing completed").toBeNull();
+    expect(await prisma.userBadge.count({ where: { userId } })).toBe(0);
+  });
+
+  test("A-E11: a save answered 'unknown action' shows the reload banner, keeps the answer, and saves it after the reload", async ({
+    page,
+    context,
+  }) => {
+    test.setTimeout(90_000);
+    const { userId, sessionToken } = users.stale;
+    await signIn(context, sessionToken);
+    const url = `**/en/learner/course/${SLUG}`;
+    let unknown = 0;
+    await page.route(url, async (route) => {
+      const req = route.request();
+      if (req.method() === "POST" && !!(await req.headerValue("next-action")) && (req.postData() ?? "").includes("hall-raise")) {
+        unknown++;
+        return route.fulfill({ status: 200, headers: { "x-nextjs-action-not-found": "1" }, body: "" });
+      }
+      await route.continue();
+    });
+    await page.goto(`/en/learner/course/${SLUG}`);
+    await expect(counter(page)).toHaveText("1 / 6 · Warm-up", { timeout: 15000 });
+    const hallway = region(page, "The hallway");
+    await clickUntil(hallway.getByRole("button", { name: "Raise a hand and say you'd like to finish" }), () =>
+      expect(hallway.getByText("They pause and listen.")).toBeVisible({ timeout: 2000 })
+    );
+
+    // The banner, and the answer still on screen.
+    const banner = page.getByRole("alert").filter({ hasText: "A new version is available." });
+    await expect(banner).toBeVisible({ timeout: 15000 });
+    expect(unknown).toBeGreaterThan(0);
+    await expect(hallway.getByText("They pause and listen.")).toBeVisible();
+    expect(await rowOf(userId)).toBeNull();
+
+    // The new build is there: Reload, and the kept answer is saved.
+    await page.unroute(url);
+    await banner.getByRole("button", { name: "Reload" }).click();
+    await expect(counter(page)).toHaveText("1 / 6 · Warm-up", { timeout: 15000 });
+    await expect
+      .poll(async () => {
+        const row = await rowOf(userId);
+        return (row?.responses as { items?: Record<string, unknown> } | null)?.items?.[`${WARMUP}/${P.hallway}`] ?? null;
+      }, { timeout: 15000 })
+      .toMatchObject({ type: "scenario", rootId: "hall-raise" });
+    await expect(region(page, "The hallway").getByText("They pause and listen.")).toBeVisible();
+    await expect(page.getByRole("alert").filter({ hasText: "A new version is available." })).toHaveCount(0);
+  });
+});
+
+/** Lesson 1's scenario answered, whatever the page's language (the content is English). */
+async function answerHallwayIn(page: Page, locale: "en" | "de" | "el") {
+  const name = locale === "de" ? "Der Flur" : "The hallway";
+  const hallway = region(page, name);
+  await clickUntil(hallway.getByRole("button", { name: "Raise a hand and say you'd like to finish" }), () =>
+    expect(hallway.getByText("They pause and listen.")).toBeVisible({ timeout: 2000 })
+  );
+  await hallway.getByRole("button", { name: "Finish your point briefly" }).click();
+  await expect(hallway.getByText("Your point lands.")).toBeVisible();
+}

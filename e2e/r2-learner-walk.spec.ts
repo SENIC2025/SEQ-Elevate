@@ -1,35 +1,51 @@
 import { test, expect, type BrowserContext, type Page } from "@playwright/test";
 import { Prisma, PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import path from "node:path";
+import { applyR2Deltas, type Captured } from "./fixtures/r2-deltas";
 
 /**
- * Release 1: a course in the standard layout is exactly what it was for
- * learners (D60). A signed-in learner walks a published course created here
- * — in English and in German — and the built-in "workplace-conflict", and
- * every step is compared with what learners got on Release 0: the
- * accessibility tree of the page's main area (`ariaSnapshot`) and the
- * "n / N · name" counter, when the step opens and once it is answered.
+ * Release 2, the recorded learner walk (spec 10.3, D63): a course in the
+ * standard layout, and a built-in course, are what they were for learners —
+ * the same lessons, order, titles, content, saved answers and completion —
+ * with markup that differs only by the closed list of spec 5.12
+ * (e2e/fixtures/r2-deltas.ts). It replaces Release 1's
+ * r1-learner-identical.spec.ts.
  *
- * The baseline (e2e/fixtures/r1-learner-baseline.json) was recorded by
- * running this file on the Release 0 build (main @ 1c857aa) with
- * R1_BASELINE=record; it is plain text, the same on every platform. Release
- * 1 must match it exactly — also after an editor renames the steps, which
- * learners only see from Release 2.
+ * Phase 1. A signed-in learner walks a published course created here — in
+ * English and in German — and the built-in "workplace-conflict"; every
+ * step, when it opens and once it is answered, is compared with
+ * applyR2Deltas(the Release 0 recording, e2e/fixtures/r1-learner-baseline.json,
+ * pinned in r2-fixture-pin.test.ts): the accessibility tree of the page's
+ * main area (`ariaSnapshot`) and the "n / N · name" counter. Any other
+ * difference fails. The learner's row is then what Release 1 writes for
+ * the same walk, read the way every reader reads it (a reflection or quick
+ * check never touched may be stored as Release 1's empty value or as {}),
+ * and the two new columns stay NULL: a standard course writes nothing new
+ * (spec 2.3).
  *
- * Phase 2 (Release 1 only) stores the course's lesson list with every step
- * renamed in English and German, directly through Prisma, and walks it
- * again against the same baseline: learners keep the standard names until
- * Release 2.
+ * Phase 2. The course's lesson list is stored with every step renamed in
+ * English and German (directly through Prisma) and walked again: only D5
+ * differs from phase 1 — the step bar, Back and the counter show the new
+ * names; lesson titles don't change. This flips Release 1's phase 2, where
+ * learners kept the standard names, on purpose.
  *
- * Requires a real database — gated on E2E_DB=1, like db-backed-progress.
- * The course has a fixed slug and is rebuilt at the start; everything it
- * creates is removed afterwards.
+ * Run on the Release 1 build, phase 1 fails at D1–D4 and only there:
+ * every comparison is soft, so the run lists each step that differs, and
+ * with R2_WALK_DELTAS=none (compare with the recording as it is) Release 1
+ * passes phase 1 — Release 1 is the recording, so what it lacks is exactly
+ * the list.
+ *
+ * With R2_WALK_VIDEO=1 Playwright records a video of each walk, for the
+ * release check (spec 10.3). Requires a real database — gated on E2E_DB=1, like
+ * db-backed-progress. The course has a fixed slug and is rebuilt at the
+ * start; everything it creates is removed afterwards.
  */
 
 const DB = process.env.E2E_DB === "1";
-const RECORD = process.env.R1_BASELINE === "record";
+/** "none": compare with the Release 0 recording as it is (to show Release 1 equals it). */
+const NO_DELTAS = process.env.R2_WALK_DELTAS === "none";
 const prisma = DB
   ? new PrismaClient({
       adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }),
@@ -40,24 +56,20 @@ const describe = DB ? test.describe : test.describe.skip;
 test.describe.configure({ mode: "serial" });
 
 const PROJECT = "seq-elevate";
-const SLUG = "e2e-r1-standard";
+const SLUG = "e2e-r2-walk-standard";
 const BUILT_IN = "workplace-conflict";
 const RUN = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
-const LEARNER = `e2e-r1-identical-learner-${RUN}@example.com`;
-const LEARNER_DE = `e2e-r1-identical-learner-de-${RUN}@example.com`;
-const LEARNER_BUILT_IN = `e2e-r1-identical-builtin-${RUN}@example.com`;
-const LEARNER_NAMED = `e2e-r1-identical-named-${RUN}@example.com`;
-const LEARNER_NAMED_DE = `e2e-r1-identical-named-de-${RUN}@example.com`;
+const LEARNER = `e2e-r2-walk-learner-${RUN}@example.com`;
+const LEARNER_DE = `e2e-r2-walk-learner-de-${RUN}@example.com`;
+const LEARNER_BUILT_IN = `e2e-r2-walk-builtin-${RUN}@example.com`;
+const LEARNER_NAMED = `e2e-r2-walk-named-${RUN}@example.com`;
+const LEARNER_NAMED_DE = `e2e-r2-walk-named-de-${RUN}@example.com`;
 const EMAILS = [LEARNER, LEARNER_DE, LEARNER_BUILT_IN, LEARNER_NAMED, LEARNER_NAMED_DE];
 
+// The Release 0 recording Release 1 matched exactly (pinned by SHA-256 in
+// src/lib/r2-fixture-pin.test.ts).
 const BASELINE_FILE = path.resolve("e2e/fixtures/r1-learner-baseline.json");
-
-type Captured = { aria: string; counter: string | null };
-const recorded: Record<string, Captured> = {};
-const baseline: Record<string, Captured> =
-  !RECORD && existsSync(BASELINE_FILE)
-    ? JSON.parse(readFileSync(BASELINE_FILE, "utf8"))
-    : {};
+const baseline: Record<string, Captured> = JSON.parse(readFileSync(BASELINE_FILE, "utf8"));
 
 // ---------------------------------------------------------------------------
 // The course: every kind of lesson a created course has today, written in
@@ -220,11 +232,10 @@ async function seedCourse() {
 }
 
 /*
- * Phase 2 (addendum 6): the course with its lesson list stored as an editor
- * leaves it after renaming every step in English and German — the seven
- * standard lessons in the standard order, so still the standard layout.
- * Learners see the standard names until Release 2, so the walk must match
- * the same Release 0 baseline.
+ * Phase 2: the course with its lesson list stored as an editor leaves it
+ * after renaming every step in English and German — the seven standard
+ * lessons in the standard order, so still the standard layout. Learners
+ * see the new names (D58, D5).
  */
 const STANDARD_IDS = [
   "context",
@@ -244,6 +255,16 @@ const NAMED_OUTLINE = {
   })),
 };
 
+/** The renamed steps, by the standard name learners saw before (D5). */
+const STANDARD_NAMES = {
+  en: ["Context", "Skill concept", "Behaviour model", "Guided practice", "Applied scenario", "Reflection", "Quick check"],
+  de: ["Kontext", "Skill-Konzept", "Verhaltens-Modell", "Geführte Übung", "Anwendung", "Reflexion", "Schnellcheck"],
+};
+const RENAMED = {
+  en: Object.fromEntries(STANDARD_NAMES.en.map((n, i) => [n, `Our step ${i + 1}`])),
+  de: Object.fromEntries(STANDARD_NAMES.de.map((n, i) => [n, `Unser Schritt ${i + 1}`])),
+};
+
 async function nameEveryStep() {
   await prisma.course.update({
     where: { projectId_slug: { projectId: PROJECT, slug: SLUG } },
@@ -251,17 +272,77 @@ async function nameEveryStep() {
   });
 }
 
-/** What a learner's progress holds: Release 0's stage keys only. */
-async function stagesCompletedOf(userId: string): Promise<string[]> {
+/**
+ * A learner's row in `slug`, read as every reader reads it: a reflection
+ * or quick check never touched is Release 1's empty value or {} — the same.
+ */
+async function rowOf(userId: string, slug: string) {
   const course = await prisma.course.findFirstOrThrow({
-    where: { projectId: PROJECT, slug: SLUG },
+    where: { projectId: PROJECT, slug },
     select: { id: true },
   });
-  const enrolment = await prisma.courseEnrollment.findUnique({
+  const e = await prisma.courseEnrollment.findUnique({
     where: { userId_courseId: { userId, courseId: course.id } },
-    select: { stagesCompleted: true },
   });
-  return enrolment?.stagesCompleted ?? [];
+  if (!e) return null;
+  const reflection = (e.reflection ?? {}) as Record<string, string>;
+  const assessment = (e.assessment ?? {}) as { answers?: Record<string, string>; checked?: boolean };
+  return {
+    completed: e.completedAt !== null,
+    stagesCompleted: e.stagesCompleted,
+    simulationChoice: e.simulationChoice,
+    simulationCorrect: e.simulationCorrect,
+    scenarioRoot: e.scenarioRoot,
+    scenarioFollowup: e.scenarioFollowup,
+    reflection: { p1: reflection.p1 ?? "", p2: reflection.p2 ?? "", p3: reflection.p3 ?? "" },
+    assessment: { answers: assessment.answers ?? {}, checked: assessment.checked ?? false },
+    sectionsCompleted: e.sectionsCompleted,
+    responses: e.responses,
+  };
+}
+
+const ALL_SEVEN = ["CONTEXT", "CONCEPT", "BEHAVIOUR", "SIMULATION", "SCENARIO", "REFLECTION", "ASSESSMENT"];
+
+/**
+ * What Release 1 writes for the walk (r1-learner-identical.spec.ts on the
+ * Release 1 build): every lesson, the answers chosen, nothing typed, and
+ * nothing in Release 2's columns.
+ */
+const R1_WRITES = {
+  created: {
+    completed: true,
+    stagesCompleted: ALL_SEVEN,
+    simulationChoice: "a",
+    simulationCorrect: true,
+    scenarioRoot: "c1",
+    scenarioFollowup: "f1",
+    reflection: { p1: "", p2: "", p3: "" },
+    assessment: { answers: { q1: "a", q2: "b" }, checked: true },
+    sectionsCompleted: null,
+    responses: null,
+  },
+  builtin: {
+    completed: true,
+    stagesCompleted: ALL_SEVEN,
+    simulationChoice: "iStatement",
+    simulationCorrect: true,
+    scenarioRoot: "private",
+    scenarioFollowup: "privateBoundary",
+    reflection: { p1: "", p2: "", p3: "" },
+    assessment: { answers: { q1: "b", q2: "b", q3: "b" }, checked: true },
+    sectionsCompleted: null,
+    responses: null,
+  },
+};
+
+/** The walk's last save is in: the course completed, its last lesson stored. */
+async function walkSaved(userId: string, slug: string) {
+  await expect
+    .poll(async () => {
+      const row = await rowOf(userId, slug);
+      return !!row?.completed && row.stagesCompleted.includes("ASSESSMENT");
+    }, { timeout: 15_000 })
+    .toBe(true);
 }
 
 async function cleanCourse() {
@@ -312,8 +393,12 @@ const continueButton = (page: Page) =>
 const stepBar = (page: Page) =>
   page.locator('[aria-current="step"]').filter({ visible: true });
 
-/** Record, or compare with Release 0, what the learner sees now. */
-async function capture(page: Page, key: string) {
+/**
+ * Compare what the learner sees now with the Release 0 recording plus the
+ * closed list (renamed steps in phase 2). Soft: a run lists every step
+ * that differs, not only the first.
+ */
+async function capture(page: Page, key: string, names?: Record<string, string>) {
   await page.waitForLoadState("networkidle");
   // Colours and smooth scrolls settle first; the tree doesn't change with
   // them, but a step that is still mounting would.
@@ -328,12 +413,9 @@ async function capture(page: Page, key: string) {
     .textContent({ timeout: 2000 })
     .catch(() => null);
   const got: Captured = { aria, counter: counter?.trim() ?? null };
-  if (RECORD) {
-    recorded[key] = got;
-    return;
-  }
-  expect(baseline[key], `a Release 0 baseline for "${key}"`).toBeTruthy();
-  expect(got, `what learners see at "${key}"`).toEqual(baseline[key]);
+  expect(baseline[key], `a Release 0 recording for "${key}"`).toBeTruthy();
+  const expected = NO_DELTAS ? baseline[key] : applyR2Deltas(key, baseline[key], { names });
+  expect.soft(got, `what learners see at "${key}"`).toEqual(expected);
 }
 
 /** Continue to step n, retried against the hydration race, never past it. */
@@ -345,37 +427,38 @@ async function continueTo(page: Page, n: number) {
   }).toPass({ timeout: 20_000 });
 }
 
-async function walkCreated(page: Page, locale: "en" | "de", tag: string) {
+async function walkCreated(page: Page, locale: "en" | "de", tag: string, names?: Record<string, string>) {
   const k = (step: string) => `${tag}:${locale}:${step}`;
+  const see = (step: string) => capture(page, k(step), names);
   await page.goto(`/${locale}/learner/course/${SLUG}`);
   await expect(stepBar(page)).toContainText("1", { timeout: 15000 });
-  await capture(page, k("1-context"));
+  await see("1-context");
   await continueTo(page, 2);
-  await capture(page, k("2-concept"));
+  await see("2-concept");
   await continueTo(page, 3);
-  await capture(page, k("3-behaviour"));
+  await see("3-behaviour");
   await continueTo(page, 4);
-  await capture(page, k("4-simulation"));
+  await see("4-simulation");
   await page.getByText(/I checked the shared folder and the old report/).click();
-  await capture(page, k("4-simulation-answered"));
+  await see("4-simulation-answered");
   await continueTo(page, 5);
-  await capture(page, k("5-scenario"));
+  await see("5-scenario");
   await page.getByText("Ask if they have five minutes today.").click();
   await page.getByText("Show the two things you tried.").click();
-  await capture(page, k("5-scenario-answered"));
+  await see("5-scenario-answered");
   await continueTo(page, 6);
-  await capture(page, k("6-reflection"));
+  await see("6-reflection");
   await continueTo(page, 7);
-  await capture(page, k("7-assessment"));
+  await see("7-assessment");
   await page.getByRole("button", { name: /Early/ }).click();
   await page.getByRole("button", { name: /What you tried/ }).click();
   await page.getByRole("button", { name: /^(check answers|antworten prüfen)$/i }).click();
-  await capture(page, k("7-assessment-checked"));
+  await see("7-assessment-checked");
   await continueButton(page).click();
   await expect(
     page.getByRole("heading", { name: /^(course complete|kurs abgeschlossen)/i })
   ).toBeVisible();
-  await capture(page, k("8-complete"));
+  await see("8-complete");
 }
 
 async function walkBuiltIn(page: Page, tag: string) {
@@ -414,7 +497,11 @@ async function walkBuiltIn(page: Page, tag: string) {
   await capture(page, k("8-complete"));
 }
 
-describe("Release 1 — standard-layout courses are unchanged for learners", () => {
+// Every walk on video for the release check (spec 10.3): R2_WALK_VIDEO=1.
+// Playwright needs its ffmpeg for that (npx playwright install ffmpeg).
+test.use({ video: process.env.R2_WALK_VIDEO === "1" ? "on" : "off" });
+
+describe("Release 2 — the recorded learner walk", () => {
   test.use({ viewport: { width: 1280, height: 900 } });
 
   test.beforeAll(async () => {
@@ -422,9 +509,6 @@ describe("Release 1 — standard-layout courses are unchanged for learners", () 
   });
 
   test.afterAll(async () => {
-    if (RECORD) {
-      writeFileSync(BASELINE_FILE, `${JSON.stringify(recorded, null, 1)}\n`);
-    }
     await prisma.auditLog.deleteMany({
       where: { actor: { is: { email: { in: EMAILS } } } },
     });
@@ -433,55 +517,52 @@ describe("Release 1 — standard-layout courses are unchanged for learners", () 
     await prisma.$disconnect();
   });
 
-  test("a course created here, in English: every step as on Release 0", async ({
+  test("phase 1 — a course created here, in English: every step as recorded, but for the closed list", async ({
     page,
     context,
   }) => {
-    const { sessionToken } = await learner(LEARNER);
+    const { userId, sessionToken } = await learner(LEARNER);
     await useSession(context, sessionToken);
     await walkCreated(page, "en", "created");
+    await walkSaved(userId, SLUG);
+    expect(await rowOf(userId, SLUG), "what Release 1 writes, and nothing new").toEqual(R1_WRITES.created);
   });
 
-  test("the same course in German: every step as on Release 0", async ({
-    page,
-    context,
-  }) => {
-    const { sessionToken } = await learner(LEARNER_DE);
+  test("phase 1 — the same course in German", async ({ page, context }) => {
+    const { userId, sessionToken } = await learner(LEARNER_DE);
     await useSession(context, sessionToken);
     await walkCreated(page, "de", "created");
+    await walkSaved(userId, SLUG);
+    expect(await rowOf(userId, SLUG), "what Release 1 writes, and nothing new").toEqual(R1_WRITES.created);
   });
 
-  test("the built-in course: every step as on Release 0", async ({ page, context }) => {
-    const { sessionToken } = await learner(LEARNER_BUILT_IN);
+  test("phase 1 — the built-in course", async ({ page, context }) => {
+    const { userId, sessionToken } = await learner(LEARNER_BUILT_IN);
     await useSession(context, sessionToken);
     await walkBuiltIn(page, "builtin");
+    await walkSaved(userId, BUILT_IN);
+    expect(await rowOf(userId, BUILT_IN), "what Release 1 writes, and nothing new").toEqual(R1_WRITES.builtin);
   });
 
-  // Phase 2 compares with the baseline Release 0 recorded; recording it
-  // (on Release 0, which has no Course.outline) runs phase 1 only.
-  test("phase 2 — with every step renamed in English and German, still as on Release 0", async ({
+  test("phase 2 — every step renamed in English and German: the names in the step bar, Back and the counter, and nothing else", async ({
     page,
     context,
   }) => {
-    test.skip(RECORD, "phase 2 only compares; the baseline comes from phase 1 on Release 0");
+    test.skip(NO_DELTAS, "phase 2 shows Release 2's names; Release 1 kept the standard ones");
     await nameEveryStep();
 
     const en = await learner(LEARNER_NAMED);
     await useSession(context, en.sessionToken);
-    await walkCreated(page, "en", "created");
+    await walkCreated(page, "en", "created", RENAMED.en);
 
     const de = await learner(LEARNER_NAMED_DE);
     await useSession(context, de.sessionToken);
-    await walkCreated(page, "de", "created");
+    await walkCreated(page, "de", "created", RENAMED.de);
 
-    // Progress was saved, in Release 0's stage keys only (the StageKey enum
-    // stores them in capitals: CONTEXT …).
+    // Progress was saved in Release 0's stage keys only, nothing in the new columns.
     for (const userId of [en.userId, de.userId]) {
-      const done = await stagesCompletedOf(userId);
-      expect(done.length).toBeGreaterThan(0);
-      expect(
-        done.every((k) => (STANDARD_IDS as readonly string[]).includes(k.toLowerCase()))
-      ).toBe(true);
+      await walkSaved(userId, SLUG);
+      expect(await rowOf(userId, SLUG)).toEqual(R1_WRITES.created);
     }
   });
 });
