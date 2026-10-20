@@ -12,7 +12,7 @@ vi.mock("server-only", () => ({}));
 vi.mock("@/lib/auth-helpers", () => ({ getCurrentUser }));
 vi.mock("@/lib/prisma", () => ({ prisma: { auditLog } }));
 
-const { recordStageTime } = await import("./telemetry");
+const { recordCourseOpened, recordStageTime } = await import("./telemetry");
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -53,5 +53,38 @@ describe("recordStageTime", () => {
       where: { id: "a1" },
       data: { metadata: { courseSlug: "speaking-up", stage: "s-abcdefgh", seconds: 35 } },
     });
+  });
+});
+
+describe("recordCourseOpened", () => {
+  it("records a course opened, by its slug", async () => {
+    await recordCourseOpened("speaking-up");
+    expect(auditLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        action: "course.opened",
+        entityId: "speaking-up",
+        metadata: { courseSlug: "speaking-up" },
+      }),
+    });
+  });
+
+  // Found at integration review: its two siblings were hardened (spec 4.6),
+  // this one stored whatever the browser sent, as the row's key and in its
+  // metadata, at any length.
+  it.each([
+    ["a slug that isn't one", "Speaking Up!"],
+    ["a slug with a colon", "speaking-up:x"],
+    ["a slug of 5,000 characters", "x".repeat(5000)],
+    ["a slug that isn't text", 42],
+    ["an object", { courseSlug: "speaking-up" }],
+  ])("ignores %s", async (_name, courseSlug) => {
+    await recordCourseOpened(courseSlug as string);
+    expect(auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it("does nothing for a guest", async () => {
+    getCurrentUser.mockResolvedValue(null);
+    await recordCourseOpened("speaking-up");
+    expect(auditLog.create).not.toHaveBeenCalled();
   });
 });

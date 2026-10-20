@@ -16,8 +16,13 @@ import { SLUG } from "@/lib/cms/sections/store.server";
 const PROJECT = "seq-elevate";
 const MAX_DELTA_SECONDS = 3600; // clamp absurd single deltas (clock jumps etc.)
 
-/** Record that a learner opened a course (for "when they open" analytics). */
+/**
+ * Record that a learner opened a course (for "when they open" analytics).
+ * Only for a course slug as the platform makes them, like its siblings:
+ * whatever else the browser sends is ignored, never stored as a row's key.
+ */
 export async function recordCourseOpened(courseSlug: string) {
+  if (typeof courseSlug !== "string" || !SLUG.test(courseSlug)) return;
   const user = await getCurrentUser();
   if (!user) return;
   await prisma.auditLog.create({
