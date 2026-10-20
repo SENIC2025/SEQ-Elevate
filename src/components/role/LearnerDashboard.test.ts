@@ -294,6 +294,19 @@ describe("LearnerDashboard, Release 2: a course's own lessons (spec 6, D58, D64)
     }
   });
 
+  it("says the language of a step name that isn't the page's (WCAG 3.1.2)", () => {
+    // Review finding 7a: on a German page, a lesson of the course's own
+    // named only in English.
+    const html = render(
+      [{ ...FLEXIBLE, stageLabelLangs: { [OWN]: "en" } }],
+      [{ slug: FLEXIBLE.slug, stages: ["context"], stagesCompleted: 1, completed: false }]
+    );
+    const items = checklistItems(html);
+    expect(items[1]).toContain('<span lang="en">Your own story</span>');
+    expect(items[0]).not.toContain("lang=");
+    expect(items[2]).not.toContain("lang=");
+  });
+
   it("says nothing of lessons no longer shown that the learner never finished", () => {
     const html = render(
       [FLEXIBLE],

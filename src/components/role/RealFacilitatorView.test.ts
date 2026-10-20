@@ -98,7 +98,13 @@ describe("RealFacilitatorView: “Active in the last 24h”", () => {
 
 /** "Currently on" in a learner's activity panel. */
 function currentlyOn(html: string): string | undefined {
-  return html.match(/<p class="mt-1 text-sm font-semibold leading-tight[^"]*">([^<]*)<\/p><p[^>]*>Currently on<\/p>/)?.[1];
+  return currentlyOnTag(html)?.[2];
+}
+
+/** "Currently on"'s value: [its tag's attributes, its text]. */
+function currentlyOnTag(html: string): [string, string, string] | undefined {
+  const m = html.match(/<p( class="mt-1 text-sm font-semibold leading-tight[^"]*"[^>]*)>([^<]*)<\/p><p[^>]*>Currently on<\/p>/);
+  return m ? [m[0], m[1], m[2]] : undefined;
 }
 
 /** The time-per-lesson rows: [name, time]. */
@@ -130,6 +136,16 @@ describe("RealFacilitatorView: where a learner is, by the course's step names (s
     expect(currentlyOn(panel({ currentStage: "concept" }))).toBe("Skill concept");
     expect(currentlyOn(panel({ currentStage: "complete" }))).toBe("Completed");
     expect(currentlyOn(panel({}))).toBe("—");
+  });
+
+  it("says the language of a step name that isn't the page's (WCAG 3.1.2)", () => {
+    // Review finding 7a: named only in English, on a German page.
+    const named = currentlyOnTag(
+      panel({ currentStage: "s-ownstory", currentStageLabel: "Your own story", currentStageLabelLang: "en" })
+    );
+    expect(named?.[2]).toBe("Your own story");
+    expect(named?.[1]).toContain(' lang="en"');
+    expect(currentlyOnTag(panel({ currentStage: "concept" }))?.[1]).not.toContain("lang=");
   });
 
   it("never shows a lesson's id when its name is missing", () => {

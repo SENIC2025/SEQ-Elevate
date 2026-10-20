@@ -468,7 +468,16 @@ export function ActivityPanel({ learner }: { learner: FacilitatorLearner }) {
       {/* One card under the other on a narrow screen: "Currently on" is a
           step name an editor wrote, up to 40 characters. */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <MiniStat icon={MapPin} label={t("currentlyOn")} value={positionLabel} />
+        <MiniStat
+          icon={MapPin}
+          label={t("currentlyOn")}
+          value={positionLabel}
+          lang={
+            positionLabel === learner.currentStageLabel
+              ? learner.currentStageLabelLang
+              : undefined
+          }
+        />
         <MiniStat
           icon={Clock}
           label={t("timeOnTask")}
@@ -538,16 +547,22 @@ function MiniStat({
   icon: Icon,
   label,
   value,
+  lang,
 }: {
   icon: typeof MapPin;
   label: string;
   value: string;
+  /** The value's language when it isn't the page's (WCAG 3.1.2). */
+  lang?: string;
 }) {
   return (
     <div className="min-w-0 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-2.5">
       <Icon className="h-3.5 w-3.5 text-[var(--accent)]" />
       {/* A long word (a German step name) breaks rather than running out. */}
-      <p className="mt-1 text-sm font-semibold leading-tight hyphens-auto wrap-anywhere">
+      <p
+        className="mt-1 text-sm font-semibold leading-tight hyphens-auto wrap-anywhere"
+        lang={lang}
+      >
         {value}
       </p>
       <p className="text-[10px] uppercase tracking-wider text-[var(--muted-foreground)]">

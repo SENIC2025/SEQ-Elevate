@@ -33,9 +33,10 @@ import {
  *         "Currently on: Skill concept", no "Other lessons" time; the
  *         statistics have them on "Concept", with no "Other lessons" note;
  *         and on the dashboard the hero, and so "Your journey", is the first
- *         published course. The dashboard comes last: "Your journey" is the
- *         hero's, which is C-E3's, so the facilitator's and the statistics'
- *         checks never depend on it
+ *         published course; nowhere does a step name written only in
+ *         English say it is English on a German page. The dashboard comes
+ *         last: "Your journey" is the hero's, which is C-E3's, so the
+ *         facilitator's and the statistics' checks never depend on it
  *   C-E2  a guard there. The spec's reason — Release 1 refuses to publish
  *         a flexible course — is the editor's guard (Stream B; this branch
  *         still applies it), so the course is seeded published, as the
@@ -239,8 +240,9 @@ describe("Release 2: dashboards and reports follow the course's lessons", () => 
           narrative: narrative({ en: { title: "A story", text: "E2E: think of a time." } }),
         },
         {
+          // Named in English only.
           id: OWN_NEXT,
-          label: { en: "Try it at work", de: "Probier es aus" },
+          label: { en: "Try it at work" },
           narrative: narrative({ en: { title: "At work", text: "E2E: try it this week." } }),
         },
         { id: "concept", narrative: narrative({ en: { title: "The idea", text: "E2E: say it early." } }) },
@@ -361,6 +363,14 @@ describe("Release 2: dashboards and reports follow the course's lessons", () => 
     // own lessons as one row, adding up to the time on task.
     await expect.soft(miniStat(page, "Context")).toContainText("1m");
     await expect.soft(miniStat(page, "Other lessons")).toContainText("2m");
+    // In German, the step named only in English is marked as English.
+    await page.goto("/de/facilitator");
+    await page
+      .locator("li", { hasText: EMAILS.learner })
+      .filter({ visible: true })
+      .getByRole("button", { name: "Lernende:n öffnen" })
+      .click();
+    await expect.soft(miniStat(page, "Gerade bei").locator('[lang="en"]')).toHaveText("Try it at work");
 
     // ---- The statistics ----
     await page.goto("/en/analytics?live=1");
@@ -397,15 +407,18 @@ describe("Release 2: dashboards and reports follow the course's lessons", () => 
       .soft(page.getByRole("progressbar", { name: "3/5 your journey" }))
       .toHaveAttribute("aria-valuenow", "60");
 
-    // In German: the course's German step names, the standard one's German name.
+    // In German: the course's German step names, the standard one's German
+    // name, and the one named only in English, marked as English.
     await page.goto("/de/learner");
     await expect.soft(journey(page)).toHaveText([
       "Aufwärmen, erledigt",
       "Deine Geschichte, erledigt",
-      "Probier es aus",
+      "Try it at work",
       "Skill-Konzept",
       "und 1 abgeschlossene Lektion, die nicht mehr im Kurs ist",
     ]);
+    await expect.soft(journey(page).nth(2).locator('[lang="en"]')).toHaveText("Try it at work");
+    await expect.soft(journey(page).nth(0).locator("[lang]")).toHaveCount(0);
   });
 
   test("C-E2: finishing a flexible course gives its badge; the Comp Card evidence still shows", async ({

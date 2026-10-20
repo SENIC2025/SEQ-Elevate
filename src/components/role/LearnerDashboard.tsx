@@ -420,7 +420,11 @@ export function LearnerDashboard({
                               : "text-[var(--muted-foreground)]"
                           }
                         >
-                          <StageLabel stage={stage} labels={hero?.stageLabels} />
+                          <StageLabel
+                            stage={stage}
+                            labels={hero?.stageLabels}
+                            langs={hero?.stageLabelLangs}
+                          />
                           {done ? (
                             <span className="sr-only">{tPlayer("stepDone")}</span>
                           ) : null}
@@ -446,17 +450,22 @@ export function LearnerDashboard({
 
 /**
  * A lesson's step name, as the player shows it (D58): a created course's
- * own (CourseSummary.stageLabels), else the standard name.
+ * own (CourseSummary.stageLabels), else the standard name. One written
+ * only in another language says which (WCAG 3.1.2).
  */
 function StageLabel({
   stage,
   labels,
+  langs,
 }: {
   stage: string;
   labels?: Record<string, string>;
+  langs?: Record<string, string>;
 }) {
   const t = useTranslations("course.stageLabel");
-  return <>{labels?.[stage] ?? t(stage)}</>;
+  const own = labels?.[stage];
+  const lang = own !== undefined ? langs?.[stage] : undefined;
+  return lang ? <span lang={lang}>{own}</span> : <>{own ?? t(stage)}</>;
 }
 
 /**
