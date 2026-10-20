@@ -13,21 +13,39 @@
 
 import { getCurrentUser } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
+import { isSectionId } from "@/lib/cms/sections/contract";
 
 const PROJECT = "seq-elevate";
+/** Longer than any cue id the editor makes (= MAX_ASSESSMENT_ID_LENGTH). */
+const MAX_CUE_ID_LENGTH = 100;
 
+/**
+ * Keep one in-video answer, under its cue's id. `lessonId` (Release 2) is
+ * the lesson the video belongs to — a standard key or a lesson of the
+ * course's own — kept beside it when it is one; a page from before doesn't
+ * send it.
+ */
 export async function recordVideoCueAnswer(input: {
   courseSlug: string;
   cueId: string;
   correct: boolean;
+  lessonId?: string;
 }) {
   const user = await getCurrentUser();
   if (!user) return; // guest — nothing to persist server-side
+  if (
+    typeof input.cueId !== "string" ||
+    input.cueId.length === 0 ||
+    input.cueId.length > MAX_CUE_ID_LENGTH
+  ) {
+    return;
+  }
 
   const projectId = user.lastProjectId ?? PROJECT;
   const metadata = {
     courseSlug: input.courseSlug,
     correct: input.correct,
+    ...(isSectionId(input.lessonId) ? { lessonId: input.lessonId } : {}),
   };
 
   // One event per (learner, cue): update if it exists, else create.

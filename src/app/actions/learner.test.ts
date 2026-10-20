@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach, vi } from "vitest";
+import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 
 // The learner store calls ensureLearnerMembership on every signed-in page
 // load, staff included. These tests pin down who it may turn into a learner:
@@ -15,26 +15,62 @@ const membership = {
 vi.mock("@/lib/auth-helpers", () => ({ getCurrentUser, getProjectMemberships }));
 vi.mock("@/lib/admin-bootstrap", () => ({ isBootstrapAdmin }));
 const badge = { findUnique: vi.fn(), findMany: vi.fn(), create: vi.fn() };
-const userBadge = { upsert: vi.fn(), createMany: vi.fn() };
+const userBadge = { upsert: vi.fn(), createMany: vi.fn(), findMany: vi.fn() };
 const course = { findUnique: vi.fn(), update: vi.fn() };
-const courseEnrollment = { upsert: vi.fn(), findMany: vi.fn() };
+
+/**
+ * The enrolment as stored, for the save actions: read, created and updated
+ * like the table, so a save's merge can be checked by what it wrote.
+ */
+let enrolment: Record<string, unknown> | null = null;
+const EMPTY_ROW = {
+  stagesCompleted: [],
+  sectionsCompleted: null,
+  simulationChoice: null,
+  simulationCorrect: null,
+  scenarioRoot: null,
+  scenarioFollowup: null,
+  reflection: {},
+  assessment: {},
+  responses: null,
+  completedAt: null,
+};
+const courseEnrollment = {
+  upsert: vi.fn(),
+  findMany: vi.fn(),
+  findUnique: vi.fn(async () => (enrolment ? { ...enrolment } : null)),
+  createMany: vi.fn(async () => {
+    enrolment ??= { ...EMPTY_ROW };
+    return { count: 1 };
+  }),
+  update: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
+    enrolment = { ...enrolment, ...data };
+    return enrolment;
+  }),
+};
+/** Every raw query, as its SQL with the values left out: the locks, in order. */
+const sql: string[] = [];
 const prisma = {
   membership,
   badge,
   userBadge,
   course,
   courseEnrollment,
-  $queryRaw: vi.fn(),
+  $queryRaw: vi.fn(async (strings: TemplateStringsArray) => {
+    sql.push(strings.join("?").replace(/\s+/g, " ").trim());
+    return [];
+  }),
   // An interactive transaction runs on the same mocked client; an array
   // one waits for the queries it was given.
   $transaction: vi.fn(async (arg: unknown) =>
     typeof arg === "function" ? arg(prisma) : Promise.all(arg as unknown[])
   ),
 };
+vi.mock("server-only", () => ({}));
 vi.mock("@/lib/prisma", () => ({ prisma }));
 vi.mock("@/lib/cms", () => ({ getCourse: vi.fn() }));
 
-const { ensureLearnerMembership, awardBadgeAction, saveCourseProgress } =
+const { ensureLearnerMembership, awardBadgeAction, saveCourseProgress, saveCourseProgressPatch, loadLearnerGlobal } =
   await import("./learner");
 
 const USER = { id: "u1", email: "person@example.org" };
@@ -145,7 +181,11 @@ describe("awardBadgeAction", () => {
 });
 
 describe("saveCourseProgress on a created course without a badge", () => {
-  afterEach(() => vi.clearAllMocks());
+  afterEach(() => {
+    vi.clearAllMocks();
+    enrolment = null;
+    sql.length = 0;
+  });
 
   const ROW = {
     id: "course-1",
@@ -167,11 +207,9 @@ describe("saveCourseProgress on a created course without a badge", () => {
     getCurrentUser.mockResolvedValue(USER);
     course.findUnique.mockResolvedValue(row);
     course.update.mockResolvedValue({});
-    prisma.$queryRaw.mockResolvedValue([]);
     badge.findMany.mockResolvedValue([]);
     badge.create.mockImplementation(async ({ data }) => ({ id: "badge-new", ...data }));
     courseEnrollment.findMany.mockResolvedValue([]);
-    courseEnrollment.upsert.mockResolvedValue({});
     userBadge.upsert.mockResolvedValue({});
   }
 
@@ -192,7 +230,8 @@ describe("saveCourseProgress on a created course without a badge", () => {
       where: { id: "course-1" },
       data: { badgeId: "badge-new" },
     });
-    expect(courseEnrollment.upsert).toHaveBeenCalledTimes(1);
+    expect(courseEnrollment.createMany).toHaveBeenCalledTimes(1);
+    expect(enrolment?.completedAt).toEqual(new Date(COMPLETED.completedAt));
     expect(userBadge.upsert).toHaveBeenCalledWith({
       where: { userId_badgeId: { userId: "u1", badgeId: "badge-new" } },
       create: { userId: "u1", badgeId: "badge-new" },
@@ -205,7 +244,7 @@ describe("saveCourseProgress on a created course without a badge", () => {
     await saveCourseProgress("speaking-up", { ...COMPLETED, completedAt: null }, "u1");
     expect(badge.create).not.toHaveBeenCalled();
     expect(userBadge.upsert).not.toHaveBeenCalled();
-    expect(courseEnrollment.upsert).toHaveBeenCalledTimes(1);
+    expect(enrolment?.stagesCompleted).toEqual(["CONTEXT", "CONCEPT", "BEHAVIOUR", "REFLECTION"]);
   });
 
   it("makes no badge for a built-in course, whose badge comes from the seed", async () => {
@@ -213,7 +252,7 @@ describe("saveCourseProgress on a created course without a badge", () => {
     await saveCourseProgress("speaking-up", COMPLETED, "u1");
     expect(badge.create).not.toHaveBeenCalled();
     expect(userBadge.upsert).not.toHaveBeenCalled();
-    expect(courseEnrollment.upsert).toHaveBeenCalledTimes(1);
+    expect(enrolment?.completedAt).toEqual(new Date(COMPLETED.completedAt));
   });
 
   it("saves the badge a created course already has, without making another", async () => {
@@ -223,5 +262,248 @@ describe("saveCourseProgress on a created course without a badge", () => {
     expect(userBadge.upsert).toHaveBeenCalledWith(
       expect.objectContaining({ create: { userId: "u1", badgeId: "badge-1" } })
     );
+  });
+});
+
+/*
+ * U5 (spec 4.1–4.3): the save actions' transaction. The lock order is
+ * fixed — the Course row, then the enrolment, never a Lesson row — so no
+ * two saves, nor a save and an editor, can deadlock; an "s-…" id never
+ * reaches the StageKey enum; and a page from before the deploy can't clear
+ * a completion.
+ */
+describe("the save actions' transaction", () => {
+  const ROW = { id: "course-1", projectId: "seq-elevate", slug: "speaking-up", meta: { en: {} }, badgeId: "badge-1" };
+  const OWN = "s-abcdefgh";
+
+  beforeEach(() => {
+    getCurrentUser.mockResolvedValue(USER);
+    course.findUnique.mockResolvedValue(ROW);
+    userBadge.upsert.mockResolvedValue({});
+  });
+  afterEach(() => {
+    vi.clearAllMocks();
+    enrolment = null;
+    sql.length = 0;
+  });
+
+  const OLD_PROGRESS = {
+    stagesCompleted: ["context"],
+    simulation: null,
+    scenario: { root: null, followup: null },
+    reflection: { p1: "", p2: "", p3: "" },
+    assessment: { answers: {}, checked: false },
+    completedAt: null,
+  };
+
+  it("locks the Course row FOR KEY SHARE, then the enrolment FOR UPDATE, and never a Lesson", async () => {
+    enrolment = { ...EMPTY_ROW };
+    await expect(
+      saveCourseProgressPatch("speaking-up", { v: 2, completed: ["context"] }, "u1")
+    ).resolves.toEqual({ ok: true, refused: [] });
+    expect(sql).toEqual([
+      'SELECT id FROM "Course" WHERE "id" = ? FOR KEY SHARE',
+      'SELECT id FROM "CourseEnrollment" WHERE "userId" = ? AND "courseId" = ? FOR UPDATE',
+    ]);
+    expect(sql.join(" ")).not.toMatch(/"Lesson"/);
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+  });
+
+  it("takes the Course row FOR UPDATE up front when the save may create the course's badge", async () => {
+    course.findUnique.mockResolvedValue({ ...ROW, badgeId: null });
+    badge.findMany.mockResolvedValue([]);
+    badge.create.mockImplementation(async ({ data }) => ({ id: "badge-new", ...data }));
+    courseEnrollment.findMany.mockResolvedValue([]);
+    enrolment = { ...EMPTY_ROW };
+    await saveCourseProgressPatch("speaking-up", { v: 2, completedAt: "2026-10-01T00:00:00.000Z" }, "u1");
+    expect(sql[0]).toBe('SELECT id FROM "Course" WHERE "id" = ? FOR UPDATE');
+    expect(sql).not.toContain('SELECT id FROM "Course" WHERE "id" = ? FOR KEY SHARE');
+    expect(sql.at(-1)).toMatch(/"CourseEnrollment".*FOR UPDATE$/);
+    expect(userBadge.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({ create: { userId: "u1", badgeId: "badge-new" } })
+    );
+  });
+
+  it("the old action takes the same locks", async () => {
+    enrolment = { ...EMPTY_ROW };
+    await saveCourseProgress("speaking-up", OLD_PROGRESS, "u1");
+    expect(sql).toEqual([
+      'SELECT id FROM "Course" WHERE "id" = ? FOR KEY SHARE',
+      'SELECT id FROM "CourseEnrollment" WHERE "userId" = ? AND "courseId" = ? FOR UPDATE',
+    ]);
+  });
+
+  it("never casts an s- id to the enum: the new action keeps it apart", async () => {
+    await saveCourseProgressPatch("speaking-up", { v: 2, completed: ["context", OWN] }, "u1");
+    expect(enrolment).toMatchObject({ stagesCompleted: ["CONTEXT"], sectionsCompleted: [OWN] });
+  });
+
+  it("never casts an s- id to the enum: the old action leaves it out", async () => {
+    await saveCourseProgress("speaking-up", { ...OLD_PROGRESS, stagesCompleted: ["context", OWN] }, "u1");
+    expect(enrolment?.stagesCompleted).toEqual(["CONTEXT"]);
+    expect(enrolment?.sectionsCompleted).toBeNull();
+  });
+
+  it("the old action keeps a stored completion and stored lessons a stale page doesn't have", async () => {
+    const done = new Date("2026-10-01T00:00:00.000Z");
+    enrolment = { ...EMPTY_ROW, stagesCompleted: ["CONTEXT", "CONCEPT"], completedAt: done };
+    await saveCourseProgress("speaking-up", { ...OLD_PROGRESS, stagesCompleted: ["behaviour"] }, "u1");
+    expect(enrolment).toMatchObject({ completedAt: done, stagesCompleted: ["CONTEXT", "CONCEPT", "BEHAVIOUR"] });
+    const data = courseEnrollment.update.mock.calls[0][0].data as Record<string, unknown>;
+    expect("completedAt" in data).toBe(false);
+    expect("sectionsCompleted" in data || "responses" in data).toBe(false);
+  });
+
+  it("the old action writes the four standard answers as it always has", async () => {
+    await saveCourseProgress(
+      "speaking-up",
+      {
+        ...OLD_PROGRESS,
+        simulation: { choice: "a", correct: true },
+        scenario: { root: "c1", followup: "f1" },
+        reflection: { p1: "One", p2: "", p3: "" },
+        assessment: { answers: { q1: "x" }, checked: true },
+      },
+      "u1"
+    );
+    expect(enrolment).toMatchObject({
+      simulationChoice: "a",
+      simulationCorrect: true,
+      scenarioRoot: "c1",
+      scenarioFollowup: "f1",
+      reflection: { p1: "One", p2: "", p3: "" },
+      assessment: { answers: { q1: "x" }, checked: true },
+    });
+  });
+
+  it("answers a save meant for another account, without touching the database", async () => {
+    await expect(
+      saveCourseProgressPatch("speaking-up", { v: 2, completed: ["context"] }, "someone-else")
+    ).resolves.toEqual({ ok: false, error: "other-account" });
+    expect(course.findUnique).not.toHaveBeenCalled();
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("fails, to be tried again, when the session can't be read", async () => {
+    getCurrentUser.mockResolvedValue(null);
+    await expect(saveCourseProgressPatch("speaking-up", { v: 2 }, "u1")).rejects.toThrow();
+  });
+
+  it("creates no enrolment for an empty patch, or one whose keys were all refused", async () => {
+    await expect(saveCourseProgressPatch("speaking-up", { v: 2 }, "u1")).resolves.toEqual({ ok: true, refused: [] });
+    await expect(
+      saveCourseProgressPatch("speaking-up", { v: 2, answers: { "nope/main": { type: "practice" } } }, "u1")
+    ).resolves.toEqual({ ok: true, refused: [{ key: "nope/main", reason: "invalid" }] });
+    expect(course.findUnique).not.toHaveBeenCalled();
+    expect(courseEnrollment.createMany).not.toHaveBeenCalled();
+  });
+
+  it("creates no enrolment for a patch that changes nothing", async () => {
+    await saveCourseProgressPatch(
+      "speaking-up",
+      { v: 2, answers: { "reflection/main": { type: "reflection", text: {} } } },
+      "u1"
+    );
+    expect(courseEnrollment.createMany).not.toHaveBeenCalled();
+    expect(enrolment).toBeNull();
+  });
+
+  it("writes only the columns that changed, and nothing for a patch already saved", async () => {
+    enrolment = { ...EMPTY_ROW, stagesCompleted: ["CONTEXT"] };
+    await saveCourseProgressPatch(
+      "speaking-up",
+      { v: 2, answers: { [`${OWN}/main`]: { type: "rating", values: { s: 4 } } } },
+      "u1"
+    );
+    expect(Object.keys(courseEnrollment.update.mock.calls[0][0].data)).toEqual(["responses"]);
+    courseEnrollment.update.mockClear();
+    await saveCourseProgressPatch("speaking-up", { v: 2, completed: ["context"] }, "u1");
+    expect(courseEnrollment.update).not.toHaveBeenCalled();
+  });
+
+  it("refuses per key and saves the rest", async () => {
+    const r = await saveCourseProgressPatch(
+      "speaking-up",
+      {
+        v: 2,
+        answers: {
+          "simulation/main": { type: "practice", optionId: "a", correct: true },
+          [`${OWN}/main`]: { type: "reflection", text: { a: "x".repeat(5_001) } },
+        },
+      },
+      "u1"
+    );
+    expect(r).toEqual({ ok: true, refused: [{ key: `${OWN}/main`, reason: "too-long" }] });
+    expect(enrolment).toMatchObject({ simulationChoice: "a", responses: null });
+  });
+
+  it.each([
+    ["a slug that isn't one", "Speaking Up!", { v: 2, completed: ["context"] }, "bad-input"],
+    ["Release 1's progress", "speaking-up", { stagesCompleted: ["context"] }, "bad-input"],
+    ["a patch too big", "speaking-up", { v: 2, completed: Array(65).fill("context") }, "too-large"],
+  ])("answers %s, writing nothing", async (_name, slug, patch, error) => {
+    await expect(saveCourseProgressPatch(slug, patch, "u1")).resolves.toEqual({ ok: false, error });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("answers a course that doesn't exist", async () => {
+    course.findUnique.mockResolvedValue(null);
+    await expect(
+      saveCourseProgressPatch("speaking-up", { v: 2, completed: ["context"] }, "u1")
+    ).resolves.toEqual({ ok: false, error: "unknown-course" });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("saves the badge once, when the course is finished by this save", async () => {
+    enrolment = { ...EMPTY_ROW };
+    await saveCourseProgressPatch("speaking-up", { v: 2, completedAt: "2026-10-01T00:00:00.000Z" }, "u1");
+    await saveCourseProgressPatch("speaking-up", { v: 2, completedAt: "2026-10-02T00:00:00.000Z" }, "u1");
+    expect(userBadge.upsert).toHaveBeenCalledTimes(1);
+    expect(enrolment?.completedAt).toEqual(new Date("2026-10-01T00:00:00.000Z"));
+  });
+
+  it("reads again after creating the enrolment, in case another tab made it meanwhile", async () => {
+    courseEnrollment.createMany.mockImplementationOnce(async () => {
+      // The other tab's row, already holding a lesson.
+      enrolment = { ...EMPTY_ROW, stagesCompleted: ["CONCEPT"] };
+      return { count: 0 };
+    });
+    await saveCourseProgressPatch("speaking-up", { v: 2, completed: ["context"] }, "u1");
+    expect(courseEnrollment.createMany).toHaveBeenCalledWith({
+      data: [{ userId: "u1", courseId: "course-1" }],
+      skipDuplicates: true,
+    });
+    expect(enrolment?.stagesCompleted).toEqual(["CONCEPT", "CONTEXT"]);
+  });
+});
+
+describe("loadLearnerGlobal", () => {
+  afterEach(() => vi.clearAllMocks());
+
+  it("counts the course's own lessons and says whether anything was saved", async () => {
+    getCurrentUser.mockResolvedValue(USER);
+    const findUnique = vi.fn().mockResolvedValue(null);
+    Object.assign(prisma, { compCard: { findUnique } });
+    userBadge.findMany.mockResolvedValue([]);
+    courseEnrollment.findMany.mockResolvedValue([
+      {
+        ...EMPTY_ROW,
+        course: { slug: "own" },
+        stagesCompleted: ["CONTEXT"],
+        sectionsCompleted: ["s-abcdefgh"],
+      },
+      {
+        ...EMPTY_ROW,
+        course: { slug: "rating-only" },
+        responses: { v: 1, items: { "s-abcdefgh/main": { type: "rating", values: { s: 2 }, at: "x" } } },
+      },
+      { ...EMPTY_ROW, course: { slug: "nothing" } },
+    ]);
+    const global = await loadLearnerGlobal();
+    expect(global.enrollments).toEqual([
+      { slug: "own", stagesCompleted: 2, completed: false, hasProgress: true },
+      { slug: "rating-only", stagesCompleted: 0, completed: false, hasProgress: true },
+      { slug: "nothing", stagesCompleted: 0, completed: false, hasProgress: false },
+    ]);
   });
 });

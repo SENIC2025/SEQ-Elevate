@@ -10,6 +10,8 @@
 
 import { getCurrentUser } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
+import { isSectionId } from "@/lib/cms/sections/contract";
+import { SLUG } from "@/lib/cms/sections/store.server";
 
 const PROJECT = "seq-elevate";
 const MAX_DELTA_SECONDS = 3600; // clamp absurd single deltas (clock jumps etc.)
@@ -30,6 +32,12 @@ export async function recordCourseOpened(courseSlug: string) {
   });
 }
 
+/**
+ * Add `seconds` to the learner's time on one lesson: a standard key or a
+ * lesson of the course's own ("s-…", Release 2). Anything else the browser
+ * sends — a lesson id that is no lesson's, a slug the platform wouldn't
+ * make — is ignored, so no row is ever keyed by it.
+ */
 export async function recordStageTime(input: {
   courseSlug: string;
   stage: string;
@@ -37,6 +45,8 @@ export async function recordStageTime(input: {
 }) {
   const user = await getCurrentUser();
   if (!user) return;
+  if (typeof input.courseSlug !== "string" || !SLUG.test(input.courseSlug)) return;
+  if (!isSectionId(input.stage)) return;
   if (!Number.isFinite(input.seconds) || input.seconds <= 0) return;
   const seconds = Math.min(Math.round(input.seconds), MAX_DELTA_SECONDS);
 
