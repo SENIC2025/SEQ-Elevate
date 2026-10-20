@@ -48,11 +48,38 @@ function relativeTime(iso: string, locale: string): string {
   return rtf.format(-Math.round(diffHr / 24), "day");
 }
 
+/** A day, in milliseconds: the window of "Active in the last 24h". */
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Learners active in the 24 hours up to `now`: the last time their
+ * progress changed (lastActiveAt, the "Last active" of their activity
+ * panel) is at most a day old. A time a little ahead of `now` counts too.
+ * (This used to count everyone with any progress at all, however long ago,
+ * under the same label.)
+ */
+function activeInLastDay(
+  learners: readonly FacilitatorLearner[],
+  now: number
+): number {
+  return learners.filter((l) => {
+    const at = l.lastActiveAt ? Date.parse(l.lastActiveAt) : NaN;
+    return now - at <= DAY_MS;
+  }).length;
+}
+
 /** Facilitator workspace backed by real DB learners (staff view). */
 export function RealFacilitatorView({
   learners,
+  now,
 }: {
   learners: FacilitatorLearner[];
+  /**
+   * The server's time when it made the page (ms), which "Active in the
+   * last 24h" counts back from: the same figure in the page as sent and
+   * once it runs, whatever the browser's clock says.
+   */
+  now: number;
 }) {
   const t = useTranslations("facilitator");
   const tCommon = useTranslations("common");
@@ -69,7 +96,7 @@ export function RealFacilitatorView({
   const [done, setDone] = useState<FacilitatorSaved>(NOTHING_SAVED);
   const [failure, setFailure] = useState<FacilitatorSaveFailure>(null);
 
-  const active = learners.filter((l) => l.progressPct > 0).length;
+  const active = activeInLastDay(learners, now);
   const cards = learners.filter((l) => l.compCard).length;
   const attention = learners.filter((l) => l.needsAttention).length;
   const completedCount = learners.filter((l) => l.completed).length;
