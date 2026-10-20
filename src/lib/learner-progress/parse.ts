@@ -10,10 +10,10 @@
  * content an editor has just removed is still a valid key, and is kept, so
  * it isn't lost; the size limits bound what that can store.
  *
- * The readers (readResponses, readIds) are for what is already stored and
- * the learner can't fix: they skip what they can't read and never refuse.
- * They are for reading only; a write keeps what is stored as it is
- * (merge-server.ts).
+ * The readers (readAnswer, readResponses, readIds) are for what is already
+ * stored and the learner can't fix: they skip what they can't read, never
+ * refuse, and don't apply the limits of a new write. They are for reading
+ * only; a write keeps what is stored as it is (merge-server.ts).
  *
  * Pure and total: nothing here throws. Client-safe, so the store leaves out
  * what the server would refuse by the same rules (patch.ts).
@@ -131,6 +131,20 @@ export function checkAnswer(key: string, value: unknown): Checked {
   return checkValue(key, value, true);
 }
 
+/**
+ * One answer as it was saved (or kept to be sent), read without the limits
+ * of a new write: it may hold more questions than a save may carry — an
+ * editor can swap a live question's statement or prompt (D33), and the
+ * learner answer the new one too — or a longer text (D52). Null when it
+ * isn't one this key can take. `extra` names fields it may carry besides
+ * its type's own (a stored answer's `at`).
+ */
+export function readAnswer(key: string, raw: unknown, extra: readonly string[] = []): StoredAnswer | null {
+  if (!isPatchKey(key)) return null;
+  const checked = checkValue(key, raw, false, extra);
+  return checked.ok ? checked.answer : null;
+}
+
 export interface ParsedPatch {
   /** Finished lessons, once each, in the patch's order. */
   completed: SectionId[];
@@ -219,8 +233,8 @@ export function readResponses(raw: unknown): Partial<Record<PartKey, StoredAnswe
   const out: Partial<Record<PartKey, StoredAnswer>> = {};
   for (const [key, value] of Object.entries(raw.items)) {
     if (!isPatchKey(key) || isLegacyKey(key)) continue;
-    const checked = checkValue(key, value, false, ["at"]);
-    if (checked.ok) out[key] = checked.answer;
+    const answer = readAnswer(key, value, ["at"]);
+    if (answer) out[key] = answer;
   }
   return out;
 }

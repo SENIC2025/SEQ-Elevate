@@ -262,6 +262,33 @@ describe("fitPatch", () => {
     expect(fit.more).toBe(true);
   });
 
+  it("sends a rating or reflection with more questions than one save may carry a save's worth at a time, holding none back", () => {
+    // An editor may swap a statement or a prompt of a live question (D33),
+    // so a learner can hold more answers to one than a save may carry —
+    // all of them new to the server when a guest's course moves in.
+    const values = Object.fromEntries(Array.from({ length: 13 }, (_, i) => [`st${i + 1}`, 3 as const]));
+    const text = Object.fromEntries(Array.from({ length: 11 }, (_, i) => [`q${i + 1}`, `Answer ${i + 1}`]));
+    const latest = state({
+      responses: {
+        [`${OWN}/p-rating01`]: { type: "rating", values },
+        [`${OWN}/${PART}`]: { type: "reflection", text },
+      },
+    });
+    let acked = EMPTY_PROGRESS;
+    let sends = 0;
+    for (let p = patchSince(acked, latest); p && sends < 5; p = patchSince(acked, latest)) {
+      const fit = fitPatch({ ...p, fill: true });
+      expect(fit.held).toEqual([]);
+      const r = parseProgressPatch(fit.patch, new Date("2026-11-10T09:00:00.000Z"));
+      expect(r.ok && r.patch.refused).toEqual([]);
+      acked = applyPatch(acked, fit.patch!);
+      sends++;
+      expect(fit.more).toBe(patchSince(acked, latest) !== null);
+    }
+    expect(sends).toBe(2);
+    expect(acked.responses).toEqual(latest.responses);
+  });
+
   it("keeps the fill flag", () => {
     expect(fitPatch({ v: 2, completed: ["context"], fill: true }).patch).toEqual({
       v: 2,

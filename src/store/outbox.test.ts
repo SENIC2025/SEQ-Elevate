@@ -155,6 +155,21 @@ describe("putInOutbox and readOutbox", () => {
     });
   });
 
+  it("reads back a rating or reflection with more questions than one save may carry: the store sends it a save's worth at a time", () => {
+    const s = storage();
+    const values = Object.fromEntries(Array.from({ length: 13 }, (_, i) => [`st${i + 1}`, 3 as const]));
+    const text = Object.fromEntries(Array.from({ length: 11 }, (_, i) => [`q${i + 1}`, `Answer ${i + 1}`]));
+    const kept: ProgressPatch = {
+      v: 2,
+      answers: {
+        [`${OWN}/${PART}`]: { type: "rating", values },
+        [`${OWN}/p-87654321`]: { type: "reflection", text },
+      },
+    };
+    s.setItem(outboxKey(ANA, SLUG), JSON.stringify(kept));
+    expect(readOutbox(s, ANA, SLUG)).toEqual(kept);
+  });
+
   it("is null for an entry it can't read, or one with nothing in it", () => {
     const s = storage();
     s.setItem(outboxKey(ANA, SLUG), "{not json");

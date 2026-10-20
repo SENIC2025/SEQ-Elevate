@@ -20,7 +20,7 @@
 
 import { isSectionId } from "@/lib/cms/sections/contract";
 import type { PatchAnswer, ProgressPatch } from "@/lib/learner-progress/contract";
-import { checkAnswer } from "@/lib/learner-progress/parse";
+import { readAnswer } from "@/lib/learner-progress/parse";
 
 export const OUTBOX_PREFIX = "seq-elevate-outbox-v1:";
 
@@ -65,11 +65,13 @@ export function mergePatches(older: ProgressPatch, newer: ProgressPatch): Progre
 }
 
 /**
- * What an entry holds, as a patch: each finished lesson, each answer the
- * server could take (parse.ts) and a completion time that reads as one.
- * A reflection over the length limit is kept too: it is the learner's
- * text, back on the page for them to shorten, and the store holds it back
- * until they do (fitPatch). Null for anything else, or nothing.
+ * What an entry holds, as a patch: each finished lesson, each answer this
+ * key can take (parse.ts) and a completion time that reads as one. An
+ * answer is read as a saved one is, without the limits of one save: a
+ * reflection over the length limit is the learner's text, back on the page
+ * for them to shorten, and the store holds it back until they do; one with
+ * more questions than a save may carry is sent a save's worth at a time
+ * (fitPatch). Null for anything else, or nothing.
  */
 function readPatch(raw: unknown): ProgressPatch | null {
   if (!isRecord(raw) || raw.v !== 2) return null;
@@ -78,11 +80,8 @@ function readPatch(raw: unknown): ProgressPatch | null {
   );
   const answers: Record<string, PatchAnswer> = {};
   for (const [key, value] of Object.entries(isRecord(raw.answers) ? raw.answers : {})) {
-    const checked = checkAnswer(key, value);
-    if (checked.ok) answers[key] = checked.answer;
-    else if (checked.reason === "too-long" && isRecord(value) && isRecord(value.text)) {
-      answers[key] = { type: "reflection", text: { ...(value.text as Record<string, string>) } };
-    }
+    const answer = readAnswer(key, value);
+    if (answer) answers[key] = answer;
   }
   const at = raw.completedAt;
   const completedAt = typeof at === "string" && Number.isFinite(Date.parse(at)) ? at : undefined;

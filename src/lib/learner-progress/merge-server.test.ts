@@ -180,6 +180,46 @@ describe("mergeIntoEnrollment: every other answer", () => {
     });
   });
 
+  it("a stored rating with 13 statements keeps all 13 when one changes (and a reflection with 11 prompts keeps all 11)", () => {
+    // An editor may swap a statement or a prompt of a live question (D33):
+    // a learner who answered all twelve, then the new one, has more stored
+    // than one save may carry. What is stored was saved; only new writes
+    // are limited.
+    const values = Object.fromEntries(Array.from({ length: 13 }, (_, i) => [`st${i + 1}`, 3]));
+    const text = Object.fromEntries(Array.from({ length: 11 }, (_, i) => [`q${i + 1}`, `Answer ${i + 1}`]));
+    const stored = row({
+      responses: {
+        v: 1,
+        items: {
+          [`${OWN}/p-rating01`]: { type: "rating", values, at: STAMP },
+          [`${OWN}/${PART}`]: { type: "reflection", text, at: STAMP },
+        },
+      },
+    });
+    const m = merge(stored, {
+      answers: {
+        [`${OWN}/p-rating01`]: { type: "rating", values: { st1: 5 } },
+        [`${OWN}/${PART}`]: { type: "reflection", text: { q1: "Changed" } },
+      },
+    });
+    expect(m.refused).toEqual([]);
+    expect(items(m.next.responses)).toEqual({
+      [`${OWN}/p-rating01`]: { type: "rating", values: { ...values, st1: 5 }, at: NOW.toISOString() },
+      [`${OWN}/${PART}`]: { type: "reflection", text: { ...text, q1: "Changed" }, at: NOW.toISOString() },
+    });
+
+    // Moving a guest's answers in fills it question by question too.
+    const filled = merge(stored, {
+      fill: true,
+      answers: { [`${OWN}/p-rating01`]: { type: "rating", values: { st1: 1, st14: 4 } } },
+    });
+    expect(items(filled.next.responses)[`${OWN}/p-rating01`]).toEqual({
+      type: "rating",
+      values: { ...values, st14: 4 },
+      at: NOW.toISOString(),
+    });
+  });
+
   it("changes the time only when the value changes", () => {
     const stored = row({
       responses: { v: 1, items: { [`${OWN}/${PART}`]: { type: "reflection", text: { a: "Same" }, at: STAMP } } },

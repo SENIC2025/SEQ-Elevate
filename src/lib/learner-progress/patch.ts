@@ -15,7 +15,9 @@
  * answering different questions keep both (the server merges per field).
  * fitPatch holds back what the server would refuse (parse.ts, the same
  * rules) — a reflection over the length limit loses only that question —
- * and splits a patch at the size limits; the rest goes in the next save.
+ * and splits a patch at the size limits, a reflection or rating with more
+ * questions than one save may carry included; the rest goes in the next
+ * save.
  *
  * Pure and client-safe.
  */
@@ -171,8 +173,9 @@ export interface FittedPatch {
 /**
  * The part of `patch` to send now: without what the server would refuse,
  * and within the limits of one patch — its JSON length, its number of keys
- * and of finished lessons. Keys and lessons are taken in order; what
- * doesn't fit is left for the next save (patchSince still holds it).
+ * and of finished lessons, the questions of one reflection or rating. Keys,
+ * lessons and questions are taken in order; what doesn't fit is left for
+ * the next save (patchSince still holds it).
  */
 export function fitPatch(patch: ProgressPatch, maxChars: number = RESPONSE_LIMITS.patchJsonChars): FittedPatch {
   const held: RefusedKey[] = [];
@@ -198,13 +201,23 @@ export function fitPatch(patch: ProgressPatch, maxChars: number = RESPONSE_LIMIT
   let count = 0;
   for (const [key, raw] of Object.entries(patch.answers ?? {})) {
     let answer = raw;
+    // More questions than one save may carry (an editor swapped one of a
+    // live question's, D33, and the learner answered the new one too): a
+    // save's worth now, the rest in the next.
     if (answer?.type === "reflection") {
-      // Only the questions over the limit stay behind.
+      // Only the questions over the length limit stay behind.
       const fits = Object.entries(answer.text).filter(([, t]) => t.length <= RESPONSE_LIMITS.reflectionChars);
       if (fits.length < Object.keys(answer.text).length) {
         held.push({ key, reason: "too-long" });
         if (!fits.length) continue;
-        answer = { type: "reflection", text: Object.fromEntries(fits) };
+      }
+      if (fits.length > RESPONSE_LIMITS.promptsPerAnswer) more = true;
+      answer = { type: "reflection", text: Object.fromEntries(fits.slice(0, RESPONSE_LIMITS.promptsPerAnswer)) };
+    } else if (answer?.type === "rating") {
+      const values = Object.entries(answer.values);
+      if (values.length > RESPONSE_LIMITS.statementsPerAnswer) {
+        more = true;
+        answer = { type: "rating", values: Object.fromEntries(values.slice(0, RESPONSE_LIMITS.statementsPerAnswer)) };
       }
     }
     const checked = checkAnswer(key, answer);

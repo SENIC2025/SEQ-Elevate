@@ -35,7 +35,7 @@ import {
   type PatchAnswer,
   type RefusedKey,
 } from "./contract";
-import { checkAnswer } from "./parse";
+import { readAnswer } from "./parse";
 import type { ParsedPatch } from "./parse";
 
 /** The columns of CourseEnrollment that hold a learner's progress, as Prisma reads them. */
@@ -113,15 +113,15 @@ function mergeFields(
   return out;
 }
 
-/** A stored answer's value without its time, if it is one of `type` this key can take. */
+/**
+ * A stored answer's value without its time, if it is one of `type` this key
+ * can take. Read as it was saved, not as a new write is checked: it may
+ * hold more questions than one patch may carry, or longer texts, and every
+ * one of them is kept.
+ */
 function storedAnswer(key: PartKey, raw: unknown, type: PatchAnswer["type"]): PatchAnswer | null {
-  if (!isRecord(raw)) return null;
-  const { at: _at, ...value } = raw;
-  void _at;
-  const checked = checkAnswer(key, value);
-  // A stored value may be longer than a new one could be: only its shape counts.
-  if (checked.ok) return checked.answer.type === type ? checked.answer : null;
-  return checked.reason === "too-long" && value.type === type ? (value as PatchAnswer) : null;
+  const answer = readAnswer(key, raw, ["at"]);
+  return answer?.type === type ? answer : null;
 }
 
 /**
