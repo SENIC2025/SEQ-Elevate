@@ -34,7 +34,7 @@ import type {
   StoredAnswer,
 } from "@/lib/learner-progress/contract";
 import { completeLesson, withAnswer } from "@/lib/learner-progress/answers";
-import { EMPTY_PROGRESS, applyPatch, patchSince } from "@/lib/learner-progress/patch";
+import { EMPTY_PROGRESS, applyPatch } from "@/lib/learner-progress/patch";
 import {
   courseAfterLoad,
   courseAfterMigration,
@@ -44,8 +44,8 @@ import {
   storedGuestState,
 } from "./progress-merge";
 import { migrateGuest } from "./guest-migration";
-import { courseSaveRefs, saveCourse } from "./course-save";
-import { clearOutbox, putInOutbox, readOutbox, type OutboxStorage } from "./outbox";
+import { courseChanged, courseSaveRefs, saveCourse } from "./course-save";
+import { readOutbox, type OutboxStorage } from "./outbox";
 import { pendingSave } from "./pending-save";
 import { RETRY_DELAYS_MS, wait, withRetry } from "./retry";
 import { isRefusedAward } from "@/lib/badge-award";
@@ -542,9 +542,6 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
   // the store lets go of the learner's data, so an answer to a save sent
   // before can't move them on.
   const progressRefs = React.useRef(courseSaveRefs());
-  // The courses whose outbox (outbox.ts) was applied on this page: cleared
-  // once a save of them is confirmed.
-  const restoredRef = React.useRef<Set<string>>(new Set());
   // The course whose saved progress has loaded and been merged in, for
   // readyCourse (a signed-in learner's; loadedCourseRef, as state).
   const [loadedCourse, setLoadedCourse] = React.useState<string | null>(null);
@@ -585,7 +582,6 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
     loadedCourseRef.current = null;
     setLoadedCourse(null);
     progressRefs.current = courseSaveRefs();
-    restoredRef.current = new Set();
     persistedBadges.current = new Set();
     badgeTries.current = new Map();
     courseScheduled.current = null;
@@ -877,12 +873,10 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
       dispatch({ type: "courseProgressLoaded", slug, saved });
       // What this tab kept for this learner when a save of the course found
       // a newer build (D68): applied as changes made here, so it's saved
-      // like any, in the same render as the merge.
+      // like any, in the same render as the merge — and the outbox cleared
+      // once nothing is left to send (course-save.ts).
       const kept = forUser ? readOutbox(tabStorage(), forUser, slug) : null;
-      if (kept) {
-        restoredRef.current.add(slug);
-        dispatch({ type: "outboxRestored", slug, patch: kept });
-      }
+      if (kept) dispatch({ type: "outboxRestored", slug, patch: kept });
     })();
     return () => abort.abort();
   }, [authed, dbReady, state.course.courseSlug, locale, owner, courseSave]);
@@ -896,7 +890,8 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
   // back to. Each save is a patch worked out when it's sent, against what
   // the server has confirmed (course-save.ts), so it never takes back an
   // answer this tab didn't change (D62). A save that fails is tried again
-  // (see pending-save.ts).
+  // (see pending-save.ts); one that finds a newer build keeps what isn't
+  // confirmed in the tab's outbox (outbox.ts).
   const saveFor = React.useCallback(
     (slug: string, forUser: string) => {
       const refs = progressRefs.current;
@@ -904,14 +899,8 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
         saveCourse(slug, forUser, refs, {
           send: saveCourseProgressPatch,
           refusedKeys: (s, keys) => dispatch({ type: "progressRefused", slug: s, keys }),
-          staleBuild: (s, who, patch) => {
-            putInOutbox(tabStorage(), who, s, patch);
-            setStaleBuild(true);
-          },
-          settled: (s, who) => {
-            if (refs !== progressRefs.current || !restoredRef.current.delete(s)) return;
-            clearOutbox(tabStorage(), who, s);
-          },
+          staleBuild: () => setStaleBuild(true),
+          outbox: tabStorage(),
           again: () => courseSave.schedule(save, slug),
           current: () => refs === progressRefs.current,
         });
@@ -925,12 +914,9 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
     if (!slug || loadedCourseRef.current !== slug) return;
     const snap = state.course;
     if (snap === courseScheduled.current) return;
-    const refs = progressRefs.current;
-    refs.latest.set(slug, snap);
-    // Nothing the server doesn't have: nothing to send. Opening a course
-    // doesn't enroll anyone.
-    const acked = refs.acked.get(slug);
-    if (!acked || !patchSince(acked, snap)) return;
+    // Nothing the server doesn't have: nothing to send, and nothing the
+    // outbox kept is needed. Opening a course doesn't enroll anyone.
+    if (!courseChanged(progressRefs.current, slug, dbOwner, snap, tabStorage())) return;
     // This change finishes the course: it's sent at once, not after the
     // pause, so a learner who leaves on "Course complete" keeps it. (Next
     // runs server actions one at a time, so it can still wait behind one

@@ -6,15 +6,24 @@ import {
   type ProgressState,
   type SaveProgressResult,
 } from "@/lib/learner-progress/contract";
-import { EMPTY_PROGRESS } from "@/lib/learner-progress/patch";
-import { courseSaveRefs, outstandingPatch, saveCourse, type CourseSaveDeps } from "./course-save";
+import { EMPTY_PROGRESS, applyPatch } from "@/lib/learner-progress/patch";
+import {
+  courseChanged,
+  courseSaveRefs,
+  outstandingPatch,
+  saveCourse,
+  type CourseSaveDeps,
+} from "./course-save";
+import { putInOutbox, readOutbox, type OutboxStorage } from "./outbox";
 
 /*
  * One save of a course's progress as the learner store sends it (spec 5.4,
  * D62.b, D68): worked out when it is sent, against what the server has
  * confirmed; refusals told to the learner and not sent again unchanged;
  * another save when something is still left; a page from an older build
- * puts what isn't confirmed in the outbox instead of trying again.
+ * puts what isn't confirmed in the tab's outbox instead of trying again,
+ * and the outbox is cleared as soon as nothing this page holds is left to
+ * send — so it is never applied again over newer progress.
  */
 
 beforeEach(() => {
@@ -29,15 +38,38 @@ const ANA = "user-ana";
 const OWN = "s-abcdefgh";
 const PART = "p-12345678";
 const state = (p: Partial<ProgressState> = {}): ProgressState => ({ ...EMPTY_PROGRESS, ...p });
+const practice = (optionId: string): ProgressState["simulation"] => ({ choice: optionId, correct: optionId === "b" });
+const unknownAction = () => new UnrecognizedActionError('Server Action "x" was not found on the server.');
 
-/** A store's refs with `acked` loaded and `latest` as the learner has it now. */
+/** sessionStorage, in memory. */
+function storage(): OutboxStorage {
+  const items = new Map<string, string>();
+  return {
+    getItem: (k) => items.get(k) ?? null,
+    setItem: (k, v) => void items.set(k, String(v)),
+    removeItem: (k) => void items.delete(k),
+  };
+}
+
+/** What an earlier save that found a newer build left in the tab's outbox. */
+const KEPT: ProgressPatch = {
+  v: 2,
+  answers: { [`${OWN}/main`]: { type: "practice", optionId: "kept", correct: false } },
+};
+
+/**
+ * A store's refs with `acked` loaded and `latest` as the learner has it
+ * now, and a tab whose outbox holds KEPT for the learner and course.
+ */
 function setup(acked: ProgressState, latest: ProgressState) {
   const refs = courseSaveRefs();
   refs.acked.set(SLUG, acked);
   refs.latest.set(SLUG, latest);
+  const tab = storage();
+  putInOutbox(tab, ANA, SLUG, KEPT);
   const sent: ProgressPatch[] = [];
   let answer: (patch: ProgressPatch) => Promise<SaveProgressResult> = async () => ({ ok: true, refused: [] });
-  const calls = { refused: [] as unknown[], stale: [] as ProgressPatch[], settled: 0, again: 0 };
+  const calls = { refused: [] as unknown[], stale: 0, again: 0 };
   let current = true;
   const deps: CourseSaveDeps = {
     send: async (slug, patch, forUser) => {
@@ -49,11 +81,11 @@ function setup(acked: ProgressState, latest: ProgressState) {
       expect(slug).toBe(SLUG);
       calls.refused.push(keys);
     },
-    staleBuild: (slug, forUser, patch) => {
-      expect([slug, forUser]).toEqual([SLUG, ANA]);
-      calls.stale.push(patch);
+    staleBuild: (slug) => {
+      expect(slug).toBe(SLUG);
+      calls.stale++;
     },
-    settled: () => void calls.settled++,
+    outbox: tab,
     again: () => void calls.again++,
     current: () => current,
   };
@@ -63,6 +95,8 @@ function setup(acked: ProgressState, latest: ProgressState) {
     calls,
     deps,
     save: () => saveCourse(SLUG, ANA, refs, deps),
+    /** What the tab's outbox holds for the learner and course now. */
+    outbox: () => readOutbox(tab, ANA, SLUG),
     answerWith: (fn: typeof answer) => (answer = fn),
     letGo: () => (current = false),
   };
@@ -72,12 +106,18 @@ describe("saveCourse", () => {
   it("sends nothing when the server has it all, or the course hasn't loaded", async () => {
     const s = state({ stagesCompleted: ["context"] });
     const t = setup(s, structuredClone(s));
-    await t.save();
     t.refs.acked.delete(SLUG);
     t.refs.latest.set(SLUG, state({ stagesCompleted: ["context", "concept"] }));
     await t.save();
+    // Not loaded: what the server has isn't known, so the outbox stays.
+    expect(t.outbox()).toEqual(KEPT);
+    t.refs.acked.set(SLUG, s);
+    t.refs.latest.set(SLUG, structuredClone(s));
+    await t.save();
     expect(t.sent).toEqual([]);
     expect(t.calls.again).toBe(0);
+    // The server has all this page holds: nothing kept is needed any more.
+    expect(t.outbox()).toBeNull();
   });
 
   it("works the patch out when it is sent, from the learner's latest progress", async () => {
@@ -87,7 +127,8 @@ describe("saveCourse", () => {
     await t.save();
     expect(t.sent).toEqual([{ v: 2, completed: ["context", "concept"] }]);
     expect(t.refs.acked.get(SLUG)?.stagesCompleted).toEqual(["context", "concept"]);
-    expect(t.calls).toMatchObject({ settled: 1, again: 0, refused: [] });
+    expect(t.calls).toMatchObject({ again: 0, refused: [] });
+    expect(t.outbox()).toBeNull();
   });
 
   it("saves again when a value changed back while the save was on its way", async () => {
@@ -98,14 +139,16 @@ describe("saveCourse", () => {
       return { ok: true, refused: [] };
     });
     await t.save();
-    expect(t.calls).toMatchObject({ again: 1, settled: 0 });
+    expect(t.calls).toMatchObject({ again: 1 });
+    expect(t.outbox()).toEqual(KEPT);
     t.answerWith(async () => ({ ok: true, refused: [] }));
     await t.save();
     expect(t.sent[1]).toEqual({
       v: 2,
       answers: { "simulation/main": { type: "practice", optionId: "b", correct: true } },
     });
-    expect(t.calls).toMatchObject({ again: 1, settled: 1 });
+    expect(t.calls).toMatchObject({ again: 1 });
+    expect(t.outbox()).toBeNull();
   });
 
   it("tells the learner what the server refused, and doesn't send it again unchanged", async () => {
@@ -123,7 +166,8 @@ describe("saveCourse", () => {
     // The rest is confirmed; the refused answer isn't.
     expect(t.refs.acked.get(SLUG)).toMatchObject({ stagesCompleted: ["context"], responses: {} });
     // Nothing left that the server would take: no save loops on it.
-    expect(t.calls).toMatchObject({ again: 0, settled: 1 });
+    expect(t.calls).toMatchObject({ again: 0 });
+    expect(t.outbox()).toBeNull();
     await t.save();
     expect(t.sent).toHaveLength(1);
 
@@ -156,7 +200,8 @@ describe("saveCourse", () => {
       },
     ]);
     expect(t.calls.refused).toEqual([[{ key, reason: "too-long" }]]);
-    expect(t.calls).toMatchObject({ again: 0, settled: 1 });
+    expect(t.calls).toMatchObject({ again: 0 });
+    expect(t.outbox()).toBeNull();
     await t.save();
     expect(t.sent).toHaveLength(1);
   });
@@ -171,10 +216,12 @@ describe("saveCourse", () => {
     const t = setup(EMPTY_PROGRESS, state({ responses: answers }));
     await t.save();
     expect(Object.keys(t.sent[0].answers ?? {})).toHaveLength(RESPONSE_LIMITS.keysPerPatch);
-    expect(t.calls).toMatchObject({ again: 1, settled: 0 });
+    expect(t.calls).toMatchObject({ again: 1 });
+    expect(t.outbox()).toEqual(KEPT);
     await t.save();
     expect(Object.keys(t.sent[1].answers ?? {})).toHaveLength(5);
-    expect(t.calls).toMatchObject({ again: 1, settled: 1 });
+    expect(t.calls).toMatchObject({ again: 1 });
+    expect(t.outbox()).toBeNull();
   });
 
   it("puts what the server hasn't confirmed in the outbox when this page's build is gone, and doesn't try again", async () => {
@@ -184,18 +231,52 @@ describe("saveCourse", () => {
     });
     const t = setup(EMPTY_PROGRESS, latest);
     t.answerWith(async () => {
-      throw new UnrecognizedActionError('Server Action "x" was not found on the server.');
+      throw unknownAction();
     });
     await expect(t.save()).resolves.toBeUndefined();
-    expect(t.calls.stale).toEqual([
-      {
-        v: 2,
-        completed: ["context"],
-        answers: { "reflection/main": { type: "reflection", text: { p1: "Mine" } } },
-      },
-    ]);
+    // In place of what it held: this page took that in when the course
+    // loaded, and holds what the learner did since.
+    expect(t.outbox()).toEqual({
+      v: 2,
+      completed: ["context"],
+      answers: { "reflection/main": { type: "reflection", text: { p1: "Mine" } } },
+    });
     expect(t.refs.acked.get(SLUG)).toBe(EMPTY_PROGRESS);
-    expect(t.calls).toMatchObject({ again: 0, settled: 0 });
+    expect(t.calls).toMatchObject({ again: 0, stale: 1 });
+  });
+
+  it("keeps in the outbox what isn't confirmed when the save fails, not when it was sent", async () => {
+    // The learner went back to the answer the server has while the save
+    // was on its way: kept, it would come back over it after the reload.
+    const t = setup(state({ simulation: practice("a") }), state({ simulation: practice("b") }));
+    t.answerWith(async () => {
+      t.refs.latest.set(SLUG, state({ simulation: practice("a"), stagesCompleted: ["context"] }));
+      throw unknownAction();
+    });
+    await t.save();
+    expect(t.sent[0].answers).toEqual({ "simulation/main": { type: "practice", optionId: "b", correct: true } });
+    expect(t.outbox()).toEqual({ v: 2, completed: ["context"] });
+
+    // Nothing left unconfirmed: nothing kept.
+    t.answerWith(async () => {
+      t.refs.latest.set(SLUG, state({ simulation: practice("a") }));
+      throw unknownAction();
+    });
+    t.refs.latest.set(SLUG, state({ simulation: practice("b") }));
+    await t.save();
+    expect(t.outbox()).toBeNull();
+    expect(t.calls.stale).toBe(2);
+  });
+
+  it("a confirmed save with nothing left clears the outbox, though nothing was restored from it on this page", async () => {
+    // Deploy skew: a save of practice "a" found a newer build and went to
+    // the outbox (the setup's KEPT); the build came back, and the learner
+    // picks "b" without reloading. Kept, "a" would come back over "b" on
+    // the next load of the course in this tab.
+    const t = setup(EMPTY_PROGRESS, state({ responses: { [`${OWN}/main`]: { type: "practice", optionId: "b", correct: true } } }));
+    await t.save();
+    expect(t.sent).toEqual([{ v: 2, answers: { [`${OWN}/main`]: { type: "practice", optionId: "b", correct: true } } }]);
+    expect(t.outbox()).toBeNull();
   });
 
   it("fails a save that didn't get through, so it's tried again", async () => {
@@ -205,7 +286,8 @@ describe("saveCourse", () => {
     });
     await expect(t.save()).rejects.toThrow(/session lookup failed/);
     expect(t.refs.acked.get(SLUG)).toBe(EMPTY_PROGRESS);
-    expect(t.calls.stale).toEqual([]);
+    expect(t.calls.stale).toBe(0);
+    expect(t.outbox()).toEqual(KEPT);
   });
 
   it("drops a save meant for another account, logs one that can never succeed, and tries neither again", async () => {
@@ -217,7 +299,8 @@ describe("saveCourse", () => {
     await t.save();
     expect(console.error).toHaveBeenCalledTimes(1);
     expect(t.refs.acked.get(SLUG)).toBe(EMPTY_PROGRESS);
-    expect(t.calls).toMatchObject({ again: 0, settled: 0 });
+    expect(t.calls).toMatchObject({ again: 0 });
+    expect(t.outbox()).toEqual(KEPT);
   });
 
   it("forgets the answer to a save once the store has let go of the learner's data", async () => {
@@ -229,7 +312,47 @@ describe("saveCourse", () => {
     });
     await t.save();
     expect(t.refs.acked.get(SLUG)).toBe(EMPTY_PROGRESS);
-    expect(t.calls).toMatchObject({ again: 0, settled: 0 });
+    expect(t.calls).toMatchObject({ again: 0 });
+    expect(t.outbox()).toEqual(KEPT);
+  });
+});
+
+describe("courseChanged", () => {
+  it("a restore that adds nothing new clears the outbox: it is never applied again over newer progress", () => {
+    // A save of the practice got through but its answer was lost to the
+    // deploy, and the retry found the newer build: the outbox (KEPT) holds
+    // what the server already has. Restored, it changes nothing — and no
+    // save follows to clear it.
+    const server = state({ responses: { [`${OWN}/main`]: { type: "practice", optionId: "kept", correct: false } } });
+    const t = setup(server, server);
+    const restored = applyPatch(server, t.outbox()!);
+    expect(courseChanged(t.refs, SLUG, ANA, restored, t.deps.outbox)).toBe(false);
+    expect(t.refs.latest.get(SLUG)).toBe(restored);
+    expect(t.outbox()).toBeNull();
+  });
+
+  it("says when there is something to save, keeping the outbox until a save of it is confirmed", () => {
+    const t = setup(EMPTY_PROGRESS, EMPTY_PROGRESS);
+    const restored = applyPatch(EMPTY_PROGRESS, t.outbox()!);
+    expect(courseChanged(t.refs, SLUG, ANA, restored, t.deps.outbox)).toBe(true);
+    expect(t.outbox()).toEqual(KEPT);
+  });
+
+  it("clears the outbox when the learner goes back to what the server has", () => {
+    // The page that kept "kept" (KEPT) still holds it, unconfirmed; the
+    // learner picks the server's answer again: nothing to send, and the
+    // outbox mustn't bring "kept" back after a reload.
+    const server = state({ responses: { [`${OWN}/main`]: { type: "practice", optionId: "acct", correct: true } } });
+    const t = setup(server, applyPatch(server, KEPT));
+    expect(courseChanged(t.refs, SLUG, ANA, structuredClone(server), t.deps.outbox)).toBe(false);
+    expect(t.outbox()).toBeNull();
+  });
+
+  it("changes nothing for a course that hasn't loaded", () => {
+    const t = setup(EMPTY_PROGRESS, EMPTY_PROGRESS);
+    t.refs.acked.delete(SLUG);
+    expect(courseChanged(t.refs, SLUG, ANA, EMPTY_PROGRESS, t.deps.outbox)).toBe(false);
+    expect(t.outbox()).toEqual(KEPT);
   });
 });
 

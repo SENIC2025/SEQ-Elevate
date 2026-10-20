@@ -3,7 +3,6 @@ import { RESPONSE_LIMITS, type ProgressPatch } from "@/lib/learner-progress/cont
 import {
   OUTBOX_PREFIX,
   clearOutbox,
-  mergePatches,
   outboxKey,
   putInOutbox,
   readOutbox,
@@ -13,8 +12,8 @@ import {
 /*
  * U12 (spec 5.4, D68): a save the server can't take because this page is
  * from an older build is kept in the tab's outbox, read back after the
- * reload for the same learner only, and cleared once a save of it is
- * confirmed.
+ * reload for the same learner only, and cleared (course-save.test.ts:
+ * once nothing the page holds is left to send).
  */
 
 /** sessionStorage, in memory. */
@@ -61,33 +60,6 @@ describe("the outbox's key", () => {
   });
 });
 
-describe("mergePatches", () => {
-  it("keeps every lesson once, the newer answer per key, and per question for reflections and ratings", () => {
-    expect(mergePatches(first, second)).toEqual({
-      v: 2,
-      completed: ["context", OWN, "concept"],
-      answers: {
-        "simulation/main": { type: "practice", optionId: "b", correct: true },
-        [`${OWN}/${PART}`]: { type: "reflection", text: { q1: "Second", q2: "Kept" } },
-        [`concept/${PART}`]: { type: "rating", values: { s1: 2, s2: 5 } },
-      },
-      completedAt: "2026-11-10T09:00:00.000Z",
-    });
-  });
-
-  it("keeps the first completion", () => {
-    const a = { v: 2, completedAt: "2026-11-10T09:00:00.000Z" } as const;
-    const b = { v: 2, completedAt: "2026-11-11T09:00:00.000Z" } as const;
-    expect(mergePatches(a, b).completedAt).toBe(a.completedAt);
-  });
-
-  it("takes a newer answer of another type whole", () => {
-    const a: ProgressPatch = { v: 2, answers: { [`${OWN}/${PART}`]: { type: "rating", values: { s1: 1 } } } };
-    const b: ProgressPatch = { v: 2, answers: { [`${OWN}/${PART}`]: { type: "reflection", text: { q: "x" } } } };
-    expect(mergePatches(a, b).answers).toEqual(b.answers);
-  });
-});
-
 describe("putInOutbox and readOutbox", () => {
   it("keeps a patch for the learner and course it was made for", () => {
     const s = storage();
@@ -95,11 +67,13 @@ describe("putInOutbox and readOutbox", () => {
     expect(readOutbox(s, ANA, SLUG)).toEqual(first);
   });
 
-  it("merges a later patch into what is waiting", () => {
+  it("keeps a later patch in place of what is waiting: the page sending it holds all of that, or changed it since", () => {
+    // `first`'s practice "a" was changed to "b" since: merged in, "a"
+    // would come back after the reload over the learner's later answer.
     const s = storage();
     putInOutbox(s, ANA, SLUG, first);
     putInOutbox(s, ANA, SLUG, second);
-    expect(readOutbox(s, ANA, SLUG)).toEqual(mergePatches(first, second));
+    expect(readOutbox(s, ANA, SLUG)).toEqual(second);
   });
 
   it("never hands one learner's outbox to another", () => {

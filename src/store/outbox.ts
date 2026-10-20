@@ -10,9 +10,11 @@
  * sessionStorage entry per learner and course, which outlives the reload —
  * and the page asks the learner to reload. Once the reloaded page has
  * loaded and merged the course's saved progress for the same learner, the
- * outbox is applied as changes made on the page, and saved like any; it is
- * cleared once a save of them is confirmed. Another learner's entry (an
- * account signed in after a sign-out on this tab) is never read.
+ * outbox is applied as changes made on the page, and saved like any. It is
+ * cleared as soon as nothing that page holds is left to send, whether or
+ * not it was applied there (course-save.ts): kept, it would come back over
+ * newer progress on a later load. Another learner's entry (an account
+ * signed in after a sign-out on this tab) is never read.
  *
  * Pure but for the storage handed in, and never throws: a browser that
  * blocks storage keeps nothing here, which leaves the answers on the page.
@@ -32,37 +34,6 @@ export const outboxKey = (forUser: string, slug: string) => `${OUTBOX_PREFIX}${f
 
 type Rec = Record<string, unknown>;
 const isRecord = (v: unknown): v is Rec => typeof v === "object" && v !== null && !Array.isArray(v);
-
-/**
- * `older` then `newer` as one patch: each finished lesson once, in order;
- * per key the newer answer — question by question for a reflection or a
- * rating, as the server merges them; the first completion. Fill mode is
- * never kept: only the move of a guest's progress sends it, and that is
- * never put here.
- */
-export function mergePatches(older: ProgressPatch, newer: ProgressPatch): ProgressPatch {
-  const completed = [...(older.completed ?? []), ...(newer.completed ?? [])].filter(
-    (id, i, all) => all.indexOf(id) === i
-  );
-  const answers: Record<string, PatchAnswer> = { ...(older.answers ?? {}) };
-  for (const [key, answer] of Object.entries(newer.answers ?? {})) {
-    const before = answers[key];
-    if (answer.type === "reflection" && before?.type === "reflection") {
-      answers[key] = { type: "reflection", text: { ...before.text, ...answer.text } };
-    } else if (answer.type === "rating" && before?.type === "rating") {
-      answers[key] = { type: "rating", values: { ...before.values, ...answer.values } };
-    } else {
-      answers[key] = answer;
-    }
-  }
-  const completedAt = older.completedAt ?? newer.completedAt;
-  return {
-    v: 2,
-    ...(completed.length ? { completed } : {}),
-    ...(Object.keys(answers).length ? { answers } : {}),
-    ...(completedAt ? { completedAt } : {}),
-  };
-}
 
 /**
  * What an entry holds, as a patch: each finished lesson, each answer this
@@ -109,9 +80,13 @@ export function readOutbox(
 }
 
 /**
- * Adds `patch` to what waits for `forUser` in `slug`. False when it
- * couldn't be kept (no storage, or the browser refused it): the answers are
- * then only on the page.
+ * Keeps `patch` as what waits for `forUser` in `slug`: all the page sending
+ * it has that the server hasn't confirmed. It takes the place of what
+ * waited, which that page took in when it loaded the course, or which it
+ * changed since — merged in, an answer changed since would come back after
+ * the reload. Fill mode is never kept: only the move of a guest's progress
+ * sends it. False when it couldn't be kept (no storage, or the browser
+ * refused it): the answers are then only on the page.
  */
 export function putInOutbox(
   storage: OutboxStorage | null,
@@ -121,18 +96,16 @@ export function putInOutbox(
 ): boolean {
   if (!storage) return false;
   try {
-    const before = readOutbox(storage, forUser, slug);
     const { fill: _fill, ...own } = patch;
     void _fill;
-    const next = before ? mergePatches(before, own) : own;
-    storage.setItem(outboxKey(forUser, slug), JSON.stringify(next));
+    storage.setItem(outboxKey(forUser, slug), JSON.stringify(own));
     return true;
   } catch {
     return false;
   }
 }
 
-/** Forgets what waits for `forUser` in `slug`: a save of it was confirmed. */
+/** Forgets what waits for `forUser` in `slug`: the server has it, or the learner changed it since. */
 export function clearOutbox(storage: OutboxStorage | null, forUser: string, slug: string): void {
   try {
     storage?.removeItem(outboxKey(forUser, slug));
