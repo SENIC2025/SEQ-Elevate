@@ -242,9 +242,13 @@ export function readResponses(raw: unknown): Partial<Record<PartKey, StoredAnswe
 /** CourseEnrollment.sectionsCompleted as a list of the course's own lessons, once each, in order. */
 export function readIds(raw: unknown): CustomSectionId[] {
   if (!Array.isArray(raw)) return [];
+  // A Set, not out.includes: every counter reads every enrolment.
+  const seen = new Set<string>();
   const out: CustomSectionId[] = [];
   for (const id of raw) {
-    if (isCustomSectionId(id) && !out.includes(id)) out.push(id);
+    if (!isCustomSectionId(id) || seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
   }
   return out;
 }

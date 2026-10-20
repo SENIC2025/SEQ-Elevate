@@ -49,6 +49,18 @@ describe("mergeIntoEnrollment: finished lessons", () => {
     expect(m.next.sectionsCompleted).toEqual([OWN, 42, "junk", OWN2]);
   });
 
+  it("own lessons past a row limit are refused per id (row-full)", () => {
+    // Any "s-" id passes a patch's checks, so the list is bounded per row,
+    // as the stored answers are.
+    const stored = Array.from({ length: RESPONSE_LIMITS.ownLessonsPerRow - 1 }, (_, i) => `s-${String(i).padStart(8, "0")}`);
+    const m = merge(row({ sectionsCompleted: stored }), { completed: [OWN, "context", stored[0], "s-zzzzzzzz"] });
+    expect(m.next.sectionsCompleted).toEqual([...stored, OWN]);
+    expect(m.next.stagesCompleted).toEqual(["CONTEXT"]);
+    expect(m.refused).toEqual([{ key: "s-zzzzzzzz", reason: "row-full" }]);
+    // One already there is never refused.
+    expect(merge(row({ sectionsCompleted: [...stored, OWN] }), { completed: [OWN] }).refused).toEqual([]);
+  });
+
   it("refuses the course's own lessons, keeping the column, when the column isn't a list", () => {
     const m = merge(row({ sectionsCompleted: { broken: true } }), { completed: [OWN, "context"] });
     expect(m.next.sectionsCompleted).toEqual({ broken: true });

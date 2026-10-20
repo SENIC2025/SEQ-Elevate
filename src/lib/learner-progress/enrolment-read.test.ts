@@ -34,6 +34,14 @@ describe("completedLessonIds", () => {
     expect(completedLessonIds({ stagesCompleted: [], sectionsCompleted: null })).toEqual([]);
   });
 
+  it("reads 50,000 ids in well under a second: every counter reads every enrolment", () => {
+    const many = Array.from({ length: 50_000 }, (_, i) => `s-${String(i).padStart(8, "0")}`);
+    const start = performance.now();
+    const ids = completedLessonIds({ stagesCompleted: ["CONTEXT"], sectionsCompleted: [...many, many[0]] });
+    expect(performance.now() - start).toBeLessThan(250);
+    expect(ids).toHaveLength(50_001);
+  });
+
   it("skips what it can't read", () => {
     expect(completedLessonIds({ stagesCompleted: ["CONTEXT"], sectionsCompleted: [OWN, 5, "context"] })).toEqual([
       "context",

@@ -19,7 +19,8 @@ export function completedLessonIds(row: {
   sectionsCompleted?: unknown;
 }): string[] {
   const out = row.stagesCompleted.map((s) => s.toLowerCase());
-  for (const id of readIds(row.sectionsCompleted)) if (!out.includes(id)) out.push(id);
+  // readIds lists each once, and none is a standard key.
+  for (const id of readIds(row.sectionsCompleted)) out.push(id);
   return out;
 }
 

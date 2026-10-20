@@ -5,7 +5,8 @@
  *
  *   - Finished lessons only grow: standard ones appended to
  *     stagesCompleted (upper case, the StageKey enum), the course's own to
- *     sectionsCompleted.
+ *     sectionsCompleted — up to a limit per row, past which each is
+ *     refused for itself (`row-full`).
  *   - completedAt: the stored one, else the patch's. Never null again.
  *   - The four standard answers keep their columns (D56): a practice and a
  *     scenario are replaced whole (a new root clears the follow-up, as the
@@ -173,6 +174,7 @@ export function mergeIntoEnrollment(
   const stages = [...before.stagesCompleted];
   const ownStored = before.sectionsCompleted ?? [];
   const own = Array.isArray(ownStored) ? [...ownStored] : null;
+  const ownHas = new Set<unknown>(own);
   for (const id of patch.completed) {
     if (isLegacySectionId(id)) {
       const key = id.toUpperCase();
@@ -180,8 +182,14 @@ export function mergeIntoEnrollment(
     } else if (own === null) {
       // Something else is stored there: kept, and nothing added to it.
       refused.push({ key: id, reason: "invalid" });
-    } else if (!own.includes(id)) {
+    } else if (ownHas.has(id)) {
+      continue;
+    } else if (own.length >= RESPONSE_LIMITS.ownLessonsPerRow) {
+      // Any "s-" id passes the patch's checks: the list is bounded per row.
+      refused.push({ key: id, reason: "row-full" });
+    } else {
       own.push(id);
+      ownHas.add(id);
     }
   }
   next.stagesCompleted = stages;

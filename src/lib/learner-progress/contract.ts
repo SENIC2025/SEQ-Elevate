@@ -85,6 +85,12 @@ export const RESPONSE_LIMITS = {
   patchJsonChars: 300_000,
   /** Stored responses; growth refused per key ("row-full"). */
   rowJsonChars: 1_000_000,
+  /**
+   * Lessons of the course's own stored as finished (sectionsCompleted); more
+   * refused per id ("row-full"). A course has at most 15 lessons at a time:
+   * this leaves room for every one an editor replaces over its life.
+   */
+  ownLessonsPerRow: 500,
   /** Per prompt, new writes only. */
   reflectionChars: 5_000,
   /** = PART_LIMITS.reflectionPrompts */
