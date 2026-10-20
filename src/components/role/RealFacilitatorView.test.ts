@@ -66,34 +66,27 @@ function stat(html: string, label: string): string | undefined {
 }
 
 describe("RealFacilitatorView: “Active in the last 24h”", () => {
-  const learners = [
-    // Halfway, but last seen three days ago.
-    learner({ id: "a", progressPct: 50, lastActiveAt: hoursAgo(72) }),
-    // No lesson done yet, but answered something two hours ago.
-    learner({ id: "b", progressPct: 0, lastActiveAt: hoursAgo(2) }),
-    // Finished, the day before yesterday's evening.
-    learner({ id: "c", progressPct: 100, completed: true, lastActiveAt: hoursAgo(25) }),
-    // Hasn't started.
-    learner({ id: "d" }),
-  ];
-
-  it("counts the learners active in the last 24 hours, not those with any progress", () => {
-    const html = renderToStaticMarkup(createElement(RealFacilitatorView, { learners, now: NOW }));
-    expect(stat(html, "Active in the last 24h")).toBe("1/4");
-  });
-
-  it("counts a learner active exactly 24 hours ago, and one whose clock ran ahead of the server's", () => {
+  // Review finding 5: a change to this figure isn't part of spec 9.3, and
+  // the staff guide (docs/staff-guide.md, "The figures at the top") says
+  // what it counts today: every learner with any progress, however long
+  // ago. It keeps that count until the owner signs off a change and the
+  // guide changes with it.
+  it("counts the learners with any progress, as the staff guide says", () => {
     const html = renderToStaticMarkup(
       createElement(RealFacilitatorView, {
         learners: [
-          learner({ id: "e", lastActiveAt: hoursAgo(24) }),
-          learner({ id: "f", lastActiveAt: hoursAgo(-0.1) }),
-          learner({ id: "g", lastActiveAt: hoursAgo(24.01) }),
+          // Halfway, last seen three days ago.
+          learner({ id: "a", progressPct: 50, lastActiveAt: hoursAgo(72) }),
+          // No lesson done yet, but answered something two hours ago.
+          learner({ id: "b", progressPct: 0, lastActiveAt: hoursAgo(2) }),
+          // Finished, the day before yesterday.
+          learner({ id: "c", progressPct: 100, completed: true, lastActiveAt: hoursAgo(25) }),
+          // Hasn't started.
+          learner({ id: "d" }),
         ],
-        now: NOW,
       })
     );
-    expect(stat(html, "Active in the last 24h")).toBe("2/3");
+    expect(stat(html, "Active in the last 24h")).toBe("2/4");
   });
 
   it("says “24 hours” in every language", () => {

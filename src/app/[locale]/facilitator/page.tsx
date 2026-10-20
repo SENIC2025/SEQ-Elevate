@@ -15,13 +15,8 @@ export default async function Page({
   // Staff (FACILITATOR/ADMIN) see real DB learners; everyone else gets a note
   // that the workspace is for staff.
   const realLearners = await getProjectLearners(loc);
-  // The time the learners were read, for "Active in the last 24h": this
-  // server component runs once per request (it reads the session), so the
-  // page as sent and the page once it runs count from the same moment.
-  // eslint-disable-next-line react-hooks/purity
-  const now = Date.now();
   return realLearners ? (
-    <RealFacilitatorView learners={realLearners} now={now} />
+    <RealFacilitatorView learners={realLearners} />
   ) : (
     <FacilitatorWorkspace />
   );
