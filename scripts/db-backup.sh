@@ -158,11 +158,27 @@ test_restore() {
     sudo apt-get install -y -qq --no-install-recommends "postgresql-${PG_MAJOR}"
   fi
   # No DATABASE_URL in here: nothing in this phase can reach production.
+  # Extensions only Neon ships (pg_session_jwt, for its sign-in service and Data
+  # API) can't be created on the runner: they are skipped here, by name, and
+  # everything else must restore. A restore into Neon includes them.
   DUMP_PATH="$PWD/$FILE" PG_MAJOR="$PG_MAJOR" env -u DATABASE_URL \
     pg_virtualenv -v "$PG_MAJOR" bash -euo pipefail -c '
       B="/usr/lib/postgresql/$PG_MAJOR/bin"
       "$B/createdb" restore_check
-      "$B/pg_restore" --exit-on-error --no-owner --no-privileges -d restore_check "$DUMP_PATH"
+      list="$(mktemp)"
+      "$B/pg_restore" --list "$DUMP_PATH" > "$list"
+      have=" $("$B/psql" -XAtq -d restore_check -c "SELECT name FROM pg_available_extensions" | tr "\n" " ") "
+      skip=" "
+      for ext in $(awk "\$4 == \"EXTENSION\" && \$5 == \"-\" { print \$6 }" "$list"); do
+        case "$have" in *" $ext "*) ;; *) skip="$skip$ext ";; esac
+      done
+      if [ "$skip" != " " ]; then
+        awk -v skip="$skip" "(\$4 == \"EXTENSION\" && \$5 == \"-\" && index(skip, \" \" \$6 \" \")) ||
+          (\$4 == \"COMMENT\" && \$5 == \"-\" && \$6 == \"EXTENSION\" && index(skip, \" \" \$7 \" \")) { print \";\" \$0; next } { print }" \
+          "$list" > "$list.new" && mv "$list.new" "$list"
+        echo "Test restore skips extension(s) the runner cannot install:${skip% } (Neon-only; a restore into Neon includes them)"
+      fi
+      "$B/pg_restore" --exit-on-error --no-owner --no-privileges --use-list="$list" -d restore_check "$DUMP_PATH"
       echo "Test restore OK: $("$B/psql" -XAtq -d restore_check -c "SELECT count(*) FROM _prisma_migrations") migrations restored"
     '
 }

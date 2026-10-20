@@ -117,8 +117,12 @@ jobs:
           MIN_TABLES: ${{ vars.BACKUP_MIN_TABLES || '20' }}
         run: scripts/db-backup.sh verify
 
+      # A failed test restore doesn't stop the verified dump from being stored;
+      # the run still fails at the end ("Fail the run if the test restore failed").
       - name: Test restore into a throwaway local PostgreSQL (optional)
+        id: testrestore
         if: steps.cfg.outputs.ready == 'true' && vars.BACKUP_TEST_RESTORE == 'true'
+        continue-on-error: true
         run: scripts/db-backup.sh test-restore
 
       - name: Install age (only when BACKUP_AGE_RECIPIENT is set)
@@ -150,6 +154,12 @@ jobs:
           BUCKET: ${{ secrets.BACKUP_S3_BUCKET }}
           ENDPOINT: ${{ secrets.BACKUP_S3_ENDPOINT }}
         run: scripts/db-backup.sh prune
+
+      - name: Fail the run if the test restore failed (the dump was stored anyway)
+        if: steps.cfg.outputs.ready == 'true' && steps.testrestore.outcome == 'failure'
+        run: |
+          echo "::error::The test restore failed (see that step); the verified dump was uploaded anyway."
+          exit 1
 
       - name: Heartbeat to the dead-man's switch (success)
         if: success() && steps.cfg.outputs.ready == 'true'

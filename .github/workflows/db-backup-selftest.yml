@@ -94,6 +94,8 @@ jobs:
           CREATE SCHEMA neon_auth;
           CREATE TABLE neon_auth.jwks (id text PRIMARY KEY, "privateKey" text);
           INSERT INTO neon_auth.jwks VALUES ('k1', 'live-signing-key');
+          -- An extension, standing in for Neon-only pg_session_jwt below.
+          CREATE EXTENSION pg_trgm WITH SCHEMA public;
           DO $$ BEGIN
             FOR i IN 1..18 LOOP
               EXECUTE format('CREATE TABLE %I (id serial PRIMARY KEY, v text)', 'Model' || i);
@@ -156,7 +158,15 @@ jobs:
             echo "::error::the neon_auth schema is in the dump"; exit 1
           fi
           scripts/db-backup.sh verify
-          scripts/db-backup.sh test-restore
+          scripts/db-backup.sh test-restore | tee tr.txt
+          if grep -q "skips extension" tr.txt; then echo "::error::skipped an available extension"; exit 1; fi
+          # An extension the runner can't install (like Neon's pg_session_jwt) is
+          # skipped by name, and the rest still restores.
+          ext_dir="$("/usr/lib/postgresql/$PG_MAJOR/bin/pg_config" --sharedir)/extension"
+          sudo mv "$ext_dir/pg_trgm.control" "$ext_dir/pg_trgm.control.hidden"
+          scripts/db-backup.sh test-restore | tee tr.txt
+          sudo mv "$ext_dir/pg_trgm.control.hidden" "$ext_dir/pg_trgm.control"
+          grep -q "cannot install: pg_trgm (Neon-only" tr.txt || { echo "::error::pg_trgm was not reported as skipped"; exit 1; }
 
       - name: Encrypt with age, upload, read back
         run: |

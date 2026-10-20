@@ -189,6 +189,12 @@ docker run --rm -e TARGET_URL -v "$PWD":/w -w /w postgres:$PGMAJ \
   sh -c 'pg_restore --clean --if-exists --no-owner --no-privileges --exit-on-error --dbname "$TARGET_URL" restore.dump'
 ```
 
+Into PostgreSQL outside Neon: the dump contains Neon's `pg_session_jwt` extension (installed by
+Neon for its own sign-in service; the app doesn't use it), which only Neon has. Skip it with a
+list, as the nightly test restore does (`test_restore` in `scripts/db-backup.sh`): `pg_restore
+--list restore.dump > list.txt`, put `;` before its `EXTENSION` and `COMMENT - EXTENSION` lines,
+then add `--use-list=list.txt` to the restore.
+
 R9. In the target's SQL Editor compare `SELECT count(*)` of `_prisma_migrations`, `"User"`
 and `"CourseEnrollment"` with production. `"Session"` and `"VerificationToken"` are empty
 by design: everyone signs in again, and pending invitations must be resent.
@@ -202,11 +208,12 @@ R11. Delete `restore.download`, `restore.dump` and `meta.json`, and the drill br
 
 ## Good practice
 
-- **Test-restore quarterly** (R1–R9 into a branch) and record the date. Setting the repo
-  variable `BACKUP_TEST_RESTORE` to `true` also makes every nightly run restore the dump
-  into a throwaway database on the runner.
-- After the first green run, set the repo variable `BACKUP_MIN_DUMP_BYTES` to about half
-  the first dump's size, so a suspiciously small dump fails the run.
+- **Test-restore quarterly** (R1–R9 into a branch) and record the date. Every nightly run
+  also restores the dump into a throwaway database on the runner (repo variable
+  `BACKUP_TEST_RESTORE` = `true`, since 20 Oct 2026; Neon-only extensions are skipped
+  there). If that test restore fails, the verified dump is still uploaded and the run fails.
+- `BACKUP_MIN_DUMP_BYTES` is `37000`, about half the first dump (74,821 bytes on 20 Oct
+  2026), so a suspiciously small dump fails the run. Raise it as the data grows.
 - Rotate the Scaleway key yearly and the `backup_reader` password when people leave
   (`ALTER ROLE backup_reader WITH PASSWORD '…'`, then update `BACKUP_DATABASE_URL`).
 - Everyone with write access to the repository can change these secrets, including
