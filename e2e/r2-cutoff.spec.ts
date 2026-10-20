@@ -213,7 +213,7 @@ describe("Release 2 — the 1 December cut-off", () => {
 
     // Still closed: no move, no new lesson, no delete of a lesson nobody
     // has anything in — each says why, with the date.
-    const actions = await openActions(page, "2. Concept");
+    const actions = await openActions(page, "2. Skill concept");
     const down = actions.getByRole("button", { name: /^move down$/i });
     await expect(down).toHaveAttribute("aria-disabled", "true");
     await expect(down).toHaveAccessibleDescription(CLOSED_TEXT);
