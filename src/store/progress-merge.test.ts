@@ -10,6 +10,7 @@ import {
   storedGuestState,
 } from "./progress-merge";
 import type { CompCardData, CourseProgress, DemoState } from "./demo-state";
+import { patchSince } from "@/lib/learner-progress/patch";
 
 const SLUG = "workplace-conflict";
 
@@ -411,6 +412,80 @@ describe("courseAfterLoad", () => {
     const other = progress({ courseSlug: "other", stagesCompleted: ["context"] });
     expect(courseAfterLoad(progress(), SLUG, other)).toBeNull();
     expect(courseAfterLoad(walked, SLUG, other)).toEqual(walked);
+  });
+});
+
+describe("courseAfterLoad, for a guest's course moved into the account (spec 5.4)", () => {
+  // The guest's course, moved in fill mode on sign-in: the account had no
+  // progress in it when its enrolments were read.
+  const guest = progress({
+    courseTitle: "Workplace conflict",
+    stagesCompleted: ["context", "concept"],
+    simulation: { choice: "A", correct: true },
+    reflection: { p1: "Guest", p2: "Guest", p3: "" },
+    assessment: { answers: { q1: "a" }, checked: true },
+    responses: {
+      [`${OWN}/${PART}`]: { type: "rating", values: { s1: 1, s2: 2 } },
+      [`${OWN}/main`]: { type: "practice", optionId: "g", correct: false },
+    },
+  });
+  // Meanwhile another device saved the course; the fill kept what it saved.
+  const account = progress({
+    stagesCompleted: ["context", "behaviour"],
+    simulation: { choice: "B", correct: false },
+    reflection: { p1: "Account", p2: "", p3: "" },
+    assessment: { answers: { q1: "b" }, checked: false },
+    responses: { [`${OWN}/${PART}`]: { type: "rating", values: { s1: 5 } } },
+  });
+
+  it("keeps the account's answers when the course loads: the save after it sends only what the account lacks", () => {
+    // The bug: merged as if done on the page, the guest's practice "A" won
+    // over the account's "B", and the next save sent it over "B".
+    const shown = courseAfterMigration(progress({ courseSlug: null }), guest)!;
+    const next = courseAfterLoad(shown, SLUG, account, guest)!;
+    expect(next).toEqual(
+      progress({
+        courseTitle: "Workplace conflict",
+        stagesCompleted: ["context", "behaviour", "concept"],
+        simulation: { choice: "B", correct: false },
+        reflection: { p1: "Account", p2: "Guest", p3: "" },
+        assessment: { answers: { q1: "b" }, checked: false },
+        responses: {
+          [`${OWN}/${PART}`]: { type: "rating", values: { s1: 5, s2: 2 } },
+          [`${OWN}/main`]: { type: "practice", optionId: "g", correct: false },
+        },
+      })
+    );
+    expect(patchSince(account, next)).toEqual({
+      v: 2,
+      completed: ["concept"],
+      answers: {
+        "reflection/main": { type: "reflection", text: { p2: "Guest" } },
+        [`${OWN}/${PART}`]: { type: "rating", values: { s2: 2 } },
+        [`${OWN}/main`]: { type: "practice", optionId: "g", correct: false },
+      },
+    });
+  });
+
+  it("still lets what the learner did on the page win over the account, as for any saved progress", () => {
+    const shown = courseAfterMigration(progress({ courseSlug: null }), guest)!;
+    const played: CourseProgress = {
+      ...shown,
+      simulation: { choice: "C", correct: true },
+      reflection: { ...shown.reflection, p3: "On the page" },
+      responses: { ...shown.responses, [`${OWN}/${PART}`]: { type: "rating", values: { s1: 1, s2: 4 } } },
+    };
+    const next = courseAfterLoad(played, SLUG, account, guest)!;
+    expect(next.simulation).toEqual({ choice: "C", correct: true });
+    expect(next.reflection).toEqual({ p1: "Account", p2: "Guest", p3: "On the page" });
+    expect(next.responses[`${OWN}/${PART}`]).toEqual({ type: "rating", values: { s1: 5, s2: 4 } });
+  });
+
+  it("is the guest's course when the account still has nothing saved (the move didn't get through)", () => {
+    const shown = courseAfterMigration(progress({ courseSlug: null }), guest)!;
+    const next = courseAfterLoad(shown, SLUG, null, guest);
+    expect(next).toEqual(guest);
+    expect(next).not.toBe(shown);
   });
 });
 

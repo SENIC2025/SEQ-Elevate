@@ -232,7 +232,17 @@ type Action =
   | { type: "hydrate"; state: DemoState }
   | { type: "hydrateGlobal"; compCard: CompCardData | null; badges: string[] }
   | { type: "guestCourseMigrated"; course: CourseProgress }
-  | { type: "courseProgressLoaded"; slug: string; saved: CourseProgress | null }
+  /**
+   * `migrated`: the guest's course, when it moved into the account on
+   * sign-in and this is its first load — the account's answers come first
+   * (progress-merge.ts).
+   */
+  | {
+      type: "courseProgressLoaded";
+      slug: string;
+      saved: CourseProgress | null;
+      migrated?: CourseProgress | null;
+    }
   // Release 2 (spec 5.4). The actions above stay as they are, so the stage
   // screens keep working.
   /** A lesson finished: a standard one to stagesCompleted, one of the course's own to sectionsCompleted. */
@@ -441,7 +451,7 @@ export function reducer(state: DemoState, action: Action): DemoState {
       // Merged with what the learner did while it loaded, never swapped in
       // (see progress-merge.ts). A new course object means there's
       // something to save; null means nothing changes.
-      const course = courseAfterLoad(state.course, action.slug, action.saved);
+      const course = courseAfterLoad(state.course, action.slug, action.saved, action.migrated);
       return course ? { ...state, course } : state;
     }
     case "completeLesson":
@@ -542,6 +552,10 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
   // the store lets go of the learner's data, so an answer to a save sent
   // before can't move them on.
   const progressRefs = React.useRef(courseSaveRefs());
+  // The guest's course moved into the account on sign-in, until it loads:
+  // it was sent in fill mode, and the account's answers come first then
+  // too (courseAfterLoad).
+  const migratedRef = React.useRef<CourseProgress | null>(null);
   // The course whose saved progress has loaded and been merged in, for
   // readyCourse (a signed-in learner's; loadedCourseRef, as state).
   const [loadedCourse, setLoadedCourse] = React.useState<string | null>(null);
@@ -582,6 +596,7 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
     loadedCourseRef.current = null;
     setLoadedCourse(null);
     progressRefs.current = courseSaveRefs();
+    migratedRef.current = null;
     persistedBadges.current = new Set();
     badgeTries.current = new Map();
     courseScheduled.current = null;
@@ -772,9 +787,11 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
           // Shown at once if it's the course being played (merged with the
           // steps taken meanwhile) or no course is; another course's player
           // keeps its own. It isn't marked loaded: the course load below
-          // reads it back from the server and merges it like any saved
-          // progress, and only then is the course saved — a save that
-          // didn't get through above among it.
+          // reads it back from the server and merges it, the account's
+          // answers first as the move was sent (migratedRef), and only then
+          // is the course saved — a save that didn't get through above
+          // among it.
+          migratedRef.current = migratedCourse;
           dispatch({ type: "guestCourseMigrated", course: migratedCourse });
         }
         setDbOwner(forUser);
@@ -870,7 +887,9 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
       refs.acked.set(slug, savedProgress(saved));
       refs.latest.delete(slug);
       refs.refused.delete(slug);
-      dispatch({ type: "courseProgressLoaded", slug, saved });
+      const migrated = migratedRef.current?.courseSlug === slug ? migratedRef.current : null;
+      if (migrated) migratedRef.current = null;
+      dispatch({ type: "courseProgressLoaded", slug, saved, migrated });
       // What this tab kept for this learner when a save of the course found
       // a newer build (D68): applied as changes made here, so it's saved
       // like any, in the same render as the merge — and the outbox cleared

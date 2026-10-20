@@ -87,4 +87,16 @@ describe("the learner store's Release 2 actions", () => {
     });
     expect(reducer(playing, { type: "outboxRestored", slug: "other", patch })).toBe(playing);
   });
+
+  it("loads a guest's course moved into the account with the account's answers first", () => {
+    // Moved on sign-in in fill mode (practice "a"); another device saved
+    // practice "b" before the course loaded.
+    const guest = { ...playing.course, simulation: { choice: "a", correct: false }, stagesCompleted: ["context"] };
+    const migrated = reducer(playing, { type: "guestCourseMigrated", course: guest });
+    const saved = { ...DEFAULT_STATE.course, courseSlug: SLUG, simulation: { choice: "b", correct: true } };
+    const loaded = reducer(migrated, { type: "courseProgressLoaded", slug: SLUG, saved, migrated: guest });
+    expect(loaded.course).toMatchObject({ simulation: { choice: "b", correct: true }, stagesCompleted: ["context"] });
+    // Without it, as for any saved progress, what the page holds wins.
+    expect(reducer(migrated, { type: "courseProgressLoaded", slug: SLUG, saved }).course.simulation).toEqual(guest.simulation);
+  });
 });

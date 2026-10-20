@@ -14,9 +14,11 @@
  */
 
 import {
+  emptyAssessment,
   hasAssessmentProgress,
   mergeAssessment,
   readAssessment,
+  type AssessmentProgress,
 } from "@/lib/assessment-progress";
 import type { PartKey } from "@/lib/cms/sections/contract";
 import type { StoredAnswer } from "@/lib/learner-progress/contract";
@@ -25,6 +27,40 @@ import type { CompCardData, CourseProgress, DemoState } from "./demo-state";
 
 /** An answer counts once it has more than whitespace in it. */
 const answered = (text: string) => text.trim() !== "";
+
+/** Course `slug` with nothing done in it. */
+const blankCourse = (slug: string | null): CourseProgress => ({
+  courseSlug: slug,
+  courseTitle: null,
+  stagesCompleted: [],
+  simulation: null,
+  scenario: { root: null, followup: null, rootLabel: null, followupLabel: null },
+  reflection: { p1: "", p2: "", p3: "" },
+  assessment: emptyAssessment(),
+  sectionsCompleted: [],
+  responses: {},
+  completedAt: null,
+});
+
+/** `s`'s ids, then those of `l` it doesn't have. */
+const union = (s: readonly string[], l: readonly string[]) => [...s, ...l.filter((id) => !s.includes(id))];
+
+/** Values compared as JSON with object keys in order. */
+function same(a: unknown, b: unknown): boolean {
+  const canonical = (v: unknown): string => {
+    if (Array.isArray(v)) return `[${v.map(canonical).join(",")}]`;
+    if (typeof v === "object" && v !== null) {
+      const o = v as Record<string, unknown>;
+      return `{${Object.keys(o)
+        .sort()
+        .filter((k) => o[k] !== undefined)
+        .map((k) => `${JSON.stringify(k)}:${canonical(o[k])}`)
+        .join(",")}}`;
+    }
+    return JSON.stringify(v) ?? "null";
+  };
+  return canonical(a) === canonical(b);
+}
 
 /** An answer kept per item, as the store holds it. */
 type ItemAnswer = StoredAnswer & { retaken?: true };
@@ -102,10 +138,6 @@ export function mergeCourseProgress(
 ): CourseProgress {
   if (local.courseSlug !== saved.courseSlug) return local;
   const text = (l: string, s: string) => (answered(l) ? l : s);
-  const union = (s: readonly string[], l: readonly string[]) => [
-    ...s,
-    ...l.filter((id) => !s.includes(id)),
-  ];
   return {
     courseSlug: local.courseSlug,
     courseTitle: local.courseTitle ?? saved.courseTitle,
@@ -158,6 +190,84 @@ function mergeResponses(local: ItemAnswers, saved: ItemAnswers): ItemAnswers {
 }
 
 /**
+ * The account's progress (`saved`) with a guest's course (`guest`) only
+ * where it has none — what the server keeps when the guest's course moves
+ * in fill mode (merge-server.ts): lessons are a union; a practice, scenario
+ * or quick check is the account's if it has one; a reflection or rating
+ * gets the guest's answer only to a question the account hasn't answered.
+ */
+function accountFirst(saved: CourseProgress, guest: CourseProgress): CourseProgress {
+  const text = (s: string, g: string) => (answered(s) ? s : g);
+  const responses: ItemAnswers = { ...guest.responses };
+  for (const [key, s] of Object.entries(saved.responses ?? {}) as [PartKey, ItemAnswer][]) {
+    const g = guest.responses[key];
+    if (s.type === "reflection" && g?.type === "reflection") {
+      const filled = { ...s.text };
+      for (const [id, t] of Object.entries(g.text)) if (!answered(filled[id] ?? "")) filled[id] = t;
+      responses[key] = { type: "reflection", text: filled };
+    } else if (s.type === "rating" && g?.type === "rating") {
+      responses[key] = { type: "rating", values: { ...g.values, ...s.values } };
+    } else {
+      responses[key] = s;
+    }
+  }
+  const assessment = readAssessment(saved.assessment);
+  return {
+    courseSlug: saved.courseSlug,
+    courseTitle: saved.courseTitle ?? guest.courseTitle,
+    stagesCompleted: union(saved.stagesCompleted, guest.stagesCompleted),
+    sectionsCompleted: union(saved.sectionsCompleted ?? [], guest.sectionsCompleted),
+    simulation: saved.simulation ?? guest.simulation,
+    scenario: saved.scenario.root ? saved.scenario : guest.scenario,
+    reflection: {
+      p1: text(saved.reflection.p1, guest.reflection.p1),
+      p2: text(saved.reflection.p2, guest.reflection.p2),
+      p3: text(saved.reflection.p3, guest.reflection.p3),
+    },
+    assessment:
+      Object.keys(assessment.answers).length > 0 || assessment.checked ? assessment : guest.assessment,
+    responses,
+    completedAt: saved.completedAt ?? guest.completedAt,
+  };
+}
+
+/**
+ * `current` without the guest's course (`guest`) it still holds: only what
+ * the learner did on the page besides it — a field still as the guest left
+ * it reads as nothing done.
+ */
+function doneBesides(current: CourseProgress, guest: CourseProgress): CourseProgress {
+  const responses: ItemAnswers = {};
+  for (const [key, c] of Object.entries(current.responses) as [PartKey, ItemAnswer][]) {
+    const g = guest.responses[key];
+    if (c.type === "reflection" && g?.type === "reflection") {
+      const text = Object.fromEntries(Object.entries(c.text).filter(([id, t]) => g.text[id] !== t));
+      if (Object.keys(text).length) responses[key] = { type: "reflection", text };
+    } else if (c.type === "rating" && g?.type === "rating") {
+      const values = Object.fromEntries(Object.entries(c.values).filter(([id, v]) => g.values[id] !== v));
+      if (Object.keys(values).length) responses[key] = { type: "rating", values };
+    } else if (!same(c, g)) {
+      responses[key] = c;
+    }
+  }
+  const kept = (field: keyof CourseProgress["reflection"]) =>
+    current.reflection[field] === guest.reflection[field] ? "" : current.reflection[field];
+  const quiz = (a: AssessmentProgress) => ({ ...a, retaken: a.retaken === true });
+  return {
+    ...current,
+    simulation: same(current.simulation, guest.simulation) ? null : current.simulation,
+    scenario:
+      current.scenario.root === guest.scenario.root && current.scenario.followup === guest.scenario.followup
+        ? blankCourse(null).scenario
+        : current.scenario,
+    reflection: { p1: kept("p1"), p2: kept("p2"), p3: kept("p3") },
+    assessment: same(quiz(current.assessment), quiz(guest.assessment)) ? emptyAssessment() : current.assessment,
+    responses,
+    completedAt: current.completedAt === guest.completedAt ? null : current.completedAt,
+  };
+}
+
+/**
  * The answers kept per item in a stored copy of the store (`raw`): each it
  * can read (readResponses), without the quiz's "tried again" mark, which
  * only steers merging on the page that set it, as the quick check's does.
@@ -184,13 +294,27 @@ function readItemAnswers(raw: unknown): ItemAnswers {
  * Otherwise it's always a NEW object — the merge, or a copy of the current
  * progress when nothing was saved — so the store's debounced write-through
  * runs and saves what the learner did while this loaded.
+ *
+ * `migrated` is the guest's course when it moved into the account on
+ * sign-in (guest-migration.ts) and this is its first load. It was sent in
+ * fill mode, so the account wins (spec 5.4) — and so it does here: what the
+ * current progress still holds of it counts as the guest's, filling only
+ * what the account lacks, as the server's fill does; what the learner did
+ * on the page besides it wins over the account like any local change. The
+ * save that follows then sends only that and the gaps, never the guest's
+ * answer over one another device saved meanwhile.
  */
 export function courseAfterLoad(
   current: CourseProgress,
   slug: string,
-  saved: CourseProgress | null
+  saved: CourseProgress | null,
+  migrated?: CourseProgress | null
 ): CourseProgress | null {
   if (current.courseSlug !== slug) return null;
+  if (migrated?.courseSlug === slug) {
+    const account = saved?.courseSlug === slug ? saved : blankCourse(slug);
+    return mergeCourseProgress(doneBesides(current, migrated), accountFirst(account, migrated));
+  }
   if (saved?.courseSlug === slug) return mergeCourseProgress(current, saved);
   return hasCourseProgress(current) ? { ...current } : null;
 }
