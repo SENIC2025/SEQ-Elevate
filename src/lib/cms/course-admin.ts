@@ -72,7 +72,12 @@ import {
 } from "./sections/contract";
 import { restructureClosedFrom } from "./sections/cutoff";
 import { newOnlyReasons } from "./sections/guard";
-import { lessonPlanOf, type LessonFacts as PlanFacts, type LessonPlan } from "./sections/learner-path";
+import {
+  lessonPlanOf,
+  soleContentPart,
+  type LessonFacts as PlanFacts,
+  type LessonPlan,
+} from "./sections/learner-path";
 import { publishBlockers } from "./sections/publish-blockers";
 import { finishedCount, learnersWithDataByLesson } from "./sections/store.server";
 import { learnerPlayerOff, publishGuardOn } from "./sections/switches";
@@ -465,13 +470,20 @@ function createdCourseLessons(input: {
   const present = new Set<string>(plan.lessons.map((l) => l.id));
   const numbers = new Map<string, number>(plan.lessons.map((l, i) => [l.id, i + 1]));
 
-  const rows: LessonOutline[] = resolved.sections.map((s, i) => ({
-    ...sectionRow(s, i, resolved, rowOf.get(s.id), byLang, present, numbers.get(s.id) ?? null),
-    ...(s.hidden || present.has(s.id)
-      ? {}
-      : { notLive: input.switchedOff && s.custom ? ("switched-off" as const) : ("empty" as const) }),
-    ...(live.learners > 0 ? { learnersWithData: live.withData.get(s.id) ?? 0 } : {}),
-  }));
+  const rows: LessonOutline[] = resolved.sections.map((s, i) => {
+    const row = rowOf.get(s.id);
+    // All learners get of a lesson they get now: removing it takes the
+    // lesson out of their course, which its confirmation says.
+    const sole = present.has(s.id) && row ? soleContentPart(s, planFactsOf(row)) : null;
+    return {
+      ...sectionRow(s, i, resolved, row, byLang, present, numbers.get(s.id) ?? null),
+      ...(s.hidden || present.has(s.id)
+        ? {}
+        : { notLive: input.switchedOff && s.custom ? ("switched-off" as const) : ("empty" as const) }),
+      ...(live.learners > 0 ? { learnersWithData: live.withData.get(s.id) ?? 0 } : {}),
+      ...(sole ? { soleContent: sole } : {}),
+    };
+  });
 
   // Today's "Add guided practice / applied scenario / quick check" for each
   // one that isn't a lesson of the list, where it would go.

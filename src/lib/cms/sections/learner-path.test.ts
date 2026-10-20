@@ -11,6 +11,7 @@ import {
   lessonRenderKind,
   nextAfter,
   nextLesson,
+  soleContentPart,
   type LessonFacts,
 } from "./learner-path";
 import type { ResolvedSection } from "./contract";
@@ -91,6 +92,35 @@ describe("lessonHasContent", () => {
     const own = section(OWN, { template: "practice" });
     expect(lessonHasContent(own, facts(OWN, { structure: SIM }))).toBe(true);
     expect(lessonHasContent(own, facts(OWN))).toBe(false);
+  });
+});
+
+describe("soleContentPart: the one piece of content a lesson has for learners (finding 6)", () => {
+  // Removing it takes the lesson out of what learners get (unseen), so
+  // the confirmation must say so, not "others see the change when they
+  // reach it".
+  it("is the only extra piece learners get, of a lesson that has nothing else to show", () => {
+    const own = section(OWN);
+    const parts = { v: 1, items: [MAIN, textPart("p-00000001")] };
+    expect(soleContentPart(own, facts(OWN, { parts }))).toBe("p-00000001");
+    // Beside a draft (learners don't get it) it is still the only one.
+    const withDraft = { v: 1, items: [MAIN, textPart("p-00000001"), { id: "p-00000002", type: "quiz", data: null, draft: { kind: "assessment" } }] };
+    expect(soleContentPart(own, facts(OWN, { parts: withDraft }))).toBe("p-00000001");
+  });
+
+  it("is none while anything else is there for learners: another piece, the main text, a video, a document", () => {
+    const own = section(OWN);
+    const two = { v: 1, items: [MAIN, textPart("p-00000001"), textPart("p-00000002")] };
+    expect(soleContentPart(own, facts(OWN, { parts: two }))).toBeNull();
+    const one = { v: 1, items: [MAIN, textPart("p-00000001")] };
+    expect(soleContentPart(own, facts(OWN, { parts: one, narrative: { en: { blocks: [para("Main")] } } }))).toBeNull();
+    expect(soleContentPart(own, facts(OWN, { parts: one, hasVideo: true }))).toBeNull();
+    expect(soleContentPart(own, facts(OWN, { parts: one, publishedDocuments: 1 }))).toBeNull();
+    // A standard text lesson always has something to show.
+    expect(soleContentPart(section("concept"), facts("concept", { parts: one }))).toBeNull();
+    // Nothing to show at all, or content that can't be read: none.
+    expect(soleContentPart(own, facts(OWN))).toBeNull();
+    expect(soleContentPart(own, facts(OWN, { parts: "garbage" }))).toBeNull();
   });
 });
 

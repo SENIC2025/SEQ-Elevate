@@ -336,6 +336,7 @@ function takeRefreshedOutline(state: WorkspaceState, outline: CourseOutline): Wo
       live: f.live,
       notLive: f.notLive,
       learnersWithData: f.learnersWithData,
+      soleContent: f.soleContent,
       ...(listed(f) ? { present: f.present, addable: f.addable, editable: f.editable } : {}),
     };
   });

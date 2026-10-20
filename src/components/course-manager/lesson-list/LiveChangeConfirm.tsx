@@ -12,8 +12,12 @@ export type LiveChange =
   | { kind: "move" | "hide" | "show"; name: string }
   | { kind: "addLesson" }
   | { kind: "addPart" | "movePart"; name: string }
-  /** `text`: removing text (else a question learners never got: only a draft). */
-  | { kind: "removePart"; name: string; text: boolean };
+  /**
+   * `text`: removing text (else a question learners never got: only a
+   * draft). `empties`: it is all learners get of the lesson
+   * (LessonOutline.soleContent), so the lesson leaves their course.
+   */
+  | { kind: "removePart"; name: string; text: boolean; empties?: boolean };
 
 /** Its messages under `liveChanges`: the question, what learners notice, the button. */
 export function liveChangeKeys(change: LiveChange): { title: string; effect: string; confirm: string } {
@@ -32,7 +36,11 @@ export function liveChangeKeys(change: LiveChange): { title: string; effect: str
     case "movePart":
       return { title: "title.movePart", effect: "effect.part", confirm: "confirm.move" };
     case "removePart":
-      return { title: change.text ? "title.removeText" : "title.removeContent", effect: "effect.part", confirm: "confirm.remove" };
+      return {
+        title: change.text ? "title.removeText" : "title.removeContent",
+        effect: change.empties ? "effect.partEmpties" : "effect.part",
+        confirm: "confirm.remove",
+      };
   }
 }
 

@@ -49,6 +49,18 @@ describe("the partner guide", () => {
     expect(rule).not.toMatch(/isn't published[^.]*can be restructured/i);
   });
 
+  it("says only hiding or deleting the last lesson learners see is refused, and what removing its last content does (finding 6)", () => {
+    // The guide said a published course always keeps a lesson learners can
+    // see; removing a lesson's last content (allowed, spec 7.2) takes that
+    // lesson out of what they get, the last one included.
+    const publishing = section("Publishing");
+    expect(publishing).not.toMatch(/A published course keeps at least one lesson/i);
+    expect(publishing).toMatch(/hiding or deleting the last lesson learners can see/i);
+    expect(publishing).toMatch(/last content[^.]*(leaves|out of) (their course|what learners get)/i);
+    const asks = section("Courses that have learners");
+    expect(asks).toMatch(/only content[^|]*\|[^|]*leaves their course/i);
+  });
+
   it("says a lesson of your own appears with content learners can get, a question once saved with Save stage", () => {
     const line = section("The lesson list")
       .split("\n")

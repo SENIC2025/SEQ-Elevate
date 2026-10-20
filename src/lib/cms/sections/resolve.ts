@@ -37,6 +37,7 @@ import {
   isLegacySectionId,
   mainKindOf,
   type ExerciseValue,
+  type ExtraPartId,
   type PartId,
   type ResolvedPart,
   type ResolvedSection,
@@ -45,7 +46,7 @@ import {
 } from "./contract";
 import type { LessonFacts } from "./learner-path";
 import { sanitizeExercise, validateExercise } from "./part-kinds";
-import { MAIN_PART, partsOf } from "./section-parts";
+import { MAIN_PART, partsOf, storedPartsValue } from "./section-parts";
 
 type Rec = Record<string, unknown>;
 const isRecord = (v: unknown): v is Rec =>
@@ -252,4 +253,23 @@ export function lessonHasContent(section: ResolvedSection, f: LessonFacts): bool
     if (kind === "reflection") return true;
     return f.structure != null && mainExercise(f.structure, kind, "en") !== null;
   });
+}
+
+/**
+ * The one piece of extra content that is all learners get of a lesson,
+ * or null: removing it would leave nothing to show (lessonHasContent), so
+ * the lesson leaves what learners get (`unseen`) — the course page's
+ * confirmation says so. Null when the lesson has nothing to show anyway,
+ * or anything else to show (its main content, another piece, a video, a
+ * published document), or content that can't be read.
+ */
+export function soleContentPart(section: ResolvedSection, f: LessonFacts): ExtraPartId | null {
+  const stored = partsOf(f.parts);
+  if (stored === "unreadable" || !lessonHasContent(section, f)) return null;
+  const sole = stored.find(
+    (item) =>
+      item.type !== "main" &&
+      !lessonHasContent(section, { ...f, parts: storedPartsValue(stored.filter((other) => other.id !== item.id)) })
+  );
+  return sole ? (sole.id as ExtraPartId) : null;
 }

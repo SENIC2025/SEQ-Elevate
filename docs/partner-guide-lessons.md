@@ -60,7 +60,7 @@ From 10 November a course you created can be published with lessons of your own,
 - **no lesson has anything learners can see** (every lesson is hidden or empty), or
 - **something can't be read** (the lesson list, or a lesson's content). The page names the lesson. Contact the platform team, who can repair it.
 
-A published course keeps at least one lesson learners can see: hiding or deleting the last one is refused.
+On a published course, hiding or deleting the last lesson learners can see is refused. Removing a lesson's last content isn't: that lesson then leaves what learners get (until it has content again), and if it was the last one, learners find a course with no lessons yet. Check with **Preview as learner**.
 
 ## Courses that have learners
 
@@ -76,6 +76,7 @@ On a course with learners, these changes first open a short panel where you aske
 | Hide a lesson | It leaves their course. What they did in it is kept, still counts, and comes back if you show it again. |
 | Add a lesson, or show one again | Learners who haven't finished have one more lesson to do. Those who finished keep their badge and stay at 100%. |
 | Add, move or remove content in a lesson (text, or a question learners don't get yet) | Learners who have done the lesson keep it as done; others see the change when they reach it. |
+| Remove a lesson's only content (all learners get of it) | The lesson leaves their course until it has content again. What they did in it is kept and still counts. |
 
 The platform checks the confirmation when you save. If the course got its first learner while your page was open, you are asked then, with the count it found. Every confirmed change is recorded with the number of learners.
 

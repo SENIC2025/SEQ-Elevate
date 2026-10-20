@@ -1253,7 +1253,8 @@
       "move": "Their progress is kept. Learners who haven't finished will see the new order the next time they open the course, and carry on from the first lesson they haven't done.",
       "hide": "They won't see this lesson any more. What they did in it is kept, still counts towards their progress, and comes back if you show it again.",
       "show": "Learners who haven't finished will have one more lesson to do; those who finished keep their badge and stay at 100%.",
-      "part": "Learners who have done this lesson keep it as done; others see the change when they reach it."
+      "part": "Learners who have done this lesson keep it as done; others see the change when they reach it.",
+      "partEmpties": "This is all learners get of this lesson, so the lesson leaves their course until it has content again. What they did in it is kept and still counts towards their progress."
     },
     "confirm": {
       "move": "Move it",

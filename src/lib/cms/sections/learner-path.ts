@@ -48,12 +48,12 @@ import {
 } from "./contract";
 import { nameSection, standardName } from "./names";
 import { resolveOutline } from "./outline";
-import { lessonHasContent } from "./resolve";
+import { lessonHasContent, soleContentPart } from "./resolve";
 import { partsOf } from "./section-parts";
 import { sectionTitle } from "./views";
 
 export { frontierOf, isReachable, nextAfter, nextLesson } from "./learner-nav";
-export { lessonHasContent };
+export { lessonHasContent, soleContentPart };
 
 /** What visibility, the way a lesson is drawn and its step name need of its Lesson row. */
 export interface LessonFacts {

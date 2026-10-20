@@ -436,6 +436,35 @@ describe("getCourseOutline with a stored lesson list", () => {
     }
   });
 
+  it("names the one piece of content a lesson learners get has for them, for the removal's confirmation (finding 6)", async () => {
+    const MAIN = { id: "main", type: "main" };
+    const text = (id: string) => ({ id, type: "text", blocks: { en: [para("Only this")] } });
+    lessons.push(
+      { stageKey: OWN, parts: { v: 1, items: [MAIN, text("p-00000001")] } },
+      { stageKey: "s-two00000", parts: { v: 1, items: [MAIN, text("p-00000002"), text("p-00000003")] } }
+    );
+    outline = {
+      v: 1,
+      sections: [
+        { id: OWN, template: "text" },
+        { id: "s-two00000", template: "text" },
+        { id: "context", template: "context" },
+        { id: "concept", template: "concept" },
+        { id: "behaviour", template: "behaviour" },
+        { id: "reflection", template: "reflection" },
+      ],
+    };
+    const o = await getCourseOutline("asking-for-help");
+    expect(o?.lessons.filter((l) => l.section).map((l) => [l.key, l.soleContent ?? null])).toEqual([
+      [OWN, "p-00000001"],
+      ["s-two00000", null],
+      ["context", null],
+      ["concept", null],
+      ["behaviour", null],
+      ["reflection", null],
+    ]);
+  });
+
   it("refuses to publish a course with no lesson learners would see", async () => {
     outline = {
       v: 1,

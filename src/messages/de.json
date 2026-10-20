@@ -1253,7 +1253,8 @@
       "move": "Ihr Fortschritt bleibt erhalten. Wer noch nicht fertig ist, sieht die neue Reihenfolge beim nächsten Öffnen des Kurses und macht bei der ersten Lektion weiter, die noch offen ist.",
       "hide": "Sie sehen diese Lektion nicht mehr. Was sie darin gemacht haben, bleibt erhalten, zählt weiter zu ihrem Fortschritt und kommt zurück, wenn du die Lektion wieder einblendest.",
       "show": "Wer noch nicht fertig ist, hat eine Lektion mehr zu machen; wer fertig ist, behält das Abzeichen und bleibt bei 100 %.",
-      "part": "Wer diese Lektion schon gemacht hat, behält sie als erledigt; alle anderen sehen die Änderung, wenn sie dort ankommen."
+      "part": "Wer diese Lektion schon gemacht hat, behält sie als erledigt; alle anderen sehen die Änderung, wenn sie dort ankommen.",
+      "partEmpties": "Das ist alles, was Lernende in dieser Lektion bekommen: Die Lektion verschwindet aus ihrem Kurs, bis sie wieder Inhalt hat. Was sie darin gemacht haben, bleibt erhalten und zählt weiter zu ihrem Fortschritt."
     },
     "confirm": {
       "move": "Verschieben",

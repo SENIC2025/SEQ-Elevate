@@ -433,7 +433,12 @@ export function PartList({
             ? { kind: "addPart", name: lessonName }
             : p.op === "move"
               ? { kind: "movePart", name: lessonName }
-              : { kind: "removePart", name: lessonName, text: item.type === "text" }
+              : {
+                  kind: "removePart",
+                  name: lessonName,
+                  text: item.type === "text",
+                  empties: lesson.live && lesson.soleContent === item.id,
+                }
         }
         nameLang={lang}
         learners={counts.learners}

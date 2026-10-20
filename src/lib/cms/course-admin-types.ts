@@ -19,6 +19,7 @@ import type {
 import type { StoredStructure } from "./structure";
 import type { CourseStatus } from "./course-status";
 import type {
+  ExtraPartId,
   MainKind,
   NewOnlyReason,
   PartId,
@@ -182,6 +183,13 @@ export interface LessonOutline {
    * while the course has learners, for the delete rule (spec 7.2).
    */
   learnersWithData?: number;
+  /**
+   * The one piece of extra content that is all learners get of this lesson
+   * (sections/resolve.ts soleContentPart), set only for a lesson they get
+   * now: removing it takes the lesson out of their course, and the
+   * removal's confirmation says so (liveChanges.effect.partEmpties).
+   */
+  soleContent?: ExtraPartId;
 }
 
 export interface ReadinessIssue {
