@@ -8,6 +8,7 @@ import {
   useMemo,
   useRef,
   type MouseEvent,
+  type ReactNode,
 } from "react";
 import { useTranslations } from "next-intl";
 import { useSession } from "next-auth/react";
@@ -35,11 +36,12 @@ import { SectionView } from "./sectioned/SectionView";
 import { completionCourse } from "./sectioned/completion-course";
 import { PlayerAnnouncer, useAnnounce } from "./PlayerAnnouncer";
 import { StaleBuildBanner } from "./StaleBuildBanner";
+import { LessonNote } from "./lesson-note";
 import { afterContinue, backFrom, type Position } from "./player-nav";
 import { initialPosition, useResume } from "./useResume";
 import { useStageTimer } from "./useStageTimer";
 import { openStepAtTop } from "./step-focus";
-import { ChevronLeft, Info, Pencil } from "lucide-react";
+import { ChevronLeft, Pencil } from "lucide-react";
 
 export interface CoursePlayerProps {
   course: LearnerCourse;
@@ -76,13 +78,20 @@ export interface CoursePlayerProps {
  *
  * In order, can go back (Q4): the step bar reaches up to the first lesson
  * not done; Back always works; the last Continue goes to any lesson still
- * to do, and says so, before the completion. A course with no lessons
- * says so and never completes (no badge for nothing).
+ * to do, and says so — on the screen and in the live region — before the
+ * completion. A course with no lessons says so and never completes (no
+ * badge for nothing).
  *
  * Resume (useResume): a signed-in learner opens where the server says,
  * then the player checks once more when their progress has loaded, never
  * moving a learner who has started. A lesson not done placed before done
- * ones (added mid-course) says it is new.
+ * ones (added, shown again or moved there mid-course) says it is still to
+ * do (LessonNote).
+ *
+ * A step name written in another language than the page's (a lesson of
+ * the course's own named only in English, on a Greek page) is marked with
+ * its lang wherever it shows: the step bar, Back, the counter and the
+ * still-to-do note (WCAG 3.1.2).
  *
  * In an editor's preview (`preview`) nothing is recorded: the page wraps the
  * player in PreviewStateProvider, so progress stays in memory, and the
@@ -114,12 +123,21 @@ function Player({
   const ids = useMemo(() => lessons.map((l) => l.id), [lessons]);
   const byId = useMemo(() => new Map<string, LearnerLesson>(lessons.map((l) => [l.id, l])), [lessons]);
   const labelOf = useCallback((id: string) => byId.get(id)?.label ?? "", [byId]);
+  const langOf = useCallback((id: string) => byId.get(id)?.lang, [byId]);
+  /** A lesson's step name, marked with its language when it isn't the page's. */
+  const nameOf = (id: string): ReactNode => {
+    const lang = langOf(id);
+    return lang ? <span lang={lang}>{labelOf(id)}</span> : labelOf(id);
+  };
 
   const { state, dispatch } = useDemoState();
   const { status } = useSession();
   const [current, setCurrent] = useState<Position>(() =>
     initialPosition(ids, { preview, initialLesson, serverResume })
   );
+  // The lesson the last Continue went back to, still to do: said above it
+  // while the learner is there.
+  const [stillToDo, setStillToDo] = useState<SectionId | null>(null);
 
   // What the learner has done in this course: the store's, only while it
   // holds this course (just opened after another course, it still holds
@@ -216,19 +234,26 @@ function Player({
     if (current === "complete" || current === "empty") return;
     dispatch({ type: "completeLesson", id: current });
     const next = afterContinue(ids, done, current, completed);
-    if (next.stillToDo) announce(tHint("stillToDo", { name: labelOf(next.stillToDo) }));
+    if (next.stillToDo) {
+      announce(tHint.markup("stillToDo", { name: labelOf(next.stillToDo), lesson: (chunks) => chunks }));
+    }
+    setStillToDo(next.stillToDo ?? null);
     setCurrent(next.to);
   }, [current, dispatch, ids, done, completed, announce, tHint, labelOf]);
 
   const goBack = useCallback(() => {
     const to = backFrom(ids, current);
-    if (to) setCurrent(to);
+    if (!to) return;
+    setStillToDo(null);
+    setCurrent(to);
   }, [ids, current]);
 
   const currentIndex = indexOf(current);
   const jumpTo = useCallback(
     (id: SectionId) => {
-      if (isReachable(ids.indexOf(id), frontier, currentIndex, preview)) setCurrent(id);
+      if (!isReachable(ids.indexOf(id), frontier, currentIndex, preview)) return;
+      setStillToDo(null);
+      setCurrent(id);
     },
     [ids, frontier, currentIndex, preview]
   );
@@ -240,8 +265,8 @@ function Player({
     current === "complete" ? 100 : isLesson ? Math.round(((currentIndex + 1) / total) * 100) : 0;
 
   const lesson = isLesson ? byId.get(current) : undefined;
-  // A lesson not done, with a later one done: added (or shown again) after
-  // the learner started (spec 5.5).
+  // A lesson not done, with a later one done: added, shown again or moved
+  // there after the learner started (spec 5.5, 7.4).
   const isNew =
     !preview && lesson !== undefined && !done.has(lesson.id) && ids.slice(currentIndex + 1).some((id) => done.has(id));
 
@@ -341,6 +366,7 @@ function Player({
               onJump={jumpTo}
               stages={ids}
               labelOf={labelOf}
+              langOf={langOf}
               allReachable={preview}
               frontier={frontier}
               doneLabel={tPlayer("stepDone")}
@@ -352,11 +378,10 @@ function Player({
               hear the new content; in-lesson feedback uses its own live
               regions, and the player's own messages its one region. */}
           <div key={current} ref={stageRef} tabIndex={-1} className="outline-none space-y-4">
-            {isNew ? (
-              <p className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] px-3 py-2 text-sm">
-                <Info aria-hidden className="h-4 w-4 flex-shrink-0 text-[var(--accent)]" />
-                {tPlayer("newLesson")}
-              </p>
+            {lesson && stillToDo === lesson.id ? (
+              <LessonNote kind="stillToDo" name={lesson.label} lang={lesson.lang} />
+            ) : isNew ? (
+              <LessonNote kind="new" />
             ) : null}
             {current === "complete" ? (
               <CompletionStage course={completionCourse(course)} />
@@ -383,10 +408,10 @@ function Player({
             <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
               <Button variant="ghost" size="sm" onClick={goBack} disabled={back === null}>
                 <ChevronLeft className="h-4 w-4" />
-                {labelOf(back ?? ids[0])}
+                {nameOf(back ?? ids[0])}
               </Button>
               <p className="text-xs text-[var(--muted-foreground)]">
-                {currentIndex + 1} / {total} · {labelOf(current)}
+                {currentIndex + 1} / {total} · {nameOf(current)}
               </p>
             </div>
           ) : null}

@@ -34,7 +34,8 @@ import {
  *   A-E7   in order after a reorder: the step bar can't reach past the
  *          first lesson not done, a done lesson beyond it included; Back
  *          always works; after the last lesson, Continue goes to the one
- *          still to do and says so (as an editor's preview reaches it).
+ *          still to do and says so, on the screen and in the live region
+ *          (as an editor's preview reaches it).
  *   A-E8   a guest's progress in a lesson of the course's own, their resume,
  *          and the move into the account on sign-in.
  *
@@ -228,8 +229,10 @@ describe("Release 2 — resume and order", () => {
     await page.goto(`/en/learner/course/${COURSES.reorderStd}`);
     await expect(counter(page)).toHaveText("1 / 7 · Behaviour model", { timeout: 15000 });
     await expect(page.getByRole("main").getByRole("heading", { level: 2 })).toHaveText("What it looks like");
-    // A lesson not done before done ones: said to be new to them.
-    await expect(page.getByText("New lesson: added after you started.")).toBeVisible();
+    // A lesson not done before done ones: said to be still to do. It was
+    // only moved, so nothing says it was added (spec 7.4).
+    await expect(page.getByRole("main").getByText("You haven't done this lesson yet. It's new, or it has moved.")).toBeVisible();
+    await expect(page.getByText(/added after you started/)).toHaveCount(0);
     // After it, the next lesson not done: the done ones in between pass by.
     await continueTo(page, 2);
     await continueTo(page, 3);
@@ -431,6 +434,11 @@ describe("Release 2 — resume and order", () => {
       await expect(counter(page)).toHaveText("1 / 5 · One", { timeout: 2000 });
     }).toPass({ timeout: 20_000 });
     await expect(announcer(page)).toHaveText(/^Before you finish: “One” is still to do\.\s?$/);
+    // On the screen too, above the lesson (spec 5.2): not only to screen readers.
+    await expect(page.getByRole("main").getByText("Before you finish: “One” is still to do.")).toBeVisible();
+    // Gone once the editor moves on.
+    await continueTo(page, 2);
+    await expect(page.getByRole("main").getByText(/^Before you finish:/)).toHaveCount(0);
   });
 
   test("A-E8: a guest's progress in a lesson of the course's own: kept, resumed, and moved into the account on sign-in", async ({

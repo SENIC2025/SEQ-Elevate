@@ -78,7 +78,7 @@ const course: LearnerCourse = {
   unseen: ["context"],
 };
 
-function render(props: Partial<CoursePlayerProps> = {}, locale: "en" | "de" = "en") {
+function render(props: Partial<CoursePlayerProps> = {}, locale: "en" | "de" | "el" = "en") {
   return renderIn(createElement(CoursePlayer, { course, ...props }), locale);
 }
 
@@ -202,6 +202,41 @@ describe("CoursePlayer", () => {
     press("Continue");
     expect(store.dispatched).toContainEqual({ type: "completeLesson", id: "assessment" });
     expect(announced).toEqual(["Before you finish: “The idea” is still to do."]);
+  });
+
+  // Review finding 2 on Stream A: a lesson only moved before done ones was
+  // said to have been "added after you started" (spec 7.4: they carry on
+  // from the first lesson they haven't done).
+  it("says a lesson not done before done ones is still to do, never that it was added", () => {
+    store.over = { courseSlug: "speak-up", stagesCompleted: ["concept"] };
+    const text = textOf(render({ serverResume: "s-abcd1234" }));
+    expect(text).toContain("You haven't done this lesson yet. It's new, or it has moved.");
+    expect(text).not.toMatch(/added after you started/);
+    // Not for the next lesson in order, nor in a preview.
+    store.over = { courseSlug: "speak-up", sectionsCompleted: ["s-abcd1234"] };
+    expect(textOf(render({ serverResume: "concept" }))).not.toContain("You haven't done this lesson yet");
+    store.over = { courseSlug: "speak-up", stagesCompleted: ["concept"] };
+    expect(textOf(render({ preview: true }))).not.toContain("You haven't done this lesson yet");
+  });
+
+  // Review finding 6 on Stream A (WCAG 3.1.2).
+  it("marks a step name in another language than the page's, in the bar, Back and the counter", () => {
+    const greek: LearnerCourse = {
+      ...course,
+      locale: "el",
+      lessons: course.lessons.map((l) => (l.id === "assessment" ? l : { ...l, lang: "en" as const })),
+    };
+    const html = render({ course: greek, preview: true, initialLesson: "concept" }, "el");
+    expect(html).toContain('<span class="sr-only sm:not-sr-only" lang="en">Warm-up</span>');
+    expect(html).toContain('<span class="sr-only sm:not-sr-only" lang="en">The idea</span>');
+    expect(html).toContain('<span class="sr-only sm:not-sr-only">Check</span>');
+    // Back goes to "Warm-up"; the counter names "The idea".
+    expect(html).toMatch(/<button[^>]*>.*<span lang="en">Warm-up<\/span><\/button>/);
+    expect(html).toContain('<p class="text-xs text-[var(--muted-foreground)]">2 / 3 · <span lang="en">The idea</span></p>');
+    // A name in the page's language keeps its markup.
+    const plain = render({ preview: true, initialLesson: "concept" });
+    expect(plain).toContain('<p class="text-xs text-[var(--muted-foreground)]">2 / 3 · The idea</p>');
+    expect(plain).not.toContain(' lang="');
   });
 
   it("has no Release 2 banner in a preview, and the stale-build alert when saves can't get through", () => {

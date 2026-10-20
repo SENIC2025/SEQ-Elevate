@@ -506,7 +506,7 @@
     "backToEditing": "Back to editing",
     "stepDone": ", done",
     "resumed": "Opened where you left off: step {current} of {total}, {name}.",
-    "newLesson": "New lesson: added after you started.",
+    "newLesson": "You haven't done this lesson yet. It's new, or it has moved.",
     "noLessons": "This course has no lessons yet.",
     "staleBuild": "A new version is available. Reload the page to keep saving your answers.",
     "reload": "Reload",
@@ -544,7 +544,7 @@
     "quizLeft": "Answer {count, plural, one {# more question} other {# more questions}}, then select “{button}”.",
     "quizCheck": "Select “{button}” to see how you did.",
     "announce": "{item}: {need}",
-    "stillToDo": "Before you finish: “{name}” is still to do."
+    "stillToDo": "Before you finish: “<lesson>{name}</lesson>” is still to do."
   },
   "video": {
     "regionLabel": "Lesson video",

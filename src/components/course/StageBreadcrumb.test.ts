@@ -242,6 +242,27 @@ describe("StageBreadcrumb in order (Release 2)", () => {
     expect(html).toContain('<span class="sr-only sm:not-sr-only">The idea</span>');
   });
 
+  // Review finding 6 on Stream A (WCAG 3.1.2): on a Greek page, a step
+  // named only in English was read with Greek speech.
+  it("marks a step name written in another language than the page's with its lang", () => {
+    const html = renderOwn<string>({
+      current: "concept",
+      completed: ["s-abcd1234"],
+      stages: ids,
+      labelOf: (k) => names[k],
+      langOf: (k) => (k === "concept" || k === "s-abcd1234" ? "en" : undefined),
+      frontier: 1,
+      doneLabel: ", ολοκληρώθηκε",
+    });
+    // Done: the shown name and the read one, the suffix in the page's language.
+    expect(html).toContain(
+      '<span aria-hidden="true" class="hidden sm:inline" lang="en">Warm-up</span><span class="sr-only"><span lang="en">Warm-up</span>, ολοκληρώθηκε</span></button>'
+    );
+    expect(html).toContain('<span class="sr-only sm:not-sr-only" lang="en">The idea</span>');
+    // In the page's language: no lang, the markup as before.
+    expect(html).toContain('<span class="sr-only sm:not-sr-only">Try it</span>');
+  });
+
   it("without the new props, a done step stays reachable as before", () => {
     const got = bar({ current: "concept", completed: ["s-abcd1234", "s-efgh5678"] });
     expect(got.map((s) => s.disabled)).toEqual([false, false, true, false]);

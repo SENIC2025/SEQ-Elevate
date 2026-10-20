@@ -21,7 +21,9 @@ import { cn } from "@/lib/utils";
  * first lesson the learner hasn't done — the bar reaches up to it and no
  * further, even to a lesson done before an editor moved it there, which
  * shows ticked but can't be opened. `doneLabel` says a done step is done
- * (", done", in its name), where the eye sees only a tick. On a phone the bar scrolls
+ * (", done", in its name), where the eye sees only a tick. `langOf` marks a
+ * step name written in another language than the page's (WCAG 3.1.2): a
+ * lesson of the course's own named only in English, on a Greek page. On a phone the bar scrolls
  * sideways: the current step is kept in view by moving the bar itself,
  * never the page (scrollIntoView would), at once for a learner who asked
  * for less motion.
@@ -35,6 +37,7 @@ export function StageBreadcrumb<K extends string = Stage>({
   allReachable = false,
   frontier,
   doneLabel,
+  langOf,
 }: {
   current: K;
   completed: string[];
@@ -47,6 +50,8 @@ export function StageBreadcrumb<K extends string = Stage>({
   frontier?: number;
   /** Said after a done step's name, for screen readers (", done"). */
   doneLabel?: string;
+  /** The language of a step's name when it isn't the page's; nothing otherwise. */
+  langOf?: (stage: K) => string | undefined;
 }) {
   const t = useTranslations("course.stageLabel");
   const tCourse = useTranslations("course");
@@ -80,6 +85,7 @@ export function StageBreadcrumb<K extends string = Stage>({
       <ol className="flex items-center gap-1 min-w-max">
         {stages.map((stage, i) => {
           const isCurrent = stage === current;
+          const lang = langOf?.(stage);
           const isDone = completed.includes(stage);
           const isPast = i < currentIndex;
           const reachable =
@@ -137,15 +143,27 @@ export function StageBreadcrumb<K extends string = Stage>({
                   // ("Context , done") — and the shown name, on wider
                   // screens, left out of it.
                   <>
-                    <span aria-hidden="true" className="hidden sm:inline">
+                    <span aria-hidden="true" className="hidden sm:inline" lang={lang}>
                       {nameOf(stage)}
                     </span>
-                    <span className="sr-only">{`${nameOf(stage)}${doneLabel}`}</span>
+                    <span className="sr-only">
+                      {lang ? (
+                        // The name in its language, ", done" in the page's.
+                        <>
+                          <span lang={lang}>{nameOf(stage)}</span>
+                          {doneLabel}
+                        </>
+                      ) : (
+                        `${nameOf(stage)}${doneLabel}`
+                      )}
+                    </span>
                   </>
                 ) : (
                   // Hidden on a phone but still the button's name: a
                   // finished step shows only a tick.
-                  <span className="sr-only sm:not-sr-only">{nameOf(stage)}</span>
+                  <span className="sr-only sm:not-sr-only" lang={lang}>
+                    {nameOf(stage)}
+                  </span>
                 )}
               </button>
               {i < stages.length - 1 ? (
