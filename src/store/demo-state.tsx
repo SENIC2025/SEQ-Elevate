@@ -9,26 +9,43 @@ import {
   loadLearnerGlobal,
   loadCourseProgress,
   saveCourseProgress,
+  saveCourseProgressPatch,
   saveCompCard,
   awardBadgeAction,
 } from "@/app/actions/learner";
 import type { Locale } from "@/lib/cms/types";
 import {
   answerQuestion,
-  assessmentToSave,
+  readAssessment,
   retakeQuiz,
   type AssessmentProgress,
 } from "@/lib/assessment-progress";
 import {
+  isCustomSectionId,
+  isSectionId,
+  type PartKey,
+  type SectionId,
+} from "@/lib/cms/sections/contract";
+import type {
+  KeyRefusal,
+  ProgressPatch,
+  ProgressState,
+  RefusedKey,
+  StoredAnswer,
+} from "@/lib/learner-progress/contract";
+import { completeLesson, withAnswer } from "@/lib/learner-progress/answers";
+import { EMPTY_PROGRESS, applyPatch, patchSince } from "@/lib/learner-progress/patch";
+import {
   courseAfterLoad,
   courseAfterMigration,
   guestStateAfterHydrate,
-  hasCourseProgress,
   mergeBadges,
   mergeCompCardOnHydrate,
   storedGuestState,
 } from "./progress-merge";
 import { migrateGuest } from "./guest-migration";
+import { courseSaveRefs, saveCourse } from "./course-save";
+import { clearOutbox, putInOutbox, readOutbox, type OutboxStorage } from "./outbox";
 import { pendingSave } from "./pending-save";
 import { RETRY_DELAYS_MS, wait, withRetry } from "./retry";
 import { isRefusedAward } from "@/lib/badge-award";
@@ -81,8 +98,31 @@ export interface CourseProgress {
   reflection: ReflectionAnswers;
   /** Quick-check answers by question id, and whether they were checked. */
   assessment: AssessmentProgress;
+  /**
+   * Release 2 (D62): lessons of the course's own finished ("s-…"). Standard
+   * lessons stay in stagesCompleted, which never holds one of these, so
+   * Release 1's save never meets one after a rollback.
+   */
+  sectionsCompleted: string[];
+  /**
+   * Release 2 (D62): every answer without a field above, by
+   * "lessonId/contentId" (src/lib/learner-progress/answers.ts). `retaken`
+   * marks a quick check tried again on this page, as assessment's does.
+   */
+  responses: Partial<Record<PartKey, StoredAnswer & { retaken?: true }>>;
   completedAt: string | null;
 }
+
+// Release 1's save of a course's whole progress is never called by this
+// build, but pages loaded before the deploy still call it (D62.e, D68). Next
+// builds only the server actions client code refers to — an action no page
+// refers to answers "not found" — so it is referred to here, and stays.
+void saveCourseProgress;
+
+// The store's course progress is what patches are worked out from
+// (src/lib/learner-progress/patch.ts).
+const _isProgressState = (c: CourseProgress): ProgressState => c;
+void _isProgressState;
 
 export interface CompCardData {
   wentWell: string;
@@ -106,6 +146,12 @@ export interface DemoState {
   badges: string[];
   course: CourseProgress;
   compCard: CompCardData;
+  /**
+   * Answers of the course being played the server refused, or the store
+   * holds back because it would (spec 5.8): by key, why. Cleared for a key
+   * when the learner changes its answer.
+   */
+  refusedKeys: Partial<Record<string, KeyRefusal>>;
 }
 
 const DEFAULT_STATE: DemoState = {
@@ -120,6 +166,8 @@ const DEFAULT_STATE: DemoState = {
     scenario: { root: null, followup: null, rootLabel: null, followupLabel: null },
     reflection: { p1: "", p2: "", p3: "" },
     assessment: { answers: {}, checked: false },
+    sectionsCompleted: [],
+    responses: {},
     completedAt: null,
   },
   compCard: {
@@ -131,7 +179,36 @@ const DEFAULT_STATE: DemoState = {
     privacy: "facilitator",
     updatedAt: null,
   },
+  refusedKeys: {},
 };
+
+/** This tab's sessionStorage, for the outbox; null where the browser has none or blocks it. */
+function tabStorage(): OutboxStorage | null {
+  try {
+    return window.sessionStorage;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * What the server holds of a course, from what loadCourseProgress answered
+ * (null: nothing), as patches are worked out against it. A server from
+ * before Release 2 (a rollback) answers without the new fields: none.
+ */
+function savedProgress(saved: CourseProgress | null): ProgressState {
+  if (!saved) return EMPTY_PROGRESS;
+  return {
+    stagesCompleted: saved.stagesCompleted,
+    sectionsCompleted: saved.sectionsCompleted ?? [],
+    simulation: saved.simulation,
+    scenario: saved.scenario,
+    reflection: saved.reflection,
+    assessment: readAssessment(saved.assessment),
+    responses: saved.responses ?? {},
+    completedAt: saved.completedAt,
+  };
+}
 
 const STORAGE_KEY = "seq-elevate-demo-state-v1";
 
@@ -155,7 +232,38 @@ type Action =
   | { type: "hydrate"; state: DemoState }
   | { type: "hydrateGlobal"; compCard: CompCardData | null; badges: string[] }
   | { type: "guestCourseMigrated"; course: CourseProgress }
-  | { type: "courseProgressLoaded"; slug: string; saved: CourseProgress | null };
+  | { type: "courseProgressLoaded"; slug: string; saved: CourseProgress | null }
+  // Release 2 (spec 5.4). The actions above stay as they are, so the stage
+  // screens keep working.
+  /** A lesson finished: a standard one to stagesCompleted, one of the course's own to sectionsCompleted. */
+  | { type: "completeLesson"; id: SectionId }
+  /**
+   * An answer to `key`, where it lives (answers.ts): the four standard
+   * answers in their fields, everything else in responses. `labels` are a
+   * scenario's choice texts, for the Comp Card and the facilitator.
+   */
+  | {
+      type: "answerPart";
+      key: PartKey;
+      answer: StoredAnswer;
+      labels?: { root?: string | null; followup?: string | null };
+    }
+  /** Keys of `slug` the server refused, or the store holds back: the learner is told. */
+  | { type: "progressRefused"; slug: string; keys: RefusedKey[] }
+  /** What this tab's outbox kept for `slug` (outbox.ts), applied as changes made here. */
+  | { type: "outboxRestored"; slug: string; patch: ProgressPatch };
+
+/** `state` with `course` in place of its course progress. */
+const withCourse = (state: DemoState, course: CourseProgress): DemoState =>
+  course === state.course ? state : { ...state, course };
+
+/** `state` without a refusal for `key`: the learner changed that answer. */
+function answerChanged(state: DemoState, key: string): DemoState {
+  if (!(key in state.refusedKeys)) return state;
+  const { [key]: _gone, ...refusedKeys } = state.refusedKeys;
+  void _gone;
+  return { ...state, refusedKeys };
+}
 
 function reducer(state: DemoState, action: Action): DemoState {
   switch (action.type) {
@@ -185,6 +293,7 @@ function reducer(state: DemoState, action: Action): DemoState {
             courseSlug: action.slug,
             courseTitle: action.title,
           },
+          refusedKeys: DEFAULT_STATE.refusedKeys,
         };
       }
       return {
@@ -196,6 +305,10 @@ function reducer(state: DemoState, action: Action): DemoState {
         },
       };
     case "completeStage":
+      // A lesson of the course's own never goes to stagesCompleted.
+      if (isCustomSectionId(action.stage)) {
+        return withCourse(state, completeLesson(state.course, action.stage));
+      }
       return state.course.stagesCompleted.includes(action.stage)
         ? state
         : {
@@ -237,7 +350,7 @@ function reducer(state: DemoState, action: Action): DemoState {
       };
     case "updateReflection":
       return {
-        ...state,
+        ...answerChanged(state, "reflection/main"),
         course: {
           ...state.course,
           reflection: { ...state.course.reflection, ...action.patch },
@@ -330,6 +443,27 @@ function reducer(state: DemoState, action: Action): DemoState {
       const course = courseAfterLoad(state.course, action.slug, action.saved);
       return course ? { ...state, course } : state;
     }
+    case "completeLesson":
+      if (!isSectionId(action.id)) return state;
+      return withCourse(state, completeLesson(state.course, action.id));
+    case "answerPart":
+      return withCourse(
+        answerChanged(state, action.key),
+        withAnswer(state.course, action.key, action.answer, action.labels)
+      );
+    case "progressRefused": {
+      if (action.slug !== state.course.courseSlug) return state;
+      const fresh = action.keys.filter((r) => state.refusedKeys[r.key] !== r.reason);
+      if (!fresh.length) return state;
+      const refusedKeys = { ...state.refusedKeys };
+      for (const r of fresh) refusedKeys[r.key] = r.reason;
+      return { ...state, refusedKeys };
+    }
+    case "outboxRestored":
+      // Only into the course it was kept for; it waits in the outbox
+      // otherwise.
+      if (action.slug !== state.course.courseSlug) return state;
+      return withCourse(state, applyPatch(state.course, action.patch));
     default:
       return state;
   }
@@ -338,6 +472,20 @@ function reducer(state: DemoState, action: Action): DemoState {
 interface ContextValue {
   state: DemoState;
   dispatch: React.Dispatch<Action>;
+  /**
+   * The course whose saved progress has loaded and been merged in, so what
+   * the store holds of it is what the learner has (spec 5.4): a signed-in
+   * learner's once loadCourseProgress has answered, a guest's once the
+   * guest store has been read; null meanwhile. True in a preview, which
+   * loads nothing. Read it with useCourseReady.
+   */
+  readyCourse: string | true | null;
+  /**
+   * A save was answered "unknown action": this page is from a build the
+   * server no longer has (D68). What it held is in the tab's outbox, and
+   * the learner is asked to reload.
+   */
+  staleBuild: boolean;
 }
 
 const DemoStateContext = React.createContext<ContextValue | null>(null);
@@ -388,6 +536,18 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
   // The debounced saves, one waiting at a time each (see pending-save.ts).
   const [courseSave] = React.useState(() => pendingSave(700));
   const [cardSave] = React.useState(() => pendingSave(700));
+  // Per course: what the server is known to hold, and what the learner has
+  // now — a save sends the difference (course-save.ts). Replaced whole when
+  // the store lets go of the learner's data, so an answer to a save sent
+  // before can't move them on.
+  const progressRefs = React.useRef(courseSaveRefs());
+  // The courses whose outbox (outbox.ts) was applied on this page: cleared
+  // once a save of them is confirmed.
+  const restoredRef = React.useRef<Set<string>>(new Set());
+  // The course whose saved progress has loaded and been merged in, for
+  // readyCourse (a signed-in learner's; loadedCourseRef, as state).
+  const [loadedCourse, setLoadedCourse] = React.useState<string | null>(null);
+  const [staleBuild, setStaleBuild] = React.useState(false);
   // next-auth's "read the session again, and tell the other tabs", for the
   // identity effect below: the latest one, without re-running it.
   const updateSession = React.useRef(update);
@@ -422,6 +582,9 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
     courseSave.drop();
     cardSave.drop();
     loadedCourseRef.current = null;
+    setLoadedCourse(null);
+    progressRefs.current = courseSaveRefs();
+    restoredRef.current = new Set();
     persistedBadges.current = new Set();
     badgeTries.current = new Map();
     courseScheduled.current = null;
@@ -583,22 +746,8 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
                     },
                     forUser
                   ),
-                saveCourse: (slug, gc) =>
-                  saveCourseProgress(
-                    slug,
-                    {
-                      stagesCompleted: gc.stagesCompleted,
-                      simulation: gc.simulation,
-                      scenario: {
-                        root: gc.scenario.root,
-                        followup: gc.scenario.followup,
-                      },
-                      reflection: gc.reflection,
-                      assessment: assessmentToSave(gc.assessment),
-                      completedAt: gc.completedAt,
-                    },
-                    forUser
-                  ),
+                saveCourse: (slug, patch) =>
+                  saveCourseProgressPatch(slug, patch, forUser),
               }
             );
             mergedCompCard = migrated.compCard;
@@ -688,8 +837,12 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
     if (loadedCourseRef.current !== slug) {
       courseSave.flush();
       loadedCourseRef.current = null;
+      // Not ready until it has loaded again (readyCourse): kept in step
+      // with the ref above, which isn't state.
+      setLoadedCourse(null);
     }
     if (!authed || !dbReady || !slug || loadedCourseRef.current === slug) return;
+    const forUser = dbOwnerRef.current;
     const abort = new AbortController();
     (async () => {
       await courseSave.settle(slug);
@@ -710,30 +863,73 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
       }
       if (abort.signal.aborted) return;
       // Loaded BEFORE the dispatch, so the save effect that runs on the
-      // resulting render saves the merge.
+      // resulting render saves the merge. What the server holds is what
+      // patches are worked out against from now on; what the learner has
+      // is set by that effect, once merged.
       loadedCourseRef.current = slug;
-      dispatch({
-        type: "courseProgressLoaded",
-        slug,
-        saved: prog as CourseProgress | null,
-      });
+      setLoadedCourse(slug);
+      const saved = prog as CourseProgress | null;
+      const refs = progressRefs.current;
+      refs.acked.set(slug, savedProgress(saved));
+      refs.latest.delete(slug);
+      refs.refused.delete(slug);
+      dispatch({ type: "courseProgressLoaded", slug, saved });
+      // What this tab kept for this learner when a save of the course found
+      // a newer build (D68): applied as changes made here, so it's saved
+      // like any, in the same render as the merge.
+      const kept = forUser ? readOutbox(tabStorage(), forUser, slug) : null;
+      if (kept) {
+        restoredRef.current.add(slug);
+        dispatch({ type: "outboxRestored", slug, patch: kept });
+      }
     })();
     return () => abort.abort();
   }, [authed, dbReady, state.course.courseSlug, locale, owner, courseSave]);
 
   // ---- DB write-through: course progress (debounced) ----
   // Never a course whose saved progress hasn't loaded and been merged in
-  // here (loadedCourseRef, null while any course loads): the save replaces
-  // the whole enrollment, so it would overwrite that progress with what's
-  // in memory — nothing at all, for a course the learner has just come
-  // back to. A save that fails is tried again (see pending-save.ts).
+  // here (loadedCourseRef, null while any course loads): a save sends what
+  // the learner has that the server doesn't, and before the load the store
+  // doesn't know what the server has — it would send what's in memory over
+  // that progress, nothing at all for a course the learner has just come
+  // back to. Each save is a patch worked out when it's sent, against what
+  // the server has confirmed (course-save.ts), so it never takes back an
+  // answer this tab didn't change (D62). A save that fails is tried again
+  // (see pending-save.ts).
+  const saveFor = React.useCallback(
+    (slug: string, forUser: string) => {
+      const refs = progressRefs.current;
+      const save = (): Promise<void> =>
+        saveCourse(slug, forUser, refs, {
+          send: saveCourseProgressPatch,
+          refusedKeys: (s, keys) => dispatch({ type: "progressRefused", slug: s, keys }),
+          staleBuild: (s, who, patch) => {
+            putInOutbox(tabStorage(), who, s, patch);
+            setStaleBuild(true);
+          },
+          settled: (s, who) => {
+            if (refs !== progressRefs.current || !restoredRef.current.delete(s)) return;
+            clearOutbox(tabStorage(), who, s);
+          },
+          again: () => courseSave.schedule(save, slug),
+          current: () => refs === progressRefs.current,
+        });
+      return save;
+    },
+    [courseSave]
+  );
   React.useEffect(() => {
     if (!authed || !dbOwner) return;
     const slug = state.course.courseSlug;
     if (!slug || loadedCourseRef.current !== slug) return;
     const snap = state.course;
-    // Opening a course doesn't enroll anyone: nothing done, nothing saved.
-    if (snap === courseScheduled.current || !hasCourseProgress(snap)) return;
+    if (snap === courseScheduled.current) return;
+    const refs = progressRefs.current;
+    refs.latest.set(slug, snap);
+    // Nothing the server doesn't have: nothing to send. Opening a course
+    // doesn't enroll anyone.
+    const acked = refs.acked.get(slug);
+    if (!acked || !patchSince(acked, snap)) return;
     // This change finishes the course: it's sent at once, not after the
     // pause, so a learner who leaves on "Course complete" keeps it. (Next
     // runs server actions one at a time, so it can still wait behind one
@@ -743,27 +939,9 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
       !!snap.completedAt &&
       !(prev?.courseSlug === snap.courseSlug && prev.completedAt);
     courseScheduled.current = snap;
-    const forUser = dbOwner;
-    courseSave.schedule(
-      () =>
-        saveCourseProgress(
-          slug,
-          {
-            stagesCompleted: snap.stagesCompleted,
-            simulation: snap.simulation,
-            scenario: { root: snap.scenario.root, followup: snap.scenario.followup },
-            reflection: snap.reflection,
-            // Without the store's own retake mark: the server refuses a
-            // quick check with anything else in it.
-            assessment: assessmentToSave(snap.assessment),
-            completedAt: snap.completedAt,
-          },
-          forUser
-        ),
-      slug
-    );
+    courseSave.schedule(saveFor(slug, dbOwner), slug);
     if (finishedNow) courseSave.flush();
-  }, [authed, dbOwner, state.course, courseSave]);
+  }, [authed, dbOwner, state.course, courseSave, saveFor]);
 
   // ---- DB write-through: Comp Card (debounced) ----
   React.useEffect(() => {
@@ -857,7 +1035,19 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
     [courseSave, cardSave]
   );
 
-  const value = React.useMemo(() => ({ state, dispatch }), [state]);
+  // A signed-in learner's course once loaded and merged; a guest's as soon
+  // as the guest store has been read (it holds their one course, D69).
+  const readyCourse = authed
+    ? dbReady
+      ? loadedCourse
+      : null
+    : hydrated
+      ? state.course.courseSlug
+      : null;
+  const value = React.useMemo(
+    () => ({ state, dispatch, readyCourse, staleBuild }),
+    [state, readyCourse, staleBuild]
+  );
 
   return (
     <DemoStateContext.Provider value={value}>
@@ -941,7 +1131,10 @@ export function PreviewStateProvider({
   children: React.ReactNode;
 }) {
   const [state, dispatch] = React.useReducer(reducer, DEFAULT_STATE);
-  const value = React.useMemo(() => ({ state, dispatch }), [state]);
+  const value = React.useMemo(
+    () => ({ state, dispatch, readyCourse: true as const, staleBuild: false }),
+    [state]
+  );
   return (
     <DemoStateContext.Provider value={value}>
       {children}
@@ -953,4 +1146,18 @@ export function useDemoState() {
   const ctx = React.useContext(DemoStateContext);
   if (!ctx) throw new Error("useDemoState must be used inside DemoStateProvider");
   return ctx;
+}
+
+/**
+ * Has `slug`'s saved progress loaded and been merged in (readyCourse)? The
+ * player's resume check waits for it (spec 5.5).
+ */
+export function useCourseReady(slug: string): boolean {
+  const { readyCourse } = useDemoState();
+  return readyCourse === true || readyCourse === slug;
+}
+
+/** Is this page from a build the server no longer has (staleBuild)? */
+export function useStaleBuild(): boolean {
+  return useDemoState().staleBuild;
 }

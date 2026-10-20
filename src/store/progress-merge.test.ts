@@ -22,10 +22,16 @@ function progress(patch: Partial<CourseProgress> = {}): CourseProgress {
     scenario: { root: null, followup: null, rootLabel: null, followupLabel: null },
     reflection: { p1: "", p2: "", p3: "" },
     assessment: { answers: {}, checked: false },
+    sectionsCompleted: [],
+    responses: {},
     completedAt: null,
     ...patch,
   };
 }
+
+const OWN = "s-abcdefgh";
+const OWN2 = "s-ijklmnop";
+const PART = "p-12345678";
 
 /** A whole course walked before the saved progress arrived. */
 const walked = progress({
@@ -78,6 +84,38 @@ describe("hasCourseProgress", () => {
       { assessment: { answers: {}, checked: false, retaken: true } },
     ];
     for (const step of steps) expect(hasCourseProgress(progress(step))).toBe(true);
+  });
+
+  // U8 (spec 5.4): a lesson of the course's own, or an answer kept in
+  // `responses` — a rating, an own reflection — is progress too, so it
+  // enrols the learner. Opening a course still enrols no one.
+  it("is true for a lesson of the course's own, or any answer kept per item", () => {
+    const steps: Partial<CourseProgress>[] = [
+      { sectionsCompleted: [OWN] },
+      { responses: { [`${OWN}/${PART}`]: { type: "rating", values: { s1: 4 } } } },
+      { responses: { [`${OWN}/main`]: { type: "reflection", text: { q1: "Mine" } } } },
+      { responses: { [`concept/${PART}`]: { type: "practice", optionId: "o1", correct: false } } },
+      { responses: { [`${OWN}/main`]: { type: "scenario", rootId: "c1" } } },
+      { responses: { [`${OWN}/${PART}`]: { type: "quiz", answers: { q1: "a" }, checked: false } } },
+      // A quiz tried again: its empty answers are saved over the old check.
+      {
+        responses: {
+          [`${OWN}/${PART}`]: { type: "quiz", answers: {}, checked: false, retaken: true },
+        },
+      },
+    ];
+    for (const step of steps) expect(hasCourseProgress(progress(step))).toBe(true);
+  });
+
+  it("is false for answers kept per item with nothing in them", () => {
+    const empty = progress({
+      responses: {
+        [`${OWN}/main`]: { type: "reflection", text: { q1: "  ", q2: "" } },
+        [`${OWN}/${PART}`]: { type: "rating", values: {} },
+        [`concept/${PART}`]: { type: "quiz", answers: {}, checked: false },
+      },
+    });
+    expect(hasCourseProgress(empty)).toBe(false);
   });
 });
 
@@ -245,6 +283,77 @@ describe("mergeCourseProgress", () => {
       mergeCourseProgress(progress(), progress({ courseTitle: "Saved" }))
         .courseTitle
     ).toBe("Saved");
+  });
+
+  it("lists the course's own lessons saved first, then the new local ones", () => {
+    const saved = progress({ sectionsCompleted: [OWN] });
+    const local = progress({ sectionsCompleted: [OWN2, OWN] });
+    expect(mergeCourseProgress(local, saved).sectionsCompleted).toEqual([OWN, OWN2]);
+  });
+
+  it("merges the answers kept per item key by key, each by its type's rule", () => {
+    const k = (n: number) => `${OWN}/p-0000000${n}` as const;
+    const saved = progress({
+      responses: {
+        // Saved only: kept.
+        [k(1)]: { type: "practice", optionId: "saved", correct: false },
+        // Both: the local practice and scenario win whole.
+        [k(2)]: { type: "practice", optionId: "saved", correct: false },
+        [k(3)]: { type: "scenario", rootId: "savedRoot", followupId: "savedFollow" },
+        // Both: per question, a written local answer wins.
+        [k(4)]: { type: "reflection", text: { a: "Saved a", b: "Saved b", c: "Saved c" } },
+        [k(5)]: { type: "rating", values: { s1: 1, s2: 2 } },
+        // Both: a quick check as the standard one merges (mergeAssessment).
+        [k(6)]: { type: "quiz", answers: { q1: "x", q2: "y" }, checked: true },
+      },
+    });
+    const local = progress({
+      responses: {
+        [k(2)]: { type: "practice", optionId: "local", correct: true },
+        [k(3)]: { type: "scenario", rootId: "localRoot" },
+        [k(4)]: { type: "reflection", text: { a: "Local a", b: "  " } },
+        [k(5)]: { type: "rating", values: { s2: 5, s3: 4 } },
+        [k(6)]: { type: "quiz", answers: { q2: "z" }, checked: false },
+        // Local only: kept.
+        [k(7)]: { type: "rating", values: { s1: 3 } },
+      },
+    });
+    expect(mergeCourseProgress(local, saved).responses).toEqual({
+      [k(1)]: { type: "practice", optionId: "saved", correct: false },
+      [k(2)]: { type: "practice", optionId: "local", correct: true },
+      [k(3)]: { type: "scenario", rootId: "localRoot" },
+      [k(4)]: { type: "reflection", text: { a: "Local a", b: "Saved b", c: "Saved c" } },
+      [k(5)]: { type: "rating", values: { s1: 1, s2: 5, s3: 4 } },
+      // A local answer that differs opens the quiz again.
+      [k(6)]: { type: "quiz", answers: { q1: "x", q2: "z" }, checked: false },
+      [k(7)]: { type: "rating", values: { s1: 3 } },
+    });
+  });
+
+  it("keeps a quiz kept per item that was tried again locally, never the saved check", () => {
+    const key = `${OWN}/${PART}` as const;
+    const saved = progress({
+      responses: { [key]: { type: "quiz", answers: { q1: "x" }, checked: true } },
+    });
+    const local = progress({
+      responses: { [key]: { type: "quiz", answers: { q1: "x" }, checked: false, retaken: true } },
+    });
+    expect(mergeCourseProgress(local, saved).responses[key]).toEqual({
+      type: "quiz",
+      answers: { q1: "x" },
+      checked: false,
+      retaken: true,
+    });
+  });
+
+  it("takes the local answer whole when the item's type changed", () => {
+    const key = `${OWN}/${PART}` as const;
+    const saved = progress({ responses: { [key]: { type: "rating", values: { s1: 1 } } } });
+    const local = progress({ responses: { [key]: { type: "reflection", text: { a: "New" } } } });
+    expect(mergeCourseProgress(local, saved).responses[key]).toEqual({
+      type: "reflection",
+      text: { a: "New" },
+    });
   });
 
   it("doesn't merge two different courses", () => {
@@ -457,6 +566,7 @@ describe("guestStateAfterHydrate", () => {
     badges: [],
     course: { ...progress(), courseSlug: null },
     compCard: blankCard,
+    refusedKeys: {},
   };
   /** Earlier, as a guest: two lessons and an answer, and a badge. */
   const stored: DemoState = {
@@ -541,6 +651,7 @@ describe("storedGuestState", () => {
       privacy: "facilitator",
       updatedAt: null,
     },
+    refusedKeys: {},
   };
 
   it("keeps a guest's quick-check answers and whether they were checked", () => {
@@ -569,6 +680,57 @@ describe("storedGuestState", () => {
     expect(after.badges).toEqual(["b"]);
     expect(after.course).toEqual({ ...blank.course, courseSlug: SLUG });
     expect(after.compCard).toEqual(blank.compCard);
+  });
+
+  it("reads a Release 1 guest store, which has no lessons of the course's own or answers per item", () => {
+    const release1 = {
+      ...blank,
+      refusedKeys: undefined,
+      course: {
+        courseSlug: SLUG,
+        courseTitle: "Workplace conflict",
+        stagesCompleted: ["context", "concept"],
+        simulation: { choice: "iStatement", correct: true },
+        scenario: { root: null, followup: null, rootLabel: null, followupLabel: null },
+        reflection: { p1: "Kept", p2: "", p3: "" },
+        assessment: { answers: {}, checked: false },
+        completedAt: null,
+      },
+    };
+    const after = storedGuestState(JSON.parse(JSON.stringify(release1)), blank);
+    expect(after.course).toEqual({
+      ...release1.course,
+      sectionsCompleted: [],
+      responses: {},
+    });
+    expect(after.refusedKeys).toEqual({});
+  });
+
+  it("reads the course's own lessons and the answers per item, leaving out what it can't read", () => {
+    const stored = {
+      ...blank,
+      course: {
+        ...progress(),
+        sectionsCompleted: [OWN, "context", OWN, 7],
+        responses: {
+          [`${OWN}/${PART}`]: { type: "rating", values: { s1: 4 } },
+          [`${OWN}/main`]: { type: "quiz", answers: { q1: "a" }, checked: false, retaken: true },
+          [`${OWN}/p-bad`]: { type: "rating", values: { s1: 4 } },
+          [`concept/${PART}`]: { type: "rating", values: { s1: 9 } },
+          // Their answer lives in the course's own fields, never here.
+          "simulation/main": { type: "practice", optionId: "a", correct: true },
+        },
+      },
+      // Never read back: the server's refusals belong to the page that got them.
+      refusedKeys: { [`${OWN}/${PART}`]: "row-full" },
+    };
+    const after = storedGuestState(JSON.parse(JSON.stringify(stored)), blank);
+    expect(after.course.sectionsCompleted).toEqual([OWN]);
+    expect(after.course.responses).toEqual({
+      [`${OWN}/${PART}`]: { type: "rating", values: { s1: 4 } },
+      [`${OWN}/main`]: { type: "quiz", answers: { q1: "a" }, checked: false },
+    });
+    expect(after.refusedKeys).toEqual({});
   });
 
   it("is the empty store for something that isn't a stored copy", () => {

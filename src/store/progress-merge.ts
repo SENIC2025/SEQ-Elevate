@@ -18,16 +18,48 @@ import {
   mergeAssessment,
   readAssessment,
 } from "@/lib/assessment-progress";
+import type { PartKey } from "@/lib/cms/sections/contract";
+import type { StoredAnswer } from "@/lib/learner-progress/contract";
+import { readIds, readResponses } from "@/lib/learner-progress/parse";
 import type { CompCardData, CourseProgress, DemoState } from "./demo-state";
 
 /** An answer counts once it has more than whitespace in it. */
 const answered = (text: string) => text.trim() !== "";
 
-/** Has the learner done anything in this course yet? */
+/** An answer kept per item, as the store holds it. */
+type ItemAnswer = StoredAnswer & { retaken?: true };
+type ItemAnswers = CourseProgress["responses"];
+
+/** Is there anything in an answer kept per item? */
+function hasItemAnswer(a: ItemAnswer | undefined): boolean {
+  switch (a?.type) {
+    case "practice":
+    case "scenario":
+      return true;
+    case "quiz":
+      // A quiz tried again is saved empty over the old check, like the
+      // standard one's.
+      return Object.keys(a.answers).length > 0 || a.checked || a.retaken === true;
+    case "reflection":
+      return Object.values(a.text).some(answered);
+    case "rating":
+      return Object.keys(a.values).length > 0;
+    default:
+      return false;
+  }
+}
+
+/**
+ * Has the learner done anything in this course yet? A lesson of the
+ * course's own or an answer kept per item (a rating, a reflection of the
+ * course's own) counts too, so it enrols them; opening a course doesn't.
+ */
 export function hasCourseProgress(course: CourseProgress): boolean {
   const { reflection: r } = course;
   return (
     course.stagesCompleted.length > 0 ||
+    course.sectionsCompleted.length > 0 ||
+    Object.values(course.responses).some(hasItemAnswer) ||
     course.simulation !== null ||
     !!course.scenario.root ||
     answered(r.p1) ||
@@ -45,7 +77,8 @@ export function hasCourseProgress(course: CourseProgress): boolean {
  * One course's progress from both sides. Only for the same course: for a
  * different courseSlug there is nothing to merge and `local` comes back.
  *
- * - stages: the saved ones in their order, then any new local ones;
+ * - stages, and the course's own lessons: the saved ones in their order,
+ *   then any new local ones;
  * - simulation, quick-check answers (by question id): the local choice,
  *   else the saved one; a check from either side holds unless a local
  *   answer differs from the saved one, which opens the quiz again, and a
@@ -54,6 +87,11 @@ export function hasCourseProgress(course: CourseProgress): boolean {
  * - scenario: the local path if one was started (root and follow-up belong
  *   together), else the saved path;
  * - reflection: each local answer that isn't empty, else the saved one;
+ * - answers kept per item (responses), key by key: a quiz as the quick
+ *   check above, a reflection or rating question by question (a written
+ *   local answer, else the saved one), a practice or scenario the local
+ *   one whole, else the saved one; an item whose type changed takes the
+ *   local answer;
  * - completedAt: the saved date — the first completion stays the date —
  *   else the local one;
  * - courseTitle: the local (displayed) title, else the saved one.
@@ -64,13 +102,15 @@ export function mergeCourseProgress(
 ): CourseProgress {
   if (local.courseSlug !== saved.courseSlug) return local;
   const text = (l: string, s: string) => (answered(l) ? l : s);
+  const union = (s: readonly string[], l: readonly string[]) => [
+    ...s,
+    ...l.filter((id) => !s.includes(id)),
+  ];
   return {
     courseSlug: local.courseSlug,
     courseTitle: local.courseTitle ?? saved.courseTitle,
-    stagesCompleted: [
-      ...saved.stagesCompleted,
-      ...local.stagesCompleted.filter((s) => !saved.stagesCompleted.includes(s)),
-    ],
+    stagesCompleted: union(saved.stagesCompleted, local.stagesCompleted),
+    sectionsCompleted: union(saved.sectionsCompleted ?? [], local.sectionsCompleted),
     simulation: local.simulation ?? saved.simulation,
     scenario: local.scenario.root ? local.scenario : saved.scenario,
     reflection: {
@@ -79,8 +119,60 @@ export function mergeCourseProgress(
       p3: text(local.reflection.p3, saved.reflection.p3),
     },
     assessment: mergeAssessment(local.assessment, saved.assessment),
+    responses: mergeResponses(local.responses, saved.responses ?? {}),
     completedAt: saved.completedAt ?? local.completedAt,
   };
+}
+
+/** One item's answer from both sides (see mergeCourseProgress). */
+function mergeItem(l: ItemAnswer | undefined, s: ItemAnswer | undefined): ItemAnswer | undefined {
+  if (!l || !s || l.type !== s.type) return l ?? s;
+  if (l.type === "quiz" && s.type === "quiz") {
+    const quiz = mergeAssessment(
+      { answers: l.answers, checked: l.checked, ...(l.retaken ? { retaken: true as const } : {}) },
+      { answers: s.answers, checked: s.checked }
+    );
+    return { type: "quiz", ...quiz };
+  }
+  if (l.type === "reflection" && s.type === "reflection") {
+    const text: Record<string, string> = { ...s.text };
+    for (const [id, t] of Object.entries(l.text)) {
+      if (answered(t) || !(id in text)) text[id] = t;
+    }
+    return { type: "reflection", text };
+  }
+  if (l.type === "rating" && s.type === "rating") {
+    return { type: "rating", values: { ...s.values, ...l.values } };
+  }
+  return l;
+}
+
+/** The answers kept per item from both sides, key by key. */
+function mergeResponses(local: ItemAnswers, saved: ItemAnswers): ItemAnswers {
+  const out: ItemAnswers = {};
+  for (const key of new Set([...Object.keys(saved), ...Object.keys(local)]) as Set<PartKey>) {
+    const merged = mergeItem(local[key], saved[key]);
+    if (merged) out[key] = merged;
+  }
+  return out;
+}
+
+/**
+ * The answers kept per item in a stored copy of the store (`raw`): each it
+ * can read (readResponses), without the quiz's "tried again" mark, which
+ * only steers merging on the page that set it, as the quick check's does.
+ */
+function readItemAnswers(raw: unknown): ItemAnswers {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const items = Object.fromEntries(
+    Object.entries(raw as Record<string, unknown>).map(([key, value]) => {
+      if (!value || typeof value !== "object" || Array.isArray(value)) return [key, value];
+      const { retaken: _retaken, ...rest } = value as Record<string, unknown>;
+      void _retaken;
+      return [key, rest];
+    })
+  );
+  return readResponses({ v: 1, items });
 }
 
 /**
@@ -190,7 +282,11 @@ export function guestStateAfterHydrate(
  * parsed JSON), with what it lacks taken from the empty store (`blank`).
  * The guest store may hold a copy written by an older page: one from before
  * quick-check answers were kept holds three empty slots, which are read as
- * a quick check not yet answered (assessment-progress.ts). Anything that
+ * a quick check not yet answered (assessment-progress.ts); one from before
+ * Release 2 has no lessons of the course's own or answers per item, which
+ * are read as none — and what it holds of those is read as the server
+ * reads them, leaving out what can't be (parse.ts). The server's refusals
+ * aren't read back: they belong to the page that got them. Anything that
  * isn't a stored copy at all is the empty store.
  */
 export function storedGuestState(raw: unknown, blank: DemoState): DemoState {
@@ -205,7 +301,10 @@ export function storedGuestState(raw: unknown, blank: DemoState): DemoState {
       ...blank.course,
       ...course,
       assessment: readAssessment(course.assessment),
+      sectionsCompleted: readIds(course.sectionsCompleted),
+      responses: readItemAnswers(course.responses),
     },
     compCard: { ...blank.compCard, ...stored.compCard },
+    refusedKeys: blank.refusedKeys,
   };
 }

@@ -31,7 +31,8 @@ export interface PendingSave {
   /**
    * Sends `save` once `delayMs` pass without another schedule(). `key`
    * names what it saves (a course's slug): a newer save of the same key
-   * replaces a failed one waiting to be tried again.
+   * replaces a failed one waiting to be tried again, and the one waiting
+   * out the delay; one of another key waiting is sent at once.
    */
   schedule(save: () => Promise<unknown>, key?: string): void;
   /** Sends the waiting save now, if there is one. */
@@ -149,6 +150,9 @@ export function pendingSave(
 
   return {
     schedule(save, key = "") {
+      // A waiting save of something else is sent now, not dropped: only a
+      // newer save of the same key replaces one.
+      if (waiting && waitingKey !== key) flush();
       clearWaiting();
       const n = ++count;
       newest.set(key, n);

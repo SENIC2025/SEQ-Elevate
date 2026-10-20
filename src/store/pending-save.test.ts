@@ -74,6 +74,19 @@ describe("pendingSave", () => {
     expect(sent).toEqual(["course A, last change", "course B, merged on load"]);
   });
 
+  it("sends a waiting save of another course at once rather than dropping it for a newer one", async () => {
+    // Release 2: a course's save can schedule another (something was left
+    // when it was confirmed) after the learner has moved on to the next
+    // course, whose own save may be waiting.
+    const saves = pendingSave(700);
+    const sent: string[] = [];
+    saves.schedule(async () => void sent.push("course B, waiting"), "b");
+    saves.schedule(async () => void sent.push("course A, what was left"), "a");
+    expect(sent).toEqual(["course B, waiting"]);
+    await vi.advanceTimersByTimeAsync(700);
+    expect(sent).toEqual(["course B, waiting", "course A, what was left"]);
+  });
+
   it("flush does nothing when nothing is waiting", () => {
     const saves = pendingSave(700);
     expect(() => saves.flush()).not.toThrow();

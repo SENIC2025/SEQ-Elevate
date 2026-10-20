@@ -201,6 +201,17 @@ async function failServerActions(
 }
 
 /**
+ * Is a server action's request body a save of `slug`'s progress? Release 1
+ * sent the whole progress ({"stagesCompleted": …}); Release 2 sends a patch
+ * of what changed ({"v": 2, …}, src/lib/learner-progress/patch.ts).
+ */
+function isCourseSave(slug: string) {
+  return (body: string) =>
+    body.startsWith(`["${slug}",{"stagesCompleted"`) ||
+    body.startsWith(`["${slug}",{"v":2`);
+}
+
+/**
  * Runs the first `times` server-action POSTs called with `args` without the
  * learner's session, the way a server whose session lookup failed runs
  * them: Auth.js's database session lookup logs a database error and
@@ -1203,7 +1214,7 @@ describe("progress kept when the session is lost, changes hands or the course ch
     const lost = await sessionLostDuring(
       page,
       session,
-      (body) => body.startsWith('["workplace-conflict",{"stagesCompleted"'),
+      isCourseSave("workplace-conflict"),
       1
     );
     const loaded = courseLoaded(page, "workplace-conflict");
@@ -1364,7 +1375,7 @@ describe("progress kept when the session is lost, changes hands or the course ch
       (body) => {
         const call = body.startsWith('[{"wentWell"')
           ? "card"
-          : body.startsWith('["workplace-conflict",{"stagesCompleted"')
+          : isCourseSave("workplace-conflict")(body)
             ? "course"
             : null;
         if (!call || first.has(call)) return false;
@@ -1512,7 +1523,7 @@ describe("progress kept when the session is lost, changes hands or the course ch
     const saves = await failServerActions(
       page,
       (body) =>
-        body.startsWith('["workplace-conflict",{"stagesCompleted"') &&
+        isCourseSave("workplace-conflict")(body) &&
         body.includes('"behaviour"'),
       3
     );

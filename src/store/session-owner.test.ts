@@ -14,6 +14,8 @@ const blank: DemoState = {
     scenario: { root: null, followup: null, rootLabel: null, followupLabel: null },
     reflection: { p1: "", p2: "", p3: "" },
     assessment: { answers: {}, checked: false },
+    sectionsCompleted: [],
+    responses: {},
     completedAt: null,
   },
   compCard: {
@@ -25,6 +27,7 @@ const blank: DemoState = {
     privacy: "facilitator",
     updatedAt: null,
   },
+  refusedKeys: {},
 };
 
 describe("sessionOwner", () => {
@@ -86,6 +89,8 @@ describe("forgetLearner", () => {
       },
       reflection: { p1: "Mine", p2: "", p3: "" },
       assessment: { answers: { q1: "a" }, checked: false },
+      sectionsCompleted: ["s-abcdefgh"],
+      responses: { "s-abcdefgh/main": { type: "reflection", text: { q1: "Only mine" } } },
       completedAt: "2026-09-29T10:05:00.000Z",
     },
     compCard: {
@@ -97,11 +102,13 @@ describe("forgetLearner", () => {
       privacy: "self",
       updatedAt: "2026-09-29T10:06:00.000Z",
     },
+    refusedKeys: { "s-abcdefgh/main": "too-long" },
   };
 
   it("keeps nothing of the learner's: no progress, answers, badges or Comp Card", () => {
     const forgotten = forgetLearner(learners, blank);
     expect(forgotten.badges).toEqual([]);
+    expect(forgotten.refusedKeys).toEqual({});
     expect(forgotten.compCard).toEqual(blank.compCard);
     expect(forgotten.course).toEqual({
       ...blank.course,
