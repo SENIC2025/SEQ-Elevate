@@ -53,10 +53,10 @@ import {
  *
  * Each is red on the Release 1 build (main b357cc7): it gives learners
  * the standard lessons only (so the learner's own lessons — A-E9's learner
- * pass and D62.d included — aren't there), keeps no answer but the four
- * standard ones, hides Continue until an answer, completes an empty course
- * on opening, badge and all, and drops a save the server doesn't
- * recognise.
+ * pass and D62.d included — aren't there, and a course whose outline
+ * removed them all still has its four standard text lessons), keeps no
+ * answer but the four standard ones, hides Continue until an answer, and
+ * drops a save the server doesn't recognise.
  *
  * Requires a real database — gated on E2E_DB=1, like db-backed-progress.
  * Everything it creates is unique to this run and removed afterwards.
@@ -816,8 +816,12 @@ describe("Release 2 — the learner player", () => {
     await signIn(context, sessionToken);
     await page.goto(`/en/learner/course/${EMPTY}`);
     await expect(page.getByRole("main")).toBeVisible({ timeout: 15000 });
-    // Time for a completion to be saved, were there one: Release 1 completed
-    // an empty course on opening and gave its badge (spec 10.2).
+    // Time for a completion to be saved, were there one: Release 1's player
+    // fell back to the completion screen, badge and all, for a course with
+    // no stage (CoursePlayer.tsx:84-88). Spec 10.2 names that as A-E10's
+    // Release 1 failure, but Release 1 can't reach it with a course built
+    // here: it gives learners the four standard text lessons this outline
+    // removed, so there it fails at the "no lessons" text below.
     await page.waitForTimeout(2500);
     expect(await prisma.userBadge.count({ where: { userId } }), "no badge for nothing").toBe(0);
     await expect(page.getByRole("heading", { name: /course complete/i })).toHaveCount(0);
