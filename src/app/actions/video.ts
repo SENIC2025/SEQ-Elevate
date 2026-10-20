@@ -14,6 +14,7 @@
 import { getCurrentUser } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
 import { isSectionId } from "@/lib/cms/sections/contract";
+import { SLUG } from "@/lib/cms/sections/store.server";
 
 const PROJECT = "seq-elevate";
 /** Longer than any cue id the editor makes (= MAX_ASSESSMENT_ID_LENGTH). */
@@ -23,7 +24,10 @@ const MAX_CUE_ID_LENGTH = 100;
  * Keep one in-video answer, under its cue's id. `lessonId` (Release 2) is
  * the lesson the video belongs to — a standard key or a lesson of the
  * course's own — kept beside it when it is one; a page from before doesn't
- * send it.
+ * send it. AuditLog rows outlive account erasure (D62.g), so nothing else
+ * the browser sends is kept: a cue id longer than any cue's, a slug the
+ * platform wouldn't make or a "correct" that isn't true or false is
+ * ignored.
  */
 export async function recordVideoCueAnswer(input: {
   courseSlug: string;
@@ -40,6 +44,8 @@ export async function recordVideoCueAnswer(input: {
   ) {
     return;
   }
+  if (typeof input.courseSlug !== "string" || !SLUG.test(input.courseSlug)) return;
+  if (typeof input.correct !== "boolean") return;
 
   const projectId = user.lastProjectId ?? PROJECT;
   const metadata = {

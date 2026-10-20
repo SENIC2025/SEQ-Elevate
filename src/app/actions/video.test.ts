@@ -3,12 +3,14 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 /*
  * U12 (spec 4.6): an in-video answer is kept under its cue's id, as before,
  * with the lesson it was given in when the player says so — for lessons of
- * the course's own too. A cue id longer than any cue has, or a lesson id
- * that is no lesson's, isn't stored.
+ * the course's own too. A cue id longer than any cue has, a lesson id that
+ * is no lesson's, a slug the platform wouldn't make or a "correct" that
+ * isn't true or false isn't stored.
  */
 
 const getCurrentUser = vi.fn();
 const auditLog = { findFirst: vi.fn(), create: vi.fn(), update: vi.fn() };
+vi.mock("server-only", () => ({}));
 vi.mock("@/lib/auth-helpers", () => ({ getCurrentUser }));
 vi.mock("@/lib/prisma", () => ({ prisma: { auditLog } }));
 
@@ -59,6 +61,22 @@ describe("recordVideoCueAnswer", () => {
     await recordVideoCueAnswer({ courseSlug: "speaking-up", cueId: cueId as string, correct: true });
     expect(auditLog.findFirst).not.toHaveBeenCalled();
     expect(auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it("ignores a courseSlug that isn't a slug and a correct that isn't a boolean (no auditLog write)", async () => {
+    // AuditLog rows outlive account erasure (D62.g): nothing the browser
+    // makes up is kept in one.
+    for (const input of [
+      { courseSlug: "Free text, as long as the request allows", cueId: "cue-1", correct: true },
+      { courseSlug: { nested: "object" }, cueId: "cue-1", correct: true },
+      { courseSlug: "speaking-up", cueId: "cue-1", correct: "a note" },
+      { courseSlug: "speaking-up", cueId: "cue-1", correct: { nested: true } },
+    ]) {
+      await recordVideoCueAnswer(input as unknown as Parameters<typeof recordVideoCueAnswer>[0]);
+    }
+    expect(auditLog.findFirst).not.toHaveBeenCalled();
+    expect(auditLog.create).not.toHaveBeenCalled();
+    expect(auditLog.update).not.toHaveBeenCalled();
   });
 
   it("does nothing for a guest", async () => {
