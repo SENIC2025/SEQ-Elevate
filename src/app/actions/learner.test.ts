@@ -142,6 +142,11 @@ describe("ensureLearnerMembership", () => {
   });
 });
 
+/** What the database answers a second insert of the same UserBadge (userId, badgeId): P2002. */
+const UNIQUE_VIOLATION = Object.assign(new Error("Unique constraint failed on the fields: (`userId`,`badgeId`)"), {
+  code: "P2002",
+});
+
 describe("awardBadgeAction", () => {
   afterEach(() => vi.clearAllMocks());
 
@@ -154,19 +159,31 @@ describe("awardBadgeAction", () => {
       ok: false,
       reason: "no-badge",
     });
-    expect(userBadge.upsert).not.toHaveBeenCalled();
+    expect(userBadge.createMany).not.toHaveBeenCalled();
   });
 
   it("saves the badge for the learner", async () => {
     getCurrentUser.mockResolvedValue(USER);
     badge.findUnique.mockResolvedValue({ id: "b1", slug: "x-complete" });
-    userBadge.upsert.mockResolvedValue({});
+    userBadge.createMany.mockResolvedValue({ count: 1 });
     await expect(awardBadgeAction("x-complete", "u1")).resolves.toEqual({ ok: true });
-    expect(userBadge.upsert).toHaveBeenCalledWith({
-      where: { userId_badgeId: { userId: "u1", badgeId: "b1" } },
-      create: { userId: "u1", badgeId: "b1" },
-      update: {},
+    expect(userBadge.createMany).toHaveBeenCalledWith({
+      data: [{ userId: "u1", badgeId: "b1" }],
+      skipDuplicates: true,
     });
+  });
+
+  it("awards a badge the completing save wrote at the same moment, without an error (the row there is kept)", async () => {
+    // Found at integration (the full e2e suite's server log): the save that
+    // completes a course and this action write the same UserBadge row at
+    // once. An upsert reads, finds nothing, inserts, and the other's row
+    // fails it on the unique key (P2002): the page then tries again an
+    // award that had happened. The database is told to leave a row there.
+    getCurrentUser.mockResolvedValue(USER);
+    badge.findUnique.mockResolvedValue({ id: "b1", slug: "x-complete" });
+    userBadge.upsert.mockRejectedValue(UNIQUE_VIOLATION);
+    userBadge.createMany.mockResolvedValue({ count: 0 });
+    await expect(awardBadgeAction("x-complete", "u1")).resolves.toEqual({ ok: true });
   });
 
   it("refuses an award meant for another account, without throwing", async () => {
@@ -176,7 +193,7 @@ describe("awardBadgeAction", () => {
       reason: "other-account",
     });
     expect(badge.findUnique).not.toHaveBeenCalled();
-    expect(userBadge.upsert).not.toHaveBeenCalled();
+    expect(userBadge.createMany).not.toHaveBeenCalled();
   });
 });
 
@@ -210,7 +227,7 @@ describe("saveCourseProgress on a created course without a badge", () => {
     badge.findMany.mockResolvedValue([]);
     badge.create.mockImplementation(async ({ data }) => ({ id: "badge-new", ...data }));
     courseEnrollment.findMany.mockResolvedValue([]);
-    userBadge.upsert.mockResolvedValue({});
+    userBadge.createMany.mockResolvedValue({ count: 1 });
   }
 
   // A course the old createCourse made while a deploy was building has no
@@ -232,10 +249,9 @@ describe("saveCourseProgress on a created course without a badge", () => {
     });
     expect(courseEnrollment.createMany).toHaveBeenCalledTimes(1);
     expect(enrolment?.completedAt).toEqual(new Date(COMPLETED.completedAt));
-    expect(userBadge.upsert).toHaveBeenCalledWith({
-      where: { userId_badgeId: { userId: "u1", badgeId: "badge-new" } },
-      create: { userId: "u1", badgeId: "badge-new" },
-      update: {},
+    expect(userBadge.createMany).toHaveBeenCalledWith({
+      data: [{ userId: "u1", badgeId: "badge-new" }],
+      skipDuplicates: true,
     });
   });
 
@@ -243,7 +259,7 @@ describe("saveCourseProgress on a created course without a badge", () => {
     badgelessCourse();
     await saveCourseProgress("speaking-up", { ...COMPLETED, completedAt: null }, "u1");
     expect(badge.create).not.toHaveBeenCalled();
-    expect(userBadge.upsert).not.toHaveBeenCalled();
+    expect(userBadge.createMany).not.toHaveBeenCalled();
     expect(enrolment?.stagesCompleted).toEqual(["CONTEXT", "CONCEPT", "BEHAVIOUR", "REFLECTION"]);
   });
 
@@ -251,7 +267,7 @@ describe("saveCourseProgress on a created course without a badge", () => {
     badgelessCourse({ ...ROW, meta: null } as unknown as typeof ROW);
     await saveCourseProgress("speaking-up", COMPLETED, "u1");
     expect(badge.create).not.toHaveBeenCalled();
-    expect(userBadge.upsert).not.toHaveBeenCalled();
+    expect(userBadge.createMany).not.toHaveBeenCalled();
     expect(enrolment?.completedAt).toEqual(new Date(COMPLETED.completedAt));
   });
 
@@ -259,8 +275,8 @@ describe("saveCourseProgress on a created course without a badge", () => {
     badgelessCourse({ ...ROW, badgeId: "badge-1" });
     await saveCourseProgress("speaking-up", COMPLETED, "u1");
     expect(badge.create).not.toHaveBeenCalled();
-    expect(userBadge.upsert).toHaveBeenCalledWith(
-      expect.objectContaining({ create: { userId: "u1", badgeId: "badge-1" } })
+    expect(userBadge.createMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: [{ userId: "u1", badgeId: "badge-1" }] })
     );
   });
 });
@@ -279,7 +295,7 @@ describe("the save actions' transaction", () => {
   beforeEach(() => {
     getCurrentUser.mockResolvedValue(USER);
     course.findUnique.mockResolvedValue(ROW);
-    userBadge.upsert.mockResolvedValue({});
+    userBadge.createMany.mockResolvedValue({ count: 1 });
   });
   afterEach(() => {
     vi.clearAllMocks();
@@ -295,6 +311,18 @@ describe("the save actions' transaction", () => {
     assessment: { answers: {}, checked: false },
     completedAt: null,
   };
+
+  it("finishes the course though the learner's badge was written at the same moment (the award action, another tab)", async () => {
+    // The same race as awardBadgeAction's: an upsert here failed the whole
+    // save on the unique key, and the page sent it again.
+    enrolment = { ...EMPTY_ROW };
+    userBadge.upsert.mockRejectedValue(UNIQUE_VIOLATION);
+    userBadge.createMany.mockResolvedValue({ count: 0 });
+    await expect(
+      saveCourseProgressPatch("speaking-up", { v: 2, completedAt: "2026-10-01T00:00:00.000Z" }, "u1")
+    ).resolves.toEqual({ ok: true, refused: [] });
+    expect(enrolment?.completedAt).toEqual(new Date("2026-10-01T00:00:00.000Z"));
+  });
 
   it("locks the Course row FOR KEY SHARE, then the enrolment FOR UPDATE, and never a Lesson", async () => {
     enrolment = { ...EMPTY_ROW };
@@ -319,8 +347,8 @@ describe("the save actions' transaction", () => {
     expect(sql[0]).toBe('SELECT id FROM "Course" WHERE "id" = ? FOR UPDATE');
     expect(sql).not.toContain('SELECT id FROM "Course" WHERE "id" = ? FOR KEY SHARE');
     expect(sql.at(-1)).toMatch(/"CourseEnrollment".*FOR UPDATE$/);
-    expect(userBadge.upsert).toHaveBeenCalledWith(
-      expect.objectContaining({ create: { userId: "u1", badgeId: "badge-new" } })
+    expect(userBadge.createMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: [{ userId: "u1", badgeId: "badge-new" }] })
     );
   });
 
@@ -458,7 +486,7 @@ describe("the save actions' transaction", () => {
     enrolment = { ...EMPTY_ROW };
     await saveCourseProgressPatch("speaking-up", { v: 2, completedAt: "2026-10-01T00:00:00.000Z" }, "u1");
     await saveCourseProgressPatch("speaking-up", { v: 2, completedAt: "2026-10-02T00:00:00.000Z" }, "u1");
-    expect(userBadge.upsert).toHaveBeenCalledTimes(1);
+    expect(userBadge.createMany).toHaveBeenCalledTimes(1);
     expect(enrolment?.completedAt).toEqual(new Date("2026-10-01T00:00:00.000Z"));
   });
 

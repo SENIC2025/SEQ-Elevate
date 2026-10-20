@@ -293,7 +293,10 @@ function columnsOf(m: MergeResult): Prisma.CourseEnrollmentUpdateInput {
  *
  * Only the columns that changed are written: a save that changes nothing
  * leaves updatedAt ("last active") alone. A course finished by this save
- * saves its badge in the same transaction. Never a Lesson row; not audited
+ * saves its badge in the same transaction, as an insert that leaves a row
+ * already there (the award action, another tab) alone: an upsert there
+ * failed the whole save on the unique key when they met. Never a Lesson
+ * row; not audited
  * (learner saves never were, and audit rows outlive erasure, D62.g).
  */
 async function saveProgress(
@@ -329,11 +332,7 @@ async function saveProgress(
       await tx.courseEnrollment.update({ where, data: columnsOf(merged) });
     }
     if (merged.completedNow && badgeId) {
-      await tx.userBadge.upsert({
-        where: { userId_badgeId: { userId, badgeId } },
-        create: { userId, badgeId },
-        update: {},
-      });
+      await tx.userBadge.createMany({ data: [{ userId, badgeId }], skipDuplicates: true });
     }
     return merged.refused;
   });
@@ -466,6 +465,9 @@ export async function saveCompCard(input: CompCardInput, forUser: string) {
  * makes the bundled ones, createCourse and its migration the others, and a
  * created course the old code left without one gets it when it is
  * published or finished, or by the next deploy (ensure-course-badge.ts).
+ * The row is inserted unless it is there (INSERT … ON CONFLICT DO NOTHING):
+ * the save that completes the course writes it at the same moment, and an
+ * upsert lost that race on the unique key (P2002).
  */
 export async function awardBadgeAction(
   slug: string,
@@ -477,10 +479,9 @@ export async function awardBadgeAction(
     where: { projectId_slug: { projectId: PROJECT, slug } },
   });
   if (!badge) return { ok: false, reason: "no-badge" };
-  await prisma.userBadge.upsert({
-    where: { userId_badgeId: { userId: user.id, badgeId: badge.id } },
-    create: { userId: user.id, badgeId: badge.id },
-    update: {},
+  await prisma.userBadge.createMany({
+    data: [{ userId: user.id, badgeId: badge.id }],
+    skipDuplicates: true,
   });
   return { ok: true };
 }
