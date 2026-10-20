@@ -139,7 +139,7 @@ export async function buildRealAnalytics(
         id: u.id,
         name: u.name ?? u.email ?? "Learner",
         cohort: m.cohort?.name ?? "—",
-        currentStageIndex: next === "complete" ? 7 : STAGES.indexOf(next),
+        currentStageIndex: next === "complete" ? 7 : (STAGES as readonly string[]).indexOf(next),
         completed,
         progressPct: progress.pct,
         secondsByStage,

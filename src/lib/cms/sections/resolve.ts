@@ -39,9 +39,11 @@ import {
   type ExerciseValue,
   type PartId,
   type ResolvedPart,
+  type ResolvedSection,
   type ResolveSectionStage,
   type StoredPart,
 } from "./contract";
+import type { LessonFacts } from "./learner-path";
 import { sanitizeExercise, validateExercise } from "./part-kinds";
 import { MAIN_PART, partsOf } from "./section-parts";
 
@@ -204,11 +206,15 @@ export const resolveSectionStage: ResolveSectionStage = ({
 
   const video = isRecord(row?.video) ? (row.video as unknown as VideoContent) : undefined;
   const documents: LessonDocumentRef[] = (row?.documents ?? []).filter((d) => d.published);
-  // The four standard text lessons are always there for learners, written
-  // or not (db-course.ts); any other lesson with nothing to show is left out,
-  // as an exercise nobody saved is today.
-  const alwaysShown = isLegacySectionId(section.id) && (kind === "narrative" || kind === "reflection");
-  if (!parts.length && !video && !documents.length && !alwaysShown) return null;
+  const facts: LessonFacts = {
+    stageKey: section.id,
+    structure: row?.structure ?? null,
+    parts: row?.parts ?? null,
+    narrative: row?.narrative ?? null,
+    hasVideo: video !== undefined,
+    publishedDocuments: documents.length,
+  };
+  if (!lessonHasContent(section, facts)) return null;
 
   return {
     key: section.id,
@@ -221,3 +227,29 @@ export const resolveSectionStage: ResolveSectionStage = ({
     skipped,
   };
 };
+
+/**
+ * Does the lesson have anything to show learners (spec 3.2)? The one rule
+ * the sectioned view (resolveSectionStage, above) and the lesson plans
+ * (learner-path.ts) both apply, so the player and the counters can't drift
+ * apart. The four standard text lessons are always there for learners,
+ * written or not (db-course.ts); any other lesson needs its main content,
+ * a live extra part, a video or a published document — an exercise nobody
+ * saved, or a question that is only a draft, is left out as it is today.
+ *
+ * Text counts in any language (the first that has some is shown), so the
+ * language never changes which lessons there are.
+ */
+export function lessonHasContent(section: ResolvedSection, f: LessonFacts): boolean {
+  const kind = mainKindOf(section);
+  if (isLegacySectionId(section.id) && (kind === "narrative" || kind === "reflection")) return true;
+  if (f.hasVideo || f.publishedDocuments > 0) return true;
+  const stored = partsOf(f.parts);
+  const items = stored === "unreadable" ? [MAIN_PART] : stored;
+  return items.some((item) => {
+    if (item.type !== "main") return extraPart(item, "en") !== null;
+    if (kind === "narrative") return resolveNarrative(f.narrative, "en").blocks !== undefined;
+    if (kind === "reflection") return true;
+    return f.structure != null && mainExercise(f.structure, kind, "en") !== null;
+  });
+}
