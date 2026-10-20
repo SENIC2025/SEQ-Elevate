@@ -1,9 +1,11 @@
-import { test, expect, type BrowserContext, type Page } from "@playwright/test";
+import { test, expect, type BrowserContext, type Locator, type Page } from "@playwright/test";
 import { Prisma, PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { applyR2Deltas, type Captured } from "./fixtures/r2-deltas";
+import { AE1_TITLE, ae1Lessons } from "./fixtures/r2-ae1-course";
+import { removeR2Course, seedR2Course } from "./fixtures/r2-course";
 
 /**
  * Release 2, the recorded learner walk (spec 10.3, D63): a course in the
@@ -30,6 +32,19 @@ import { applyR2Deltas, type Captured } from "./fixtures/r2-deltas";
  * differs from phase 1 — the step bar, Back and the counter show the new
  * names; lesson titles don't change. This flips Release 1's phase 2, where
  * learners kept the standard names, on purpose.
+ *
+ * Phase 3. The A-E1 course (e2e/fixtures/r2-ae1-course.ts: lessons of its
+ * own, hidden lessons, a new order, step names, extra content of every
+ * kind, a video, documents), with fixed ids, walked by a signed-in learner
+ * in English and German — every step when it opens and once answered —
+ * and compared with Release 2's own recording,
+ * e2e/fixtures/r2-learner-baseline.json (pinned by SHA-256 in
+ * src/lib/r2-fixture-pin.test.ts; R2_WALK_RECORD=1 records it, once). The
+ * editor's preview of the same course must show exactly the same, apart
+ * from the preview banner, its "Edit this lesson" link and reachability
+ * (every step of a preview can be opened): preview shows what learners get
+ * (D35, D63). Red on Release 1, which gives learners this course's
+ * standard lessons only.
  *
  * Run on the Release 1 build, phase 1 fails at D1–D4 and only there:
  * every comparison is soft, so the run lists each step that differs, and
@@ -497,6 +512,11 @@ async function walkBuiltIn(page: Page, tag: string) {
   await capture(page, k("8-complete"));
 }
 
+// One database connection for the whole file, closed after its last test.
+test.afterAll(async () => {
+  if (DB) await prisma.$disconnect();
+});
+
 // Every walk on video for the release check (spec 10.3): R2_WALK_VIDEO=1.
 // Playwright needs its ffmpeg for that (npx playwright install ffmpeg).
 test.use({ video: process.env.R2_WALK_VIDEO === "1" ? "on" : "off" });
@@ -514,7 +534,6 @@ describe("Release 2 — the recorded learner walk", () => {
     });
     await prisma.user.deleteMany({ where: { email: { in: EMAILS } } });
     await cleanCourse();
-    await prisma.$disconnect();
   });
 
   test("phase 1 — a course created here, in English: every step as recorded, but for the closed list", async ({
@@ -563,6 +582,227 @@ describe("Release 2 — the recorded learner walk", () => {
     for (const userId of [en.userId, de.userId]) {
       await walkSaved(userId, SLUG);
       expect(await rowOf(userId, SLUG)).toEqual(R1_WRITES.created);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 3: the A-E1 course, recorded once as Release 2's own baseline.
+
+const FLEX = "e2e-r2-walk-flexible";
+/** Fixed, so the recording (which shows them in no URL, but holds the course's slug) stays the same run after run. */
+const FLEX_IDS = { warmup: "s-walkwarm", wrapup: "s-walkwrap", cueId: "e2e-r2-walk-cue" };
+const RECORD = process.env.R2_WALK_RECORD === "1";
+const R2_BASELINE_FILE = path.resolve("e2e/fixtures/r2-learner-baseline.json");
+const r2Baseline: Record<string, Captured> = existsSync(R2_BASELINE_FILE)
+  ? JSON.parse(readFileSync(R2_BASELINE_FILE, "utf8"))
+  : {};
+/** What this run's learner walks saw, by key: the recording when R2_WALK_RECORD=1. */
+const seen: Record<string, Captured> = {};
+const FLEX_EMAILS = {
+  en: `e2e-r2-walk-flex-${RUN}@example.com`,
+  de: `e2e-r2-walk-flex-de-${RUN}@example.com`,
+  editor: `e2e-r2-walk-flex-editor-${RUN}@example.com`,
+};
+
+/** What the page shows now: the main area's tree and the "n / N · name" counter. */
+async function snapshot(page: Page): Promise<Captured> {
+  await page.waitForLoadState("networkidle");
+  await page.waitForFunction(() =>
+    document.getAnimations().every((a) => a.playState !== "running")
+  );
+  const aria = await page.getByRole("main").ariaSnapshot();
+  const counter = await page
+    .getByText(/^\d+ \/ \d+ · /)
+    .filter({ visible: true })
+    .first()
+    .textContent({ timeout: 2000 })
+    .catch(() => null);
+  return { aria, counter: counter?.trim() ?? null };
+}
+
+/** A node and every line under it (deeper indented), as ariaSnapshot prints them. */
+function withoutBlocks(aria: string, drop: (line: string, block: string[]) => boolean): string {
+  const lines = aria.split("\n");
+  const out: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const indent = lines[i].search(/\S/);
+    let end = i + 1;
+    while (end < lines.length && lines[end].search(/\S/) > indent) end++;
+    if (drop(lines[i], lines.slice(i, end))) {
+      i = end - 1;
+      continue;
+    }
+    out.push(lines[i]);
+  }
+  return out.join("\n");
+}
+
+/** The step bar with every step's reachability left out: a preview opens any step. */
+function anyReachable(aria: string): string {
+  const lines = aria.split("\n");
+  let navIndent = -1;
+  return lines
+    .map((line) => {
+      const indent = line.search(/\S/);
+      if (navIndent >= 0 && indent <= navIndent) navIndent = -1;
+      if (/- navigation "(Course stages|Kursschritte)"/.test(line)) navIndent = indent;
+      return navIndent >= 0 ? line.replace(/ \[disabled\]/, "") : line;
+    })
+    .join("\n");
+}
+
+/**
+ * What a learner and an editor's preview both see: without the preview's
+ * banner (a status naming the preview, with its "Back to editing") and its
+ * "Edit this lesson" link, and with every step's reachability left out.
+ */
+function asLearnersSeeIt(c: Captured): Captured {
+  const aria = withoutBlocks(
+    c.aria,
+    (line, block) =>
+      /^\s*- status:/.test(line) && block.some((l) => /Back to editing|Zurück zum Bearbeiten/.test(l))
+  );
+  const noEdit = withoutBlocks(aria, (line) => /^\s*- link "(Edit this lesson|Diese Lektion bearbeiten)"/.test(line));
+  return { aria: anyReachable(noEdit), counter: c.counter };
+}
+
+/** The learner's walk: compared with Release 2's recording, or recorded (R2_WALK_RECORD=1). */
+function learnerSees(page: Page, locale: "en" | "de") {
+  return async (step: string) => {
+    const key = `flexible:${locale}:${step}`;
+    const got = await snapshot(page);
+    seen[key] = got;
+    if (RECORD) return;
+    expect(r2Baseline[key], `a Release 2 recording for "${key}"`).toBeTruthy();
+    expect.soft(got, `what learners see at "${key}"`).toEqual(r2Baseline[key]);
+  };
+}
+
+/** The editor's preview: what the learner saw, but for the preview's own banner, link and reachability. */
+function previewSees(page: Page, locale: "en" | "de") {
+  return async (step: string) => {
+    const key = `flexible:${locale}:${step}`;
+    const learner = RECORD ? seen[key] : r2Baseline[key];
+    expect(learner, `what the learner saw at "${key}"`).toBeTruthy();
+    const got = await snapshot(page);
+    expect.soft(asLearnersSeeIt(got), `the preview at "${key}" shows what learners get`).toEqual(
+      asLearnersSeeIt(learner)
+    );
+  };
+}
+
+/** Click until `done` holds — once hydrated a single click does it; never clicks again after. */
+async function clickUntil(target: Locator, done: () => Promise<void>) {
+  await expect(async () => {
+    try {
+      await done();
+      return;
+    } catch {
+      await target.click();
+    }
+    await done();
+  }).toPass({ timeout: 20_000 });
+}
+
+/** The A-E1 course from its first lesson to its completion screen, the same clicks for a learner and a preview. */
+async function walkFlexible(page: Page, locale: "en" | "de", query: string, see: (step: string) => Promise<void>) {
+  const main = page.getByRole("main");
+  await page.goto(`/${locale}/learner/course/${FLEX}${query}`);
+  await expect(stepBar(page)).toContainText("1", { timeout: 15000 });
+  await see("1-warmup");
+  // Its own lesson: text, a branching scenario with a follow-up, documents.
+  await clickUntil(main.getByRole("button", { name: "Raise a hand and say you'd like to finish" }), () =>
+    expect(main.getByText("They pause and listen.")).toBeVisible({ timeout: 2000 })
+  );
+  await main.getByRole("button", { name: "Finish your point briefly" }).click();
+  await expect(main.getByText("Your point lands.")).toBeVisible();
+  await see("1-warmup-answered");
+  await continueTo(page, 2);
+  // A standard lesson with extra content of every kind.
+  await see("2-idea");
+  await main.getByRole("button", { name: /^Early/ }).click();
+  await main.getByRole("button", { name: /^(check answers|antworten prüfen)$/i }).click();
+  await main.getByRole("textbox", { name: "E2E: what stopped you?" }).fill("E2E: the clock.");
+  await main.getByRole("group", { name: "E2E: I say when I disagree." }).getByRole("radio", { name: /^4 / }).check();
+  await main.getByRole("group", { name: "E2E: I ask for time to finish." }).getByRole("radio", { name: /^2 / }).check();
+  await main.getByRole("button", { name: "Let me finish, please." }).click();
+  await expect(main.getByText("Clear and calm.")).toBeVisible();
+  await see("2-idea-answered");
+  await continueTo(page, 3);
+  // A standard lesson, moved and renamed, by its stage screen.
+  await see("3-tryit");
+  await clickUntil(main.getByRole("button", { name: "Ask to finish your point" }), () =>
+    expect(main.getByText("You finish.")).toBeVisible({ timeout: 2000 })
+  );
+  await see("3-tryit-answered");
+  await continueTo(page, 4);
+  await see("4-behaviour");
+  await continueTo(page, 5);
+  // Its own lesson with a video and a practice question.
+  await see("5-wrapup");
+  await main.getByRole("button", { name: "It was fine." }).click();
+  await expect(main.getByText("Nothing to build on.")).toBeVisible();
+  await see("5-wrapup-answered");
+  await continueTo(page, 6);
+  await see("6-check");
+  await main.getByRole("button", { name: /^Early/ }).click();
+  await main.getByRole("button", { name: /^(check answers|antworten prüfen)$/i }).click();
+  await see("6-check-checked");
+  await continueButton(page).click();
+  await expect(
+    page.getByRole("heading", { name: /^(course complete|kurs abgeschlossen)/i })
+  ).toBeVisible({ timeout: 15000 });
+  await see("7-complete");
+}
+
+describe("Release 2 — the recorded learner walk, phase 3: a course as built", () => {
+  test.use({ viewport: { width: 1280, height: 900 } });
+
+  test.beforeAll(async () => {
+    await seedR2Course(prisma, { slug: FLEX, title: AE1_TITLE, lessons: ae1Lessons(FLEX_IDS) });
+  });
+
+  test.afterAll(async () => {
+    if (RECORD && Object.keys(seen).length) {
+      writeFileSync(R2_BASELINE_FILE, `${JSON.stringify(seen, null, 1)}\n`);
+    }
+    const emails = Object.values(FLEX_EMAILS);
+    await prisma.auditLog.deleteMany({ where: { actor: { is: { email: { in: emails } } } } });
+    await prisma.user.deleteMany({ where: { email: { in: emails } } });
+    await removeR2Course(prisma, FLEX);
+  });
+
+  for (const locale of ["en", "de"] as const) {
+    test(`phase 3 — the A-E1 course as a learner, in ${locale === "en" ? "English" : "German"}: every step as recorded`, async ({
+      page,
+      context,
+    }) => {
+      test.setTimeout(120_000);
+      const { sessionToken } = await learner(FLEX_EMAILS[locale]);
+      await useSession(context, sessionToken);
+      await walkFlexible(page, locale, "", learnerSees(page, locale));
+    });
+  }
+
+  test("phase 3 — the editor's preview of the same course shows what the learner saw, in English and German", async ({
+    page,
+    context,
+  }) => {
+    test.setTimeout(180_000);
+    await prisma.user.deleteMany({ where: { email: FLEX_EMAILS.editor } });
+    const editor = await prisma.user.create({
+      data: { email: FLEX_EMAILS.editor, emailVerified: new Date() },
+      select: { id: true },
+    });
+    await prisma.membership.create({ data: { userId: editor.id, projectId: PROJECT, role: "CONTENT_EDITOR" } });
+    const sessionToken = `e2e-r2-walk-editor-${RUN}-${Math.random().toString(36).slice(2)}`;
+    await prisma.session.create({
+      data: { sessionToken, userId: editor.id, expires: new Date(Date.now() + 86_400_000) },
+    });
+    await useSession(context, sessionToken);
+    for (const locale of ["en", "de"] as const) {
+      await walkFlexible(page, locale, "?preview=1", previewSees(page, locale));
     }
   });
 });

@@ -4,17 +4,15 @@ import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import {
   learnerWithSession,
-  narrative,
   ownLessonId,
-  parts,
   removeLearners,
   removeR2Course,
   runId,
   seedR2Course,
   signIn,
-  structures,
   type R2LessonSeed,
 } from "./fixtures/r2-course";
+import { AE1_NAMES, AE1_PARTS, AE1_TITLE, ae1Lessons } from "./fixtures/r2-ae1-course";
 
 /**
  * Release 2, Stream A: the one learner player (D63, spec 5, 10.2 A-E1,
@@ -24,7 +22,8 @@ import {
  * lessons of its own, "context" and "reflection" hidden, the scenario moved before
  * "behaviour", every step named in English and German, extra content of
  * every kind on "concept", a video with an in-video question on a lesson
- * of its own, and documents (one published, one not).
+ * of its own, and documents (one published, one not) — the A-E1 course of
+ * e2e/fixtures/r2-ae1-course.ts, which the recorded walk's phase 3 plays too.
  *
  *   A-E1   it plays as built: its own lessons, its order, the hidden one
  *          left out, the step names in the bar, Back and the counter (en,
@@ -99,147 +98,9 @@ const TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
 
 const WARMUP = ownLessonId();
 const WRAPUP = ownLessonId();
-const P = {
-  hallway: "p-hallway1",
-  text: "p-extratx1",
-  quiz: "p-extraqz1",
-  reflection: "p-ownrefl1",
-  rating: "p-ownrate1",
-  practice: "p-extrapr1",
-  ownPractice: "p-ownprac1",
-};
-
-const HALLWAY = {
-  id: P.hallway,
-  type: "scenario",
-  data: {
-    kind: "scenario",
-    title: { en: "The hallway", de: "Der Flur" },
-    setup: { en: "A colleague talks over you in the hallway." },
-    question: { en: "What do you do first?" },
-    followupQuestion: { en: "They stop. What do you say next?" },
-    choices: [
-      {
-        id: "hall-raise",
-        quality: "best",
-        text: { en: "Raise a hand and say you'd like to finish" },
-        outcome: { en: "They pause and listen." },
-        followups: [
-          { id: "hall-finish", quality: "best", text: { en: "Finish your point briefly" }, outcome: { en: "Your point lands." } },
-          { id: "hall-again", quality: "okay", text: { en: "Start again from the top" }, outcome: { en: "They drift off." } },
-        ],
-      },
-      { id: "hall-walk", quality: "poor", text: { en: "Walk away" }, outcome: { en: "Nothing changes." } },
-    ],
-  },
-  draft: null,
-} as const;
-
-const OWN_PRACTICE = {
-  id: P.ownPractice,
-  type: "practice",
-  data: {
-    kind: "simulation",
-    prompt: { en: "Your lead asks how the week went." },
-    instruction: { en: "Choose what you would say." },
-    options: [
-      { id: "wrap-name", isBest: true, text: { en: "Name one thing that worked and one to change." }, feedback: { en: "Specific and fair." } },
-      { id: "wrap-fine", isBest: false, text: { en: "It was fine." }, feedback: { en: "Nothing to build on." } },
-    ],
-  },
-  draft: null,
-} as const;
-
-const VIDEO = {
-  provider: "file",
-  src: "/demo/sample-lesson.webm",
-  title: "E2E lesson video",
-  captions: [{ src: "/demo/sample-lesson.en.vtt", label: "English", lang: "en", default: true }],
-  cues: [
-    {
-      id: `e2e-cue-${RUN}`,
-      atSeconds: 4,
-      question: "E2E: what helps most?",
-      options: [
-        { id: "early", text: "Speaking early" },
-        { id: "late", text: "Waiting it out" },
-      ],
-      correctOptionId: "early",
-    },
-  ],
-};
-
-const LESSONS: R2LessonSeed[] = [
-  {
-    id: WARMUP,
-    label: { en: "Warm-up", de: "Aufwärmen" },
-    narrative: narrative({
-      en: { title: "Before you start", text: "E2E warm-up text." },
-      de: { title: "Bevor du anfängst", text: "E2E Aufwärmtext." },
-    }),
-    parts: [HALLWAY as never],
-    documents: [
-      { name: "E2E checklist.pdf", url: "https://example.org/e2e-r2-checklist.pdf" },
-      { name: "E2E unpublished.pdf", url: "https://example.org/e2e-r2-draft.pdf", published: false },
-    ],
-  },
-  {
-    id: "context",
-    hidden: true,
-    narrative: narrative({ en: { title: "Hidden", text: "E2E hidden context text." } }),
-  },
-  {
-    id: "concept",
-    label: { en: "The idea", de: "Die Idee" },
-    narrative: narrative({
-      en: { title: "Why speaking up works", text: "E2E concept text." },
-      de: { title: "Warum es wirkt", text: "E2E Konzepttext." },
-    }),
-    parts: [
-      parts.text({ en: "E2E extra text: say it early.", de: "E2E Zusatztext: sag es früh." }, P.text),
-      parts.quiz("E2E: when do you speak up?", P.quiz),
-      parts.reflection([{ en: "E2E: when did you hold back?" }, { en: "E2E: what stopped you?" }], P.reflection),
-      parts.rating([{ en: "E2E: I say when I disagree." }, { en: "E2E: I ask for time to finish." }], P.rating),
-      parts.practice("E2E: you're interrupted a third time.", P.practice),
-    ],
-  },
-  {
-    id: "scenario",
-    label: { en: "Try it", de: "Probier es" },
-    structure: structures.scenario("E2E: your lead cuts you off in a meeting."),
-  },
-  {
-    id: "behaviour",
-    narrative: narrative({
-      en: { title: "What it looks like", text: "E2E behaviour text." },
-      de: { title: "So sieht es aus", text: "E2E Verhaltenstext." },
-    }),
-  },
-  {
-    id: WRAPUP,
-    label: { en: "Wrap-up", de: "Abschluss" },
-    narrative: narrative({
-      en: { title: "Bringing it together", text: "E2E wrap-up text." },
-      de: { title: "Alles zusammen", text: "E2E Abschlusstext." },
-    }),
-    parts: [OWN_PRACTICE as never],
-    video: VIDEO,
-  },
-  // A standard text lesson is always in the list unless deleted: hidden here.
-  { id: "reflection", hidden: true },
-  {
-    id: "assessment",
-    structure: structures.assessment("E2E: what do you say first?"),
-  },
-];
-
-const NAMES = {
-  en: ["Warm-up", "The idea", "Try it", "Behaviour model", "Wrap-up", "Quick check"],
-  de: ["Aufwärmen", "Die Idee", "Probier es", "Verhaltens-Modell", "Abschluss", "Schnellcheck"],
-  // Named in English and German only: the course's own lessons keep their
-  // English names, the standard ones their standard Greek names.
-  el: ["Warm-up", "Έννοια δεξιότητας", "Εφαρμογή", "Μοντέλο συμπεριφοράς", "Wrap-up", "Σύντομος έλεγχος"],
-};
+const P = AE1_PARTS;
+const LESSONS: R2LessonSeed[] = ae1Lessons({ warmup: WARMUP, wrapup: WRAPUP, cueId: `e2e-cue-${RUN}` });
+const NAMES = AE1_NAMES;
 
 // ---------------------------------------------------------------------------
 // The page. Only what's on screen: while the page streams in, the server's
@@ -359,7 +220,7 @@ describe("Release 2 — the learner player", () => {
   test.beforeAll(async () => {
     await seedR2Course(prisma, {
       slug: SLUG,
-      title: { en: "E2E Speak up as built", de: "E2E Sprich es an, wie gebaut" },
+      title: AE1_TITLE,
       lessons: LESSONS,
     });
     for (const [k, email] of Object.entries(EMAILS)) {

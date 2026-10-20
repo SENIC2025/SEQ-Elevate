@@ -13,8 +13,12 @@ import { fileURLToPath } from "node:url";
  *                             recorded again on a later one. Walk phase 1
  *                             compares with it, plus the closed list of
  *                             differences (e2e/fixtures/r2-deltas.ts).
- *
- * The Release 2 baseline (walk phase 3) is added here once it is recorded.
+ *   r2-learner-baseline.json  Release 2's own: what a learner sees of the
+ *                             A-E1 course (e2e/fixtures/r2-ae1-course.ts),
+ *                             step by step in English and German, recorded
+ *                             once at integration (walk phase 3,
+ *                             R2_WALK_RECORD=1). The editor's preview of the
+ *                             same course is held to it too.
  *
  * A failure means a recording changed. Put it back; a recording is never
  * edited by hand.
@@ -27,6 +31,8 @@ const sha256 = (file: string) =>
 const PINNED: Record<string, string> = {
   "e2e/fixtures/r1-learner-baseline.json":
     "de2330466e49e0939e75512202b5f8350b0781a7959bec8868150fd25321176e",
+  "e2e/fixtures/r2-learner-baseline.json":
+    "0620f06912b59c36b6b5be989977dda6e2a4efd367468517c09aeba74c7a8e31",
 };
 
 describe("the learner recordings are pinned", () => {
