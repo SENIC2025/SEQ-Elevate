@@ -147,7 +147,10 @@ async function timeOn(userId: string, slug: string, stage: string, seconds: numb
   });
 }
 
-/** "Your journey" on the learner dashboard: its lines, in order. */
+/**
+ * "Your journey" on the learner dashboard: its lines, in order, as a screen
+ * reader reads them (a finished step ends ", done").
+ */
 const journey = (page: Page) =>
   page
     .locator("section")
@@ -312,8 +315,8 @@ describe("Release 2: dashboards and reports follow the course's lessons", () => 
     await page.goto("/en/learner");
     await expect(hero(page)).toHaveText("E2E Speaking up");
     await expect(journey(page)).toHaveText([
-      "Warm-up",
-      "Your own story",
+      "Warm-up, done",
+      "Your own story, done",
       "Try it at work",
       "Skill concept",
       "and 1 completed lesson no longer in the course",
@@ -324,8 +327,8 @@ describe("Release 2: dashboards and reports follow the course's lessons", () => 
     // In German: the course's German step names, the standard one's German name.
     await page.goto("/de/learner");
     await expect(journey(page)).toHaveText([
-      "Aufwärmen",
-      "Deine Geschichte",
+      "Aufwärmen, erledigt",
+      "Deine Geschichte, erledigt",
       "Probier es aus",
       "Skill-Konzept",
       "und 1 abgeschlossene Lektion, die nicht mehr im Kurs ist",
@@ -433,7 +436,7 @@ describe("Release 2: dashboards and reports follow the course's lessons", () => 
     await page.goto("/en/learner");
     await expect(hero(page)).toHaveText("E2E The course I'm in");
     await expect(page.getByRole("progressbar", { name: "1/3 your journey" })).toBeVisible();
-    await expect(journey(page)).toHaveText(["Context", "Skill concept", "Reflection"]);
+    await expect(journey(page)).toHaveText(["Context, done", "Skill concept", "Reflection"]);
 
     // The learner starts the third course: the hero follows.
     await openCourse(page, SLUGS.heroNext);

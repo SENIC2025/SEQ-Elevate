@@ -66,6 +66,8 @@ export function LearnerDashboard({
   const t = useTranslations("dashboard");
   const tCommon = useTranslations("common");
   const tClusters = useTranslations("skillClusters");
+  // ", done" after a finished step, for screen readers (as the player's step bar).
+  const tPlayer = useTranslations("coursePlayer");
 
   const { state } = useDemoState();
 
@@ -407,9 +409,9 @@ export function LearnerDashboard({
                     return (
                       <li key={stage} className="flex items-center gap-2 text-sm">
                         {done ? (
-                          <CheckCircle2 className="h-4 w-4 text-[var(--success)]" />
+                          <CheckCircle2 className="h-4 w-4 flex-shrink-0 text-[var(--success)]" />
                         ) : (
-                          <span className="h-4 w-4 rounded-full border border-[var(--border)]" />
+                          <span className="h-4 w-4 flex-shrink-0 rounded-full border border-[var(--border)]" />
                         )}
                         <span
                           className={
@@ -419,13 +421,16 @@ export function LearnerDashboard({
                           }
                         >
                           <StageLabel stage={stage} labels={hero?.stageLabels} />
+                          {done ? (
+                            <span className="sr-only">{tPlayer("stepDone")}</span>
+                          ) : null}
                         </span>
                       </li>
                     );
                   })}
                   {notShown > 0 ? (
                     <li className="flex items-center gap-2 text-sm text-[var(--muted-foreground)]">
-                      <CheckCircle2 className="h-4 w-4 text-[var(--success)]" />
+                      <CheckCircle2 className="h-4 w-4 flex-shrink-0 text-[var(--success)]" />
                       <span>{t("lessonsNotShown", { count: notShown })}</span>
                     </li>
                   ) : null}

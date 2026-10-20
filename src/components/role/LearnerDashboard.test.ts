@@ -102,13 +102,23 @@ function bars(html: string) {
   ].map((m) => ({ value: Number(m[1]), label: m[2] }));
 }
 
-/** The journey checklist's items (the last list on the page). */
-function checklist(html: string): string[] {
+/** The journey checklist's items' markup (the last list on the page). */
+function checklistItems(html: string): string[] {
   const lists = [...html.matchAll(/<ul class="mt-3 space-y-1.5">(.*?)<\/ul>/g)];
   const last = lists.at(-1)?.[1] ?? "";
-  return [...last.matchAll(/<li[^>]*>(.*?)<\/li>/g)].map((m) =>
-    m[1].replace(/<[^>]+>/g, "")
+  return [...last.matchAll(/<li[^>]*>(.*?)<\/li>/g)].map((m) => m[1]);
+}
+
+/** The journey checklist's items, as seen (text for screen readers only left out). */
+function checklist(html: string): string[] {
+  return checklistItems(html).map((item) =>
+    item.replace(/<span class="sr-only">.*?<\/span>/g, "").replace(/<[^>]+>/g, "")
   );
+}
+
+/** The journey checklist's items, as a screen reader reads them (icons are hidden). */
+function checklistSpoken(html: string): string[] {
+  return checklistItems(html).map((item) => item.replace(/<svg.*?<\/svg>/g, "").replace(/<[^>]+>/g, ""));
 }
 
 /** The hero's course title (the page's only h2 after "Current mission"). */
@@ -263,6 +273,25 @@ describe("LearnerDashboard, Release 2: a course's own lessons (spec 6, D58, D64)
       "Skill concept",
       "and 1 completed lesson no longer in the course",
     ]);
+  });
+
+  it("tells a screen reader which lessons are done, not only by icon and colour", () => {
+    // Review finding 8: the ticks are hidden from screen readers, so every
+    // step read the same, while the line under them says "completed".
+    const html = render(
+      [FLEXIBLE],
+      [{ slug: FLEXIBLE.slug, stages: ["context", HIDDEN], stagesCompleted: 2, completed: false }]
+    );
+    expect(checklistSpoken(html)).toEqual([
+      "Warm-up, done",
+      "Your own story",
+      "Skill concept",
+      "and 1 completed lesson no longer in the course",
+    ]);
+    // The ticks keep their size when a long step name wraps.
+    for (const item of checklistItems(html)) {
+      expect(item).toMatch(/^<(svg|span)[^>]*class="[^"]*\bflex-shrink-0\b/);
+    }
   });
 
   it("says nothing of lessons no longer shown that the learner never finished", () => {
