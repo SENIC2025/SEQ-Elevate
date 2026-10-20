@@ -35,6 +35,29 @@ function timeColumns(html: string): [string, string][] {
   ].map((m) => [m[2], m[1]]);
 }
 
+/** The "Time per lesson" columns' bar colours, by label. */
+function timeColours(html: string): Map<string, string> {
+  const section = html.slice(html.indexOf("Time per lesson"), html.indexOf("Activity (last 14 days)"));
+  return new Map(
+    [
+      ...section.matchAll(
+        /background:([^;"]*);[^"]*"><\/div><span class="text-\[10px\] text-\[var\(--muted-foreground\)\] text-center leading-tight[^"]*">([^<]*)<\/span>/g
+      ),
+    ].map((m) => [m[2], m[1]])
+  );
+}
+
+/** "Where they get stuck": each insight's [title, body]. */
+function insights(html: string): [string, string][] {
+  const section = html.slice(html.indexOf("Where they get stuck"), html.indexOf("Time per lesson"));
+  return [
+    ...section.matchAll(/<p class="text-sm font-semibold[^"]*">(?:<svg.*?<\/svg>)?([^<]*)<\/p><p[^>]*>([^<]*)<\/p>/g),
+  ].map((m) => [
+    m[1].replace(/<!-- -->/g, ""),
+    m[2].replace(/<!-- -->/g, ""),
+  ]);
+}
+
 /** A learner's "Currently on" cell in the per-learner table. */
 function currentlyOn(html: string, name: string): string | undefined {
   const row = html.slice(html.indexOf(`<div class="font-medium">${name}</div>`));
@@ -91,6 +114,32 @@ describe("AnalyticsDashboard: learners on lessons of their course's own (spec 6)
     const columns = timeColumns(render(withOwnLessons()));
     expect(columns).toHaveLength(8);
     expect(columns.at(-1)).toEqual(["Other lessons", "5m"]);
+  });
+
+  it("names “Other lessons” as taking the longest, and colours its column, when learners spend the most time there", () => {
+    // Review finding: one minute on Context, fifteen in a lesson of the
+    // course's own; the chart's tallest column is "Other lessons".
+    const data = buildSampleAnalytics();
+    const timePerStage = data.timePerStage.map((t, i) => ({ ...t, avgSeconds: i === 0 ? 60 : 0 }));
+    const learners = data.learners.map((l, i) => ({ ...l, secondsOther: i === 0 ? 900 : 0 }));
+    const html = render({ ...data, timePerStage, slowestStageIndex: 0, learners });
+    expect(insights(html)).toContainEqual([
+      "“Other lessons” take the longest",
+      expect.stringContaining("(avg 15m)"),
+    ]);
+    expect(insights(html).map(([title]) => title)).not.toContain("“Context” takes the longest");
+    const colours = timeColours(html);
+    expect(colours.get("Other lessons")).toBe("var(--warning)");
+    expect(colours.get("Context")).toBe("var(--accent)");
+  });
+
+  it("keeps the slowest of the seven steps when it takes longer than the course's own lessons", () => {
+    const html = render(withOwnLessons());
+    const data = withOwnLessons();
+    const slow = data.timePerStage[data.slowestStageIndex];
+    expect(insights(html).map(([title]) => title)).toContain(`“${slow.label}” takes the longest`);
+    expect(timeColours(html).get(slow.label)).toBe("var(--warning)");
+    expect(timeColours(html).get("Other lessons")).toBe("var(--accent)");
   });
 
   it("adds nothing while no learner is on or has spent time in one (and sample data never has)", () => {

@@ -78,7 +78,20 @@ export function AnalyticsDashboard({
 
   const stuckStage =
     data.funnel[data.stuckStageIndex]?.label ?? STAGE_LABELS[0];
-  const slowStage = STAGE_LABELS[data.slowestStageIndex];
+  // The slowest column of the chart, "Other lessons" included: the seven
+  // steps' slowest, unless learners spend longer in their courses' own
+  // lessons.
+  const slowestIndex =
+    timeColumns.length > data.timePerStage.length &&
+    timeColumns[timeColumns.length - 1].avgSeconds >
+      (data.timePerStage[data.slowestStageIndex]?.avgSeconds ?? 0)
+      ? timeColumns.length - 1
+      : data.slowestStageIndex;
+  const slowOther = slowestIndex >= data.timePerStage.length;
+  const slowStage = slowOther
+    ? OTHER_LESSONS
+    : STAGE_LABELS[data.slowestStageIndex];
+  const slowAvg = fmtDuration(timeColumns[slowestIndex]?.avgSeconds ?? 0);
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8">
@@ -227,10 +240,16 @@ export function AnalyticsDashboard({
             <Insight
               icon={Hourglass}
               tone="accent"
-              title={`“${slowStage}” takes the longest`}
-              body={`Learners spend the most time on this lesson (avg ${fmtDuration(
-                data.timePerStage[data.slowestStageIndex].avgSeconds
-              )}) — a sign it's challenging.`}
+              title={
+                slowOther
+                  ? `“${slowStage}” take the longest`
+                  : `“${slowStage}” takes the longest`
+              }
+              body={
+                slowOther
+                  ? `Learners spend the most time in their course's own lessons, outside the seven steps (avg ${slowAvg}). Figures for each of those lessons come later.`
+                  : `Learners spend the most time on this lesson (avg ${slowAvg}) — a sign it's challenging.`
+              }
             />
             <Insight
               icon={AlertTriangle}
@@ -263,7 +282,7 @@ export function AnalyticsDashboard({
                     style={{
                       height: `${(t.avgSeconds / maxTime) * 100}%`,
                       background:
-                        i === data.slowestStageIndex
+                        i === slowestIndex
                           ? "var(--warning)"
                           : "var(--accent)",
                       minHeight: "4px",
