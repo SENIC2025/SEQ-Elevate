@@ -20,6 +20,7 @@ import { ensureProjectRoles } from "@/lib/role-grants";
 import { prisma } from "@/lib/prisma";
 import type { BadgeAwardResult } from "@/lib/badge-award";
 import { getCourse } from "@/lib/cms";
+import { normaliseStatus } from "@/lib/cms/course-status";
 import { ensureCourseBadge } from "@/lib/cms/ensure-course-badge";
 import { isLegacySectionId } from "@/lib/cms/sections/contract";
 import { SLUG } from "@/lib/cms/sections/store.server";
@@ -252,7 +253,22 @@ interface ProgressCourse {
   id: string;
   badgeId: string | null;
   meta: unknown;
+  status: string;
+  publishedAt: Date | null;
 }
+
+/**
+ * May a learner start this course: is it published, or was it once? A
+ * course nobody has ever published is a 404 to learners (and an editor
+ * on a draft only ever previews it), so a save that would enrol someone
+ * in it comes from no page of ours — and an enrolment would freeze the
+ * draft's lessons from the cut-off (live-rules.ts). A course unpublished
+ * after it was published takes new answers as before (D62.f: a learner
+ * mid-session keeps theirs). A built-in course's row is published with no
+ * date (course.ts), so the status counts on its own.
+ */
+const takesLearners = (course: Pick<ProgressCourse, "status" | "publishedAt">) =>
+  normaliseStatus(String(course.status ?? "")) === "published" || course.publishedAt != null;
 
 /** The changed columns as Prisma writes them: an empty JSON column is NULL again. */
 function columnsOf(m: MergeResult): Prisma.CourseEnrollmentUpdateInput {
@@ -304,7 +320,7 @@ async function saveProgress(
   course: ProgressCourse,
   mayComplete: boolean,
   merge: (row: EnrollmentProgress | null) => MergeResult
-): Promise<RefusedKey[]> {
+): Promise<RefusedKey[] | "not-open"> {
   return prisma.$transaction(async (tx) => {
     let badgeId = course.badgeId;
     if (mayComplete && badgeId === null && course.meta !== null) {
@@ -320,6 +336,9 @@ async function saveProgress(
     };
     let row = await lockRow();
     if (!row) {
+      // Nobody is enrolled in a course no learner could ever open; one
+      // already enrolled keeps saving whatever its status (D62.f).
+      if (!takesLearners(course)) return "not-open";
       const fresh = merge(null);
       if (!fresh.changed.length) return fresh.refused;
       await tx.courseEnrollment.createMany({ data: [{ userId, courseId: course.id }], skipDuplicates: true });
@@ -348,9 +367,11 @@ async function saveProgress(
  * connection) is tried again. Values the rules refuse are refused key by
  * key, and the rest is saved.
  *
- * No role check (D53: staff may play courses) and no course-status check
- * (D62.f: a learner whose course was unpublished mid-session must not lose
- * their answers).
+ * No role check (D53: staff may play courses). The course's status
+ * decides only whether someone not yet enrolled may start it: a course
+ * nobody has ever published enrols no one ("unknown-course", as to a
+ * learner it doesn't exist); a learner whose course was unpublished
+ * mid-session keeps saving, enrolled or not (D62.f).
  */
 export async function saveCourseProgressPatch(
   slug: string,
@@ -369,12 +390,14 @@ export async function saveCourseProgressPatch(
 
   const course = await prisma.course.findUnique({
     where: { projectId_slug: { projectId: PROJECT, slug } },
-    select: { id: true, badgeId: true, meta: true },
+    select: { id: true, badgeId: true, meta: true, status: true, publishedAt: true },
   });
   if (!course) return { ok: false, error: "unknown-course" };
   const refused = await saveProgress(user.id, course, p.completedAt !== null, (row) =>
     mergeIntoEnrollment(row, p, now)
   );
+  // A course nobody ever published: to a learner, no course at all.
+  if (refused === "not-open") return { ok: false, error: "unknown-course" };
   return { ok: true, refused };
 }
 
@@ -388,7 +411,8 @@ export async function saveCourseProgressPatch(
  *   - keeps a stored completedAt (a page that hasn't seen the completion
  *     sends null);
  *   - writes the four standard answer columns as it always has;
- *   - never touches Release 2's columns.
+ *   - never touches Release 2's columns;
+ *   - like the new action, enrols no one in a course nobody ever published.
  * A completed course's badge is saved with it (C9).
  */
 export async function saveCourseProgress(

@@ -490,6 +490,61 @@ describe("the save actions' transaction", () => {
     expect(enrolment?.completedAt).toEqual(new Date("2026-10-01T00:00:00.000Z"));
   });
 
+  // Found at integration review (finding 3): neither action looked at the
+  // course's status, so a hand-made call enrolled a learner in a course
+  // nobody had ever published — and from the cut-off, a course with a
+  // learner can't be restructured (live-rules.ts), so the draft froze.
+  describe("a course nobody has published", () => {
+    const DRAFT = { ...ROW, status: "draft", publishedAt: null };
+
+    it("the new action enrols no one in it, and says it doesn't know the course", async () => {
+      course.findUnique.mockResolvedValue(DRAFT);
+      await expect(
+        saveCourseProgressPatch("speaking-up", { v: 2, completed: ["context"] }, "u1")
+      ).resolves.toEqual({ ok: false, error: "unknown-course" });
+      expect(courseEnrollment.createMany).not.toHaveBeenCalled();
+      expect(courseEnrollment.update).not.toHaveBeenCalled();
+      expect(enrolment).toBeNull();
+    });
+
+    it("the old action enrols no one in it either", async () => {
+      course.findUnique.mockResolvedValue({ ...DRAFT, status: "archived" });
+      await saveCourseProgress("speaking-up", OLD_PROGRESS, "u1");
+      expect(courseEnrollment.createMany).not.toHaveBeenCalled();
+      expect(courseEnrollment.update).not.toHaveBeenCalled();
+      expect(enrolment).toBeNull();
+    });
+
+    it("guard: a built-in course's row (published, never stamped with a date) still enrols", async () => {
+      course.findUnique.mockResolvedValue({ ...ROW, meta: null, status: "published", publishedAt: null });
+      await expect(
+        saveCourseProgressPatch("speaking-up", { v: 2, completed: ["context"] }, "u1")
+      ).resolves.toEqual({ ok: true, refused: [] });
+      expect(enrolment).toMatchObject({ stagesCompleted: ["CONTEXT"] });
+    });
+
+    it("guard (D62.f): a course unpublished after it was published still takes a new learner's answers and an enrolled learner's", async () => {
+      const unpublished = { ...ROW, status: "draft", publishedAt: new Date("2026-10-01T00:00:00.000Z") };
+      course.findUnique.mockResolvedValue(unpublished);
+      await expect(
+        saveCourseProgressPatch("speaking-up", { v: 2, completed: ["context"] }, "u1")
+      ).resolves.toEqual({ ok: true, refused: [] });
+      await saveCourseProgress("speaking-up", { ...OLD_PROGRESS, stagesCompleted: ["concept"] }, "u1");
+      expect(enrolment).toMatchObject({ stagesCompleted: ["CONTEXT", "CONCEPT"] });
+    });
+
+    it("guard (D62.f): a learner already enrolled keeps saving, whatever the course's status", async () => {
+      course.findUnique.mockResolvedValue(DRAFT);
+      enrolment = { ...EMPTY_ROW, stagesCompleted: ["CONTEXT"] };
+      await expect(
+        saveCourseProgressPatch("speaking-up", { v: 2, completed: ["concept"] }, "u1")
+      ).resolves.toEqual({ ok: true, refused: [] });
+      await saveCourseProgress("speaking-up", { ...OLD_PROGRESS, stagesCompleted: ["behaviour"] }, "u1");
+      expect(enrolment).toMatchObject({ stagesCompleted: ["CONTEXT", "CONCEPT", "BEHAVIOUR"] });
+      expect(courseEnrollment.createMany).not.toHaveBeenCalled();
+    });
+  });
+
   it("reads again after creating the enrolment, in case another tab made it meanwhile", async () => {
     courseEnrollment.createMany.mockImplementationOnce(async () => {
       // The other tab's row, already holding a lesson.
