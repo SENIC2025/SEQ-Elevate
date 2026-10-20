@@ -55,7 +55,8 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 /**
  * Learners active in the 24 hours up to `now`: the last time their
  * progress changed (lastActiveAt, the "Last active" of their activity
- * panel) is at most a day old. A time a little ahead of `now` counts too.
+ * panel) is at most a day old. A time after `now` (a database clock ahead
+ * of the server's) counts as active too.
  * (This used to count everyone with any progress at all, however long ago,
  * under the same label.)
  */
