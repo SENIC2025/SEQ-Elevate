@@ -700,9 +700,9 @@
     "formerStaff": "Former staff"
   },
   "admin": {
-    "title": "Admin dashboard",
-    "learners": "Learners",
-    "cohorts": "Cohorts",
+    "title": "{scope, select, organisation {{organisation} overview} other {Admin dashboard}}",
+    "learners": "{scope, select, organisation {Learners at your organisation} other {Learners}}",
+    "cohorts": "{scope, select, organisation {Your organisation's cohorts} other {Cohorts}}",
     "organisations": "Organisations",
     "courses": "Published courses",
     "gdpr": "GDPR self-service"

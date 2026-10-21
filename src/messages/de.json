@@ -700,9 +700,9 @@
     "formerStaff": "Ehemaliges Personal"
   },
   "admin": {
-    "title": "Admin-Dashboard",
-    "learners": "Lernende",
-    "cohorts": "Kohorten",
+    "title": "{scope, select, organisation {Übersicht: {organisation}} other {Admin-Dashboard}}",
+    "learners": "{scope, select, organisation {Lernende deiner Organisation} other {Lernende}}",
+    "cohorts": "{scope, select, organisation {Kohorten deiner Organisation} other {Kohorten}}",
     "organisations": "Organisationen",
     "courses": "Veröffentlichte Kurse",
     "gdpr": "DSGVO-Selbstbedienung"

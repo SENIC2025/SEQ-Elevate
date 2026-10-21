@@ -700,9 +700,9 @@
     "formerStaff": "Πρώην προσωπικό"
   },
   "admin": {
-    "title": "Πίνακας διαχειριστή",
-    "learners": "Μαθητές",
-    "cohorts": "Ομάδες",
+    "title": "{scope, select, organisation {Επισκόπηση: {organisation}} other {Πίνακας διαχειριστή}}",
+    "learners": "{scope, select, organisation {Εκπαιδευόμενοι του φορέα σου} other {Μαθητές}}",
+    "cohorts": "{scope, select, organisation {Ομάδες του φορέα σου} other {Ομάδες}}",
     "organisations": "Οργανισμοί",
     "courses": "Δημοσιευμένα μαθήματα",
     "gdpr": "GDPR αυτοεξυπηρέτηση"

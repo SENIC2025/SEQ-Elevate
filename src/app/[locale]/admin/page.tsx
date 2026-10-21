@@ -1,5 +1,5 @@
 import { setRequestLocale } from "next-intl/server";
-import { getAdminCounts } from "@/lib/server-queries";
+import { getAdminCounts, scopeOrganisationName } from "@/lib/server-queries";
 import { getViewer } from "@/lib/scope";
 import { canManagePeople } from "@/lib/permissions";
 import { AdminDashboard } from "@/components/role/AdminDashboard";
@@ -25,6 +25,16 @@ export default async function Page({
       </AccessNotice>
     );
   }
-  const counts = await getAdminCounts(viewer.scope);
-  return <AdminDashboard counts={counts} />;
+  // An ADMIN's counts are the project's; a partner admin's its
+  // organisation's, and the labels name it.
+  const [counts, organisationName] = await Promise.all([
+    getAdminCounts(viewer.scope),
+    viewer.scope.kind === "organisation" ? scopeOrganisationName(viewer.scope) : null,
+  ]);
+  return (
+    <AdminDashboard
+      counts={counts}
+      organisationName={viewer.scope.kind === "organisation" ? (organisationName ?? "your organisation") : null}
+    />
+  );
 }
