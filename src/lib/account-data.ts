@@ -879,6 +879,10 @@ function detailsOf(metadata: unknown, organisations: ReadonlyMap<string, string>
       else if (key === "scope") parts.push(`scope: ${organisation(value)}`);
       else if (key === "to") parts.push(`to: ${organisations.get(value) ?? value}`);
       else if (key === "reason" || key === "version") parts.push(`${key}: ${value}`);
+    } else if (key === "sharing" && typeof value === "boolean") {
+      // A guardian's permission recorded on Manage people: whether it also
+      // covers sharing the Comp Card (spec 5.6).
+      parts.push(value ? "covers sharing the Comp Card" : "doesn't cover sharing the Comp Card");
     } else if (typeof value === "boolean" && value) {
       parts.push(FLAG_WORDS[key] ?? key);
     } else if (value && typeof value === "object" && !Array.isArray(value)) {

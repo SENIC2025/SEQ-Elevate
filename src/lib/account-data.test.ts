@@ -532,4 +532,25 @@ describe("getDataTools", () => {
     ]);
     expect(tools?.log[0]).toMatchObject({ at: "2026-11-30T08:15:00.000Z", action: "account.exported", who: "admin@example.org" });
   });
+
+  it("says in words whether a guardian's permission recorded on Manage people covers sharing the Comp Card", async () => {
+    requireAdminProject.mockResolvedValueOnce(ADMIN);
+    // Manage people (actions/admin.ts) records the permission with
+    // `sharing`: whether it also covers sharing the card (spec 5.6).
+    const recorded = (id: string, sharing: boolean) => ({
+      id,
+      action: "member.guardian_consent_recorded",
+      createdAt: new Date("2026-11-30T08:15:00Z"),
+      metadata: { scope: "org-a", sharing },
+      actor: staffActor,
+    });
+    answers["auditLog.findMany"] = (args: { distinct?: unknown }) =>
+      args.distinct ? [] : [recorded("g1", true), recorded("g2", false)];
+    answers["organisation.findMany"] = [{ id: "org-a", name: "Pro Arbeit" }];
+    const tools = await getDataTools();
+    expect(tools?.log.map((r) => r.details)).toEqual([
+      "scope: Pro Arbeit · covers sharing the Comp Card",
+      "scope: Pro Arbeit · doesn't cover sharing the Comp Card",
+    ]);
+  });
 });

@@ -108,6 +108,7 @@ const ACTION_LABELS: Record<string, string> = {
   "data.cleanup_run": "Clean-up run",
   "person.organisation_changed": "Organisation changed",
   "person.country_changed": "Country changed",
+  "person.name_changed": "Name changed",
   "profile.organisation_released": "Organisation released by the country rule",
   "member.add_refused": "Addition refused on Manage people",
   "member.guardian_consent_recorded": "Guardian's permission recorded",

@@ -1,6 +1,8 @@
 import { describe, it, expect, vi } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import type { LogRow, ReviewKey, ReviewPerson } from "@/lib/account-data";
 
 /*
@@ -101,5 +103,25 @@ describe("the log", () => {
     expect(html).toMatch(/<td[^>]*>Marked as a test account<span[^>]*>account\.test_marked<\/span><\/td>/);
     // An action without a label shows its code.
     expect(html).toMatch(/<td[^>]*>something\.new<\/td>/);
+  });
+
+  it("names in words every action Manage people writes that the log shows", () => {
+    // What the log shows (account-data.ts, LOGGED): every data., account.
+    // and person. action, and two of Manage people's member. actions.
+    const shown = (action: string) =>
+      /^(data|account|person)\./.test(action) ||
+      ["profile.organisation_released", "member.add_refused", "member.guardian_consent_recorded"].includes(action);
+    const source = readFileSync(join(process.cwd(), "src/app/actions/admin.ts"), "utf8");
+    const written = [...new Set([...source.matchAll(/audit\(\s*\w+,\s*[\w.]+,\s*"([a-z_]+\.[a-z_]+)"/g)].map((m) => m[1]))];
+    const logged = written.filter(shown);
+    // The extraction finds what it should (one known action of each kind).
+    expect(logged).toEqual(expect.arrayContaining(["person.country_changed", "member.add_refused"]));
+    const html = render(
+      {},
+      logged.map((action, i) => ({ ...row, id: `m${i}`, action }))
+    );
+    for (const action of logged) {
+      expect(html, action).toMatch(new RegExp(`<td[^>]*>[^<]+<span[^>]*>${action.replace(".", "\\.")}</span></td>`));
+    }
   });
 });
