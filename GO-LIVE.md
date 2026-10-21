@@ -67,11 +67,13 @@ where it is checked and logged.
 
 1. **Demo sign-in off on production** (§2): neither `DEMO_LOGIN_ENABLED` nor
    `DEMO_ACCESS_CODE` is set, and `/en/demo` shows "not found".
-2. **End every demo session.** Sessions are rows in the database, looked up by
-   the cookie: rotating `AUTH_SECRET` does not end them. Demo sessions (their
-   token starts `demo-`) end when the clean-up run deletes every such row,
-   expired or not (§2b). Rotating `AUTH_SECRET` is optional hygiene; it ends no
-   database session.
+2. **End every showcase sign-in session on deploy day.** Sessions are rows in
+   the database, looked up by the cookie: rotating `AUTH_SECRET` does not end
+   them. The sessions of one-click demo sign-in (Admin → Data calls them
+   showcase sign-in sessions; their token starts `demo-`) end when a clean-up
+   run deletes every such row, expired or not. The first run does only that, on
+   deploy day, before anyone marks an account (§2b, step 0). Rotating
+   `AUTH_SECRET` is optional hygiene; it ends no database session.
 3. **Remove demo and test accounts through the platform.** On **Admin → Data**
    (`/admin/data`), mark the demo profiles' accounts and every other test
    account as test accounts (the review lists there find them), then erase them
@@ -96,14 +98,16 @@ runbook is [docs/data-management.md](docs/data-management.md); in short:
 
 | Step | Who | When |
 |---|---|---|
+| 0. **End the showcase sign-in sessions.** A dry run on production must show **0** marked test accounts and **0** course files to delete; then run it with `ERASE 0 TEST ACCOUNTS`. It erases no account and deletes no file: it ends every showcase sign-in session and purges expired sessions and sign-in links. The owner's `r3-check` then counts no `demo-` session. Because it erases nothing, it needs no rehearsal. | SENIC (an ADMIN); the owner runs `r3-check` | Deploy day (Fri 20 Nov), right after the smoke test, **before anyone marks an account** |
 | 1. **Mark** test accounts (one at a time, or ticked on the review lists) | SENIC or DIESIS | During partner QA |
-| 2. **Dry run** on production: counts per table of what a run would delete, the accounts it would leave and why, and the trial courses still live | SENIC, DIESIS watching | After partner QA (Fri 27 Nov) |
+| 2. **Dry run** on production: counts per table of what a run would delete, each account it would erase with its roles (a staff role is pointed out), the accounts it would leave and why, and the trial courses still live | SENIC, DIESIS watching | After partner QA (Fri 27 Nov) |
 | 3. **Rehearsal**: the same run for real on a fresh Neon branch of production, through a preview deployed against that branch (never production's own deployment) | The owner (database steps) and SENIC | The same day |
 | 4. **Run** on production: type `ERASE <n> TEST ACCOUNTS`, with n the number the dry run shows | SENIC, DIESIS watching | Mon 30 Nov, morning |
 
 The run erases the marked test accounts (one transaction each, reference
-`CLEANUP-<run>`), deletes every demo session and every expired session and
-sign-in link, and deletes queued course files that are 7 days old and unused.
+`CLEANUP-<run>`), deletes every showcase sign-in session and every expired
+session and sign-in link, and deletes queued course files that are 7 days old
+and unused.
 It is recorded as `data.cleanup_run` with its counts, and shown in the log on
 the same page. It can be run again; a second run does only what has become due
 since. After the pilot starts it is run monthly (docs/data-management.md).

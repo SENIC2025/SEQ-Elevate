@@ -92,6 +92,10 @@ partner QA, the security review's accounts, the showcase profiles.
   deleted. The account, its roles and its profile stay, so the tester doesn't repeat
   the sign-up screen.
 - **Erase** a marked account at any time; it needs no reference.
+- **Don't mark staff** to keep their course plays out of statistics: statistics already
+  leave out everyone who holds or held a staff role. Mark a staff account only when the
+  whole account is a test: the next run erases it, its roles included. The dry run lists
+  each account it would erase with its roles, and says when one holds a staff role.
 - The review lists on Admin → Data find accounts worth checking: learner data without a
   completed profile; the showcase profiles' addresses; learner data from before
   statistics start; staff who also played courses; accounts changed on People that never
@@ -101,13 +105,15 @@ partner QA, the security review's accounts, the showcase profiles.
 ## 5. The clean-up run
 
 On **Admin → Data → Clean-up**. It erases the marked test accounts (one at a time, each
-recorded with the reference `CLEANUP-<run>`), ends every demo session, deletes expired
-sessions and expired sign-in links, and deletes queued course files (§6).
+recorded with the reference `CLEANUP-<run>`), ends every showcase sign-in session (the
+sessions of one-click demo sign-in, whose token starts `demo-`), deletes expired sessions
+and expired sign-in links, and deletes queued course files (§6).
 
 1. **Mark** the test accounts (§4).
 2. **Dry run.** It changes nothing and shows, per table, what a run would delete now,
-   the marked accounts it would leave and why, and created courses still live that only
-   test accounts or staff took (ask the editors to archive them).
+   each account it would erase with its roles (unmark any staff account that isn't a
+   test), the marked accounts it would leave and why, and created courses still live
+   that only test accounts or staff took (ask the editors to archive them).
 3. **Rehearse** before the first run on the live site: the owner makes a fresh Neon
    branch of production, a preview is deployed against that branch, and the run is done
    there for real. Compare its counts with the live dry run.
@@ -118,8 +124,12 @@ Every run is recorded as `data.cleanup_run` with its counts (never an address) a
 in the log on the same page. An account or a file that couldn't be deleted is listed;
 run again later. A second run does only what has become due since.
 
-**When:** before launch (the go-live run, GO-LIVE.md §2b), then **monthly** during the
-pilot, and after each round of testing.
+**When:** first on **deploy day**, before anyone marks an account: the dry run must show
+0 marked test accounts and 0 course files to delete, and the run (`ERASE 0 TEST
+ACCOUNTS`) then only ends every showcase sign-in session and purges expired sessions and
+links, so it needs no rehearsal (GO-LIVE.md §2b, step 0). Then before launch (the
+go-live run, GO-LIVE.md §2b), **monthly** during the pilot, and after each round of
+testing.
 
 ## 6. Course files
 
@@ -151,6 +161,7 @@ Write them as you would want the learner to read them: factual, about what happe
 The log on Admin → Data shows the last 200 data and account records: exports and
 erasures (by admins and by people themselves), resets and test marks, organisation and
 country changes, refused additions on Manage people, guardian permissions recorded,
-safeguarding saves and clean-up runs; with the date, the action, and who (an admin's
-address, or "the account holder"). No learner's name. DIESIS checks it monthly, and every
+safeguarding saves and clean-up runs; with the date and time in Brussels, the action in
+words (its code beneath, as this guide names it), who (an admin's address, or "the
+account holder") and the details (a reference, a run, counts). No learner's name. DIESIS checks it monthly, and every
 export there has a reference in the register.
