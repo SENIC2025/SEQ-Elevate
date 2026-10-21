@@ -10,17 +10,22 @@ import ts from "typescript";
  *
  *   - reads and writes on the learner models (membership, courseEnrollment,
  *     compCard, compCardEntry, observation, validation, userBadge,
- *     missionProgress, session, user, projectProfile, staffHistory), and
- *     auditLog calls that filter on actorId or entityId;
+ *     missionProgress, session, user, projectProfile, staffHistory);
+ *   - every read of the audit log (it holds everyone's activity, whatever a
+ *     call filters on), and its writes that filter on actorId or entityId;
  *   - a call on ANY model whose include or select names, at any depth, a
  *     relation that leads to people's data (memberships, enrollments,
  *     profiles, user, …), constants of the same file followed; an include
- *     or select the test can't follow counts too;
+ *     or select the test can't follow counts too; so does such a relation
+ *     read by its own method (`….findUnique(…).memberships()`), and a write
+ *     whose data reaches one (`cohort.update({ data: { memberships: … } })`);
  *   - every $queryRaw, $queryRawUnsafe, $executeRaw, $executeRawUnsafe.
  *
  * A call is recognised by its shape, `<any client>.<model>.<method>(…)`,
- * whatever the client is called (prisma, tx, db, …); the model must be one
- * of schema.prisma's.
+ * whatever the client is called (prisma, tx, db, …), the model or the
+ * method also by a string in brackets, or the model kept in a variable
+ * (`const cards = prisma.compCard`, `const { user } = prisma`); the model
+ * must be one of schema.prisma's.
  *
  * Each hit is named `file#function` (the nearest named function around it)
  * and must be on the allow-list below, in one of three groups:
@@ -34,13 +39,20 @@ import ts from "typescript";
  *   own     a person's own data: allowed only when every call is keyed to
  *           the signed-in person (the value requireLearner, getCurrentUser,
  *           requireUser or auth() returns, or a parameter every caller in
- *           the file fills with it); an id taken from the function's
- *           arguments fails;
+ *           the file fills with it), at the top of its where (or in an AND,
+ *           or a compound unique key: never under NOT, OR or a relation's
+ *           filter), or to the id of a row the same function read that way;
+ *           an id taken from the function's arguments fails; so does an
+ *           include or select that goes past the person's own rows (to a
+ *           cohort's members, a course's other learners, a note's author),
+ *           and raw SQL not keyed as `"userId" = ${the person's id}`;
  *   system  counts and system paths, each with its reason.
  *
  * A new hit anywhere fails until someone adds it with a reason, and an
- * entry nothing matches any more fails too. Writes to
- * ProjectProfile.organisationId are allowed only in setPersonOrganisation
+ * entry nothing matches any more fails too. Writes of a person's
+ * organisation (ProjectProfile.organisationId, or its organisation
+ * relation, directly or through a nested write of profiles from a user, a
+ * project or an organisation) are allowed only in setPersonOrganisation
  * (D101). Complements src/app/actions/use-server-exports.test.ts.
  */
 
@@ -94,12 +106,38 @@ const SESSION_IMPORTS: Readonly<Record<string, readonly string[]>> = {
 const LEARNER_TABLES =
   /"(User|Membership|CourseEnrollment|CompCard|CompCardEntry|Observation|Validation|UserBadge|MissionProgress|Session|ProjectProfile|StaffHistory|AuditLog)"/;
 
+const SCHEMA = readFileSync(`${ROOT}prisma/schema.prisma`, "utf8");
+const MODEL_NAMES = [...SCHEMA.matchAll(/^model (\w+) \{/gm)].map((m) => m[1]);
 /** The Prisma models of schema.prisma, as their client delegates are named. */
-const MODELS = new Set(
-  [...readFileSync(`${ROOT}prisma/schema.prisma`, "utf8").matchAll(/^model (\w+) \{/gm)].map(
-    (m) => m[1][0].toLowerCase() + m[1].slice(1)
+const MODELS = new Set(MODEL_NAMES.map((m) => m[0].toLowerCase() + m.slice(1)));
+/** The name of every relation field of every model (a field whose type is a model). */
+const RELATIONS = new Set(
+  [...SCHEMA.matchAll(/^model \w+ \{\n([\s\S]*?)^\}/gm)].flatMap((m) =>
+    m[1].split("\n").flatMap((line) => {
+      const f = /^\s*(\w+)\s+(\w+)/.exec(line.replace(/\/\/.*$/, ""));
+      return f && MODEL_NAMES.includes(f[2]) ? [f[1]] : [];
+    })
   )
 );
+/**
+ * The relations that, from a row of the signed-in person's own, lead only
+ * to rows of the same person: their user row, and its memberships,
+ * enrolments, cards (and a card's entries), profiles, badges, sessions,
+ * accounts, missions, staff history and audit rows. Not the notes: a note
+ * about the person names its author, a note by them its subject. Past any
+ * other relation (a cohort, a course, an organisation, a badge) a learner
+ * relation reaches other people.
+ */
+const OWN_RELATIONS = new Set([
+  "user", "memberships", "enrollments", "compCards", "entries", "profiles", "badges", "sessions", "accounts",
+  "missionProgress", "staffHistory", "auditEvents", "actor",
+]);
+/**
+ * A key of a where under which a person's id still keys the call to them:
+ * AND, or a compound unique key (userId_projectId). Under anything else (NOT,
+ * OR, a relation's filter) it doesn't.
+ */
+const keepsTheKey = (key: string) => key === "AND" || /^[a-z]\w*_\w+$/i.test(key);
 
 type Kind = "read" | "write" | "raw" | "relation" | "audit" | "unresolved" | "organisation-write";
 
@@ -111,6 +149,10 @@ interface Hit {
   call: ts.CallExpression | ts.TaggedTemplateExpression;
   model: string | null;
   method: string;
+  /** What the call loads: each relation's path from the call's model. */
+  loads?: Loads;
+  /** For a relation read by its own method, the model call it is made on. */
+  on?: ts.CallExpression;
 }
 
 type FunctionNode =
@@ -251,9 +293,19 @@ function objectsOf(e: ts.Expression, seen = new Set<ts.Node>()): ts.ObjectLitera
   return null;
 }
 
-/** Every property name under an include or select of `arg`, and whether all of it could be followed. */
-function loadedRelations(arg: ts.Expression): { names: Set<string>; followed: boolean } {
+interface Loads {
+  /** Every property name under an include or select, at any depth. */
+  names: Set<string>;
+  /** Each relation loaded, as its path of relation names from the call's model. */
+  paths: string[][];
+  /** False when some include or select couldn't be followed. */
+  followed: boolean;
+}
+
+/** What a call's argument `arg` loads through its include or select (constants of the file followed). */
+function loadedRelations(arg: ts.Expression): Loads {
   const names = new Set<string>();
+  const paths: string[][] = [];
   let followed = true;
   const walk = (e: ts.Expression, under: boolean) => {
     const objs = objectsOf(e);
@@ -285,7 +337,58 @@ function loadedRelations(arg: ts.Expression): { names: Set<string>; followed: bo
     }
   };
   walk(arg, false);
-  return { names, followed };
+
+  // The same, as paths: a call's (or a relation's) arguments hold an include
+  // or a select, whose keys are relations (or fields) loaded at that depth.
+  const selection = (e: ts.Expression, path: string[]) => {
+    for (const o of objectsOf(e) ?? []) {
+      for (const p of o.properties) {
+        if (ts.isSpreadAssignment(p)) {
+          selection(p.expression, path);
+          continue;
+        }
+        const key = p.name?.getText().replace(/^["']|["']$/g, "");
+        if (!key) continue;
+        const at = [...path, key];
+        if (RELATIONS.has(key) || key === "_count") paths.push(at);
+        if (ts.isPropertyAssignment(p)) argumentsOf(p.initializer, at);
+      }
+    }
+  };
+  const argumentsOf = (e: ts.Expression, path: string[]) => {
+    for (const o of objectsOf(e) ?? []) {
+      for (const p of o.properties) {
+        if (ts.isSpreadAssignment(p)) {
+          argumentsOf(p.expression, path);
+          continue;
+        }
+        const key = p.name?.getText().replace(/^["']|["']$/g, "");
+        if (key !== "include" && key !== "select") continue;
+        if (ts.isPropertyAssignment(p)) selection(p.initializer, path);
+        else if (ts.isShorthandPropertyAssignment(p)) selection(p.name, path);
+      }
+    }
+  };
+  argumentsOf(arg, []);
+  return { names, paths, followed };
+}
+
+/**
+ * The relations past the signed-in person's own rows among `paths` (the
+ * names on each such path, in order, once): a learner relation that isn't
+ * one of the person's own, or that is reached through one that isn't.
+ */
+function beyondOwnRows(paths: string[][]): string[] {
+  const out: string[] = [];
+  for (const path of paths) {
+    let last = -1;
+    path.forEach((name, i) => {
+      if (!LEARNER_RELATIONS.has(name)) return;
+      if (!OWN_RELATIONS.has(name) || path.slice(0, i).some((n) => !OWN_RELATIONS.has(n))) last = i;
+    });
+    for (const name of path.slice(0, last + 1)) if (!out.includes(name)) out.push(name);
+  }
+  return out;
 }
 
 type Found = { key: string; value: ts.Expression }[] & { unfollowed?: boolean };
@@ -344,11 +447,160 @@ function argumentProperty(call: ts.CallExpression, key: string): ts.Expression |
   return null;
 }
 
+type Keyed = { key: string; value: ts.Expression; under: string | null }[] & { unfollowed?: boolean };
+
+/**
+ * Every property of the filter `where` whose name is in `keys`, at any
+ * depth (constants of the file followed), each with the first key around it
+ * under which it no longer keys the call (NOT, OR, a relation's filter; see
+ * keepsTheKey), or null. `unfollowed` as propertiesNamed's.
+ */
+function keysInFilter(where: ts.Expression, keys: ReadonlySet<string>): Keyed {
+  const out = [] as Keyed;
+  const seen = new Set<ts.Node>();
+  const visit = (e: ts.Expression, under: string | null, mustFollow: boolean) => {
+    const u = unwrap(e);
+    if (ts.isArrayLiteralExpression(u)) {
+      for (const el of u.elements) visit(el, under, mustFollow);
+      return;
+    }
+    const objs = objectsOf(e);
+    if (!objs) {
+      if (mustFollow) out.unfollowed = true;
+      return;
+    }
+    for (const o of objs) {
+      if (seen.has(o)) continue;
+      seen.add(o);
+      for (const p of o.properties) {
+        if (ts.isSpreadAssignment(p)) visit(p.expression, under, true);
+        else if (ts.isPropertyAssignment(p)) {
+          const key = p.name.getText().replace(/^["']|["']$/g, "");
+          if (keys.has(key)) out.push({ key, value: p.initializer, under });
+          visit(p.initializer, under ?? (keepsTheKey(key) ? null : key), false);
+        } else if (ts.isShorthandPropertyAssignment(p) && keys.has(p.name.text)) {
+          out.push({ key: p.name.text, value: p.name, under });
+        }
+      }
+    }
+  };
+  visit(where, null, true);
+  return out;
+}
+
+/** The model a variable holds: `const cards = prisma.compCard`, or `const { compCard } = prisma`. */
+function aliasedModel(id: ts.Identifier): string | null {
+  const d = declarationOf(id.text, id);
+  if (!d || !ts.isVariableDeclaration(d) || !d.initializer) return null;
+  if (ts.isObjectBindingPattern(d.name)) {
+    const el = d.name.elements.find((e) => e.name.getText() === id.text);
+    const key = el ? (el.propertyName ?? el.name).getText().replace(/^["']|["']$/g, "") : null;
+    return key && MODELS.has(key) ? key : null;
+  }
+  const init = unwrap(d.initializer);
+  if (ts.isPropertyAccessExpression(init)) return MODELS.has(init.name.text) ? init.name.text : null;
+  if (ts.isElementAccessExpression(init) && ts.isStringLiteralLike(init.argumentExpression)) {
+    return MODELS.has(init.argumentExpression.text) ? init.argumentExpression.text : null;
+  }
+  return null;
+}
+
+/**
+ * The model an expression is the client delegate of: `client.model`,
+ * `client["model"]`, a variable holding one, or "dynamic" for
+ * `client[expr]`. A name of a learner model whose declaration says nothing
+ * (a parameter) counts as that model.
+ */
+function modelOf(target: ts.Expression): string | null | "dynamic" {
+  const t = unwrap(target);
+  if (ts.isPropertyAccessExpression(t)) return MODELS.has(t.name.text) ? t.name.text : null;
+  if (ts.isElementAccessExpression(t)) {
+    const k = t.argumentExpression;
+    if (ts.isStringLiteralLike(k)) return MODELS.has(k.text) ? k.text : null;
+    return "dynamic";
+  }
+  if (ts.isIdentifier(t)) return aliasedModel(t) ?? (LEARNER_MODELS.has(t.text) ? t.text : null);
+  return null;
+}
+
+/** The method a call names, `x.m(…)` or `x["m"](…)` ("dynamic" for `x[expr](…)`), and what it is called on. */
+function methodOf(call: ts.CallExpression): { method: string; target: ts.Expression } | null {
+  const callee = call.expression;
+  if (ts.isPropertyAccessExpression(callee)) return { method: callee.name.text, target: callee.expression };
+  if (ts.isElementAccessExpression(callee)) {
+    const k = callee.argumentExpression;
+    return { method: ts.isStringLiteralLike(k) ? k.text : "dynamic", target: callee.expression };
+  }
+  return null;
+}
+
+/** The model and method of a database call on a model (`<client>.<model>.<read or write>(…)`), or null. */
+function modelCallOf(call: ts.CallExpression): { model: string; method: string } | null {
+  const m = methodOf(call);
+  if (!m || !(READS.has(m.method) || WRITES.has(m.method))) return null;
+  const model = modelOf(m.target);
+  return model && model !== "dynamic" ? { model, method: m.method } : null;
+}
+
+/** The written data of a write call: its data, create and update. */
+const writtenData = (call: ts.CallExpression) =>
+  ["data", "create", "update"].flatMap((k) => {
+    const v = argumentProperty(call, k);
+    return v ? [v] : [];
+  });
+
+/** Models whose writes can reach a person's profile through their `profiles` relation. */
+const HOLDS_PROFILES = new Set(["user", "project", "organisation"]);
+
+/**
+ * What a write sets of a person's organisation (D101), or null: on a
+ * profile, its organisationId or organisation relation; through a nested
+ * write of profiles from a user or a project, those; from an organisation,
+ * any nested write of its profiles (connecting one moves a person). Data the
+ * test can't see fails closed.
+ */
+function organisationWritten(model: string, call: ts.CallExpression): string | null {
+  const ORGANISATION = new Set(["organisationId", "organisation"]);
+  for (const data of writtenData(call)) {
+    if (model === "projectProfile") {
+      const found = propertiesNamed(data, ORGANISATION);
+      if (found.unfollowed) return "organisationId";
+      if (found.length) return found[0].key;
+    }
+    if (!HOLDS_PROFILES.has(model)) continue;
+    // The relation is a key of the data itself (spreads followed).
+    const top = topLevelProperties(data);
+    if (!top) return "data the test can't follow";
+    const profiles = top.get("profiles");
+    if (!profiles) continue;
+    if (model === "organisation") return "profiles";
+    const inner = propertiesNamed(profiles, ORGANISATION);
+    if (inner.unfollowed || inner.length) return "profiles' organisation";
+  }
+  return null;
+}
+
+/** The properties of an object (its spreads followed), or null when some part can't be followed. */
+function topLevelProperties(e: ts.Expression, out = new Map<string, ts.Expression>()): Map<string, ts.Expression> | null {
+  const objs = objectsOf(e);
+  if (!objs) return null;
+  for (const o of objs) {
+    for (const p of o.properties) {
+      if (ts.isSpreadAssignment(p)) {
+        if (!topLevelProperties(p.expression, out)) return null;
+      } else if (ts.isPropertyAssignment(p)) out.set(p.name.getText().replace(/^["']|["']$/g, ""), p.initializer);
+      else if (ts.isShorthandPropertyAssignment(p)) out.set(p.name.text, p.name);
+    }
+  }
+  return out;
+}
+
 function scanSource(file: string, text: string): { hits: Hit[]; sf: ts.SourceFile } {
   const sf = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, file.endsWith("x") ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
   const hits: Hit[] = [];
-  const add = (call: Hit["call"], kind: Kind, model: string | null, method: string, what: string) =>
-    hits.push({ file, fn: nameOf(call), kind, what, call, model, method });
+  const add = (call: Hit["call"], kind: Kind, model: string | null, method: string, what: string, extra: Partial<Hit> = {}) =>
+    hits.push({ file, fn: nameOf(call), kind, what, call, model, method, ...extra });
+  const NO_LOADS: Loads = { names: new Set(), paths: [], followed: true };
 
   const visit = (node: ts.Node) => {
     if (ts.isTaggedTemplateExpression(node) && ts.isPropertyAccessExpression(node.tag) && RAW.has(node.tag.name.text)) {
@@ -357,44 +609,44 @@ function scanSource(file: string, text: string): { hits: Hit[]; sf: ts.SourceFil
         add(node, "organisation-write", "projectProfile", node.tag.name.text, `raw SQL writes ProjectProfile.organisationId`);
       }
     }
-    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
-      const method = node.expression.name.text;
-      const target = node.expression.expression;
-      // The model a call is on: `client.model`, `client["model"]`, or a
-      // delegate taken out of the client (`const { compCard } = prisma`).
-      const modelOf = (t: ts.Expression): string | null | "dynamic" => {
-        if (ts.isPropertyAccessExpression(t)) return MODELS.has(t.name.text) ? t.name.text : null;
-        if (ts.isElementAccessExpression(t)) {
-          const k = t.argumentExpression;
-          if (ts.isStringLiteralLike(k)) return MODELS.has(k.text) ? k.text : null;
-          return "dynamic";
-        }
-        if (ts.isIdentifier(t)) return LEARNER_MODELS.has(t.text) ? t.text : null;
-        return null;
-      };
-      const found = READS.has(method) || WRITES.has(method) ? modelOf(target) : null;
+    const called = ts.isCallExpression(node) ? methodOf(node) : null;
+    if (ts.isCallExpression(node) && called) {
+      const { method, target } = called;
+      const onModel = modelOf(target);
+      const fluent = ts.isCallExpression(unwrap(target)) ? modelCallOf(unwrap(target) as ts.CallExpression) : null;
+      const found = READS.has(method) || WRITES.has(method) ? onModel : null;
       if (RAW.has(method)) add(node, "raw", null, method, method);
       else if (found === "dynamic") add(node, "unresolved", null, method, `<a model chosen at run time>.${method}`);
-      else if (found) {
+      else if (method === "dynamic" && onModel && onModel !== "dynamic") {
+        add(node, "unresolved", onModel, method, `${onModel}.<a method chosen at run time>`);
+      } else if (fluent && LEARNER_RELATIONS.has(method)) {
+        // A relation read by its own method: prisma.cohort.findUnique(…).memberships(…).
+        const arg = node.arguments[0];
+        const own = arg ? loadedRelations(arg) : NO_LOADS;
+        const loads = { ...own, paths: [[method], ...own.paths.map((p) => [method, ...p])] };
+        const deeper = [...own.names].filter((n) => LEARNER_RELATIONS.has(n));
+        const what = `${fluent.model}.${fluent.method}().${method}${deeper.length ? ` loads ${deeper.join(", ")}` : ""}`;
+        add(node, "relation", fluent.model, method, what, { loads, on: unwrap(target) as ts.CallExpression });
+      } else if (found) {
         const model = found;
         const arg = node.arguments[0];
-        const loads = arg ? loadedRelations(arg) : { names: new Set<string>(), followed: true };
+        const loads = arg ? loadedRelations(arg) : NO_LOADS;
         const relations = [...loads.names].filter((n) => LEARNER_RELATIONS.has(n));
-        if (model === "projectProfile" && WRITES.has(method)) {
-          // Fails closed: data the test can't see may hold the organisation.
-          const written = ["data", "create", "update"].some((k) => {
-            const v = argumentProperty(node, k);
-            const found = v ? propertiesNamed(v, new Set(["organisationId"])) : null;
-            return !!found && (found.length > 0 || !!found.unfollowed);
-          });
-          if (written) add(node, "organisation-write", model, method, `${model}.${method} writes organisationId`);
-        }
-        if (LEARNER_MODELS.has(model)) add(node, READS.has(method) ? "read" : "write", model, method, `${model}.${method}`);
+        const organisation = WRITES.has(method) ? organisationWritten(model, node) : null;
+        if (organisation) add(node, "organisation-write", model, method, `${model}.${method} writes ${organisation}`);
+        // A write whose data reaches people's rows through a relation.
+        const reached = WRITES.has(method)
+          ? [...new Set(writtenData(node).flatMap((d) => propertiesNamed(d, LEARNER_RELATIONS).map((f) => f.key)))]
+          : [];
+        if (LEARNER_MODELS.has(model)) add(node, READS.has(method) ? "read" : "write", model, method, `${model}.${method}`, { loads });
         else if (relations.length) add(node, "relation", model, method, `${model}.${method} loads ${relations.join(", ")}`);
         else if (!loads.followed) add(node, "unresolved", model, method, `${model}.${method} (an include or select the test can't follow)`);
+        else if (reached.length) add(node, "write", model, method, `${model}.${method} writes ${reached.join(", ")}`);
         else if (model === "auditLog") {
+          // Every read: the log holds everyone's activity, whatever the call filters on.
           const where = argumentProperty(node, "where");
-          if (where && propertiesNamed(where, new Set(["actorId", "entityId"])).length) {
+          if (READS.has(method)) add(node, "audit", model, method, `auditLog.${method}`);
+          else if (where && propertiesNamed(where, new Set(["actorId", "entityId"])).length) {
             add(node, "audit", model, method, `auditLog.${method} by actorId or entityId`);
           }
         }
@@ -578,40 +830,86 @@ class FileFacts {
     return ok;
   }
 
-  /** Is `e` the id of a row this function read (`row.id` of `const row = await …`)? */
-  isRowId(e: ts.Expression): boolean {
+  /**
+   * Is `e` the id of a row this function read as the person's own: `row.id`
+   * of `const row = await <a call on a learner model>` in the same function,
+   * where that call itself keeps the own-data rule?
+   */
+  isOwnRowId(e: ts.Expression, depth = 0): boolean {
     const u = unwrap(e);
-    if (!ts.isPropertyAccessExpression(u) || u.name.text !== "id") return false;
+    if (depth > 4 || !ts.isPropertyAccessExpression(u) || u.name.text !== "id") return false;
     const obj = unwrap(u.expression);
     if (!ts.isIdentifier(obj)) return false;
     const d = declarationOf(obj.text, obj);
-    return !!d && ts.isVariableDeclaration(d) && !!d.initializer && ts.isAwaitExpression(d.initializer);
+    if (!d || !ts.isVariableDeclaration(d) || !d.initializer || !ts.isAwaitExpression(d.initializer)) return false;
+    if (namedFunctionOf(d) !== namedFunctionOf(e)) return false;
+    const read = unwrap(d.initializer);
+    const call = ts.isCallExpression(read) ? modelCallOf(read) : null;
+    if (!call || !LEARNER_MODELS.has(call.model)) return false;
+    const r = read as ts.CallExpression;
+    const hit: Hit = {
+      file: "",
+      fn: "",
+      kind: READS.has(call.method) ? "read" : "write",
+      what: "",
+      call: r,
+      model: call.model,
+      method: call.method,
+      loads: r.arguments[0] ? loadedRelations(r.arguments[0]) : undefined,
+    };
+    return ownDataProblem(hit, this, depth + 1) === null;
   }
 }
 
+/** Raw SQL's text with each value's place shown as `$n`, and the values. */
+function rawParts(template: ts.TemplateLiteral): { before: string[]; values: ts.Expression[]; text: string } {
+  if (!ts.isTemplateExpression(template)) return { before: [], values: [], text: template.text };
+  const before = [template.head.text, ...template.templateSpans.slice(0, -1).map((s) => s.literal.text)];
+  const values = template.templateSpans.map((s) => s.expression);
+  const text = [template.head.text, ...template.templateSpans.map((s) => s.literal.text)].join(" $ ");
+  return { before, values, text };
+}
+
+type Problem = { loads?: string; why: string } | null;
+
 /** Is an own-data call keyed to the signed-in person (spec 3.6 group 2)? Null when it is; else why not. */
-function ownDataProblem(hit: Hit, facts: FileFacts): string | null {
+function ownDataProblem(hit: Hit, facts: FileFacts, depth = 0): Problem {
   if (hit.kind === "raw") {
     const call = hit.call;
     const template = ts.isTaggedTemplateExpression(call) ? call.template : null;
-    if (!template) return "raw SQL by string in an own-data function";
-    if (!LEARNER_TABLES.test(template.getText())) return null;
-    const values = ts.isTemplateExpression(template) ? template.templateSpans.map((s) => s.expression) : [];
-    return values.some((v) => facts.isSessionId(v)) ? null : "raw SQL on people's data not keyed to the signed-in person";
+    if (!template) return { why: "raw SQL by string in an own-data function" };
+    const { before, values, text } = rawParts(template);
+    if (!LEARNER_TABLES.test(text)) return null;
+    // Keyed only as "userId" = ${the person's id}, with nothing that widens it.
+    const keyedHere = (i: number) =>
+      facts.isSessionId(values[i]) &&
+      (/"(userId|actorId)"\s*=\s*$/.test(before[i]) || (/"User"/.test(text) && /"id"\s*=\s*$/.test(before[i])));
+    const widens = /<>|!=|\b(NOT|OR|UNION|EXCEPT|INTERSECT)\b/i.test(text);
+    return !widens && values.some((_, i) => keyedHere(i))
+      ? null
+      : { why: "raw SQL on people's data not keyed to the signed-in person" };
   }
-  const call = hit.call as ts.CallExpression;
-  const keyed = CREATES.has(hit.method) ? argumentProperty(call, "data") : argumentProperty(call, "where");
-  if (!keyed) return "no where (or data) to key it to the signed-in person";
+  const call = hit.on ?? (hit.call as ts.CallExpression);
+  const method = hit.on ? (modelCallOf(hit.on)?.method ?? hit.method) : hit.method;
+  const keyed = CREATES.has(method) ? argumentProperty(call, "data") : argumentProperty(call, "where");
+  if (!keyed) return { why: "no where (or data) to key it to the signed-in person" };
   const personKeys = new Set(["userId", "actorId", ...(hit.model === "user" ? ["id"] : [])]);
-  const keys = propertiesNamed(keyed, personKeys);
-  if (keys.unfollowed) return "keyed by something the test can't follow";
+  const keys = keysInFilter(keyed, personKeys);
+  if (keys.unfollowed) return { why: "keyed by something the test can't follow" };
   if (!keys.length) {
-    const ids = propertiesNamed(keyed, new Set(["id"]));
-    if (hit.model !== "user" && ids.length && ids.every((k) => facts.isRowId(k.value))) return null;
-    return "not keyed to a person";
+    const ids = keysInFilter(keyed, new Set(["id"]));
+    const ownRow = hit.model !== "user" && ids.length > 0 && ids.every((k) => k.under === null && facts.isOwnRowId(k.value, depth));
+    if (!ownRow) return { why: "not keyed to a person" };
   }
+  const nested = keys.find((k) => k.under !== null);
+  if (nested) return { why: `${nested.key} sits under ${nested.under}` };
   const stray = keys.find((k) => !facts.isSessionId(k.value));
-  return stray ? `${stray.key} isn't the signed-in person's id: ${stray.value.getText()}` : null;
+  if (stray) return { why: `${stray.key} isn't the signed-in person's id: ${stray.value.getText()}` };
+  // What it loads stays with the person's own rows.
+  if (hit.loads && !hit.loads.followed) return { why: "loads an include or select the test can't follow" };
+  const beyond = beyondOwnRows(hit.loads?.paths ?? []);
+  if (beyond.length) return { loads: beyond.join(", "), why: "beyond the signed-in person's own rows" };
+  return null;
 }
 
 /** Every reason the sources break the rule (none: they keep it). */
@@ -641,7 +939,7 @@ function judge(sources: ReadonlyMap<string, string>, allow: AllowList): { failur
         if (!fn || !facts.isGuarded(fn)) failures.push(`${where} — a staff function that doesn't ask @/lib/scope`);
       } else if (entry.group === "own") {
         const problem = ownDataProblem(hit, facts);
-        if (problem) failures.push(`${where} — ${problem}`);
+        if (problem) failures.push(`${id}: ${hit.what}${problem.loads ? ` loads ${problem.loads}` : ""} — ${problem.why}`);
       }
     }
   }
@@ -905,6 +1203,218 @@ describe("the scope guard refuses (FD-U15 meta-test)", () => {
     );
     expect(failures).toEqual([
       "src/lib/server-queries.ts#everyCard: compCard.findMany — a staff function that doesn't ask @/lib/scope",
+    ]);
+  });
+
+  /** The sources with `code` put right after `anchor` in the real `file`. */
+  const failuresInjected = (file: string, anchor: string, code: string, allow: AllowList = ALLOW) => {
+    const text = SOURCES.get(file);
+    if (!text?.includes(anchor)) throw new Error(`anchor missing in ${file}`);
+    const sources = new Map(SOURCES);
+    sources.set(file, text.replace(anchor, `${anchor}\n${code}\n`));
+    return judge(sources, allow).failures;
+  };
+  const LEARNER = "src/app/actions/learner.ts";
+  const IN_LOAD_GLOBAL = "export async function loadLearnerGlobal() {\n  const user = await requireLearner();";
+
+  it("an own-data call that loads other people through its include", () => {
+    expect(
+      failuresInjected(
+        LEARNER,
+        IN_LOAD_GLOBAL,
+        `await prisma.membership.findMany({ where: { userId: user.id }, include: { cohort: { include: { memberships: { include: { user: true } } } } } });`
+      )
+    ).toEqual([
+      "src/app/actions/learner.ts#loadLearnerGlobal: membership.findMany loads cohort, memberships, user — beyond the signed-in person's own rows",
+    ]);
+    expect(
+      failuresInjected(
+        LEARNER,
+        IN_LOAD_GLOBAL,
+        `await prisma.courseEnrollment.findMany({ where: { userId: user.id }, select: { course: { select: { enrollments: { select: { user: true, responses: true } } } } } });`
+      )
+    ).toEqual([
+      "src/app/actions/learner.ts#loadLearnerGlobal: courseEnrollment.findMany loads course, enrollments, user — beyond the signed-in person's own rows",
+    ]);
+    // A note about the learner names its author: another person.
+    expect(
+      failuresInjected(
+        LEARNER,
+        IN_LOAD_GLOBAL,
+        `await prisma.user.findUnique({ where: { id: user.id }, include: { observedNotes: { include: { observer: true } } } });`
+      )
+    ).toEqual([
+      "src/app/actions/learner.ts#loadLearnerGlobal: user.findUnique loads observedNotes, observer — beyond the signed-in person's own rows",
+    ]);
+  });
+
+  it("an own-data call whose include it can't follow", () => {
+    expect(
+      failuresInjected(
+        LEARNER,
+        IN_LOAD_GLOBAL,
+        `await prisma.membership.findMany({ where: { userId: user.id }, include: SOMETHING_ELSEWHERE });`
+      )
+    ).toEqual([
+      "src/app/actions/learner.ts#loadLearnerGlobal: membership.findMany — loads an include or select the test can't follow",
+    ]);
+  });
+
+  it("and an own-data call that loads the person's own rows and course content passes", () => {
+    expect(
+      failuresInjected(
+        LEARNER,
+        IN_LOAD_GLOBAL,
+        `await prisma.membership.findMany({ where: { userId: user.id }, include: { cohort: true, user: { include: { compCards: { include: { entries: true } }, badges: { include: { badge: true } } } } } });
+         await prisma.courseEnrollment.findMany({ where: { userId: user.id }, select: { course: { select: { slug: true } }, completedAt: true } });`
+      )
+    ).toEqual([]);
+  });
+
+  it("an own-data where that mentions the person but doesn't keep to them", () => {
+    const cases: [string, string][] = [
+      [`await prisma.compCard.findMany({ where: { NOT: { userId: user.id } } });`, "compCard.findMany — userId sits under NOT"],
+      [
+        `await prisma.courseEnrollment.findMany({ where: { OR: [{ userId: user.id }, { course: { projectId: PROJECT } }] } });`,
+        "courseEnrollment.findMany — userId sits under OR",
+      ],
+      [
+        `await prisma.compCard.findMany({ where: { project: { memberships: { some: { userId: user.id } } } } });`,
+        "compCard.findMany — userId sits under project",
+      ],
+      [
+        'await prisma.$queryRaw`SELECT * FROM "CompCard" WHERE "userId" <> ${user.id}`;',
+        "$queryRaw — raw SQL on people's data not keyed to the signed-in person",
+      ],
+      [
+        'await prisma.$queryRaw`SELECT * FROM "CompCard" WHERE "userId" = ${user.id} OR true`;',
+        "$queryRaw — raw SQL on people's data not keyed to the signed-in person",
+      ],
+    ];
+    for (const [code, failure] of cases) {
+      expect(failuresInjected(LEARNER, IN_LOAD_GLOBAL, code), code).toEqual([
+        `src/app/actions/learner.ts#loadLearnerGlobal: ${failure}`,
+      ]);
+    }
+  });
+
+  it("an own-data write keyed to a row's id the function didn't read as its own", () => {
+    const failures = failuresWith(
+      LEARNER,
+      `export async function wipeCard(forUser: string) {
+         await requireLearner();
+         const card = await Promise.resolve({ id: forUser });
+         return prisma.compCard.update({ where: { id: card.id }, data: { wentWell: "" } });
+       }
+       export async function wipeOtherCard(forUser: string) {
+         await requireLearner();
+         const card = await prisma.compCard.findFirst({ where: { userId: forUser } });
+         return prisma.compCard.update({ where: { id: card!.id }, data: { wentWell: "" } });
+       }`,
+      { ...ALLOW, [`${LEARNER}#wipeCard`]: own("a test entry"), [`${LEARNER}#wipeOtherCard`]: own("a test entry") }
+    );
+    expect(failures).toEqual([
+      "src/app/actions/learner.ts#wipeCard: compCard.update — not keyed to a person",
+      "src/app/actions/learner.ts#wipeOtherCard: compCard.findFirst — userId isn't the signed-in person's id: forUser",
+      "src/app/actions/learner.ts#wipeOtherCard: compCard.update — not keyed to a person",
+    ]);
+  });
+
+  it("and an own-data write keyed to the id of the person's own row passes", () => {
+    const failures = failuresWith(
+      LEARNER,
+      `export async function clearOwnCard() {
+         const user = await requireLearner();
+         const card = await prisma.compCard.findUnique({ where: { userId_projectId: { userId: user.id, projectId: PROJECT } } });
+         if (card) await prisma.compCard.update({ where: { id: card.id }, data: { wentWell: "" } });
+       }`,
+      { ...ALLOW, [`${LEARNER}#clearOwnCard`]: own("a test entry") }
+    );
+    expect(failures).toEqual([]);
+  });
+
+  it("every read of the audit log, whatever it filters on", () => {
+    const failures = failuresWith(
+      "src/lib/new-activity.ts",
+      `import { prisma } from "@/lib/prisma";
+       export async function everyonesTime(projectId: string) {
+         return prisma.auditLog.findMany({ where: { projectId, action: { in: ["stage.time", "video.cue_answered"] } }, select: { actorId: true, metadata: true } });
+       }
+       export async function grouped(projectId: string) {
+         return prisma.auditLog.groupBy({ by: ["actorId"], where: { projectId }, _count: true });
+       }`
+    );
+    expect(failures).toEqual([
+      "src/lib/new-activity.ts#everyonesTime: auditLog.findMany — not on the allow-list",
+      "src/lib/new-activity.ts#grouped: auditLog.groupBy — not on the allow-list",
+    ]);
+  });
+
+  it("a person's organisation written through a relation, even on the list", () => {
+    const D101 = "only setPersonOrganisation writes a person's organisation (D101)";
+    // In a function already on the list (demo sign-in).
+    expect(
+      failuresInjected(
+        "src/app/actions/demo.ts",
+        `    const learner = roles.every((r) => r === "LEARNER");`,
+        `    await tx.projectProfile.update({ where, data: { organisation: { connect: { id: "seq-elevate-synthesis" } } } });`
+      )
+    ).toEqual([`src/app/actions/demo.ts#completeDemoProfile: projectProfile.update writes organisation — ${D101}`]);
+    // Through the learner's own user row, in an own-data function.
+    expect(
+      failuresInjected(
+        LEARNER,
+        IN_LOAD_GLOBAL,
+        `await prisma.user.update({ where: { id: user.id }, data: { profiles: { update: { where: { userId_projectId: { userId: user.id, projectId: PROJECT } }, data: { organisationId: "seq-elevate-synthesis" } } } } });`
+      )
+    ).toEqual([`src/app/actions/learner.ts#loadLearnerGlobal: user.update writes profiles' organisation — ${D101}`]);
+    // In a new file, put on the list.
+    const file = "src/lib/new-move.ts";
+    const failures = failuresWith(
+      file,
+      `import { prisma } from "@/lib/prisma";
+       import type { Prisma } from "@prisma/client";
+       export async function move(tx: Prisma.TransactionClient, userId: string, id: string) {
+         await tx.projectProfile.update({ where: { userId_projectId: { userId, projectId: "seq-elevate" } }, data: { organisation: { connect: { id } } } });
+       }
+       export async function claim(id: string, profileId: string) {
+         return prisma.organisation.update({ where: { id }, data: { profiles: { connect: { id: profileId } } } });
+       }
+       export async function invite(email: string, organisationId: string) {
+         return prisma.user.create({ data: { email, profiles: { create: { projectId: "seq-elevate", organisationId } } } });
+       }`,
+      {
+        ...ALLOW,
+        [`${file}#move`]: system("a test entry"),
+        [`${file}#claim`]: system("a test entry"),
+        [`${file}#invite`]: system("a test entry"),
+      }
+    );
+    expect(failures).toEqual([
+      `src/lib/new-move.ts#move: projectProfile.update writes organisation — ${D101}`,
+      `src/lib/new-move.ts#claim: organisation.update writes profiles — ${D101}`,
+      `src/lib/new-move.ts#invite: user.create writes profiles' organisation — ${D101}`,
+    ]);
+  });
+
+  it("people's data reached by a relation's own method, a nested write, a renamed delegate or a bracketed method", () => {
+    const failures = failuresWith(
+      "src/lib/new-shapes.ts",
+      `import { prisma } from "@/lib/prisma";
+       export async function people(id: string) { return prisma.organisation.findUnique({ where: { id } }).profiles(); }
+       export async function members(id: string) { return prisma.cohort.findUnique({ where: { id } }).memberships({ include: { user: true } }); }
+       export async function wipe(id: string) { return prisma.cohort.update({ where: { id }, data: { memberships: { deleteMany: {} } } }); }
+       export async function renamed() { const cards = prisma.compCard; return cards.findMany({}); }
+       export async function bracketed() { return prisma.compCard["findMany"]({}); }
+       export async function destructured() { const { organisation } = prisma; return organisation.findMany({ include: { profiles: true } }); }`
+    );
+    expect(failures).toEqual([
+      "src/lib/new-shapes.ts#people: organisation.findUnique().profiles — not on the allow-list",
+      "src/lib/new-shapes.ts#members: cohort.findUnique().memberships loads user — not on the allow-list",
+      "src/lib/new-shapes.ts#wipe: cohort.update writes memberships — not on the allow-list",
+      "src/lib/new-shapes.ts#renamed: compCard.findMany — not on the allow-list",
+      "src/lib/new-shapes.ts#bracketed: compCard.findMany — not on the allow-list",
+      "src/lib/new-shapes.ts#destructured: organisation.findMany loads profiles — not on the allow-list",
     ]);
   });
 
