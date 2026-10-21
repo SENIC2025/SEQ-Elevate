@@ -28,6 +28,8 @@ import {
  *   C-E4  the learner detail: "Nothing shared with you." for a card that
  *         isn't, the count of cards shared with the viewer, and the
  *         scenario choice under Activity, not in the Comp Card (D80-D82)
+ *   and   opening a learner from the keyboard moves the focus to the
+ *         detail, and Back returns it to that learner's row (WCAG 2.4.3)
  *
  * The people are the world of e2e/fixtures/people.ts (organisations of its
  * own, A, B and DIESIS), and four more learners in A, each with a marker
@@ -263,5 +265,26 @@ describe("Release 3 statistics: who is counted, and what the roster says", () =>
     await expect(activity()).toContainText("Applied scenario:");
     await expect(activity()).toContainText(/talk to Sam privately → Tell Sam it.s fine/);
     await expect(card()).toHaveText("Nothing shared with you.");
+  });
+
+  test("the learner detail takes the keyboard focus, and Back gives it back to the learner's row (WCAG 2.4.3)", async ({
+    page,
+    context,
+  }) => {
+    // The button pressed goes with the list it was in: unless the view
+    // moves the focus, it falls to the page's body, and the next Tab starts
+    // from the top.
+    await signIn(context, world.people.FA.sessionToken);
+    await page.goto("/en/facilitator");
+    const name = world.marker("LA1");
+    await openLearner(page, name, async (button) => {
+      await button.focus({ timeout: 5_000 });
+      await page.keyboard.press("Enter");
+    });
+    await expect(detailHeading(page, name)).toBeFocused();
+
+    await page.getByRole("button", { name: "Back", exact: true }).focus();
+    await page.keyboard.press("Enter");
+    await expect(rosterRow(page, name).getByRole("button", { name: /open learner/i })).toBeFocused();
   });
 });

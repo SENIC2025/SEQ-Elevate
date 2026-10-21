@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useId, useState } from "react";
+import { Fragment, useEffect, useId, useRef, useState } from "react";
 import { useTranslations, useLocale } from "next-intl";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -110,6 +110,22 @@ export function RealFacilitatorView({
   const [done, setDone] = useState<FacilitatorSaved>(NOTHING_SAVED);
   const [failure, setFailure] = useState<FacilitatorSaveFailure>(null);
 
+  // The keyboard focus follows the view (WCAG 2.4.3): the button pressed
+  // goes with the view it was in, so opening a learner moves the focus to
+  // the detail's heading, and Back returns it to that learner's "Open
+  // learner" (`backTo`), rather than leaving it on the page's body.
+  const heading = useRef<HTMLHeadingElement>(null);
+  const openButtons = useRef(new Map<string, HTMLButtonElement>());
+  const backTo = useRef<string | null>(null);
+  useEffect(() => {
+    if (selectedId) {
+      heading.current?.focus();
+    } else if (backTo.current) {
+      openButtons.current.get(backTo.current)?.focus();
+      backTo.current = null;
+    }
+  }, [selectedId]);
+
   const active = activeInLastDay(learners, now);
   // The Comp Cards shared with this viewer's organisation: the server sends
   // no other (compCard is null for the rest).
@@ -163,6 +179,7 @@ export function RealFacilitatorView({
         <button
           type="button"
           onClick={() => {
+            backTo.current = selected.id;
             setSelectedId(null);
             setObservation("");
             setValidated(false);
@@ -187,7 +204,9 @@ export function RealFacilitatorView({
                 <p className="text-xs uppercase tracking-wider text-[var(--muted-foreground)] font-semibold">
                   {t("viewLearner")}
                 </p>
-                <h2 className="text-2xl font-bold wrap-anywhere">{selected.name}</h2>
+                <h2 ref={heading} tabIndex={-1} className="text-2xl font-bold wrap-anywhere">
+                  {selected.name}
+                </h2>
                 <p className="text-sm text-[var(--muted-foreground)] mt-0.5 wrap-anywhere">
                   {selected.email}
                 </p>
@@ -430,6 +449,10 @@ export function RealFacilitatorView({
                     </Badge>
                   ) : null}
                   <Button
+                    ref={(button) => {
+                      if (button) openButtons.current.set(l.id, button);
+                      else openButtons.current.delete(l.id);
+                    }}
                     size="sm"
                     variant="outline"
                     onClick={() => {
