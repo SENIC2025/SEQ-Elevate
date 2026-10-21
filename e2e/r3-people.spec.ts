@@ -6,6 +6,7 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import {
   PROJECT,
   createPerson,
+  createSession,
   createWorld,
   hasProfiles,
   removePeople,
@@ -16,6 +17,7 @@ import {
   type World,
 } from "./fixtures/people";
 import { callAction } from "./fixtures/server-action";
+import { completeProfileStep, fillProfileStep } from "./fixtures/profile-step";
 import { currentTermsVersion } from "../src/lib/profile";
 
 /**
@@ -34,9 +36,8 @@ import { currentTermsVersion } from "../src/lib/profile";
  * guard says so; the others fail on the old build for the reason the spec
  * names.
  *
- * Steps that need Stream B's profile step (the screen, and completeProfile
- * releasing a partner admin's organisation) are listed as fixme until it
- * lands; what this stream adds to those stories is tested here.
+ * The steps of A-E9, A-E11 and A-E12 that happen on the profile step
+ * (Stream B's /welcome and completeProfile) are walked as the person would.
  *
  * Requires a real database — gated on E2E_DB=1. A-E5 mints an invitation
  * link the way Auth.js stores it, so it needs AUTH_SECRET in the test
@@ -145,7 +146,14 @@ describe("Release 3 people and organisations", () => {
 
   test.afterAll(async () => {
     const users = await prisma.user.findMany({ where: { email: { in: made } }, select: { id: true } });
-    await prisma.auditLog.deleteMany({ where: { entityId: { in: users.map((u) => u.id) } } });
+    const ids = users.map((u) => u.id);
+    // The profile step's rows (profile.*) name the profile and its owner.
+    const profileIds = profiles
+      ? (await prisma.projectProfile.findMany({ where: { userId: { in: ids } }, select: { id: true } })).map((p) => p.id)
+      : [];
+    await prisma.auditLog.deleteMany({
+      where: { OR: [{ entityId: { in: [...ids, ...profileIds] } }, { actorId: { in: ids }, action: { startsWith: "profile." } }] },
+    });
     await removePeople(prisma, made);
     if (world) await removeWorld(prisma, world);
     await prisma.cohort.deleteMany({ where: { id: { in: madeCohorts } } });
@@ -569,7 +577,39 @@ describe("Release 3 people and organisations", () => {
     expect(await cardOf(user.id)).toEqual({ privacy: "SELF", sharedAt: null, sharedWithOrganisationId: null });
   });
 
-  test.fixme("A-E9 (needs Stream B's profile step): that learner's profile screen offers the invited statement; a self-registered learner can't send it", () => {});
+  test("A-E9 (guard): that learner's profile step offers the invited statement; a self-registered learner can't send it", async ({
+    page,
+    context,
+    request,
+  }) => {
+    const invited = address("invited");
+    const answer = await call(request, world.people.PAA, "addMember", [invited, "LEARNER", undefined, { guardianConsent: true }]);
+    expect(answer.result, answer.raw.slice(0, 200)).toMatchObject({ ok: true });
+    const user = await prisma.user.findUniqueOrThrow({ where: { email: invited } });
+    // They sign in, as their invitation link would let them.
+    await signIn(context, await createSession(prisma, user.id));
+    await page.goto("/en");
+    await expect(page).toHaveURL(/\/en\/welcome$/);
+    const main = page.getByRole("main");
+    await expect(main.getByText(`Your account was set up by ${world.organisations.A.name}.`)).toBeVisible();
+    await expect(
+      main.getByRole("checkbox", { name: `${world.organisations.A.name} invited me and has my parent's or guardian's permission.` })
+    ).toBeVisible();
+    await expect(main.getByText(/or older/)).toHaveCount(0);
+
+    // Someone who signed up on their own can't send it, whatever they send.
+    const self = await createPerson(prisma, { email: address("self-invited"), profile: "none", organisation: null });
+    const refused = await callAction(request, {
+      as: self,
+      page: "/en/welcome",
+      file: "src/app/actions/profile.ts",
+      name: "completeProfile",
+      args: [{ name: `Self ${RUN}`, country: "DE", termsAccepted: true, age: "invited" }],
+    });
+    expect(refused.result).toEqual({ ok: false, errors: { age: "not-invited" } });
+    expect((await profileOf(self.userId))?.profileCompletedAt ?? null).toBeNull();
+    expect(await rolesOf(self.userId)).toEqual([]);
+  });
 
   test("A-E10: moved to another organisation and back, a learner's card stays \"Only me\"; the same when the organisation is changed by hand in the database", async ({
     page,
@@ -685,7 +725,43 @@ describe("Release 3 people and organisations", () => {
     expect(await nameOf(person.userId)).toBeNull();
   });
 
-  test.fixme("A-E11 (needs Stream B's profile step): the self-registered under-16 is stopped at the age box (profile.age.younger), and after the claim completes the profile with the invited statement and lands in A", () => {});
+  test("A-E11 (guard): a self-registered under-16 is stopped at the age box; after a partner admin's claim they complete the profile with the invited statement and land in its organisation", async ({
+    page,
+    context,
+    request,
+  }) => {
+    const younger = await createPerson(prisma, { email: address("under16"), profile: "none", organisation: null });
+    await signIn(context, younger.sessionToken);
+    await page.goto("/en");
+    await expect(page).toHaveURL(/\/en\/welcome$/);
+    const main = page.getByRole("main");
+    // Everything but the age box.
+    await expect(async () => {
+      await fillProfileStep(page, { name: `Young ${RUN}`, country: "Germany" });
+      await main.getByRole("checkbox", { name: /or older/ }).uncheck();
+      await main.getByRole("button", { name: "Continue" }).click();
+      await expect(main.getByRole("heading", { name: "Please check:" })).toBeVisible({ timeout: 3000 });
+    }).toPass({ timeout: 30_000 });
+    await expect(main.getByText("Younger than 16? You can join if a partner organisation invites you.", { exact: false })).toBeVisible();
+    // Stopped there: nothing kept, so the account is still one a partner admin may claim.
+    expect((await profileOf(younger.userId))?.organisationId ?? null).toBeNull();
+    expect(await rolesOf(younger.userId)).toEqual([]);
+
+    const claim = await call(request, world.people.PAA, "addMember", [younger.email, "LEARNER", undefined, { guardianConsent: true }]);
+    expect(claim.result, claim.raw.slice(0, 300)).toMatchObject({ ok: true, id: younger.userId });
+
+    await page.goto("/en/welcome");
+    await expect(main.getByText(`Your account was set up by ${world.organisations.A.name}.`)).toBeVisible();
+    await completeProfileStep(page, { name: `Young ${RUN}`, country: "Germany", invited: true });
+    await expect(page).toHaveURL(/\/en\/learner$/);
+    expect(await profileOf(younger.userId)).toMatchObject({
+      organisationId: world.organisations.A.id,
+      organisationSource: "partner-admin",
+      country: "DE",
+      ageRule: "INVITED_WITH_GUARDIAN_CONSENT",
+    });
+    expect(await rolesOf(younger.userId)).toEqual(["LEARNER"]);
+  });
 
   test("A-E12 (guard): a partner admin's addition, released by the profile step, is listed for an ADMIN; no ADMIN changes their own organisation", async ({
     page,
@@ -851,5 +927,39 @@ describe("Release 3 people and organisations", () => {
     await noSeriousViolations(page, "Change details as an ADMIN");
   });
 
-  test.fixme("A-E12 (needs Stream B's profile step): that person signs in and picks Cyprus: the screen names A first, then their organisation is released and audited (profile.organisation_released)", () => {});
+  test("A-E12 (guard): a partner admin's addition who picks another country is told the partner's name first; their organisation is released, audited and listed for an ADMIN", async ({
+    page,
+    context,
+    request,
+  }) => {
+    const added = address("picks-cyprus");
+    const answer = await call(request, world.people.PAA, "addMember", [added, "LEARNER"]);
+    expect(answer.result, answer.raw.slice(0, 200)).toMatchObject({ ok: true });
+    const user = await prisma.user.findUniqueOrThrow({ where: { email: added } });
+    await signIn(context, await createSession(prisma, user.id));
+    await page.goto("/en");
+    await expect(page).toHaveURL(/\/en\/welcome$/);
+    const main = page.getByRole("main");
+    const setUpBy = main.getByText(`Your account was set up by ${world.organisations.A.name}.`);
+    await expect(setUpBy).toBeVisible();
+    await expect(async () => {
+      await fillProfileStep(page, { name: `Picks ${RUN}`, country: "Cyprus" });
+      await expect(
+        main.getByText(
+          `${world.organisations.A.name} supports learners in another country. If you continue with Cyprus, DIESIS will check which organisation supports you`,
+          { exact: false }
+        )
+      ).toBeVisible({ timeout: 3000 });
+    }).toPass({ timeout: 30_000 });
+    await completeProfileStep(page, { name: `Picks ${RUN}`, country: "Cyprus" });
+
+    const profile = await profileOf(user.id);
+    expect(profile).toMatchObject({ country: "CY", organisationId: null, organisationSource: "released" });
+    expect(await prisma.auditLog.count({ where: { action: "profile.organisation_released", entityId: profile!.id } })).toBe(1);
+    // On the ADMIN's list of countries that don't match.
+    await signIn(context, world.people.AS.sessionToken);
+    await page.goto(PEOPLE_PAGE);
+    await page.getByLabel("Show", { exact: true }).first().selectOption("mismatch");
+    await expect(page.locator("tr", { hasText: added }).first()).toContainText("Country doesn't match organisation");
+  });
 });
