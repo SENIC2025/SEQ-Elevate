@@ -16,6 +16,7 @@ import {
   structures,
   type R2LessonSeed,
 } from "./fixtures/r2-course";
+import { addGuestWork } from "./fixtures/guest-work";
 
 /**
  * Release 2, Stream A: where a learner opens a course, and moving through
@@ -471,11 +472,13 @@ describe("Release 2 — resume and order", () => {
     await backButton(page, "Warm-up").click();
     await expect(rating.getByRole("radio", { name: "5 of 5" })).toBeChecked();
 
-    // Signing in moves it into the (empty) account.
+    // Signing in moves it into the (empty) account, once the learner says
+    // it is theirs (Release 3, spec 5.5).
     await context.addCookies([
       { name: "authjs.session-token", value: sessionToken, domain: "localhost", path: "/", httpOnly: true, sameSite: "Lax" },
     ]);
     await page.goto("/en/learner");
+    await addGuestWork(page);
     await expect
       .poll(async () => {
         const row = await rowOf(userId, COURSES.guest);

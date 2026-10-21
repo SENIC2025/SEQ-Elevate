@@ -3,6 +3,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { createPerson, createSession } from "./fixtures/people";
+import { addGuestWork } from "./fixtures/guest-work";
 
 /**
  * Verifies that an AUTHENTICATED learner's progress persists to Postgres:
@@ -299,16 +300,6 @@ async function sessionReadFails(
     });
   });
   return { failed: () => failed };
-}
-
-/**
- * Says the work this browser holds from before signing in is the learner's
- * own: "Add it to my account" (Release 3, spec 5.5). Nothing moves before.
- */
-async function addGuestWork(page: import("@playwright/test").Page) {
-  const prompt = page.getByRole("region", { name: "Work saved on this browser before you signed in" });
-  await prompt.getByRole("button", { name: "Add it to my account" }).click({ timeout: 20_000 });
-  await expect(page.getByRole("status").filter({ hasText: "Added to your account." })).toBeVisible();
 }
 
 /** What this browser's guest store holds for the learner store, or null. */

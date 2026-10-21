@@ -294,6 +294,11 @@ describe("Release 3 Comp Card, learner side", () => {
   test("B-E9: a guest's card stored with the mentor choice is Only me once it moves into the account", async ({ page, context }) => {
     const marker = `cardtext-guest-${RUN}`;
     await page.goto("/en");
+    // The page writes its own guest store once it has loaded: the card goes
+    // in after that, or that write would replace it.
+    await expect
+      .poll(() => page.evaluate((key) => localStorage.getItem(key) !== null, GUEST_STORE), { timeout: 15_000 })
+      .toBe(true);
     await page.evaluate(
       ([key, text]) =>
         localStorage.setItem(
