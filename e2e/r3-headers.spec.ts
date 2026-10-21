@@ -250,15 +250,24 @@ describeDb("Release 3 — nothing we use breaks the policy (F-E3)", () => {
   // the rest (each says what it found on the old build too).
   test.describe.configure({ mode: "default" });
 
+  // Everyone this part makes, removed after its pages have gone (a page
+  // still open would write for a person who no longer exists).
+  const PEOPLE = [LEARNER, `x-${LEARNER}`, `y-${LEARNER}`, EDITOR, SIGNIN];
+
   test.beforeAll(async () => {
-    await removePeople(prisma, [LEARNER, EDITOR, SIGNIN]);
+    await removePeople(prisma, PEOPLE);
+  });
+
+  test.afterEach(async ({ page }) => {
+    // Leave the page, so its last saves and timings arrive before anyone is removed.
+    await page.goto("about:blank");
   });
 
   test.afterAll(async () => {
-    const users = await prisma.user.findMany({ where: { email: { in: [LEARNER, EDITOR] } }, select: { id: true } });
+    const users = await prisma.user.findMany({ where: { email: { in: PEOPLE } }, select: { id: true } });
     await prisma.auditLog.deleteMany({ where: { actorId: { in: users.map((u) => u.id) } } });
     await prisma.verificationToken.deleteMany({ where: { identifier: { in: [SIGNIN, SIGNIN.toUpperCase()] } } });
-    await removePeople(prisma, [LEARNER, EDITOR, SIGNIN]);
+    await removePeople(prisma, PEOPLE);
     for (const slug of [COURSE, DRAFT, ELSEWHERE]) await removeR2Course(prisma, slug);
     await prisma.$disconnect();
   });
@@ -302,67 +311,63 @@ describeDb("Release 3 — nothing we use breaks the policy (F-E3)", () => {
   }) => {
     test.setTimeout(120_000);
     const learner = await createPerson(prisma, { email: `x-${LEARNER}`, roles: ["LEARNER"] });
-    try {
-      const found = await collectViolations(context);
-      await stubOutside(context);
-      await signIn(context, learner.sessionToken);
-      await page.goto("/en/learner");
-      await expectEnforced(page);
-      await seedR2Course(prisma, {
-        slug: COURSE,
-        title: { en: `E2E headers ${RUN}` },
-        lessons: [
-          {
-            id: READ,
-            label: { en: "Read first" },
-            narrative: narrative({ en: { title: "E2E headers: read first", text: "E2E headers reading." } }),
-            documents: [
-              { name: "E2E headers checklist.pdf", url: `${BLOB}/e2e-headers-checklist-${RUN}.pdf` },
-              { name: "E2E headers picture.png", url: `${BLOB}/e2e-headers-picture-${RUN}.png` },
-            ],
-          },
-          {
-            id: WATCH,
-            label: { en: "Watch" },
-            narrative: narrative({ en: { title: "E2E headers: watch", text: "E2E headers watching." } }),
-            video: video(`e2e-headers-cue-${RUN}`),
-          },
-        ],
-      });
-      // The picture is shown as one.
-      await prisma.lessonDocument.updateMany({
-        where: { url: `${BLOB}/e2e-headers-picture-${RUN}.png` },
-        data: { mimeType: "image/png" },
-      });
-      await page.goto(`/en/learner/course/${COURSE}`);
-      const main = page.getByRole("main");
-      await expect(main.getByRole("heading", { level: 2, name: "E2E headers: read first" })).toBeVisible({ timeout: 15000 });
+    const found = await collectViolations(context);
+    await stubOutside(context);
+    await signIn(context, learner.sessionToken);
+    await page.goto("/en/learner");
+    await expectEnforced(page);
+    await seedR2Course(prisma, {
+      slug: COURSE,
+      title: { en: `E2E headers ${RUN}` },
+      lessons: [
+        {
+          id: READ,
+          label: { en: "Read first" },
+          narrative: narrative({ en: { title: "E2E headers: read first", text: "E2E headers reading." } }),
+          documents: [
+            { name: "E2E headers checklist.pdf", url: `${BLOB}/e2e-headers-checklist-${RUN}.pdf` },
+            { name: "E2E headers picture.png", url: `${BLOB}/e2e-headers-picture-${RUN}.png` },
+          ],
+        },
+        {
+          id: WATCH,
+          label: { en: "Watch" },
+          narrative: narrative({ en: { title: "E2E headers: watch", text: "E2E headers watching." } }),
+          video: video(`e2e-headers-cue-${RUN}`),
+        },
+      ],
+    });
+    // The picture is shown as one.
+    await prisma.lessonDocument.updateMany({
+      where: { url: `${BLOB}/e2e-headers-picture-${RUN}.png` },
+      data: { mimeType: "image/png" },
+    });
+    await page.goto(`/en/learner/course/${COURSE}`);
+    const main = page.getByRole("main");
+    await expect(main.getByRole("heading", { level: 2, name: "E2E headers: read first" })).toBeVisible({ timeout: 15000 });
 
-      // The document viewer: the PDF in a frame, then the picture.
-      const pdf = page.waitForRequest((r) => r.url().includes(`e2e-headers-checklist-${RUN}.pdf`));
-      await main.getByRole("button", { name: "E2E headers checklist.pdf" }).click();
-      const viewer = page.getByRole("dialog");
-      await expect(viewer.locator("iframe")).toHaveAttribute("src", `${BLOB}/e2e-headers-checklist-${RUN}.pdf`);
-      await pdf;
-      await viewer.getByRole("button", { name: /^next$/i }).click();
-      const picture = viewer.getByRole("img", { name: "E2E headers picture.png" });
-      await expect(picture).toBeVisible();
-      await expect.poll(() => picture.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(1);
-      await page.keyboard.press("Escape");
-      await expect(viewer).toHaveCount(0);
+    // The document viewer: the PDF in a frame, then the picture.
+    const pdf = page.waitForRequest((r) => r.url().includes(`e2e-headers-checklist-${RUN}.pdf`));
+    await main.getByRole("button", { name: "E2E headers checklist.pdf" }).click();
+    const viewer = page.getByRole("dialog");
+    await expect(viewer.locator("iframe")).toHaveAttribute("src", `${BLOB}/e2e-headers-checklist-${RUN}.pdf`);
+    await pdf;
+    await viewer.getByRole("button", { name: /^next$/i }).click();
+    const picture = viewer.getByRole("img", { name: "E2E headers picture.png" });
+    await expect(picture).toBeVisible();
+    await expect.poll(() => picture.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(1);
+    await page.keyboard.press("Escape");
+    await expect(viewer).toHaveCount(0);
 
-      // On to the video lesson: its captions and its question.
-      await expect(async () => {
-        await continueButton(page).click();
-        await expect(main.getByRole("heading", { level: 2, name: "E2E headers: watch" })).toBeVisible({ timeout: 2000 });
-      }).toPass({ timeout: 20000 });
-      await answerVideo(page, "Speaking early");
-      await page.waitForTimeout(500);
-      expect(found.reports, JSON.stringify(found.reports)).toEqual([]);
-      expect(found.console).toEqual([]);
-    } finally {
-      await removePeople(prisma, [`x-${LEARNER}`]);
-    }
+    // On to the video lesson: its captions and its question.
+    await expect(async () => {
+      await continueButton(page).click();
+      await expect(main.getByRole("heading", { level: 2, name: "E2E headers: watch" })).toBeVisible({ timeout: 2000 });
+    }).toPass({ timeout: 20000 });
+    await answerVideo(page, "Speaking early");
+    await page.waitForTimeout(500);
+    expect(found.reports, JSON.stringify(found.reports)).toEqual([]);
+    expect(found.console).toEqual([]);
   });
 
   test("F-E3: signing in by email breaks no rule", async ({ page, context }) => {
@@ -447,34 +452,30 @@ describeDb("Release 3 — nothing we use breaks the policy (F-E3)", () => {
   test("F-E3: documents stored on another site break no rule (they show as links)", async ({ page, context }) => {
     test.fixme(!mediaRule, "needs Stream E's first-party media rule (spec 10.3)");
     const learner = await createPerson(prisma, { email: `y-${LEARNER}`, roles: ["LEARNER"] });
-    try {
-      await page.goto("/en");
-      await expectEnforced(page);
-      await seedR2Course(prisma, {
-        slug: ELSEWHERE,
-        lessons: [
-          {
-            id: ELSEWHERE_LESSON,
-            label: { en: "Elsewhere" },
-            narrative: narrative({ en: { title: "E2E elsewhere", text: "E2E." } }),
-            // As A-E1's warm-up has them.
-            documents: [{ name: "E2E checklist.pdf", url: "https://example.org/e2e-r2-checklist.pdf" }],
-          },
-        ],
-      });
-      const found = await collectViolations(context);
-      await stubOutside(context);
-      await signIn(context, learner.sessionToken);
-      await page.goto(`/en/learner/course/${ELSEWHERE}`);
-      await expectEnforced(page);
-      const main = page.getByRole("main");
-      await expect(main.getByRole("heading", { level: 2, name: "E2E elsewhere" })).toBeVisible({ timeout: 15000 });
-      const document = main.getByRole("button", { name: "E2E checklist.pdf" });
-      if (await document.count()) await document.click();
-      await page.waitForTimeout(1000);
-      expect(found.reports, JSON.stringify(found.reports)).toEqual([]);
-    } finally {
-      await removePeople(prisma, [`y-${LEARNER}`]);
-    }
+    await page.goto("/en");
+    await expectEnforced(page);
+    await seedR2Course(prisma, {
+      slug: ELSEWHERE,
+      lessons: [
+        {
+          id: ELSEWHERE_LESSON,
+          label: { en: "Elsewhere" },
+          narrative: narrative({ en: { title: "E2E elsewhere", text: "E2E." } }),
+          // As A-E1's warm-up has them.
+          documents: [{ name: "E2E checklist.pdf", url: "https://example.org/e2e-r2-checklist.pdf" }],
+        },
+      ],
+    });
+    const found = await collectViolations(context);
+    await stubOutside(context);
+    await signIn(context, learner.sessionToken);
+    await page.goto(`/en/learner/course/${ELSEWHERE}`);
+    await expectEnforced(page);
+    const main = page.getByRole("main");
+    await expect(main.getByRole("heading", { level: 2, name: "E2E elsewhere" })).toBeVisible({ timeout: 15000 });
+    const document = main.getByRole("button", { name: "E2E checklist.pdf" });
+    if (await document.count()) await document.click();
+    await page.waitForTimeout(1000);
+    expect(found.reports, JSON.stringify(found.reports)).toEqual([]);
   });
 });
