@@ -515,6 +515,11 @@ export async function addMember(
     }
   }
   if (clean === m.user.email.trim().toLowerCase()) return refuseAdd(m, "self");
+  // An ADMIN_EMAILS address is an ADMIN's, whether or not it has an account
+  // yet: only an ADMIN adds it, and so sets its organisation (D81).
+  if (m.scope.kind === "organisation" && parseAdminEmails(process.env.ADMIN_EMAILS).has(clean)) {
+    return refuseAdd(m, "out-of-scope");
+  }
 
   const existing = await prisma.user.findFirst({
     where: { email: { equals: clean, mode: "insensitive" } },
@@ -546,9 +551,8 @@ export async function addMember(
   if (m.scope.kind === "project" && organisationId !== null && currentOrganisation !== null && currentOrganisation !== organisationId) {
     return refuseAdd(m, "has-organisation");
   }
-  if (guardian && (profile?.profileCompletedAt || held.some((h) => h.role !== "LEARNER"))) {
-    return refuseAdd(m, "guardian-not-needed");
-  }
+  if (guardian && held.some((h) => h.role !== "LEARNER")) return refuseAdd(m, "guardian-learner-only");
+  if (guardian && profile?.profileCompletedAt) return refuseAdd(m, "guardian-not-needed");
 
   const source: OrganisationSource = m.admin ? "admin" : "partner-admin";
   let userId: string;
@@ -557,6 +561,14 @@ export async function addMember(
       if (existing) {
         // What was checked above still holds: their organisation, and whether
         // they have done the profile step (the row is locked from here on).
+        // The row is made first if there is none, so the lock always holds
+        // one: a profile step making it at this moment is waited for, and
+        // what it wrote is seen below (an insert that does nothing when the
+        // row is there; rolled back with the rest when anything is refused).
+        await tx.projectProfile.createMany({
+          data: [{ userId: existing.id, projectId: PROJECT }],
+          skipDuplicates: true,
+        });
         await tx.$queryRaw`SELECT 1 FROM "ProjectProfile" WHERE "userId" = ${existing.id} AND "projectId" = ${PROJECT} FOR UPDATE`;
         const now = await tx.projectProfile.findUnique({
           where: { userId_projectId: { userId: existing.id, projectId: PROJECT } },

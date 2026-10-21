@@ -41,7 +41,7 @@ const db = {
   organisation: { create: fn(), count: fn(), deleteMany: fn() },
   cohort: { count: fn(), create: fn(), updateMany: fn(), deleteMany: fn(), findFirst: fn() },
   countryMapping: { count: fn(), upsert: fn(), findUnique: fn() },
-  projectProfile: { count: fn(), findMany: fn(), findUnique: fn(), upsert: fn(), update: fn() },
+  projectProfile: { count: fn(), findMany: fn(), findUnique: fn(), upsert: fn(), update: fn(), createMany: fn() },
   user: { findFirst: fn(), count: fn(), create: fn(), update: fn(), findUnique: fn(), findUniqueOrThrow: fn() },
   membership: { findMany: fn(), upsert: fn(), delete: fn(), create: fn(), updateMany: fn(), deleteMany: fn() },
   auditLog: { create: fn(), count: fn() },
@@ -144,6 +144,7 @@ beforeEach(() => {
   db.projectProfile.count.mockResolvedValue(0);
   db.projectProfile.findUnique.mockResolvedValue(null);
   db.projectProfile.upsert.mockResolvedValue({ id: "profile-1" });
+  db.projectProfile.createMany.mockResolvedValue({ count: 0 });
   db.user.findFirst.mockResolvedValue(null);
   db.user.create.mockResolvedValue({ id: "new-user" });
   db.user.findUnique.mockResolvedValue({ name: null });
@@ -380,6 +381,36 @@ describe("addMember (SP19)", () => {
     expect(changedAnything()).toBe(false);
   });
 
+  it("never adds an ADMIN_EMAILS address, not even one with no account yet (an ADMIN's organisation is set by an ADMIN)", async () => {
+    asPartnerAdmin();
+    vi.stubEnv("ADMIN_EMAILS", "boss@example.org");
+    try {
+      // No account yet: nothing to be in scope or to claim.
+      db.user.findFirst.mockResolvedValue(null);
+      await expect(addMember(" Boss@Example.org", "LEARNER", "Boss")).resolves.toEqual({
+        ok: false,
+        error: "out-of-scope",
+      });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+    // Refused before the address is looked up, as any other out-of-scope one.
+    expect(db.user.findFirst).not.toHaveBeenCalled();
+    expect(changedAnything()).toBe(false);
+    expect(auditRows("member.add_refused")[0]).toMatchObject({ entityId: null, metadata: { reason: "out-of-scope" } });
+  });
+
+  it("lets an ADMIN add an ADMIN_EMAILS address, with the organisation it picks", async () => {
+    vi.stubEnv("ADMIN_EMAILS", "boss@example.org");
+    try {
+      const res = await addMember("boss@example.org", "LEARNER", undefined, { organisationId: ORG_A });
+      expect(res).toMatchObject({ ok: true, id: "new-user" });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+    expect(setPersonOrganisation).toHaveBeenCalledWith(db, "new-user", ORG_A, expect.objectContaining({ source: "admin" }));
+  });
+
   it("adds a role to someone of its own organisation, never renaming someone who completed the profile step", async () => {
     asPartnerAdmin();
     existing({ profile: { organisationId: ORG_A, profileCompletedAt: new Date() }, roles: ["LEARNER"] });
@@ -501,6 +532,16 @@ describe("addMember (SP19)", () => {
     await expect(addMember("x@example.org", "LEARNER", undefined, { guardianConsent: true })).resolves.toEqual({
       ok: false,
       error: "guardian-not-needed",
+    });
+    expect(changedAnything()).toBe(false);
+  });
+
+  it("answers a guardian's permission for someone who holds a staff role as one for learners only", async () => {
+    // Not done the profile step, but a facilitator: the age isn't why.
+    existing({ profile: null, roles: ["FACILITATOR"] });
+    await expect(addMember("x@example.org", "LEARNER", undefined, { guardianConsent: true })).resolves.toEqual({
+      ok: false,
+      error: "guardian-learner-only",
     });
     expect(changedAnything()).toBe(false);
   });
@@ -863,5 +904,29 @@ describe("checks that hold inside the transaction", () => {
     await expect(addMember("x@example.org", "LEARNER", "Kim")).resolves.toEqual({ ok: false, error: "changed" });
     expect(setPersonOrganisation).not.toHaveBeenCalled();
     expect(db.$queryRaw).toHaveBeenCalled();
+  });
+
+  it("addMember: the person's profile row exists before it is locked, so a profile step making it at the same moment is waited for and seen", async () => {
+    asPartnerAdmin();
+    db.user.findFirst.mockResolvedValue({ id: "user-x", email: "x@example.org" });
+    inScope.mockResolvedValue(false);
+    db.user.count.mockResolvedValue(1); // claimable when checked: no profile row yet
+    holds([]);
+    const steps: string[] = [];
+    db.projectProfile.createMany.mockImplementation(async () => (steps.push("row"), { count: 0 }));
+    db.$queryRaw.mockImplementation(async () => (steps.push("lock"), []));
+    db.projectProfile.findUnique
+      .mockResolvedValueOnce(null) // the check
+      .mockResolvedValueOnce({ organisationId: "org-b", profileCompletedAt: new Date() }); // the profile step's row
+    await expect(addMember("x@example.org", "LEARNER")).resolves.toEqual({ ok: false, error: "changed" });
+    // An insert that does nothing when the row is there (and waits for one
+    // being made), then the lock: the lock always has a row to hold.
+    expect(db.projectProfile.createMany).toHaveBeenCalledWith({
+      data: [{ userId: "user-x", projectId: PROJECT }],
+      skipDuplicates: true,
+    });
+    expect(steps).toEqual(["row", "lock"]);
+    expect(setPersonOrganisation).not.toHaveBeenCalled();
+    expect(db.membership.upsert).not.toHaveBeenCalled();
   });
 });
