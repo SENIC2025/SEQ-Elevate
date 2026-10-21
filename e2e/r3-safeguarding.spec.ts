@@ -298,13 +298,13 @@ describe("Release 3 — safeguarding (F-E2, F-E4)", () => {
       await expect(box).toContainText(words.fallback);
       await expect(box.getByRole("link", { name: words.allContacts })).toHaveAttribute("href", "/en/help");
       // After the main area, never inside it.
-      await expect(page.locator("main aside")).toHaveCount(0);
+      await expect(page.locator("main").getByRole("complementary", { name: words.title })).toHaveCount(0);
       expect(
-        await page.evaluate(() => {
+        await page.evaluate((title) => {
           const m = document.querySelector("main");
-          const a = [...document.querySelectorAll("aside")].find((x) => x.textContent?.includes("112"));
+          const a = [...document.querySelectorAll("aside")].find((x) => x.querySelector("h2")?.textContent?.trim() === title);
           return !!m && !!a && !!(m.compareDocumentPosition(a) & Node.DOCUMENT_POSITION_FOLLOWING);
-        })
+        }, words.title)
       ).toBe(true);
 
       await writeSetting(SAVED);
