@@ -30,10 +30,12 @@ const guest = {
   sectionsCompleted: [] as string[],
   completedAt: null as string | null,
 };
+// The badges the learner has, as the store holds them.
+const earned = { badges: [] as string[] };
 vi.mock("@/store/demo-state", () => ({
   useDemoState: () => ({
     state: {
-      badges: [],
+      badges: earned.badges,
       course: {
         courseTitle: null,
         simulation: null,
@@ -127,6 +129,7 @@ function hero(html: string): string | undefined {
 }
 
 beforeEach(() => {
+  earned.badges = [];
   guest.courseSlug = null;
   guest.stagesCompleted = [];
   guest.sectionsCompleted = [];
@@ -402,8 +405,37 @@ describe("LearnerDashboard: a course shown in English", () => {
     expect(html).toContain(">In English</");
   });
 
+  it("marks the hero's step names in “Your journey”, keeping a step name in another language as it is", () => {
+    const html = render(
+      [{ ...FLEXIBLE, contentLocale: "en", stageLabelLangs: { concept: "de" } }],
+      [{ slug: FLEXIBLE.slug, stages: ["context"], stagesCompleted: 1, completed: false }]
+    );
+    const items = checklistItems(html);
+    expect(items[0]).toContain('<span lang="en">Warm-up</span>');
+    expect(items[1]).toContain('<span lang="en">Your own story</span>');
+    expect(items[2]).toContain('<span lang="de">Skill concept</span>');
+    // ", done" is the page's own word.
+    expect(items[0]).toMatch(/<span class="sr-only">, done<\/span>/);
+    expect(items[0]).not.toMatch(/<span lang="en">[^<]*, done/);
+  });
+
+  it("marks the name and meaning of its badge", () => {
+    earned.badges = ["asking-for-help-complete"];
+    const html = render(
+      [{ ...CREATED, contentLocale: "en", badgeSlug: "asking-for-help-complete", badgeName: "Help seeker", badgeMeaning: "Asks early" }],
+      null
+    );
+    expect(html).toMatch(/<p lang="en"[^>]*>Help seeker<\/p>/);
+    expect(html).toMatch(/<p lang="en"[^>]*>Asks early<\/p>/);
+  });
+
   it("changes nothing for a course in the menu language", () => {
-    const html = render([CREATED], null);
+    earned.badges = ["asking-for-help-complete"];
+    const html = render(
+      [{ ...CREATED, badgeSlug: "asking-for-help-complete", badgeName: "Help seeker", badgeMeaning: "Asks early" }],
+      [{ slug: CREATED.slug, stages: ["context"], stagesCompleted: 1, completed: false }]
+    );
+    expect(html).toContain("Help seeker");
     expect(html).not.toContain(' lang="');
     expect(html).not.toContain("In English");
   });

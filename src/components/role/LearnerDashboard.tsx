@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { SKILL_CLUSTERS } from "@/data/course";
-import type { CourseSummary } from "@/lib/cms/types";
+import type { CourseSummary, Locale } from "@/lib/cms/types";
 import {
   courseProgress,
   courseStageKeys,
@@ -152,13 +152,15 @@ export function LearnerDashboard({
   const overallPct = overallProgress(publishedStatus).pct;
   const coursesDone = publishedStatus.filter((s) => s.completed).length;
 
-  // Badge slug → display info, from the course list.
-  const badgeInfo = new Map<string, { name: string; meaning: string }>();
+  // Badge slug → display info, from the course list (with the course's
+  // language when it is shown in English under another, D90).
+  const badgeInfo = new Map<string, { name: string; meaning: string; lang?: Locale }>();
   for (const c of courses) {
     if (c.badgeSlug && c.badgeName) {
       badgeInfo.set(c.badgeSlug, {
         name: c.badgeName,
         meaning: c.badgeMeaning ?? "",
+        lang: c.contentLocale,
       });
     }
   }
@@ -394,11 +396,11 @@ export function LearnerDashboard({
                         >
                           <Award className="h-5 w-5 text-[var(--accent)]" />
                           <div>
-                            <p className="text-xs font-semibold">
+                            <p lang={info?.lang} className="text-xs font-semibold">
                               {info?.name ?? slug}
                             </p>
                             {info?.meaning ? (
-                              <p className="text-[10px] text-[var(--muted-foreground)]">
+                              <p lang={info.lang} className="text-[10px] text-[var(--muted-foreground)]">
                                 {info.meaning}
                               </p>
                             ) : null}
@@ -441,6 +443,7 @@ export function LearnerDashboard({
                             stage={stage}
                             labels={hero?.stageLabels}
                             langs={hero?.stageLabelLangs}
+                            contentLocale={hero?.contentLocale}
                           />
                           {done ? (
                             <span className="sr-only">{tPlayer("stepDone")}</span>
@@ -468,20 +471,23 @@ export function LearnerDashboard({
 /**
  * A lesson's step name, as the player shows it (D58): a created course's
  * own (CourseSummary.stageLabels), else the standard name. One written
- * only in another language says which (WCAG 3.1.2).
+ * only in another language says which (WCAG 3.1.2), and so does one of a
+ * course shown in English under another language (`contentLocale`, D90).
  */
 function StageLabel({
   stage,
   labels,
   langs,
+  contentLocale,
 }: {
   stage: string;
   labels?: Record<string, string>;
   langs?: Record<string, string>;
+  contentLocale?: Locale;
 }) {
   const t = useTranslations("course.stageLabel");
   const own = labels?.[stage];
-  const lang = own !== undefined ? langs?.[stage] : undefined;
+  const lang = own !== undefined ? (langs?.[stage] ?? contentLocale) : undefined;
   return lang ? <span lang={lang}>{own}</span> : <>{own ?? t(stage)}</>;
 }
 
