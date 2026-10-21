@@ -22,6 +22,9 @@ const KEYS = [
   ...[
     "notShared", "compCardSubmissions", "noOrganisation", "emptyOrganisation", "testAccount",
     "formerStaff",
+    // Stream C's contract commit (the learner detail: an empty shared card,
+    // and the scenario choice under Activity).
+    "sharedEmpty", "scenarioChoice",
   ].map((k) => `facilitator.${k}`),
   ...[
     "title", "intro", "whoSees", "whoSeesNoOrganisation", "setUpBy", "setUpByMismatch", "privacy",
@@ -202,6 +205,13 @@ describe("Release 3's message keys", () => {
     expect(at(en, "facilitator.compCardSubmissions")).toBe("Comp Cards shared with you");
     for (const messages of [en, de, el]) {
       expect(JSON.stringify(at(messages, "compCard.sharing"))).not.toMatch(/mentor/i);
+    }
+  });
+
+  it("no longer name a field as redacted: a facilitator sees only what was shared (spec 4.5)", () => {
+    for (const messages of [en, de, el]) {
+      expect(at(messages, "facilitator.redacted")).toBeUndefined();
+      expect(at(messages, "facilitator.redactedHint")).toBeUndefined();
     }
   });
 });
