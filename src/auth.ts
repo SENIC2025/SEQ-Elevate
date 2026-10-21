@@ -176,12 +176,15 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       }
       return true;
     },
+    // What the session carries: the user's id, email and name, and when it
+    // expires. Nothing else of the user or session row (Auth.js passes both
+    // whole), and never roles: those are read from the database on every
+    // request (auth-helpers.ts).
     async session({ session, user }) {
-      // Surface the user id on the session for downstream queries.
-      if (session.user) {
-        session.user.id = user.id;
-      }
-      return session;
+      return {
+        user: { id: user.id, email: user.email, name: user.name ?? null },
+        expires: session.expires,
+      };
     },
   },
   events: {
