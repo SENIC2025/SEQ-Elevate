@@ -473,6 +473,9 @@ const SWITCHABLE: readonly Locale[] = ["de", "el"];
  * first publish it is a blocker of PublishControls).
  *
  * The state is a switch's position and its sentence, never colour alone.
+ * While a change is saved the controls are aria-disabled, never disabled:
+ * a disabled control loses focus (to the page), so the switch's new state
+ * would go unannounced and the next Tab would start from the top.
  */
 export function LanguagePanel({
   slug,
@@ -508,6 +511,7 @@ export function LanguagePanel({
   const [confirming, setConfirming] = React.useState<Locale | null>(null);
   const [pending, setPending] = React.useState<Locale | null>(null);
   const [error, setError] = React.useState<string | null>(null);
+  const busy = pending !== null;
 
   React.useEffect(() => {
     if (confirming) confirmRef.current?.focus();
@@ -584,9 +588,11 @@ export function LanguagePanel({
                   role="switch"
                   aria-checked={on}
                   aria-describedby={`${stateId} ${coverageId}`}
-                  disabled={pending !== null}
-                  onClick={() => toggle(locale)}
-                  className="flex min-h-9 items-center gap-2 rounded-md text-left font-medium disabled:opacity-60"
+                  aria-disabled={busy || undefined}
+                  onClick={() => {
+                    if (!busy) toggle(locale);
+                  }}
+                  className="flex min-h-9 items-center gap-2 rounded-md text-left font-medium aria-disabled:cursor-not-allowed aria-disabled:opacity-60"
                 >
                   {/* The position and the tick say it, not the colour. */}
                   <span
@@ -640,13 +646,27 @@ export function LanguagePanel({
                   <p className="mt-1 text-xs">{sentence("languageReady.confirmBody", locale)}</p>
                   <p className="mt-1 text-xs">{t("languageReady.notChecked")}</p>
                   <div className="mt-2 flex flex-wrap gap-2">
-                    <Button size="sm" disabled={pending !== null} onClick={() => void change(locale, true)}>
+                    <Button
+                      size="sm"
+                      aria-disabled={busy || undefined}
+                      className="aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
+                      onClick={() => {
+                        if (!busy) void change(locale, true);
+                      }}
+                    >
                       {sentence("languageReady.confirm", locale)}
                     </Button>
-                    <Button size="sm" variant="outline" disabled={pending !== null} onClick={() => {
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      aria-disabled={busy || undefined}
+                      className="aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
+                      onClick={() => {
+                        if (busy) return;
                         setConfirming(null);
                         backToSwitch(locale);
-                      }}>
+                      }}
+                    >
                       {t("page.cancel")}
                     </Button>
                   </div>
