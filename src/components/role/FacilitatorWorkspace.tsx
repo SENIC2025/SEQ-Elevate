@@ -2,11 +2,13 @@ import { useTranslations } from "next-intl";
 import { Users } from "lucide-react";
 
 /**
- * The facilitator workspace for someone who isn't a facilitator or admin.
- * Staff get RealFacilitatorView (see the facilitator page); everyone else
- * sees who the workspace is for — never any learner data.
+ * The facilitator workspace for someone who sees no learners: not a
+ * facilitator or admin, or staff whose scope is none (the facilitator
+ * page). Says who the workspace is for — never any learner data — and,
+ * for staff whose account isn't linked to an organisation, why
+ * (`noOrganisation`, spec 6.4).
  */
-export function FacilitatorWorkspace() {
+export function FacilitatorWorkspace({ noOrganisation = false }: { noOrganisation?: boolean }) {
   const t = useTranslations("facilitator");
 
   return (
@@ -18,6 +20,9 @@ export function FacilitatorWorkspace() {
       <p className="mt-2 text-sm text-[var(--muted-foreground)]">
         {t("staffOnly")}
       </p>
+      {noOrganisation ? (
+        <p className="mt-2 text-sm text-[var(--muted-foreground)]">{t("noOrganisation")}</p>
+      ) : null}
     </div>
   );
 }

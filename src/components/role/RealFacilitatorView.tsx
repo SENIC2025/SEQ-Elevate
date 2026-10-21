@@ -70,8 +70,14 @@ function activeInLastDay(learners: readonly FacilitatorLearner[], now: number): 
 export function RealFacilitatorView({
   learners,
   now,
+  organisation = null,
 }: {
   learners: FacilitatorLearner[];
+  /**
+   * The viewer's organisation when they see only its learners (partner
+   * staff), for the empty list's wording; null for the whole project.
+   */
+  organisation?: string | null;
   /**
    * The server's time when it read the learners (ms), which "Active in the
    * last 24h" counts back from: the same figure in the page as sent and
@@ -150,9 +156,9 @@ export function RealFacilitatorView({
 
   // ---- Detail view ----
   if (selected) {
+    // Only what the learner shared with this viewer's organisation reaches
+    // the page (the server filters it: compCardForViewer); null otherwise.
     const c = selected.compCard;
-    const canSeeDifficult = c && c.privacy !== "self";
-    const canSeeBehaviour = c && c.privacy === "facilitatorAndMentor";
     return (
       <div className="mx-auto max-w-3xl px-4 py-8">
         <button
@@ -199,16 +205,14 @@ export function RealFacilitatorView({
             {c ? (
               <div className="space-y-3">
                 <Row label={tCard("fieldScenario")}>{selected.scenario ?? "—"}</Row>
-                <Row label={tCard("fieldWentWell")}>{c.wentWell || "—"}</Row>
-                <Row label={tCard("fieldDifficult")} redacted={!canSeeDifficult}>
-                  {c.difficult || "—"}
-                </Row>
-                <Row label={tCard("fieldImprove")}>{c.improve || "—"}</Row>
-                <Row label={tCard("fieldBehaviour")} redacted={!canSeeBehaviour}>
-                  {c.behaviour || "—"}
-                </Row>
+                <Row label={tCard("fieldWentWell")}>{c.fields.wentWell || "—"}</Row>
+                <Row label={tCard("fieldDifficult")}>{c.fields.difficult || "—"}</Row>
+                <Row label={tCard("fieldImprove")}>{c.fields.improve || "—"}</Row>
+                <Row label={tCard("fieldBehaviour")}>{c.fields.behaviour || "—"}</Row>
                 <Row label={tCard("fieldConfidence")}>
-                  {c.confidence}/5 — {tCard(`confidenceLabels.${c.confidence}`)}
+                  {c.confidence
+                    ? `${c.confidence}/5 — ${tCard(`confidenceLabels.${c.confidence}`)}`
+                    : "—"}
                 </Row>
               </div>
             ) : (
@@ -404,7 +408,7 @@ export function RealFacilitatorView({
         <CardContent className="p-0">
           {learners.length === 0 ? (
             <p className="p-6 text-sm text-[var(--muted-foreground)]">
-              {t("noLearners")}
+              {organisation ? t("emptyOrganisation", { organisation }) : t("noLearners")}
             </p>
           ) : (
             <ul className="divide-y divide-[var(--border)]">

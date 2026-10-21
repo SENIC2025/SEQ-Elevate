@@ -1,6 +1,7 @@
 import { setRequestLocale } from "next-intl/server";
 import { getAdminMembers, getAdminOrgs } from "@/lib/admin-queries";
-import { getCurrentUser } from "@/lib/auth-helpers";
+import { getViewer } from "@/lib/scope";
+import { canManagePeople } from "@/lib/permissions";
 import { PeopleManager } from "@/components/role/PeopleManager";
 import { Link } from "@/i18n/navigation";
 import { ChevronLeft, ShieldAlert } from "lucide-react";
@@ -15,11 +16,13 @@ export default async function Page({
 }) {
   const { locale } = await params;
   setRequestLocale(locale);
-  const [members, orgs, me] = await Promise.all([
-    getAdminMembers(),
-    getAdminOrgs(),
-    getCurrentUser(),
-  ]);
+  // People managers only (an ADMIN: everyone; a partner admin: their
+  // organisation's people), read for their scope (D74).
+  const viewer = await getViewer();
+  const manager = canManagePeople(viewer.roles);
+  const [members, orgs] = manager
+    ? await Promise.all([getAdminMembers(viewer.scope), getAdminOrgs(viewer.scope)])
+    : [null, null];
 
   if (!members) {
     return (
@@ -35,7 +38,7 @@ export default async function Page({
     );
   }
 
-  // Flatten cohorts for the assignment dropdown.
+  // Flatten cohorts for the assignment dropdown: those in scope only.
   const cohorts = (orgs ?? []).flatMap((o) =>
     o.cohorts.map((c) => ({ id: c.id, label: `${o.shortName} · ${c.name}` }))
   );
@@ -54,7 +57,7 @@ export default async function Page({
         Add people to the project, set what they can do, and put learners in a
         cohort.
       </p>
-      <PeopleManager members={members} cohorts={cohorts} selfId={me?.id ?? null} />
+      <PeopleManager members={members} cohorts={cohorts} selfId={viewer.user?.id ?? null} />
     </div>
   );
 }

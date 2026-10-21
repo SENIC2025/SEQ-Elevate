@@ -1,6 +1,9 @@
 import { afterEach, describe, it, expect, vi } from "vitest";
 import type { CourseContent, StageKey } from "@/lib/cms/types";
 import type { LessonPlan } from "@/lib/cms/sections/learner-path";
+import type { Scope } from "@/lib/scope";
+
+vi.mock("server-only", () => ({}));
 
 /*
  * The facilitator's per-learner progress, with the database, the sign-in
@@ -45,6 +48,8 @@ const learnerOn = (list: unknown[]) => [
       email: "ana@example.test",
       enrollments: list,
       compCards: [],
+      profiles: [],
+      staffHistory: [],
     },
   },
 ];
@@ -52,20 +57,27 @@ const membershipFindMany = vi.fn(async (): Promise<unknown[]> => learnerOn(learn
 const membershipCount = vi.fn(async () => 1);
 const auditFindMany = vi.fn(async (): Promise<unknown[]> => []);
 const enrollmentFindMany = vi.fn(async () => learnerEnrolments());
+const cohortCount = vi.fn(async () => 0);
+const organisationCount = vi.fn(async () => 0);
+const courseCount = vi.fn(async () => 0);
+// The Comp Card template (Project.compCardTemplate): nothing hidden by default.
+const projectFindUnique = vi.fn(async (): Promise<unknown> => ({ compCardTemplate: null }));
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     membership: { findMany: membershipFindMany, count: membershipCount },
     auditLog: { findMany: auditFindMany },
     courseEnrollment: { findMany: enrollmentFindMany },
-    cohort: { count: async () => 0 },
-    organisation: { count: async () => 0 },
-    course: { count: async () => 0 },
+    cohort: { count: cohortCount },
+    organisation: { count: organisationCount },
+    course: { count: courseCount },
+    project: { findUnique: projectFindUnique },
   },
 }));
 const currentUser = vi.fn(async (): Promise<{ id: string } | null> => null);
+const viewerRoles = vi.fn(async (): Promise<{ role: string }[]> => [{ role: "FACILITATOR" }]);
 vi.mock("@/lib/auth-helpers", () => ({
   getCurrentUser: () => currentUser(),
-  getProjectMemberships: async () => [{ role: "FACILITATOR" }],
+  getProjectMemberships: () => viewerRoles(),
 }));
 
 // The lesson plans of the courses created in the CMS (spec 3.3): none by
@@ -77,6 +89,8 @@ vi.mock("@/lib/cms/lesson-plans", () => ({
 
 afterEach(() => {
   learnerEnrolments.mockImplementation(() => enrollments);
+  viewerRoles.mockImplementation(async () => [{ role: "FACILITATOR" }]);
+  projectFindUnique.mockImplementation(async () => ({ compCardTemplate: null }));
   auditFindMany.mockImplementation(async () => []);
   currentUser.mockImplementation(async () => null);
   lessonPlans.mockImplementation(async () => new Map());
@@ -93,9 +107,25 @@ vi.mock("@/lib/cms", () => ({
     }) as unknown as CourseContent,
 }));
 
-const { getProjectLearners, getAdminCounts, getLearnerEnrollments } = await import(
+const { getProjectLearners: learnersFor, getAdminCounts, getLearnerEnrollments } = await import(
   "./server-queries"
 );
+const {
+  cohortsInScope,
+  learnerMembershipsInScope,
+  organisationsInScope,
+  statisticsMembershipsInScope,
+  MATCH_NOTHING,
+} = await import("./scope");
+
+/** An ADMIN's scope (SENIC: no organisation of their own). */
+const PROJECT_SCOPE: Scope = { kind: "project", viewerId: "admin", viewerOrganisationId: null };
+/** A facilitator or partner admin of organisation A. */
+const ORG_A: Scope = { kind: "organisation", viewerId: "fac-a", organisationId: "org-a" };
+const NONE: Scope = { kind: "none" };
+
+/** The roster as a facilitator of organisation A reads it (most tests). */
+const getProjectLearners = (locale: "en" | "de") => learnersFor(ORG_A, locale);
 
 describe("getProjectLearners", () => {
   it("counts each course against its own lessons", async () => {
@@ -181,7 +211,8 @@ const LEARNERS_ONLY = {
 describe("who the facilitator roster lists", () => {
   it("leaves out staff who still hold an old LEARNER role", async () => {
     membershipFindMany.mockClear();
-    await getProjectLearners("en");
+    // An ADMIN's roster: the whole project, by D53's rule alone.
+    await learnersFor(PROJECT_SCOPE, "en");
     expect(membershipFindMany).toHaveBeenCalledTimes(1);
     expect(membershipFindMany.mock.calls[0]).toEqual([
       expect.objectContaining({ where: LEARNERS_ONLY }),
@@ -320,11 +351,244 @@ describe("getLearnerEnrollments", () => {
   });
 });
 
-describe("getAdminCounts", () => {
-  it("counts learners without staff who still hold an old LEARNER role", async () => {
+/*
+ * FD-U9 (D74, D80, spec 3.2, 4.4, 7.4): the roster is read for the viewer's
+ * scope, and a Comp Card's text reaches the page only when it was shared
+ * with the viewer's organisation. Two independent filters: the query asks
+ * the database only for cards shared with that organisation (and for no
+ * card at all when the viewer has none), and compCardForViewer checks each
+ * card again against the learner's current organisation.
+ */
+
+/** Every key at any depth of `value`. */
+function keysOf(value: unknown, out = new Set<string>()): Set<string> {
+  if (Array.isArray(value)) value.forEach((v) => keysOf(v, out));
+  else if (value && typeof value === "object" && !(value instanceof Date)) {
+    for (const [k, v] of Object.entries(value)) {
+      out.add(k);
+      keysOf(v, out);
+    }
+  }
+  return out;
+}
+
+const sharedAt = new Date("2026-11-21T10:00:00Z");
+const card = (over: Record<string, unknown> = {}) => ({
+  wentWell: "MARKER-WENT-WELL",
+  difficult: "MARKER-DIFFICULT",
+  improve: "MARKER-IMPROVE",
+  behaviour: "MARKER-BEHAVIOUR",
+  confidence: 4,
+  privacy: "FACILITATOR",
+  sharedAt,
+  sharedWithOrganisationId: "org-a",
+  ...over,
+});
+/** One learner of organisation `org` whose card the database answers as `cards`. */
+const learnerWith = (org: string | null, cards: unknown[], user: Record<string, unknown> = {}) => [
+  {
+    user: {
+      id: "u1",
+      name: "Ana",
+      email: "ana@example.test",
+      enrollments: enrollments,
+      compCards: cards,
+      profiles: [{ organisationId: org, testAccountAt: null }],
+      staffHistory: [],
+      ...user,
+    },
+  },
+];
+const lastQuery = () =>
+  (membershipFindMany.mock.calls.at(-1) as unknown[] | undefined)?.[0] as Record<string, unknown>;
+
+describe("getProjectLearners, for the viewer's scope (FD-U9)", () => {
+  afterEach(() => {
+    membershipFindMany.mockReset();
+    membershipFindMany.mockImplementation(async () => learnerOn(learnerEnrolments()));
+  });
+
+  it("answers null for no scope, without asking the database", async () => {
+    membershipFindMany.mockClear();
+    auditFindMany.mockClear();
+    expect(await learnersFor(NONE, "en")).toBeNull();
+    expect(membershipFindMany).not.toHaveBeenCalled();
+    expect(auditFindMany).not.toHaveBeenCalled();
+  });
+
+  it("answers null for someone who doesn't support learners, whatever scope is passed", async () => {
+    viewerRoles.mockImplementation(async () => [{ role: "CONTENT_EDITOR" }]);
+    membershipFindMany.mockClear();
+    expect(await learnersFor(ORG_A, "en")).toBeNull();
+    expect(membershipFindMany).not.toHaveBeenCalled();
+  });
+
+  it("reads only the learners of the viewer's organisation", async () => {
+    await learnersFor(ORG_A, "en");
+    expect(lastQuery().where).toEqual(learnerMembershipsInScope(ORG_A));
+  });
+
+  it("reads whole-project learners for an ADMIN", async () => {
+    viewerRoles.mockImplementation(async () => [{ role: "ADMIN" }]);
+    await learnersFor(PROJECT_SCOPE, "en");
+    expect(lastQuery().where).toEqual(learnerMembershipsInScope(PROJECT_SCOPE));
+  });
+
+  it("selects the fields it needs and never a reflection or the other answers", async () => {
+    await learnersFor(ORG_A, "en");
+    const query = lastQuery();
+    expect(query.include).toBeUndefined();
+    const keys = keysOf(query.select);
+    expect(keys.has("reflection")).toBe(false);
+    expect(keys.has("responses")).toBe(false);
+    expect(keys.has("simulationChoice")).toBe(false);
+  });
+
+  it("asks only for cards shared with the viewer's organisation", async () => {
+    await learnersFor(ORG_A, "en");
+    const user = (lastQuery().select as { user: { select: Record<string, unknown> } }).user.select;
+    expect(user.compCards).toMatchObject({
+      where: {
+        projectId: "seq-elevate",
+        privacy: "FACILITATOR",
+        sharedAt: { not: null },
+        sharedWithOrganisationId: "org-a",
+      },
+    });
+  });
+
+  it("asks for no card at all when the viewer has no organisation", async () => {
+    viewerRoles.mockImplementation(async () => [{ role: "ADMIN" }]);
+    await learnersFor(PROJECT_SCOPE, "en");
+    const user = (lastQuery().select as { user: { select: Record<string, unknown> } }).user.select;
+    expect(user.compCards ?? false).toBe(false);
+  });
+
+  it("gives the text of a card shared with the viewer's organisation", async () => {
+    membershipFindMany.mockImplementation(async () => learnerWith("org-a", [card()]));
+    const [learner] = (await learnersFor(ORG_A, "en")) ?? [];
+    expect(learner.compCard).toEqual({
+      fields: {
+        wentWell: "MARKER-WENT-WELL",
+        difficult: "MARKER-DIFFICULT",
+        improve: "MARKER-IMPROVE",
+        behaviour: "MARKER-BEHAVIOUR",
+      },
+      confidence: 4,
+      sharedAt: sharedAt.toISOString(),
+    });
+  });
+
+  // The database filter is the first check; these rows reach the code only
+  // if it failed, and the second check still keeps their text out.
+  it.each([
+    ["an unshared card", card({ privacy: "SELF", sharedAt: null, sharedWithOrganisationId: null }), "org-a"],
+    ["a card a Release 2 page marked shared", card({ sharedAt: null, sharedWithOrganisationId: null }), "org-a"],
+    ["the mentor option", card({ privacy: "FACILITATOR_AND_MENTOR" }), "org-a"],
+    ["a card shared with another organisation", card({ sharedWithOrganisationId: "org-b" }), "org-a"],
+    ["a card shared before the learner moved", card(), "org-b"],
+    ["a card of a learner with no organisation", card(), null],
+  ])("gives nothing of %s", async (_name, row, learnerOrg) => {
+    membershipFindMany.mockImplementation(async () => learnerWith(learnerOrg, [row]));
+    const [learner] = (await learnersFor(ORG_A, "en")) ?? [];
+    expect(learner.compCard).toBeNull();
+    expect(JSON.stringify(learner)).not.toContain("MARKER");
+  });
+
+  it("gives a SENIC admin (no organisation) no card text, even if a row reaches it", async () => {
+    viewerRoles.mockImplementation(async () => [{ role: "ADMIN" }]);
+    membershipFindMany.mockImplementation(async () => learnerWith("org-a", [card()]));
+    const [learner] = (await learnersFor(PROJECT_SCOPE, "en")) ?? [];
+    expect(learner.compCard).toBeNull();
+    expect(JSON.stringify(learner)).not.toContain("MARKER");
+  });
+
+  it("gives an admin of the organisation the cards shared with it", async () => {
+    viewerRoles.mockImplementation(async () => [{ role: "ADMIN" }]);
+    membershipFindMany.mockImplementation(async () => learnerWith("org-a", [card()]));
+    const diesisAdmin: Scope = { kind: "project", viewerId: "ad", viewerOrganisationId: "org-a" };
+    const [learner] = (await learnersFor(diesisAdmin, "en")) ?? [];
+    expect(learner.compCard?.fields.wentWell).toBe("MARKER-WENT-WELL");
+  });
+
+  it("leaves out a field the Comp Card template hides in any language, and a hidden confidence", async () => {
+    projectFindUnique.mockImplementation(async () => ({
+      compCardTemplate: { de: { hidden: ["difficult"] }, el: { hidden: ["confidence"] } },
+    }));
+    membershipFindMany.mockImplementation(async () => learnerWith("org-a", [card()]));
+    const [learner] = (await learnersFor(ORG_A, "en")) ?? [];
+    expect(learner.compCard?.fields).toEqual({
+      wentWell: "MARKER-WENT-WELL",
+      improve: "MARKER-IMPROVE",
+      behaviour: "MARKER-BEHAVIOUR",
+    });
+    expect(learner.compCard?.confidence).toBeNull();
+  });
+
+  it("lists nobody when the Comp Card template can't be read (fails closed)", async () => {
+    projectFindUnique.mockImplementation(async () => {
+      throw new Error("database down");
+    });
+    membershipFindMany.mockImplementation(async () => learnerWith("org-a", [card()]));
+    expect(await learnersFor(ORG_A, "en")).toEqual([]);
+  });
+
+  it("says whether the learner is a marked test account or former staff (spec 7.4)", async () => {
+    membershipFindMany.mockImplementation(async () =>
+      learnerWith("org-a", [], {
+        profiles: [{ organisationId: "org-a", testAccountAt: new Date() }],
+        staffHistory: [{ firstAt: new Date() }],
+      })
+    );
+    const [learner] = (await learnersFor(ORG_A, "en")) ?? [];
+    expect(learner).toMatchObject({ testAccount: true, formerStaff: true });
+    membershipFindMany.mockImplementation(async () => learnerWith("org-a", []));
+    const [other] = (await learnersFor(ORG_A, "en")) ?? [];
+    expect(other).toMatchObject({ testAccount: false, formerStaff: false });
+  });
+
+  it("asks for the test mark and staff history of this project only", async () => {
+    await learnersFor(ORG_A, "en");
+    const user = (lastQuery().select as { user: { select: Record<string, unknown> } }).user.select;
+    expect(user.profiles).toMatchObject({ where: { projectId: "seq-elevate" } });
+    expect(user.staffHistory).toMatchObject({ where: { projectId: "seq-elevate" } });
+  });
+});
+
+describe("getAdminCounts (FD-U9, spec 7.4)", () => {
+  afterEach(() => {
     membershipCount.mockClear();
-    await expect(getAdminCounts()).resolves.toMatchObject({ users: 1 });
-    expect(membershipCount).toHaveBeenCalledTimes(1);
-    expect(membershipCount.mock.calls[0]).toEqual([{ where: LEARNERS_ONLY }]);
+    cohortCount.mockClear();
+    organisationCount.mockClear();
+    courseCount.mockClear();
+  });
+
+  it("answers zeros for no scope, without asking the database", async () => {
+    await expect(getAdminCounts(NONE)).resolves.toEqual({ users: 0, cohorts: 0, organisations: 0, courses: 0 });
+    expect(membershipCount).not.toHaveBeenCalled();
+    expect(cohortCount).not.toHaveBeenCalled();
+    expect(organisationCount).not.toHaveBeenCalled();
+    expect(courseCount).not.toHaveBeenCalled();
+  });
+
+  it("counts learners by the statistics filter without a date: no staff, former staff or test accounts", async () => {
+    await expect(getAdminCounts(PROJECT_SCOPE)).resolves.toMatchObject({ users: 1 });
+    expect(membershipCount.mock.calls).toEqual([[{ where: statisticsMembershipsInScope(PROJECT_SCOPE, null) }]]);
+    // Still D53's rule first: no one holding a staff role now.
+    const where = statisticsMembershipsInScope(PROJECT_SCOPE, null) as { AND: unknown[] };
+    expect(where.AND[0]).toEqual(LEARNERS_ONLY);
+  });
+
+  it("counts a partner admin's own organisation and its cohorts only", async () => {
+    await getAdminCounts(ORG_A);
+    expect(membershipCount.mock.calls).toEqual([[{ where: statisticsMembershipsInScope(ORG_A, null) }]]);
+    expect(cohortCount.mock.calls).toEqual([[{ where: cohortsInScope(ORG_A) }]]);
+    expect(organisationCount.mock.calls).toEqual([[{ where: organisationsInScope(ORG_A) }]]);
+  });
+
+  it("never passes undefined as a filter", async () => {
+    await getAdminCounts(ORG_A);
+    expect(JSON.stringify(membershipCount.mock.calls)).not.toContain("undefined");
+    expect(MATCH_NOTHING).toEqual({ id: { in: [] } });
   });
 });

@@ -1,15 +1,18 @@
+import "server-only";
+
 /**
  * Server-side read queries for dashboards. Plain async functions called
- * from server components (not form actions). All project-scoped; learner
- * queries are for the *current* user, staff queries respect RBAC + Comp
- * Card privacy.
+ * from server components (not form actions). All project-scoped. Learner
+ * queries are for the *current* user; staff queries take the viewer's scope
+ * (src/lib/scope.ts, D74, D75) as their first argument and read nothing for
+ * "none", and a learner's Comp Card text leaves the server only when it was
+ * shared with the viewer's organisation (comp-card-visibility.ts, D80, D81).
  */
 
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser, getProjectMemberships } from "@/lib/auth-helpers";
 import { getCourse } from "@/lib/cms";
 import { readAssessment, scoreAssessment } from "@/lib/assessment-progress";
-import { learnerMembershipWhere } from "@/lib/learner-scope";
 import { skillClusterOfCourse } from "@/lib/facilitator-access";
 import type { SkillCluster } from "@/data/course";
 import {
@@ -21,18 +24,23 @@ import { getLessonPlans } from "@/lib/cms/lesson-plans";
 import type { LessonPlan } from "@/lib/cms/sections/learner-path";
 import { completedLessonIds } from "@/lib/learner-progress/enrolment-read";
 import type { Locale, CourseContent } from "@/lib/cms/types";
+import { canSupportLearners } from "@/lib/permissions";
+import {
+  cohortsInScope,
+  learnerMembershipsInScope,
+  organisationsInScope,
+  statisticsMembershipsInScope,
+  type Scope,
+} from "@/lib/scope";
+import {
+  compCardForViewer,
+  hiddenInAnyLanguage,
+  viewerOrganisation,
+  type SharedCompCard,
+} from "@/lib/comp-card-visibility";
 import type { Role } from "@prisma/client";
 
 const PROJECT = "seq-elevate";
-
-const PRIVACY_FROM_DB: Record<
-  string,
-  "self" | "facilitator" | "facilitatorAndMentor"
-> = {
-  SELF: "self",
-  FACILITATOR: "facilitator",
-  FACILITATOR_AND_MENTOR: "facilitatorAndMentor",
-};
 
 /** The current user's per-course enrollment summaries (own data). */
 export async function getLearnerEnrollments() {
@@ -83,14 +91,16 @@ export interface FacilitatorLearner {
   completed: boolean;
   needsAttention: boolean;
   scenario: string | null;
-  compCard: {
-    wentWell: string;
-    difficult: string;
-    improve: string;
-    behaviour: string;
-    confidence: number;
-    privacy: "self" | "facilitator" | "facilitatorAndMentor";
-  } | null;
+  /**
+   * The learner's Comp Card as far as it is shared with this viewer's
+   * organisation (compCardForViewer); null when nothing is: no card, an
+   * unshared card and a card shared elsewhere look the same.
+   */
+  compCard: SharedCompCard | null;
+  /** Marked as a test account by an ADMIN (D85). */
+  testAccount: boolean;
+  /** Held a staff role in the project before (StaffHistory, D84). */
+  formerStaff: boolean;
   /** In-video quiz engagement (questions answered / answered correctly). */
   videoAnswered: number;
   videoCorrect: number;
@@ -130,41 +140,110 @@ export interface FacilitatorLearner {
 }
 
 /**
- * Real learners in the project, for the facilitator workspace. RBAC-gated:
- * returns null unless the current user is a FACILITATOR or ADMIN. Comp Card
- * privacy is respected at the field level in the UI; scenario evidence is
- * resolved from the CMS. Staff who still hold the LEARNER role an older
- * release gave them aren't listed (learnerMembershipWhere): a note or
- * validation about them would be refused anyway (canRecordForLearner).
+ * The learners in the viewer's scope, for the facilitator workspace: null
+ * for no scope (read nothing) and for someone who doesn't support learners;
+ * [] when the read fails. The roster keeps D53's rule (learnerMembershipWhere):
+ * staff who still hold the LEARNER role an older release gave them aren't
+ * listed, and a note or validation about them would be refused anyway
+ * (canRecordForLearner). Former staff and marked test accounts who are
+ * learners now are listed, with a label (spec 7.4).
  */
 export async function getProjectLearners(
+  scope: Scope,
   locale: Locale
 ): Promise<FacilitatorLearner[] | null> {
+  if (scope.kind === "none") return null;
   const roles = await getViewerRoles();
-  if (!roles.includes("FACILITATOR") && !roles.includes("ADMIN")) return null;
+  if (!canSupportLearners(roles)) return null;
 
   try {
-    return await loadLearners(locale);
+    return await loadLearners(scope, roles, locale);
   } catch {
     return [];
   }
 }
 
-async function loadLearners(
-  locale: Locale
-): Promise<FacilitatorLearner[]> {
-  const memberships = await prisma.membership.findMany({
-    where: learnerMembershipWhere(PROJECT),
-    include: {
-      user: {
-        include: {
-          enrollments: { include: { course: true } },
-          compCards: { where: { projectId: PROJECT } },
+/** The Comp Card fields a shared card shows: text, confidence, and whether and how it is shared. */
+const CARD_SELECT = {
+  wentWell: true,
+  difficult: true,
+  improve: true,
+  behaviour: true,
+  confidence: true,
+  privacy: true,
+  sharedAt: true,
+  sharedWithOrganisationId: true,
+} as const;
+
+/**
+ * What the roster reads of each learner: never a reflection or the
+ * answers kept in `responses` (they are the learner's own), and Comp Cards
+ * only as `cards` says.
+ */
+function rosterSelect(cards: { where: { projectId: string; privacy: "FACILITATOR"; sharedAt: { not: null }; sharedWithOrganisationId: string }; select: typeof CARD_SELECT } | false) {
+  return {
+    user: {
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        enrollments: {
+          select: {
+            course: { select: { slug: true, cluster: true, meta: true } },
+            stagesCompleted: true,
+            sectionsCompleted: true,
+            completedAt: true,
+            updatedAt: true,
+            scenarioRoot: true,
+            scenarioFollowup: true,
+            simulationCorrect: true,
+            assessment: true,
+          },
         },
+        compCards: cards,
+        profiles: { where: { projectId: PROJECT }, select: { organisationId: true, testAccountAt: true } },
+        staffHistory: { where: { projectId: PROJECT }, select: { firstAt: true } },
       },
     },
+  } as const;
+}
+
+async function loadLearners(
+  scope: Scope,
+  roles: readonly Role[],
+  locale: Locale
+): Promise<FacilitatorLearner[]> {
+  // The first of two filters on Comp Cards: the database is asked only for
+  // cards shared with the viewer's organisation, and for none at all when
+  // the viewer has no organisation (a SENIC admin). compCardForViewer below
+  // is the second, against each learner's current organisation.
+  const viewerOrg = viewerOrganisation(scope);
+  const memberships = await prisma.membership.findMany({
+    where: learnerMembershipsInScope(scope),
+    select: rosterSelect(
+      viewerOrg
+        ? {
+            where: {
+              projectId: PROJECT,
+              privacy: "FACILITATOR",
+              sharedAt: { not: null },
+              sharedWithOrganisationId: viewerOrg,
+            },
+            select: CARD_SELECT,
+          }
+        : false
+    ),
     orderBy: { createdAt: "asc" },
   });
+  // A field the Comp Card template hides in any language stays out of a
+  // shared card. Read only when a card can be shown; a failed read fails
+  // the roster (the caller shows none) rather than show hidden fields.
+  const hidden = viewerOrg
+    ? hiddenInAnyLanguage(
+        (await prisma.project.findUnique({ where: { id: PROJECT }, select: { compCardTemplate: true } }))
+          ?.compCardTemplate
+      )
+    : new Set<never>();
 
   // Engagement + time-on-task per learner (recorded as AuditLog events).
   const learnerIds = memberships.map((m) => m.user.id);
@@ -254,7 +333,13 @@ async function loadLearners(
       )
     );
     const completed = enr.length > 0 && enr.every((e) => !!e.completedAt);
-    const card = u.compCards[0] ?? null;
+    const profile = u.profiles[0] ?? null;
+    const compCard = compCardForViewer(
+      (u.compCards ?? [])[0] ?? null,
+      profile?.organisationId ?? null,
+      { scope, roles },
+      hidden
+    );
     const ev = enr.find((e) => e.scenarioRoot);
     const video = videoByUser.get(u.id) ?? { answered: 0, correct: 0 };
     const time = timeByUser.get(u.id) ?? { total: 0, byStage: {} };
@@ -321,16 +406,10 @@ async function loadLearners(
       scenario: ev
         ? labelFor(ev.course.slug, ev.scenarioRoot, ev.scenarioFollowup)
         : null,
-      compCard: card
-        ? {
-            wentWell: card.wentWell,
-            difficult: card.difficult,
-            improve: card.improve,
-            behaviour: card.behaviour,
-            confidence: card.confidence,
-            privacy: PRIVACY_FROM_DB[card.privacy],
-          }
-        : null,
+      compCard,
+      testAccount: !!profile?.testAccountAt,
+      // On the roster means a learner now (D53), so any history is former.
+      formerStaff: u.staffHistory.length > 0,
       videoAnswered: video.answered,
       videoCorrect: video.correct,
       currentCourse,
@@ -366,22 +445,40 @@ async function lessonPlansOrNull(
 }
 
 /**
- * Aggregate counts for the admin dashboard (anonymised). `users` is the
- * Learners figure: people who are learners of the project, so not staff who
- * still hold the LEARNER role an older release gave them.
+ * Aggregate counts for the admin dashboard (anonymised), for the viewer's
+ * scope: zeros for no scope, without a query. `users` is the Learners
+ * figure: the statistics filter without a date (spec 7.4, D83), so staff,
+ * anyone who ever held a staff role and marked test accounts are left out.
+ * Published courses are counted project-wide (a number, not people).
  */
-export async function getAdminCounts() {
+export async function getAdminCounts(scope: Scope) {
+  const none = { users: 0, cohorts: 0, organisations: 0, courses: 0 };
+  if (scope.kind === "none") return none;
   try {
     const [users, cohorts, organisations, courses] = await Promise.all([
-      prisma.membership.count({ where: learnerMembershipWhere(PROJECT) }),
-      prisma.cohort.count({ where: { projectId: PROJECT } }),
-      prisma.organisation.count({ where: { projectId: PROJECT } }),
+      prisma.membership.count({ where: statisticsMembershipsInScope(scope, null) }),
+      prisma.cohort.count({ where: cohortsInScope(scope) }),
+      prisma.organisation.count({ where: organisationsInScope(scope) }),
       prisma.course.count({
         where: { projectId: PROJECT, status: "published" },
       }),
     ]);
     return { users, cohorts, organisations, courses };
   } catch {
-    return { users: 0, cohorts: 0, organisations: 0, courses: 0 };
+    return none;
+  }
+}
+
+/** The name of the viewer's organisation (organisation scope), or null. */
+export async function scopeOrganisationName(scope: Scope): Promise<string | null> {
+  if (scope.kind !== "organisation") return null;
+  try {
+    const org = await prisma.organisation.findFirst({
+      where: { AND: [{ id: scope.organisationId }, organisationsInScope(scope)] },
+      select: { name: true },
+    });
+    return org?.name ?? null;
+  } catch {
+    return null;
   }
 }

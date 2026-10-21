@@ -8,8 +8,11 @@ import { describe, it, expect, afterEach, vi } from "vitest";
  */
 
 const ME = { id: "admin-1", email: "admin@example.org" };
+const PROJECT_SCOPE = { kind: "project", viewerId: ME.id, viewerOrganisationId: null };
 const getCurrentUser = vi.fn();
-const hasRole = vi.fn();
+// An ADMIN with project scope (scope.ts), or null for anyone else.
+const requireAdminProject = vi.fn();
+const getAdminMembers = vi.fn(async () => []);
 const prisma = {
   membership: {
     findMany: vi.fn(),
@@ -19,9 +22,10 @@ const prisma = {
   },
   auditLog: { create: vi.fn() },
 };
-vi.mock("@/lib/auth-helpers", () => ({ getCurrentUser, hasRole }));
+vi.mock("@/lib/auth-helpers", () => ({ getCurrentUser }));
+vi.mock("@/lib/scope", () => ({ requireAdminProject }));
 vi.mock("@/lib/admin-queries", () => ({
-  getAdminMembers: vi.fn(async () => []),
+  getAdminMembers,
   getAdminOrgs: vi.fn(async () => []),
 }));
 vi.mock("@/lib/invitations", () => ({ sendInvitation: vi.fn() }));
@@ -32,7 +36,7 @@ const { setMemberRoles, removeMember } = await import("./admin");
 /** Signed in as ME, an admin; `userId` holds `roles` in the project. */
 function given(roles: string[]) {
   getCurrentUser.mockResolvedValue(ME);
-  hasRole.mockImplementation(async (_p: string, r: string) => r === "ADMIN");
+  requireAdminProject.mockResolvedValue({ user: ME, roles: ["ADMIN"], profile: null, scope: PROJECT_SCOPE });
   prisma.membership.findMany.mockResolvedValue(
     roles.map((role, i) => ({
       id: `m-${i}`,
@@ -96,7 +100,7 @@ describe("setMemberRoles on someone else's row", () => {
 
   it("is for admins only", async () => {
     given(["ADMIN"]);
-    hasRole.mockResolvedValue(false);
+    requireAdminProject.mockResolvedValue(null);
     await expect(setMemberRoles("admin-2", ["LEARNER"])).resolves.toEqual({
       ok: false,
       error: "forbidden",
@@ -121,5 +125,28 @@ describe("removeMember", () => {
     expect(prisma.membership.deleteMany).toHaveBeenCalledWith({
       where: { userId: "learner-1", projectId: "seq-elevate" },
     });
+  });
+});
+
+/*
+ * Release 3 (spec 3.4 SP24): the list an action returns is read with the
+ * caller's scope, and an ADMIN whose own profile isn't complete has none
+ * (requireAdminProject), so changes nothing.
+ */
+describe("the list an action returns", () => {
+  afterEach(() => vi.clearAllMocks());
+
+  it("is read with the admin's scope", async () => {
+    given(["LEARNER"]);
+    await removeMember("learner-1");
+    expect(getAdminMembers).toHaveBeenCalledWith(PROJECT_SCOPE);
+  });
+
+  it("is never read, and nothing changes, without project scope", async () => {
+    given(["LEARNER"]);
+    requireAdminProject.mockResolvedValue(null);
+    await expect(removeMember("learner-1")).resolves.toEqual({ ok: false, error: "forbidden" });
+    expect(changedAnything()).toBe(false);
+    expect(getAdminMembers).not.toHaveBeenCalled();
   });
 });

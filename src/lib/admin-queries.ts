@@ -2,24 +2,20 @@ import "server-only";
 
 /**
  * Read queries for the admin management screens (organisations, cohorts,
- * people). ADMIN-gated; all wrapped defensively so a DB hiccup renders an
- * empty screen rather than a crash.
+ * people), for the viewer's scope (src/lib/scope.ts, D74): an ADMIN reads
+ * the whole project, a partner admin its own organisation and its people
+ * (never an ADMIN holder or an ADMIN_EMAILS address), anyone else nothing
+ * (null, without a query). Which powers a viewer has on these screens is
+ * the page's and the action's to check (canManagePeople, admin.ts). All
+ * wrapped defensively so a DB hiccup renders an empty screen rather than a
+ * crash.
  */
 
 import { prisma } from "@/lib/prisma";
-import { getProjectMemberships } from "@/lib/auth-helpers";
-import type { Role } from "@prisma/client";
+import { membershipsInScope, organisationsInScope, type Scope } from "@/lib/scope";
+import type { Country, Role } from "@prisma/client";
 
 const PROJECT = "seq-elevate";
-
-export async function isAdmin() {
-  try {
-    const roles = (await getProjectMemberships(PROJECT)).map((m) => m.role);
-    return roles.includes("ADMIN");
-  } catch {
-    return false;
-  }
-}
 
 export interface AdminCohort {
   id: string;
@@ -44,7 +40,11 @@ export interface AdminMember {
   roles: Role[];
   cohortId: string | null;
   cohortName: string | null;
+  /** Their organisation in the project, from their profile (D72), never a membership row. */
+  organisationId: string | null;
   orgName: string | null;
+  /** The country on their profile, if they gave one (spec 5.2). */
+  country: Country | null;
   /** When they were added to the project (YYYY-MM-DD). */
   joinedAt: string;
   /** "joined" once they have signed in at least once (D27). */
@@ -53,12 +53,12 @@ export interface AdminMember {
   invitedAt: string | null;
 }
 
-/** Organisations with their cohorts and member counts. */
-export async function getAdminOrgs(): Promise<AdminOrg[] | null> {
-  if (!(await isAdmin())) return null;
+/** The organisations in scope, with their cohorts and member counts. */
+export async function getAdminOrgs(scope: Scope): Promise<AdminOrg[] | null> {
+  if (scope.kind === "none") return null;
   try {
     const orgs = await prisma.organisation.findMany({
-      where: { projectId: PROJECT },
+      where: organisationsInScope(scope),
       include: {
         cohorts: {
           orderBy: { createdAt: "asc" },
@@ -85,13 +85,33 @@ export async function getAdminOrgs(): Promise<AdminOrg[] | null> {
   }
 }
 
-/** Everyone in the project, grouped by user with their roles + cohort. */
-export async function getAdminMembers(): Promise<AdminMember[] | null> {
-  if (!(await isAdmin())) return null;
+/**
+ * The people in scope, grouped by user with their roles + cohort, and the
+ * organisation and country of their profile.
+ */
+export async function getAdminMembers(scope: Scope): Promise<AdminMember[] | null> {
+  if (scope.kind === "none") return null;
   try {
     const rows = await prisma.membership.findMany({
-      where: { projectId: PROJECT },
-      include: { user: true, cohort: true, organisation: true },
+      where: membershipsInScope(scope),
+      select: {
+        userId: true,
+        role: true,
+        cohortId: true,
+        createdAt: true,
+        cohort: { select: { name: true } },
+        user: {
+          select: {
+            email: true,
+            name: true,
+            emailVerified: true,
+            profiles: {
+              where: { projectId: PROJECT },
+              select: { organisationId: true, country: true, organisation: { select: { name: true } } },
+            },
+          },
+        },
+      },
       orderBy: { createdAt: "asc" },
     });
     const byUser = new Map<string, AdminMember>();
@@ -103,10 +123,10 @@ export async function getAdminMembers(): Promise<AdminMember[] | null> {
         if (!existing.cohortId && m.cohortId) {
           existing.cohortId = m.cohortId;
           existing.cohortName = m.cohort?.name ?? null;
-          existing.orgName = m.organisation?.name ?? null;
         }
         continue;
       }
+      const profile = m.user.profiles[0] ?? null;
       byUser.set(m.userId, {
         id: m.userId,
         email: m.user.email,
@@ -114,7 +134,9 @@ export async function getAdminMembers(): Promise<AdminMember[] | null> {
         roles: [m.role],
         cohortId: m.cohortId,
         cohortName: m.cohort?.name ?? null,
-        orgName: m.organisation?.name ?? null,
+        organisationId: profile?.organisationId ?? null,
+        orgName: profile?.organisation?.name ?? null,
+        country: profile?.country ?? null,
         joinedAt: m.createdAt.toISOString().slice(0, 10),
         // Auth.js sets emailVerified the first time someone uses a link.
         status: m.user.emailVerified ? "joined" : "pending",

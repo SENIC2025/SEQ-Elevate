@@ -1,11 +1,16 @@
 import "server-only";
 
 /**
- * Computes the analytics dashboard from REAL captured data:
+ * Computes the analytics dashboard from REAL captured data, for the
+ * viewer's scope (src/lib/scope.ts, D74: an ADMIN the project, partner
+ * staff their organisation, no scope nothing):
  *   - learners' memberships + CourseEnrollment (funnel, position, progress,
- *     assessment scoring against the CMS answers); staff who still hold the
- *     LEARNER role an older release gave them are left out
- *     (learnerMembershipWhere), so their test runs don't count,
+ *     assessment scoring against the CMS answers), by the statistics filter
+ *     (statisticsMembershipsInScope, D83): staff who still hold the LEARNER
+ *     role an older release gave them, anyone who ever held a staff role
+ *     (StaffHistory) and marked test accounts are left out, so their test
+ *     runs don't count. Enrolments are selected field by field: never a
+ *     reflection or the answers in `responses`,
  *   - `stage.time` AuditLog events (time per stage / total; time in a
  *     course's own lessons is in the total, as secondsOther),
  *   - `course.opened` AuditLog events (activity over time + when-they-open),
@@ -18,7 +23,7 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import { getCourse } from "@/lib/cms";
 import { readAssessment, scoreAssessment } from "@/lib/assessment-progress";
-import { learnerMembershipWhere } from "@/lib/learner-scope";
+import { statisticsMembershipsInScope, type Scope } from "@/lib/scope";
 import { STAGES } from "@/data/course";
 import { courseProgress, nextStage } from "@/lib/course-progress";
 import { getLessonPlans } from "@/lib/cms/lesson-plans";
@@ -35,14 +40,32 @@ import {
 const PROJECT = "seq-elevate";
 
 export async function buildRealAnalytics(
+  scope: Scope,
   locale: Locale
 ): Promise<AnalyticsData | null> {
+  if (scope.kind === "none") return null;
   try {
     const memberships = await prisma.membership.findMany({
-      where: learnerMembershipWhere(PROJECT),
-      include: {
-        user: { include: { enrollments: { include: { course: true } } } },
-        cohort: true,
+      where: statisticsMembershipsInScope(scope, null),
+      select: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            enrollments: {
+              select: {
+                course: { select: { slug: true } },
+                stagesCompleted: true,
+                sectionsCompleted: true,
+                completedAt: true,
+                updatedAt: true,
+                assessment: true,
+              },
+            },
+          },
+        },
+        cohort: { select: { name: true } },
       },
       orderBy: { createdAt: "asc" },
     });

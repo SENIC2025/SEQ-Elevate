@@ -1,5 +1,6 @@
 import { setRequestLocale } from "next-intl/server";
-import { getViewerRoles } from "@/lib/server-queries";
+import { getViewer } from "@/lib/scope";
+import { canSupportLearners } from "@/lib/permissions";
 import { buildSampleAnalytics } from "@/lib/analytics-sample";
 import { buildRealAnalytics } from "@/lib/analytics-real";
 import { AnalyticsDashboard } from "@/components/analytics/AnalyticsDashboard";
@@ -28,8 +29,10 @@ export default async function Page({
   setRequestLocale(locale);
 
   const production = process.env.DEMO_LOGIN_DISABLED === "true";
-  const roles = await getViewerRoles();
-  const isStaff = roles.includes("FACILITATOR") || roles.includes("ADMIN");
+  // Facilitators, partner admins and admins; whose learners is the scope's
+  // to say (D74): an ADMIN the project, partner staff their organisation.
+  const viewer = await getViewer();
+  const isStaff = canSupportLearners(viewer.roles);
 
   if (!isStaff) {
     return (
@@ -56,7 +59,7 @@ export default async function Page({
   }
 
   const loc = (["en", "de", "el"].includes(locale) ? locale : "en") as Locale;
-  const real = await buildRealAnalytics(loc);
+  const real = await buildRealAnalytics(viewer.scope, loc);
 
   // The live site shows real activity only — or says there is none to show.
   if (production) {

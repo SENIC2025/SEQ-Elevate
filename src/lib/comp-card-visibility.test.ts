@@ -5,6 +5,7 @@ import {
   SHARING_TEXT_VERSION,
   compCardForViewer,
   effectiveSharing,
+  hiddenInAnyLanguage,
   parseCompCardInput,
   viewerOrganisation,
   type CardRow,
@@ -150,6 +151,32 @@ describe("compCardForViewer", () => {
     for (const confidence of [1, 5]) {
       expect(compCardForViewer(card({ confidence }), "org-a", viewer, NO_HIDDEN)?.confidence).toBe(confidence);
     }
+  });
+});
+
+/*
+ * A field the Comp Card template hides in any language stays out of a
+ * shared card (spec 4.2): the learner may never have seen it.
+ */
+describe("hiddenInAnyLanguage", () => {
+  it("collects the fields hidden in any language, the confidence included", () => {
+    expect(hiddenInAnyLanguage({ en: { hidden: [] }, de: { hidden: ["difficult"] }, el: { hidden: ["confidence", "difficult"] } }))
+      .toEqual(new Set(["difficult", "confidence"]));
+  });
+
+  it("ignores anything that isn't a field, and a template that isn't one", () => {
+    expect(hiddenInAnyLanguage({ de: { hidden: ["wentWell", "scenario", 5, null] }, el: null, en: "x" })).toEqual(
+      new Set(["wentWell"])
+    );
+    for (const nothing of [null, undefined, "x", 3, [], { de: { hidden: "difficult" } }]) {
+      expect(hiddenInAnyLanguage(nothing)).toEqual(new Set());
+    }
+  });
+
+  it("makes a hidden confidence read as null on a shared card", () => {
+    const viewer = { scope: SCOPES[0], roles: ["FACILITATOR"] as Role[] };
+    expect(compCardForViewer(card(), "org-a", viewer, new Set(["confidence"] as const))?.confidence).toBeNull();
+    expect(compCardForViewer(card(), "org-a", viewer, NO_HIDDEN)?.confidence).toBe(4);
   });
 });
 

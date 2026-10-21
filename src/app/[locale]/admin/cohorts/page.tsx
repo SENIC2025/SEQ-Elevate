@@ -1,5 +1,7 @@
 import { setRequestLocale } from "next-intl/server";
 import { getAdminOrgs } from "@/lib/admin-queries";
+import { getViewer } from "@/lib/scope";
+import { canManagePeople } from "@/lib/permissions";
 import { OrgCohortManager } from "@/components/role/OrgCohortManager";
 import { Link } from "@/i18n/navigation";
 import { ChevronLeft, ShieldAlert } from "lucide-react";
@@ -14,7 +16,10 @@ export default async function Page({
 }) {
   const { locale } = await params;
   setRequestLocale(locale);
-  const orgs = await getAdminOrgs();
+  // People managers only, for their scope (a partner admin: their own
+  // organisation and its cohorts).
+  const viewer = await getViewer();
+  const orgs = canManagePeople(viewer.roles) ? await getAdminOrgs(viewer.scope) : null;
 
   if (!orgs) {
     return (

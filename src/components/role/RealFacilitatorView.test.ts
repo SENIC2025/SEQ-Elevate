@@ -42,6 +42,8 @@ function learner(over: Partial<FacilitatorLearner>): FacilitatorLearner {
     needsAttention: false,
     scenario: null,
     compCard: null,
+    testAccount: false,
+    formerStaff: false,
     videoAnswered: 0,
     videoCorrect: 0,
     currentCourse: null,

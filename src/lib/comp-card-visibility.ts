@@ -63,6 +63,27 @@ export interface SharedCompCard {
   sharedAt: string;
 }
 
+/** A Comp Card template field a viewer may be kept from: a text field or the confidence. */
+export type HideableField = CompCardField | "confidence";
+const HIDEABLE: readonly HideableField[] = [...COMP_CARD_FIELDS, "confidence"];
+
+/**
+ * The fields the Comp Card template (Project.compCardTemplate, per language)
+ * hides in ANY language: a learner using that language never saw the field,
+ * so it is left out of a shared card whatever language they used (fails
+ * closed). Untrusted JSON: anything but a known key is ignored.
+ */
+export function hiddenInAnyLanguage(template: unknown): Set<HideableField> {
+  const hidden = new Set<HideableField>();
+  if (!template || typeof template !== "object" || Array.isArray(template)) return hidden;
+  for (const copy of Object.values(template as Record<string, unknown>)) {
+    const keys = (copy as { hidden?: unknown } | null)?.hidden;
+    if (!Array.isArray(keys)) continue;
+    for (const key of keys) if (HIDEABLE.includes(key as HideableField)) hidden.add(key as HideableField);
+  }
+  return hidden;
+}
+
 /** The organisation a viewer reads shared cards for: their own, or none. */
 export function viewerOrganisation(scope: Scope): string | null {
   if (scope.kind === "organisation") return scope.organisationId;
@@ -78,13 +99,14 @@ const isConfidence = (value: unknown): value is 1 | 2 | 3 | 4 | 5 =>
  * Visible only when the card is shared (effectiveSharing), the viewer
  * supports learners, and the viewer's organisation is the one it was shared
  * with. `hiddenFields`: fields the Comp Card template hides in any language,
- * which the learner may never have seen.
+ * which the learner may never have seen (hiddenInAnyLanguage); a hidden
+ * confidence reads as null.
  */
 export function compCardForViewer(
   card: CardRow | null,
   learnerOrganisationId: string | null,
   viewer: { scope: Scope; roles: readonly Role[] },
-  hiddenFields: ReadonlySet<CompCardField>
+  hiddenFields: ReadonlySet<HideableField>
 ): SharedCompCard | null {
   if (!card || !card.sharedAt) return null;
   if (effectiveSharing(card, learnerOrganisationId) !== "facilitators") return null;
@@ -99,7 +121,7 @@ export function compCardForViewer(
   }
   return {
     fields,
-    confidence: isConfidence(card.confidence) ? card.confidence : null,
+    confidence: !hiddenFields.has("confidence") && isConfidence(card.confidence) ? card.confidence : null,
     sharedAt: card.sharedAt.toISOString(),
   };
 }

@@ -15,8 +15,9 @@
  * or handled here.
  */
 
-import { getCurrentUser, hasRole } from "@/lib/auth-helpers";
+import { getCurrentUser } from "@/lib/auth-helpers";
 import { getAdminMembers, getAdminOrgs } from "@/lib/admin-queries";
+import { requireAdminProject } from "@/lib/scope";
 import { prisma } from "@/lib/prisma";
 import { sendInvitation, type InviteOutcome } from "@/lib/invitations";
 import type { Locale } from "@/lib/cms/types";
@@ -29,10 +30,17 @@ function toLocale(locale?: string): Locale {
   return (LOCALES.includes(locale ?? "") ? locale : "en") as Locale;
 }
 
+/**
+ * The signed-in ADMIN, with their project scope (requireAdminProject: the
+ * ADMIN role, and a complete profile of their own), else null. The lists
+ * an action returns are read with that scope (spec 3.4 SP24).
+ */
 async function requireAdmin() {
+  const viewer = await requireAdminProject();
+  if (!viewer?.user) return null;
+  // The whole user row, for the invitation's "from" (cached per request).
   const user = await getCurrentUser();
-  if (!user) return null;
-  return (await hasRole(PROJECT, "ADMIN")) ? user : null;
+  return user && user.id === viewer.user.id ? { ...user, scope: viewer.scope } : null;
 }
 
 async function audit(actorId: string, action: string, entity: string, entityId: string) {
@@ -62,7 +70,7 @@ export async function createOrganisation(name: string, shortName: string) {
     },
   });
   await audit(admin.id, "org.created", "Organisation", org.id);
-  return { ok: true as const, id: org.id, orgs: await getAdminOrgs() };
+  return { ok: true as const, id: org.id, orgs: await getAdminOrgs(admin.scope) };
 }
 
 /** Deletes an organisation. Refuses while it still has cohorts. */
@@ -75,7 +83,7 @@ export async function deleteOrganisation(id: string) {
     where: { id, projectId: PROJECT },
   });
   await audit(admin.id, "org.deleted", "Organisation", id);
-  return { ok: true as const, orgs: await getAdminOrgs() };
+  return { ok: true as const, orgs: await getAdminOrgs(admin.scope) };
 }
 
 /* -------------------------------- Cohorts ------------------------------- */
@@ -104,7 +112,7 @@ export async function createCohort(
     },
   });
   await audit(admin.id, "cohort.created", "Cohort", cohort.id);
-  return { ok: true as const, id: cohort.id, orgs: await getAdminOrgs() };
+  return { ok: true as const, id: cohort.id, orgs: await getAdminOrgs(admin.scope) };
 }
 
 export async function updateCohort(
@@ -137,7 +145,7 @@ export async function deleteCohort(id: string) {
   if (!admin) return { ok: false as const, error: "forbidden" };
   await prisma.cohort.deleteMany({ where: { id, projectId: PROJECT } });
   await audit(admin.id, "cohort.deleted", "Cohort", id);
-  return { ok: true as const, orgs: await getAdminOrgs() };
+  return { ok: true as const, orgs: await getAdminOrgs(admin.scope) };
 }
 
 /* -------------------------------- People -------------------------------- */
@@ -221,7 +229,7 @@ export async function addMember(
   const { outcome: invite, reason: inviteReason } = opts?.invite
     ? await inviteUser(admin, user, toLocale(opts.locale))
     : { outcome: "not-requested" as InviteOutcome, reason: undefined };
-  const members = await getAdminMembers();
+  const members = await getAdminMembers(admin.scope);
   return { ok: true as const, id: user.id, invite, inviteReason, members };
 }
 
@@ -236,7 +244,7 @@ export async function resendInvitation(userId: string, locale?: string) {
   if (!user) return { ok: false as const, error: "not-found" };
   const { outcome, reason } = await inviteUser(admin, user, toLocale(locale));
   return outcome === "sent"
-    ? { ok: true as const, invite: outcome, members: await getAdminMembers() }
+    ? { ok: true as const, invite: outcome, members: await getAdminMembers(admin.scope) }
     : { ok: false as const, error: outcome, reason };
 }
 
@@ -280,7 +288,7 @@ export async function setMemberRoles(userId: string, roles: Role[]) {
     }
   }
   await audit(admin.id, "member.roles_changed", "User", userId);
-  return { ok: true as const, members: await getAdminMembers() };
+  return { ok: true as const, members: await getAdminMembers(admin.scope) };
 }
 
 /** Assign (or clear) a member's cohort across their project memberships. */
@@ -301,7 +309,7 @@ export async function assignCohort(userId: string, cohortId: string | null) {
     data: { cohortId, organisationId },
   });
   await audit(admin.id, "member.cohort_changed", "User", userId);
-  return { ok: true as const, members: await getAdminMembers() };
+  return { ok: true as const, members: await getAdminMembers(admin.scope) };
 }
 
 /** Remove someone from the project (keeps their user account). */
@@ -313,5 +321,5 @@ export async function removeMember(userId: string) {
     where: { userId, projectId: PROJECT },
   });
   await audit(admin.id, "member.removed", "User", userId);
-  return { ok: true as const, members: await getAdminMembers() };
+  return { ok: true as const, members: await getAdminMembers(admin.scope) };
 }

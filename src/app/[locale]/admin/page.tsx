@@ -1,6 +1,7 @@
 import { setRequestLocale } from "next-intl/server";
 import { getAdminCounts } from "@/lib/server-queries";
-import { isAdmin } from "@/lib/admin-queries";
+import { getViewer } from "@/lib/scope";
+import { canManagePeople } from "@/lib/permissions";
 import { AdminDashboard } from "@/components/role/AdminDashboard";
 import { AccessNotice } from "@/components/AccessNotice";
 
@@ -14,14 +15,16 @@ export default async function Page({
 }) {
   const { locale } = await params;
   setRequestLocale(locale);
-  // The project overview is for admins only — decide before counting anything.
-  if (!(await isAdmin())) {
+  // The overview is for people managers (an ADMIN: the project; a partner
+  // admin: their organisation) with a scope — decide before counting anything.
+  const viewer = await getViewer();
+  if (!canManagePeople(viewer.roles) || viewer.scope.kind === "none") {
     return (
       <AccessNotice title="Admins only">
         Sign in with an admin account to see the project overview.
       </AccessNotice>
     );
   }
-  const counts = await getAdminCounts();
+  const counts = await getAdminCounts(viewer.scope);
   return <AdminDashboard counts={counts} />;
 }

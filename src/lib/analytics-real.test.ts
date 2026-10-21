@@ -1,6 +1,7 @@
 import { afterEach, describe, it, expect, vi } from "vitest";
 import type { CourseContent, StageKey } from "@/lib/cms/types";
 import type { LessonPlan } from "@/lib/cms/sections/learner-path";
+import type { Scope } from "@/lib/scope";
 
 /*
  * The staff analytics from captured data, with the database and the course
@@ -9,6 +10,11 @@ import type { LessonPlan } from "@/lib/cms/sections/learner-path";
  */
 
 vi.mock("server-only", () => ({}));
+// The scope module's per-request reads; these tests pass a scope directly.
+vi.mock("@/lib/auth-helpers", () => ({
+  getCurrentUser: async () => null,
+  getProjectMemberships: async () => [],
+}));
 
 const now = new Date();
 const enrolment = (
@@ -81,7 +87,15 @@ vi.mock("@/lib/cms", () => ({
     }) as unknown as CourseContent,
 }));
 
-const { buildRealAnalytics } = await import("./analytics-real");
+const { buildRealAnalytics: analyticsFor } = await import("./analytics-real");
+const { statisticsMembershipsInScope } = await import("./scope");
+
+/** An ADMIN's scope: the whole project. */
+const PROJECT_SCOPE: Scope = { kind: "project", viewerId: "admin", viewerOrganisationId: null };
+const ORG_A: Scope = { kind: "organisation", viewerId: "fac-a", organisationId: "org-a" };
+const NONE: Scope = { kind: "none" };
+/** The statistics as an ADMIN reads them (most tests). */
+const buildRealAnalytics = (locale: "en") => analyticsFor(PROJECT_SCOPE, locale);
 
 describe("buildRealAnalytics", () => {
   it("counts completion against the course's own lessons", async () => {
@@ -223,30 +237,79 @@ describe("buildRealAnalytics, for a course with lessons of its own", () => {
   });
 });
 
+/** Every key at any depth of `value`. */
+function keysOf(value: unknown, out = new Set<string>()): Set<string> {
+  if (Array.isArray(value)) value.forEach((v) => keysOf(v, out));
+  else if (value && typeof value === "object" && !(value instanceof Date)) {
+    for (const [k, v] of Object.entries(value)) {
+      out.add(k);
+      keysOf(v, out);
+    }
+  }
+  return out;
+}
+
+const lastQuery = () => (membershipFindMany.mock.calls.at(-1) as unknown[] | undefined)?.[0] as Record<string, unknown>;
+
+/*
+ * FD-U10 (D74, D83, spec 3.4 SP9, 7.2): the statistics are read for the
+ * viewer's scope, by the statistics filter: D53's learners, less anyone who
+ * ever held a staff role and marked test accounts. (The start date is
+ * Stream C's.)
+ */
 describe("whose data the statistics use", () => {
   // Staff who opened a learner page before Release 0 still hold the LEARNER
   // role it gave everyone; their test runs aren't learners' progress.
-  it("leaves out staff who still hold an old LEARNER role", async () => {
+  it("leaves out staff, anyone who ever held a staff role, and test accounts", async () => {
     membershipFindMany.mockClear();
     await buildRealAnalytics("en");
     expect(membershipFindMany).toHaveBeenCalledTimes(1);
-    expect(membershipFindMany.mock.calls[0]).toEqual([
-      expect.objectContaining({
-        where: {
-          projectId: "seq-elevate",
-          role: "LEARNER",
-          user: {
-            memberships: {
-              none: {
-                projectId: "seq-elevate",
-                role: {
-                  in: expect.arrayContaining(["FACILITATOR", "ADMIN", "CONTENT_EDITOR"]),
-                },
-              },
+    expect(lastQuery().where).toEqual(statisticsMembershipsInScope(PROJECT_SCOPE, null));
+    const [learners, neverStaff, notTest] = (lastQuery().where as { AND: unknown[] }).AND;
+    expect(learners).toEqual({
+      projectId: "seq-elevate",
+      role: "LEARNER",
+      user: {
+        memberships: {
+          none: {
+            projectId: "seq-elevate",
+            role: {
+              in: expect.arrayContaining(["FACILITATOR", "ADMIN", "CONTENT_EDITOR", "PARTNER_ADMIN"]),
             },
           },
         },
-      }),
-    ]);
+      },
+    });
+    expect(neverStaff).toEqual({ user: { staffHistory: { none: { projectId: "seq-elevate" } } } });
+    expect(notTest).toEqual({
+      user: { profiles: { none: { projectId: "seq-elevate", testAccountAt: { not: null } } } },
+    });
+  });
+
+  it("reads only the viewer's organisation for partner staff", async () => {
+    await analyticsFor(ORG_A, "en");
+    expect(lastQuery().where).toEqual(statisticsMembershipsInScope(ORG_A, null));
+    expect(JSON.stringify(lastQuery().where)).toContain('"organisationId":"org-a"');
+  });
+
+  it("answers null for no scope, without asking the database", async () => {
+    membershipFindMany.mockClear();
+    auditFindMany.mockClear();
+    expect(await analyticsFor(NONE, "en")).toBeNull();
+    expect(membershipFindMany).not.toHaveBeenCalled();
+    expect(auditFindMany).not.toHaveBeenCalled();
+  });
+
+  it("selects what it counts, never a reflection or the other answers", async () => {
+    await buildRealAnalytics("en");
+    const query = lastQuery();
+    expect(query.include).toBeUndefined();
+    const keys = keysOf(query.select);
+    expect(keys.has("reflection")).toBe(false);
+    expect(keys.has("responses")).toBe(false);
+    expect(keys.has("compCards")).toBe(false);
+    // Nothing of the user beyond who they are and their enrolments.
+    const user = (query.select as { user: { select: Record<string, unknown> } }).user.select;
+    expect(Object.keys(user).sort()).toEqual(["email", "enrollments", "id", "name"]);
   });
 });
