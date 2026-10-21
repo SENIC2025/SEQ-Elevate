@@ -299,7 +299,7 @@ export function SafeguardingEditor({ initial }: { initial: SafeguardingSetting }
             <AlertTriangle className="h-4 w-4 text-[var(--danger)]" aria-hidden />
             Nothing was saved. Please check:
           </p>
-          <ul className="mt-1 ml-5 list-disc">
+          <ul className="mt-1 ml-5 list-disc space-y-0.5">
             {errors.map((e, i) => {
               const d = e.index === null ? null : drafts[e.country][e.index];
               const target = d
@@ -307,7 +307,7 @@ export function SafeguardingEditor({ initial }: { initial: SafeguardingSetting }
                 : `${uid}-${e.country}`;
               return (
                 <li key={i}>
-                  <a href={`#${target}`} className="underline underline-offset-2">
+                  <a href={`#${target}`} className="inline-flex min-h-6 items-center underline underline-offset-2">
                     {problemText(e)}
                   </a>
                 </li>
