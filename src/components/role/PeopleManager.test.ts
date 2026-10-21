@@ -25,7 +25,7 @@ vi.mock("@/app/actions/admin", () => ({
 }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 
-const { PeopleManager } = await import("./PeopleManager");
+const { PeopleManager, detailChanges, draftWithCountry, removeNote } = await import("./PeopleManager");
 
 const IntlProvider = NextIntlClientProvider as FC<{
   locale: string;
@@ -188,12 +188,26 @@ describe("PeopleManager for an ADMIN", () => {
     const roleSelect = /<select[^>]*aria-label="Role"[^>]*>([\s\S]*?)<\/select>/.exec(html)?.[1] ?? "";
     expect(roleSelect).toContain(">Partner admin (includes Facilitator, Editor)</option>");
     expect(html).toMatch(/<select[^>]*aria-label="Organisation"/);
-    expect(html).toContain("— none (DIESIS or SENIC staff) —");
+    // DIESIS's staff belong to DIESIS (they see its learners, D74, D81);
+    // only SENIC's support staff have none.
+    const none = /<select[^>]*aria-label="Organisation"[^>]*>\s*<option value=""[^>]*>([^<]*)<\/option>/.exec(html)?.[1];
+    expect(none).toBe("— none (SENIC staff) —");
   });
 
   it("asks about a guardian's permission when adding a learner", () => {
     const html = render(asAdmin([member("me", ["ADMIN"])], { minAge: 16 }));
     expect(html).toContain("Under 16: our organisation holds a parent&#x27;s or guardian&#x27;s permission");
+  });
+
+  it("names no single age when the learners' countries have different ones (AGE_RULE=digital-consent)", () => {
+    const html = render(
+      asAdmin([member("me", ["ADMIN"]), member("ana", ["LEARNER"], { guardianConsent: true })], { minAge: null })
+    );
+    expect(html).toContain(
+      "Under the minimum age in their country: our organisation holds a parent&#x27;s or guardian&#x27;s permission"
+    );
+    expect(rowOf(html, "ana@example.org")).toContain("Under the minimum age, guardian&#x27;s permission recorded");
+    expect(html).not.toMatch(/Under \d+/);
   });
 
   it("says each person's organisation and country, and what their profile says", () => {
@@ -222,10 +236,13 @@ describe("PeopleManager for an ADMIN", () => {
       "Test account",
       "Former staff",
       "Under 16, guardian&#x27;s permission recorded",
-      "It also covers sharing their Comp Card with our facilitators",
+      "The guardian&#x27;s permission also covers sharing their Comp Card with our facilitators",
     ]) {
       expect(ana, text).toContain(text);
     }
+    // The tick's name says whose permission, read on its own.
+    const tick = /<label[^>]*>\s*<input[^>]*type="checkbox"[^>]*>\s*<span>([\s\S]*?)<\/span><\/label>/.exec(ana)?.[1] ?? "";
+    expect(tick.trim()).toMatch(/^The guardian&#x27;s permission/);
     const ben = rowOf(html, "ben@example.org");
     expect(ben).toContain("No organisation");
     expect(ben).toContain("Country not given");
@@ -263,5 +280,63 @@ describe("PeopleManager for an ADMIN", () => {
   it("offers a partner admin no review lists", () => {
     const html = render(asPartnerAdmin([member("me", ["PARTNER_ADMIN"])]));
     expect(html).not.toContain("Added by a partner admin, never signed in");
+  });
+});
+
+/*
+ * "Change details" (spec 6.3, Q24): what the form shows is what is saved.
+ * A learner's organisation follows a new country, and the form shows the
+ * organisation it brings as soon as the country is picked; an organisation
+ * picked after that (their own, say) is the one saved, so "new country,
+ * same organisation" can be said. A staff member's organisation never
+ * follows a country.
+ */
+describe("Change details: a new country and the organisation", () => {
+  const mappings = { DE: "org-a", CY: "org-b" } as const;
+  const ana = member("ana", ["LEARNER"], { name: "Ana", organisationId: "org-a", orgName: "Org A", country: "DE" });
+  const draft = { name: "Ana", country: "DE", organisationId: "org-a" };
+  const asAdminEdit = { admin: true, self: false };
+
+  it("shows the organisation a learner's new country brings, and their own when it is put back", () => {
+    expect(draftWithCountry(ana, draft, "CY", mappings)).toEqual({ name: "Ana", country: "CY", organisationId: "org-b" });
+    // A country mapped to no organisation: none.
+    expect(draftWithCountry(ana, draft, "GR", mappings).organisationId).toBe("");
+    const moved = draftWithCountry(ana, draft, "CY", mappings);
+    expect(draftWithCountry(ana, moved, "DE", mappings).organisationId).toBe("org-a");
+  });
+
+  it("never moves a staff member's organisation with the country", () => {
+    const fa = member("fa", ["FACILITATOR"], { organisationId: "org-a", country: "DE" });
+    expect(draftWithCountry(fa, draft, "CY", mappings)).toEqual({ ...draft, country: "CY" });
+  });
+
+  it("saves a new country with the organisation the form shows, the person's own included", () => {
+    expect(detailChanges(ana, { ...draft, country: "CY", organisationId: "org-a" }, asAdminEdit)).toEqual({
+      country: "CY",
+      organisationId: "org-a",
+    });
+    expect(detailChanges(ana, { ...draft, country: "CY", organisationId: "org-b" }, asAdminEdit)).toEqual({
+      country: "CY",
+      organisationId: "org-b",
+    });
+    expect(detailChanges(ana, { ...draft, organisationId: "" }, asAdminEdit)).toEqual({ organisationId: null });
+    expect(detailChanges(ana, draft, asAdminEdit)).toEqual({});
+  });
+
+  it("sends a partner admin's or your own change as a name only", () => {
+    const changed = { name: "Anna", country: "CY", organisationId: "org-b" };
+    expect(detailChanges(ana, changed, { admin: false, self: false })).toEqual({ name: "Anna" });
+    expect(detailChanges(ana, changed, { admin: true, self: true })).toEqual({ name: "Anna" });
+  });
+});
+
+describe("Remove: what the question says", () => {
+  it("tells a partner admin what happens without the server setting, which never applies to its people", () => {
+    expect(removeNote(false)).not.toContain("server setting");
+    expect(removeNote(false)).toContain("back on this list as a learner");
+  });
+
+  it("tells an ADMIN about the admins named in the server setting", () => {
+    expect(removeNote(true)).toContain("named in the server setting");
   });
 });

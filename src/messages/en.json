@@ -701,7 +701,7 @@
   },
   "admin": {
     "title": "{scope, select, organisation {{organisation} overview} other {Admin dashboard}}",
-    "learners": "{scope, select, organisation {Learners at your organisation} other {Learners}}",
+    "learners": "{part, select, note {Staff, former staff and test accounts left out.} other {{scope, select, organisation {Learners at your organisation} other {Learners}}}}",
     "cohorts": "{scope, select, organisation {Your organisation's cohorts} other {Cohorts}}",
     "organisations": "Organisations",
     "courses": "Published courses",
@@ -977,7 +977,7 @@
     },
     "admin": {
       "title": "Manage people",
-      "desc": "Organisations, cohorts, people and their roles."
+      "desc": "People, their roles and cohorts."
     },
     "facilitator": {
       "title": "Support learners",

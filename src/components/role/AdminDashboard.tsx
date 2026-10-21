@@ -49,11 +49,13 @@ export function AdminDashboard({
 
       <div className={`mt-6 grid sm:grid-cols-2 gap-4 ${admin ? "lg:grid-cols-4" : "lg:grid-cols-3"}`}>
         {/* counts.users counts learners only (the statistics filter without
-            a date: never staff, never a test account; getAdminCounts) */}
+            a date: never staff, never a test account; getAdminCounts), and
+            the figure says so (spec 7.4). */}
         <Stat
           icon={<Users className="h-5 w-5" />}
-          label={t("learners", scope)}
+          label={t("learners", { ...scope, part: "label" })}
           value={String(counts?.users ?? 0)}
+          note={t("learners", { ...scope, part: "note" })}
         />
         <Stat
           icon={<GraduationCap className="h-5 w-5" />}
@@ -189,10 +191,13 @@ function Stat({
   icon,
   label,
   value,
+  note,
 }: {
   icon: React.ReactNode;
   label: string;
   value: string;
+  /** Who the figure leaves out, under it (in sentence case, unlike the label). */
+  note?: string;
 }) {
   return (
     <Card>
@@ -205,6 +210,7 @@ function Stat({
             {label}
           </p>
           <p className="text-2xl font-bold">{value}</p>
+          {note ? <span className="mt-0.5 block text-xs text-[var(--muted-foreground)]">{note}</span> : null}
         </div>
       </CardContent>
     </Card>

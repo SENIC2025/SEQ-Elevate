@@ -63,6 +63,16 @@ describe("an invitation's copy", () => {
     ]);
   });
 
+  it("tells a partner admin what Manage people holds for it: no organisations, which only an ADMIN manages", async () => {
+    for (const locale of ["en", "de", "el"] as const) {
+      const copy = (await invite(["PARTNER_ADMIN"], locale)) as unknown as { capabilities: { desc: string }[] };
+      const people = copy.capabilities[2].desc;
+      expect(people, locale).not.toMatch(/Organisations|Organisationen|Οργανισμοί/);
+    }
+    const copy = (await invite(["PARTNER_ADMIN"])) as unknown as { capabilities: { desc: string }[] };
+    expect(copy.capabilities[2].desc).toBe("People, their roles and cohorts.");
+  });
+
   it("links the privacy notice in the invitee's language", async () => {
     expect((await invite(["LEARNER"], "el")).legalLinks).toEqual([
       { label: "Ενημέρωση για το απόρρητο", path: "/el/legal/privacy" },

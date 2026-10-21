@@ -12,17 +12,31 @@ import "server-only";
  */
 
 import { prisma } from "@/lib/prisma";
-import { organisationsInScope, peopleInScope, type Scope } from "@/lib/scope";
-import type { Country, Role } from "@prisma/client";
+import { membershipsInScope, organisationsInScope, peopleInScope, type Scope } from "@/lib/scope";
+import { COUNTRIES } from "@/lib/countries";
+import { minimumAgeFor } from "@/lib/profile";
+import type { Country, Prisma, Role } from "@prisma/client";
 
 const PROJECT = "seq-elevate";
+
+/**
+ * The people Manage people lists for the scope: an ADMIN, everyone with a
+ * role or a profile in the project; a partner admin, the people of its
+ * organisation who hold a role (peopleInScope leaves out ADMIN holders and
+ * ADMIN_EMAILS addresses). Never for no scope.
+ */
+function listedPeople(scope: Exclude<Scope, { kind: "none" }>): Prisma.UserWhereInput {
+  return scope.kind === "project"
+    ? peopleInScope(scope)
+    : { AND: [peopleInScope(scope), { memberships: { some: { projectId: PROJECT } } }] };
+}
 
 export interface AdminCohort {
   id: string;
   name: string;
   startsAt: string | null;
   endsAt: string | null;
-  /** The people in it: someone with two roles is one member. */
+  /** The people in it the viewer is shown: someone with two roles is one member. */
   memberCount: number;
 }
 
@@ -31,7 +45,11 @@ export interface AdminOrg {
   name: string;
   shortName: string;
   cohorts: AdminCohort[];
-  /** How many people's profiles name it: while any do, it can't be deleted. */
+  /**
+   * How many people's profiles name it, of those the viewer is shown on
+   * Manage people (for an ADMIN, everyone: while any do, it can't be
+   * deleted).
+   */
   people: number;
   /** The countries mapped to it (D73): while any are, it can't be deleted. */
   countries: Country[];
@@ -77,7 +95,12 @@ export interface AdminMember {
   invitedAt: string | null;
 }
 
-/** The organisations in scope, with their cohorts and member counts. */
+/**
+ * The organisations in scope, with their cohorts and member counts. The
+ * counts are of the people the viewer is shown on Manage people, so a
+ * partner admin's never count an ADMIN, an ADMIN_EMAILS address or
+ * someone with no role in its organisation.
+ */
 export async function getAdminOrgs(scope: Scope): Promise<AdminOrg[] | null> {
   if (scope.kind === "none") return null;
   try {
@@ -87,10 +110,10 @@ export async function getAdminOrgs(scope: Scope): Promise<AdminOrg[] | null> {
         cohorts: {
           orderBy: { createdAt: "asc" },
           // A membership per role: two for a learner who facilitates too.
-          include: { memberships: { select: { userId: true } } },
+          include: { memberships: { where: membershipsInScope(scope), select: { userId: true } } },
         },
         countryMappings: { select: { country: true } },
-        _count: { select: { profiles: true } },
+        _count: { select: { profiles: { where: { projectId: PROJECT, user: listedPeople(scope) } } } },
       },
       orderBy: { createdAt: "asc" },
     });
@@ -138,13 +161,9 @@ export async function getCountryMappings(
 export async function getAdminMembers(scope: Scope): Promise<AdminMember[] | null> {
   if (scope.kind === "none") return null;
   try {
-    const where =
-      scope.kind === "project"
-        ? peopleInScope(scope)
-        : { AND: [peopleInScope(scope), { memberships: { some: { projectId: PROJECT } } }] };
     const [users, mappings] = await Promise.all([
       prisma.user.findMany({
-        where,
+        where: listedPeople(scope),
         select: {
           id: true,
           email: true,
@@ -239,4 +258,20 @@ export async function getAdminMembers(scope: Scope): Promise<AdminMember[] | nul
   } catch {
     return [];
   }
+}
+
+/**
+ * The age a guardian's permission is recorded under, as Manage people says
+ * it ("Under 16"): the minimum age of the profile step (minimumAgeFor) when
+ * it is the same in every country the viewer's learners may come from (the
+ * countries mapped to a partner admin's organisation; every country when
+ * none is, or for an ADMIN), else null, and the screen says "the minimum
+ * age in their country" (AGE_RULE=digital-consent gives BE 13 to DE 16).
+ */
+export function guardianAge(
+  countries: readonly Country[],
+  env: Record<string, string | undefined> = process.env
+): number | null {
+  const ages = new Set((countries.length ? countries : COUNTRIES).map((c) => minimumAgeFor(c, env)));
+  return ages.size === 1 ? [...ages][0] : null;
 }

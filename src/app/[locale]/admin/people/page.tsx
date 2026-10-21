@@ -1,8 +1,7 @@
 import { setRequestLocale } from "next-intl/server";
-import { getAdminMembers, getAdminOrgs } from "@/lib/admin-queries";
+import { getAdminMembers, getAdminOrgs, getCountryMappings, guardianAge } from "@/lib/admin-queries";
 import { getViewer } from "@/lib/scope";
 import { canManagePeople, grantableRoles, seesWholeProject } from "@/lib/permissions";
-import { minimumAgeFor } from "@/lib/profile";
 import { PeopleManager } from "@/components/role/PeopleManager";
 import { Link } from "@/i18n/navigation";
 import { ChevronLeft, ShieldAlert } from "lucide-react";
@@ -21,9 +20,15 @@ export default async function Page({
   // organisation's people), read for their scope (D74).
   const viewer = await getViewer();
   const manager = canManagePeople(viewer.roles);
-  const [members, orgs] = manager
-    ? await Promise.all([getAdminMembers(viewer.scope), getAdminOrgs(viewer.scope)])
-    : [null, null];
+  const [members, orgs, mappings] = manager
+    ? await Promise.all([
+        getAdminMembers(viewer.scope),
+        getAdminOrgs(viewer.scope),
+        // An ADMIN's only (null for anyone else): "Change details" shows the
+        // organisation a learner's new country brings.
+        getCountryMappings(viewer.scope),
+      ])
+    : [null, null, null];
 
   if (!members) {
     return (
@@ -51,6 +56,10 @@ export default async function Page({
   const cohorts = (orgs ?? []).flatMap((o) =>
     o.cohorts.map((c) => ({ id: c.id, label: `${o.shortName} · ${c.name}`, organisationId: o.id }))
   );
+  // The age a guardian's permission is recorded under: that of the
+  // countries a partner admin's learners come from (every country for an
+  // ADMIN), or none when they differ.
+  const minAge = guardianAge(ownId ? ((orgs ?? []).find((o) => o.id === ownId)?.countries ?? []) : []);
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8">
@@ -75,7 +84,8 @@ export default async function Page({
         admin={admin}
         organisations={organisations}
         ownOrganisation={ownOrganisation}
-        minAge={minimumAgeFor(null)}
+        mappings={Object.fromEntries((mappings ?? []).map((m) => [m.country, m.organisationId]))}
+        minAge={minAge}
       />
     </div>
   );

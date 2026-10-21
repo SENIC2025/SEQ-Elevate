@@ -150,6 +150,79 @@ function errorText(error?: string): string {
 const addErrorText = (error?: string) =>
   error === "self" ? "You can't add your own address. Another admin can." : errorText(error);
 
+/** Holds LEARNER and nothing else (or no role): their organisation follows a new country. */
+const learnerOnly = (m: AdminMember) => m.roles.every((r) => r === "LEARNER");
+
+/** What "Change details" holds while it is open. */
+export interface DetailsDraft {
+  name: string;
+  country: string;
+  organisationId: string;
+}
+
+/**
+ * The draft with a new country (spec 6.3, Q24). A learner's organisation
+ * follows it: the one the country is mapped to (none when it isn't), or
+ * their own when their own country is picked again, shown at once so that
+ * what is saved is what the form shows; another one can still be picked
+ * after it. A staff member's organisation never follows a country.
+ */
+export function draftWithCountry(
+  m: AdminMember,
+  draft: DetailsDraft,
+  country: string,
+  mappings: Partial<Record<Country, string>>
+): DetailsDraft {
+  if (!learnerOnly(m)) return { ...draft, country };
+  const own = country === (m.country ?? "");
+  return {
+    ...draft,
+    country,
+    organisationId: own ? (m.organisationId ?? "") : (mappings[country as Country] ?? ""),
+  };
+}
+
+/**
+ * What "Change details" sends: what changed, and for a learner with a new
+ * country the organisation the form shows, even their own ("new country,
+ * same organisation"). The country and the organisation only for an ADMIN,
+ * never on their own row (the server refuses them anyway).
+ */
+export function detailChanges(
+  m: AdminMember,
+  draft: DetailsDraft,
+  who: { admin: boolean; self: boolean }
+): { name?: string; country?: string; organisationId?: string | null } {
+  const changes: { name?: string; country?: string; organisationId?: string | null } = {};
+  if (draft.name.trim() !== (m.name ?? "")) changes.name = draft.name;
+  if (who.admin && !who.self) {
+    const newCountry = !!draft.country && draft.country !== (m.country ?? "");
+    if (newCountry) changes.country = draft.country;
+    if (draft.organisationId !== (m.organisationId ?? "") || (newCountry && learnerOnly(m))) {
+      changes.organisationId = draft.organisationId || null;
+    }
+  }
+  return changes;
+}
+
+/**
+ * What "Remove" does, as the question says it. Admins named in the server
+ * setting (ADMIN_EMAILS) get their roles back; a partner admin never sees
+ * or removes one, so it isn't told about them.
+ */
+export function removeNote(admin: boolean): string {
+  return (
+    "They lose their roles and their cohort. Their account and data stay: " +
+    "progress, Comp Card, notes about them and their organisation are kept. " +
+    "They aren't signed out: on their next page they're back on this list as a learner" +
+    (admin ? ", or with Admin and Editor if they are named in the server setting." : ".")
+  );
+}
+
+/** "Under 16", or the minimum age by country when the countries' differ (guardianAge). */
+const underAge = (minAge: number | null, inTheirCountry: boolean) =>
+  minAge !== null ? `Under ${minAge}` : `Under the minimum age${inTheirCountry ? " in their country" : ""}`;
+
 /** Plain-language feedback for what happened to an invitation. */
 function inviteNotice(
   email: string,
@@ -206,8 +279,13 @@ export interface PeopleManagerProps {
   organisations: { id: string; name: string }[];
   /** A partner admin's own organisation: everyone it adds joins it. */
   ownOrganisation: { id: string; name: string } | null;
-  /** The age a guardian's permission is recorded under (minimumAgeFor). */
-  minAge: number;
+  /** An ADMIN's country mapping (country → organisation id): what a learner's new country brings. */
+  mappings?: Partial<Record<Country, string>>;
+  /**
+   * The age a guardian's permission is recorded under (guardianAge), or
+   * null when the learners' countries have different ones.
+   */
+  minAge: number | null;
 }
 
 export function PeopleManager({
@@ -218,6 +296,7 @@ export function PeopleManager({
   admin,
   organisations,
   ownOrganisation,
+  mappings = {},
   minAge,
 }: PeopleManagerProps) {
   const router = useRouter();
@@ -245,12 +324,7 @@ export function PeopleManager({
   const [confirming, setConfirming] = React.useState<string | null>(null);
   const [confirmError, setConfirmError] = React.useState<string | null>(null);
   // The person whose details are being changed, the draft, and why it failed.
-  const [editing, setEditing] = React.useState<{
-    id: string;
-    name: string;
-    country: string;
-    organisationId: string;
-  } | null>(null);
+  const [editing, setEditing] = React.useState<({ id: string } & DetailsDraft) | null>(null);
   const [editError, setEditError] = React.useState<string | null>(null);
   // Where focus goes once the list has changed (the counter repeats a move).
   const [focus, setFocus] = React.useState<{ id: string; n: number } | null>(null);
@@ -357,8 +431,20 @@ export function PeopleManager({
   }
 
   // A sharing tick shows what was picked at once, until the list the
-  // change returns says it (or it failed, and goes back).
+  // change returns says it (or it failed, or was kept, and goes back).
   const [sharingPicked, setSharingPicked] = React.useState<Record<string, boolean>>({});
+  const unpick = (id: string) =>
+    setSharingPicked((p) => {
+      const next = { ...p };
+      delete next[id];
+      return next;
+    });
+  // Taking the sharing part back unshares the learner's Comp Card at once,
+  // and ticking it again doesn't share it again: asked first (WCAG 3.3.4).
+  const sharingTickId = (id: string) => `${ids}-gs-${id}`;
+  const [takingBack, setTakingBack] = React.useState<string | null>(null);
+  const [takeBackError, setTakeBackError] = React.useState<string | null>(null);
+
   async function onGuardianSharing(m: AdminMember, on: boolean) {
     setPending(`gs-${m.id}`);
     setSharingPicked((p) => ({ ...p, [m.id]: on }));
@@ -368,12 +454,59 @@ export function PeopleManager({
     } catch {
       res = { ok: false as const, error: "no-answer" };
     }
-    setSharingPicked((p) => {
-      const next = { ...p };
-      delete next[m.id];
-      return next;
+    unpick(m.id);
+    report(res);
+  }
+
+  function onSharingTick(m: AdminMember, on: boolean) {
+    if (on) {
+      void onGuardianSharing(m, true);
+      return;
+    }
+    setNotice(null);
+    setError(null);
+    setConfirming(null);
+    setEditing(null);
+    setTakeBackError(null);
+    setSharingPicked((p) => ({ ...p, [m.id]: false }));
+    setTakingBack(m.id);
+  }
+
+  /** The question closed unanswered: the tick shows the permission as it is. */
+  function dropTakeBack() {
+    if (takingBack) unpick(takingBack);
+    setTakingBack(null);
+    setTakeBackError(null);
+  }
+
+  function keepSharing(m: AdminMember) {
+    dropTakeBack();
+    focusEl(sharingTickId(m.id));
+  }
+
+  async function onTakeBack(m: AdminMember) {
+    setPending(`gs-${m.id}`);
+    setTakeBackError(null);
+    let res: Awaited<ReturnType<typeof setGuardianSharing>>;
+    try {
+      res = await setGuardianSharing(m.id, false);
+    } catch {
+      res = { ok: false as const, error: "no-answer" };
+    }
+    if (!res.ok) {
+      // The question stays, says why, and can be tried again or kept.
+      setTakeBackError(errorText(res.error));
+      setPending(null);
+      return;
+    }
+    setTakingBack(null);
+    unpick(m.id);
+    setNotice({
+      kind: "ok",
+      text: `The guardian's permission no longer covers sharing the Comp Card of ${m.email}. It is set to “Only me”.`,
     });
     report(res);
+    focusEl(sharingTickId(m.id));
   }
 
   /** The bin asks first; on your own row it says why it can't. */
@@ -385,6 +518,7 @@ export function PeopleManager({
     setError(null);
     setConfirmError(null);
     setEditing(null);
+    dropTakeBack();
     setConfirming(m.id);
   }
 
@@ -431,6 +565,7 @@ export function PeopleManager({
     setError(null);
     setEditError(null);
     setConfirming(null);
+    dropTakeBack();
     setEditing({
       id: m.id,
       name: m.name ?? "",
@@ -447,14 +582,8 @@ export function PeopleManager({
 
   async function onSaveEdit(m: AdminMember) {
     if (!editing) return;
-    // Only what changed is sent: a new country alone moves a learner to the
-    // organisation it is mapped to; an organisation picked here wins.
-    const changes: { name?: string; country?: string; organisationId?: string | null } = {};
-    if (editing.name.trim() !== (m.name ?? "")) changes.name = editing.name;
-    if (admin && m.id !== selfId) {
-      if (editing.country && editing.country !== (m.country ?? "")) changes.country = editing.country;
-      if (editing.organisationId !== (m.organisationId ?? "")) changes.organisationId = editing.organisationId || null;
-    }
+    // What changed, as the form shows it (detailChanges).
+    const changes = detailChanges(m, editing, { admin, self: m.id === selfId });
     if (Object.keys(changes).length === 0) {
       closeEdit(m);
       return;
@@ -521,20 +650,21 @@ export function PeopleManager({
               {m.testAccount ? <span className={chipCls}>Test account</span> : null}
               {m.formerStaff ? <span className={chipCls}>Former staff</span> : null}
               {m.guardianConsent ? (
-                <span className={chipCls}>Under {minAge}, guardian&apos;s permission recorded</span>
+                <span className={chipCls}>{underAge(minAge, false)}, guardian&apos;s permission recorded</span>
               ) : null}
             </div>
             {m.guardianConsent && changeable && m.roles.length === 1 && m.roles[0] === "LEARNER" ? (
               <label className="mt-1 flex max-w-60 items-start gap-1.5 text-[11px]">
                 <input
+                  id={sharingTickId(m.id)}
                   type="checkbox"
                   checked={sharingPicked[m.id] ?? m.guardianSharing}
-                  disabled={pending === `gs-${m.id}`}
-                  onChange={(e) => onGuardianSharing(m, e.target.checked)}
+                  disabled={pending === `gs-${m.id}` || takingBack === m.id}
+                  onChange={(e) => onSharingTick(m, e.target.checked)}
                   className="mt-0.5 h-4 w-4 flex-shrink-0 accent-[var(--accent)]"
                 />
                 <span>
-                  It also covers sharing their Comp Card with our facilitators
+                  The guardian&apos;s permission also covers sharing their Comp Card with our facilitators
                   <span className="sr-only"> ({m.email})</span>
                 </span>
               </label>
@@ -693,6 +823,30 @@ export function PeopleManager({
             ) : null}
           </td>
         </tr>
+        {takingBack === m.id ? (
+          <tr className="border-b border-[var(--border)] last:border-0">
+            <td colSpan={columns} className="p-0">
+              <div className="sticky left-0 w-[100cqw] px-4 pb-3">
+                <InlineConfirm
+                  heading="h2"
+                  title={`Take back the guardian's permission to share the Comp Card of ${m.name || m.email}?`}
+                  confirmLabel="Take back the permission"
+                  keepLabel="Keep it"
+                  busy={pending === `gs-${m.id}`}
+                  error={takeBackError}
+                  onConfirm={() => onTakeBack(m)}
+                  onKeep={() => keepSharing(m)}
+                >
+                  <p className="mt-1 text-xs">
+                    Their Comp Card goes back to “Only me” at once, and our
+                    facilitators no longer see it. Ticking this again later
+                    doesn&apos;t share it again: they choose that themselves.
+                  </p>
+                </InlineConfirm>
+              </div>
+            </td>
+          </tr>
+        ) : null}
         {editing?.id === m.id ? (
           <tr className="border-b border-[var(--border)] last:border-0">
             <td colSpan={columns} className="p-0">
@@ -701,6 +855,8 @@ export function PeopleManager({
                   m={m}
                   draft={editing}
                   onDraft={(patch) => setEditing((d) => (d ? { ...d, ...patch } : d))}
+                  onCountry={(country) => setEditing((d) => (d ? { ...d, ...draftWithCountry(m, d, country, mappings) } : d))}
+                  mappings={mappings}
                   nameOnly={!admin || self}
                   organisations={organisations}
                   busy={pending === `ed-${m.id}`}
@@ -730,14 +886,7 @@ export function PeopleManager({
                   onConfirm={() => onRemove(m)}
                   onKeep={() => keep(m)}
                 >
-                  <p className="mt-1 text-xs">
-                    They lose their roles and their cohort. Their
-                    account and data stay: progress, Comp Card, notes
-                    about them and their organisation are kept. They
-                    aren&apos;t signed out: on their next page they&apos;re
-                    back on this list as a learner, or with Admin and
-                    Editor if they are named in the server setting.
-                  </p>
+                  <p className="mt-1 text-xs">{removeNote(admin)}</p>
                 </InlineConfirm>
               </div>
             </td>
@@ -836,7 +985,7 @@ export function PeopleManager({
                   aria-label="Organisation"
                   className={`${inputCls} max-w-full`}
                 >
-                  <option value="">— none (DIESIS or SENIC staff) —</option>
+                  <option value="">— none (SENIC staff) —</option>
                   {organisations.map((o) => (
                     <option key={o.id} value={o.id}>
                       {o.name}
@@ -888,7 +1037,7 @@ export function PeopleManager({
                   }}
                   className="mt-0.5 h-4 w-4 accent-[var(--accent)]"
                 />
-                Under {minAge}: our organisation holds a parent&apos;s or
+                {underAge(minAge, true)}: our organisation holds a parent&apos;s or
                 guardian&apos;s permission
               </label>
               {guardian ? (
@@ -1003,13 +1152,16 @@ export function PeopleManager({
 
 /**
  * A person's details, changed in place: the name (people managers), and
- * the country and organisation (an ADMIN, never their own). A new country
- * alone moves a learner to the organisation it is mapped to.
+ * the country and organisation (an ADMIN, never their own). A learner's
+ * new country picks the organisation it is mapped to, on screen at once
+ * (draftWithCountry); another one can be picked before saving.
  */
 function EditDetails({
   m,
   draft,
   onDraft,
+  onCountry,
+  mappings,
   nameOnly,
   organisations,
   busy,
@@ -1018,8 +1170,12 @@ function EditDetails({
   onCancel,
 }: {
   m: AdminMember;
-  draft: { name: string; country: string; organisationId: string };
-  onDraft: (patch: Partial<{ name: string; country: string; organisationId: string }>) => void;
+  draft: DetailsDraft;
+  onDraft: (patch: Partial<DetailsDraft>) => void;
+  /** A new country picked (it may bring an organisation). */
+  onCountry: (country: string) => void;
+  /** An ADMIN's country mapping (country → organisation id). */
+  mappings: Partial<Record<Country, string>>;
   /** Only the name: a partner admin, or an ADMIN on their own row. */
   nameOnly: boolean;
   organisations: { id: string; name: string }[];
@@ -1033,6 +1189,16 @@ function EditDetails({
   React.useEffect(() => {
     headingRef.current?.focus();
   }, []);
+  const learner = learnerOnly(m);
+  // Said (and announced) once a learner's country is changed: which
+  // organisation that country's learners join, as the select now shows.
+  const newCountry = !nameOnly && learner && !!draft.country && draft.country !== (m.country ?? "");
+  const mappedId = newCountry ? mappings[draft.country as Country] : undefined;
+  const mappedName = organisations.find((o) => o.id === mappedId)?.name;
+  const brought = newCountry
+    ? `${COUNTRY_NAMES[draft.country as Country]}: ` +
+      (mappedName ? `learners join ${mappedName}.` : "no organisation supports it yet.")
+    : "";
   return (
     <div
       role="group"
@@ -1061,7 +1227,7 @@ function EditDetails({
               <span className="block mb-1">Country</span>
               <select
                 value={draft.country}
-                onChange={(e) => onDraft({ country: e.target.value })}
+                onChange={(e) => onCountry(e.target.value)}
                 aria-label="Country"
                 className={inputCls}
               >
@@ -1100,12 +1266,19 @@ function EditDetails({
         </Button>
       </div>
       {nameOnly ? null : (
-        <p className="mt-2 text-xs text-[var(--muted-foreground)]">
-          A new country moves a learner to the organisation that supports it,
-          unless you pick one here. A new organisation sets their Comp Card
-          back to “Only me” and takes them out of another organisation&apos;s
-          cohort.
-        </p>
+        <>
+          {/* Polite: picking a country also changes the Organisation select. */}
+          <p role="status" className="mt-2 text-xs font-medium">
+            {brought}
+          </p>
+          <p className="mt-1 text-xs text-[var(--muted-foreground)]">
+            {learner
+              ? "A learner's new country brings the organisation that supports it; you can pick another one before saving. "
+              : "A staff member's organisation doesn't follow their country. "}
+            A new organisation sets their Comp Card back to “Only me” and
+            takes them out of another organisation&apos;s cohort.
+          </p>
+        </>
       )}
       {error ? (
         <p role="alert" className="mt-2 text-xs text-[var(--danger)] flex items-center gap-1.5">

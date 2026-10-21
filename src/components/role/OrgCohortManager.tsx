@@ -322,7 +322,9 @@ export function OrgCohortManager({
             {/* Labelled region: lets screen readers (and tests) address one
                 organisation's controls without ambiguity. */}
             <CardContent className="p-4" role="region" aria-label={org.name}>
-              <div className="flex items-center gap-2 mb-3">
+              {/* Wraps: the name, its counts and the bin stay on a 320px
+                  screen (WCAG 1.4.10). */}
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mb-3">
                 <Building2 className="h-4 w-4 text-[var(--accent)]" />
                 <p className="font-semibold">{org.name}</p>
                 <Badge variant="muted" className="text-[10px]">

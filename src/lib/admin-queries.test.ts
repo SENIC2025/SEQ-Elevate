@@ -46,8 +46,8 @@ vi.mock("@/lib/prisma", () => ({
   },
 }));
 
-const { getAdminOrgs, getAdminMembers, getCountryMappings } = await import("./admin-queries");
-const { organisationsInScope, peopleInScope } = await import("./scope");
+const { getAdminOrgs, getAdminMembers, getCountryMappings, guardianAge } = await import("./admin-queries");
+const { membershipsInScope, organisationsInScope, peopleInScope } = await import("./scope");
 
 const PROJECT_SCOPE: Scope = { kind: "project", viewerId: "admin", viewerOrganisationId: null };
 const ORG_A: Scope = { kind: "organisation", viewerId: "paa", organisationId: "org-a" };
@@ -252,6 +252,67 @@ describe("getAdminOrgs: what keeps an organisation from being deleted", () => {
     ]);
     const [org] = (await getAdminOrgs(PROJECT_SCOPE)) ?? [];
     expect(org).toMatchObject({ people: 3, countries: ["DE"] });
+  });
+});
+
+/*
+ * The counts on Organisations & cohorts are of the people the viewer is
+ * shown: a partner admin's "N people" is the number of rows on its People
+ * list, and a cohort's members are among them, so neither counts an ADMIN
+ * holder, an ADMIN_EMAILS address or someone with no role in its
+ * organisation. An ADMIN's counts are of everyone whose profile names the
+ * organisation (why it can't be deleted).
+ */
+describe("getAdminOrgs: the counts are of the people the viewer is shown", () => {
+  type Include = {
+    _count: { select: { profiles: unknown } };
+    cohorts: { include: { memberships: { where?: unknown } } };
+  };
+
+  it("counts, for a partner admin, exactly the people its People list shows, and only them in a cohort", async () => {
+    vi.stubEnv("ADMIN_EMAILS", "boss@example.test");
+    await getAdminMembers(ORG_A);
+    const listed = argsOf(userFindMany).where;
+    await getAdminOrgs(ORG_A);
+    const include = argsOf(organisationFindMany).include as Include;
+    expect(include._count.select.profiles).toEqual({ where: { projectId: "seq-elevate", user: listed } });
+    expect(include.cohorts.include.memberships.where).toEqual(membershipsInScope(ORG_A));
+    const text = JSON.stringify(include);
+    expect(text).toContain('"role":"ADMIN"');
+    expect(text).toContain("boss@example.test");
+  });
+
+  it("counts, for an ADMIN, everyone whose profile names the organisation", async () => {
+    await getAdminMembers(PROJECT_SCOPE);
+    const listed = argsOf(userFindMany).where;
+    await getAdminOrgs(PROJECT_SCOPE);
+    const include = argsOf(organisationFindMany).include as Include;
+    expect(include._count.select.profiles).toEqual({ where: { projectId: "seq-elevate", user: listed } });
+    expect(include.cohorts.include.memberships.where).toEqual({ projectId: "seq-elevate" });
+  });
+});
+
+/*
+ * "Under {age}: our organisation holds a guardian's permission" (spec
+ * 5.6): one age when it is the same in every country the viewer's learners
+ * may come from, else none (AGE_RULE=digital-consent gives each country
+ * its own, BE 13 to DE 16), and the screen then says "the minimum age".
+ */
+describe("guardianAge", () => {
+  it("is 16 everywhere by default, and the age AGE_RULE gives", () => {
+    expect(guardianAge(["DE", "CY", "BE", "GR", "OTHER"], {})).toBe(16);
+    expect(guardianAge(["BE"], { AGE_RULE: "14" })).toBe(14);
+  });
+
+  it("is a country's own age of digital consent when the learners come from that country", () => {
+    expect(guardianAge(["CY"], { AGE_RULE: "digital-consent" })).toBe(14);
+    expect(guardianAge(["DE", "OTHER"], { AGE_RULE: "digital-consent" })).toBe(16);
+  });
+
+  it("is none when the countries' ages differ, or no country is known (every country counts then)", () => {
+    expect(guardianAge(["BE", "OTHER"], { AGE_RULE: "digital-consent" })).toBeNull();
+    expect(guardianAge([], { AGE_RULE: "digital-consent" })).toBeNull();
+    expect(guardianAge([], {})).toBe(16);
   });
 });
 

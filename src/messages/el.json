@@ -701,7 +701,7 @@
   },
   "admin": {
     "title": "{scope, select, organisation {Επισκόπηση: {organisation}} other {Πίνακας διαχειριστή}}",
-    "learners": "{scope, select, organisation {Εκπαιδευόμενοι του φορέα σου} other {Μαθητές}}",
+    "learners": "{part, select, note {Χωρίς προσωπικό, πρώην προσωπικό και δοκιμαστικούς λογαριασμούς.} other {{scope, select, organisation {Εκπαιδευόμενοι του φορέα σου} other {Εκπαιδευόμενοι}}}}",
     "cohorts": "{scope, select, organisation {Ομάδες του φορέα σου} other {Ομάδες}}",
     "organisations": "Οργανισμοί",
     "courses": "Δημοσιευμένα μαθήματα",
@@ -977,7 +977,7 @@
     },
     "admin": {
       "title": "Διαχείριση ατόμων",
-      "desc": "Οργανισμοί, ομάδες, άτομα και οι ρόλοι τους."
+      "desc": "Άτομα, οι ρόλοι τους και οι ομάδες."
     },
     "facilitator": {
       "title": "Υποστήριξη εκπαιδευομένων",

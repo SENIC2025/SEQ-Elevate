@@ -701,7 +701,7 @@
   },
   "admin": {
     "title": "{scope, select, organisation {Übersicht: {organisation}} other {Admin-Dashboard}}",
-    "learners": "{scope, select, organisation {Lernende deiner Organisation} other {Lernende}}",
+    "learners": "{part, select, note {Ohne Personal, ehemaliges Personal und Testkonten.} other {{scope, select, organisation {Lernende deiner Organisation} other {Lernende}}}}",
     "cohorts": "{scope, select, organisation {Kohorten deiner Organisation} other {Kohorten}}",
     "organisations": "Organisationen",
     "courses": "Veröffentlichte Kurse",
@@ -977,7 +977,7 @@
     },
     "admin": {
       "title": "Personen verwalten",
-      "desc": "Organisationen, Kohorten, Personen und ihre Rollen."
+      "desc": "Personen, ihre Rollen und Kohorten."
     },
     "facilitator": {
       "title": "Lernende begleiten",

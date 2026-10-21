@@ -66,6 +66,27 @@ describe("AdminDashboard", () => {
     expect(partner).toContain("Pass a request that reaches you another way to DIESIS.");
   });
 
+  it("says who the Learners figure leaves out (spec 7.4), for an ADMIN and a partner admin", () => {
+    for (const organisationName of [null, "Pro Arbeit"]) {
+      const html = render({ counts, organisationName });
+      expect(html).toContain("Staff, former staff and test accounts left out.");
+    }
+    // The figure stays right under its label (what reads it on the page).
+    expect(render({ counts, organisationName: null })).toMatch(/>Learners<\/p><p[^>]*>7<\/p>/);
+  });
+
+  it.each([
+    ["de", de, "Ohne Personal, ehemaliges Personal und Testkonten."],
+    ["el", el, "Χωρίς προσωπικό, πρώην προσωπικό και δοκιμαστικούς λογαριασμούς."],
+  ])("says so in %s too, with the learners called the same in both labels", (locale, messages, note) => {
+    for (const organisationName of [null, "Synthesis"]) {
+      const html = render({ counts, organisationName }, locale, messages as typeof en);
+      expect(html).toContain(note);
+      // Greek: learners are "Εκπαιδευόμενοι" in both, never "Μαθητές" (pupils).
+      expect(html).not.toContain("Μαθητές");
+    }
+  });
+
   it.each([
     ["de", de, "Lernende deiner Organisation"],
     ["el", el, "Εκπαιδευόμενοι του φορέα σου"],
