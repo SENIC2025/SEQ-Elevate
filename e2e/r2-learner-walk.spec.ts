@@ -5,6 +5,7 @@ import { createPerson } from "./fixtures/people";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { applyR2Deltas, type Captured } from "./fixtures/r2-deltas";
+import { applyR3Deltas } from "./fixtures/r3-deltas";
 import { AE1_TITLE, ae1Lessons } from "./fixtures/r2-ae1-course";
 import { removeR2Course, seedR2Course } from "./fixtures/r2-course";
 
@@ -15,6 +16,9 @@ import { removeR2Course, seedR2Course } from "./fixtures/r2-course";
  * with markup that differs only by the closed list of spec 5.12
  * (e2e/fixtures/r2-deltas.ts). It replaces Release 1's
  * r1-learner-identical.spec.ts.
+ *
+ * Release 3 (spec 18.4): each recording is compared with Release 3's closed
+ * list applied too (e2e/fixtures/r3-deltas.ts, applyR3Deltas).
  *
  * Phase 1. A signed-in learner walks a published course created here — in
  * English and in German — and the built-in "workplace-conflict"; every
@@ -421,7 +425,7 @@ async function capture(page: Page, key: string, names?: Record<string, string>) 
     .catch(() => null);
   const got: Captured = { aria, counter: counter?.trim() ?? null };
   expect(baseline[key], `a Release 0 recording for "${key}"`).toBeTruthy();
-  const expected = NO_DELTAS ? baseline[key] : applyR2Deltas(key, baseline[key], { names });
+  const expected = NO_DELTAS ? baseline[key] : applyR3Deltas(key, applyR2Deltas(key, baseline[key], { names }));
   expect.soft(got, `what learners see at "${key}"`).toEqual(expected);
 }
 
@@ -667,7 +671,7 @@ function learnerSees(page: Page, locale: "en" | "de") {
     seen[key] = got;
     if (RECORD) return;
     expect(r2Baseline[key], `a Release 2 recording for "${key}"`).toBeTruthy();
-    expect.soft(got, `what learners see at "${key}"`).toEqual(r2Baseline[key]);
+    expect.soft(got, `what learners see at "${key}"`).toEqual(applyR3Deltas(key, r2Baseline[key]));
   };
 }
 
@@ -675,7 +679,7 @@ function learnerSees(page: Page, locale: "en" | "de") {
 function previewSees(page: Page, locale: "en" | "de") {
   return async (step: string) => {
     const key = `flexible:${locale}:${step}`;
-    const learner = RECORD ? seen[key] : r2Baseline[key];
+    const learner = RECORD ? seen[key] : r2Baseline[key] && applyR3Deltas(key, r2Baseline[key]);
     expect(learner, `what the learner saw at "${key}"`).toBeTruthy();
     const got = await snapshot(page);
     expect.soft(asLearnersSeeIt(got), `the preview at "${key}" shows what learners get`).toEqual(
