@@ -24,7 +24,7 @@ import {
   withInviteIntent,
   type InviteIntent,
 } from "@/lib/invite-context";
-import type { InviteCopy } from "@/lib/invite-email";
+import { legalFooterLinks, type InviteCopy } from "@/lib/invite-email";
 import { signInErrorType, wasVerificationSent } from "@/lib/signin-result";
 import { featuredWorkspaces, primaryRole } from "@/lib/workspaces";
 import type { Locale } from "@/lib/cms/types";
@@ -138,6 +138,7 @@ async function buildCopy(opts: {
     expiredHelp: t("expiredHelp", { site: await siteHost() }),
     ignore: t("ignore"),
     footer: t("footer"),
+    legalLinks: legalFooterLinks(opts.locale),
   };
 }
 

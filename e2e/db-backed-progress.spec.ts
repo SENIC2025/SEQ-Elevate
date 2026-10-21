@@ -2288,6 +2288,9 @@ describe("admin manages organisations, cohorts and people", () => {
 
   test.afterAll(async () => {
     await prisma.auditLog.deleteMany({ where: { actorId: adminId } });
+    // The people go first: an organisation someone's profile names can't
+    // be deleted (Release 3, D101).
+    await prisma.user.deleteMany({ where: { email: { in: allEmails } } });
     // Sweep every "E2E Partner …" org, not just this run's — a failed run
     // leaves one behind and the next run then sees ambiguous UI.
     // Cohorts go first: the org refuses to delete while it still has them.
@@ -2329,7 +2332,9 @@ describe("admin manages organisations, cohorts and people", () => {
     await page.getByLabel(/^name$/i).first().fill(orgName);
     await page.getByRole("button", { name: /add organisation/i }).first().click();
 
-    await expect(page.getByText(orgName).first()).toBeVisible({
+    // Its own region: the name is also an option of the country mapping's
+    // pickers (Release 3), which are hidden until opened.
+    await expect(page.getByRole("region", { name: orgName }).first()).toBeVisible({
       timeout: 10000,
     });
 
@@ -2358,6 +2363,9 @@ describe("admin manages organisations, cohorts and people", () => {
 
     await page.getByLabel(/^email$/i).first().fill(addedEmail);
     await page.getByLabel(/^role$/i).first().selectOption("FACILITATOR");
+    // Release 3 (D72, D101): a person's organisation is set when they are
+    // added (or with "Change details"); a cohort never moves it.
+    await page.getByLabel(/^organisation$/i).first().selectOption({ label: orgName });
     await page.getByRole("button", { name: /^add$/i }).first().click();
 
     const row = page.locator("tr", { hasText: addedEmail }).first();
@@ -2386,7 +2394,13 @@ describe("admin manages organisations, cohorts and people", () => {
       where: { userId: added!.id, projectId: "seq-elevate" },
     });
     expect(assigned?.cohortId, "cohort assigned").toBe(cohort!.id);
-    expect(assigned?.organisationId, "org carried from the cohort").toBe(org!.id);
+    // The organisation is the profile's, set when they were added; the
+    // cohort writes none onto the membership (Release 3, D72).
+    expect(assigned?.organisationId, "no organisation on the membership").toBeNull();
+    const profile = await prisma.projectProfile.findUnique({
+      where: { userId_projectId: { userId: added!.id, projectId: "seq-elevate" } },
+    });
+    expect(profile?.organisationId, "the organisation picked when adding them").toBe(org!.id);
 
     // Grant a second role via the chips — the cohort must survive.
     await row.getByRole("button", { name: "Editor" }).first().click();

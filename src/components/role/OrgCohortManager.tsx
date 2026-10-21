@@ -10,6 +10,7 @@ import {
   createOrganisation,
   deleteOrganisation,
   createCohort,
+  updateCohort,
   deleteCohort,
 } from "@/app/actions/admin";
 import type { AdminOrg } from "@/lib/admin-queries";
@@ -21,7 +22,15 @@ import {
   Loader2,
   AlertTriangle,
   CalendarDays,
+  Pencil,
 } from "lucide-react";
+
+/*
+ * Organisations & cohorts. An ADMIN creates and deletes organisations and
+ * manages every cohort; a partner admin sees its own organisation and
+ * manages its cohorts (spec 6.2, 6.3). The server refuses the rest anyway
+ * (actions/admin.ts).
+ */
 
 const inputCls =
   "rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm";
@@ -33,6 +42,13 @@ function errorText(error?: string): string {
       return "Admins only.";
     case "has-cohorts":
       return "Delete the organisation's cohorts first.";
+    case "has-people":
+      return "People belong to this organisation. Move them to another organisation first (Manage people, “Change details”).";
+    case "has-mapping":
+      return "A country is mapped to this organisation. Map it to another organisation first.";
+    case "unknown-org":
+    case "unknown-cohort":
+      return "That isn't on your list any more. Reload the page.";
     case "name-required":
       return "A name is required.";
     case "no-answer":
@@ -45,7 +61,14 @@ function errorText(error?: string): string {
 /** What is being asked about before it is deleted. */
 type Asking = { kind: "org" | "cohort"; id: string } | null;
 
-export function OrgCohortManager({ orgs }: { orgs: AdminOrg[] }) {
+export function OrgCohortManager({
+  orgs,
+  canManageOrganisations,
+}: {
+  orgs: AdminOrg[];
+  /** An ADMIN: creates and deletes organisations. A partner admin manages its own's cohorts only. */
+  canManageOrganisations: boolean;
+}) {
   const router = useRouter();
   const [orgName, setOrgName] = React.useState("");
   const [orgShort, setOrgShort] = React.useState("");
@@ -73,6 +96,16 @@ export function OrgCohortManager({ orgs }: { orgs: AdminOrg[] }) {
     if (focus) document.getElementById(focus.id)?.focus();
   }, [focus]);
 
+  // The cohort being changed in place, its draft, and why it failed.
+  const [editing, setEditing] = React.useState<{
+    id: string;
+    name: string;
+    startsAt: string;
+    endsAt: string;
+  } | null>(null);
+  const [editError, setEditError] = React.useState<string | null>(null);
+  const editId = (id: string) => `${ids}-edit-cohort-${id}`;
+
   // Per-organisation "new cohort" drafts.
   const [drafts, setDrafts] = React.useState<
     Record<string, { name: string; startsAt: string; endsAt: string }>
@@ -96,13 +129,21 @@ export function OrgCohortManager({ orgs }: { orgs: AdminOrg[] }) {
   }
 
   /**
-   * The bins ask first. An organisation that still has cohorts can't be
-   * deleted, so its bin says so instead of asking.
+   * The bins ask first. An organisation that still has cohorts, a country
+   * or people can't be deleted, so its bin says so instead of asking.
    */
   function ask(kind: "org" | "cohort", id: string) {
     const org = kind === "org" ? shown.find((o) => o.id === id) : null;
     if (org && org.cohorts.length > 0) {
       setError(errorText("has-cohorts"));
+      return;
+    }
+    if (org && org.countries.length > 0) {
+      setError(errorText("has-mapping"));
+      return;
+    }
+    if (org && org.people > 0) {
+      setError(errorText("has-people"));
       return;
     }
     setError(null);
@@ -153,6 +194,44 @@ export function OrgCohortManager({ orgs }: { orgs: AdminOrg[] }) {
     );
   }
 
+  function openEdit(c: AdminOrg["cohorts"][number]) {
+    setError(null);
+    setEditError(null);
+    setConfirming(null);
+    setEditing({ id: c.id, name: c.name, startsAt: c.startsAt ?? "", endsAt: c.endsAt ?? "" });
+  }
+
+  function closeEdit(id: string) {
+    setEditing(null);
+    setEditError(null);
+    focusEl(editId(id));
+  }
+
+  async function onSaveCohort(id: string) {
+    if (!editing || !editing.name.trim()) return;
+    setPending(`editcohort-${id}`);
+    setEditError(null);
+    let res: Awaited<ReturnType<typeof updateCohort>>;
+    try {
+      res = await updateCohort(id, {
+        name: editing.name,
+        startsAt: editing.startsAt || null,
+        endsAt: editing.endsAt || null,
+      });
+    } catch {
+      setEditError(errorText("no-answer"));
+      setPending(null);
+      return;
+    }
+    if (!res.ok) {
+      setEditError(errorText(res.error));
+      setPending(null);
+      return;
+    }
+    report(res);
+    closeEdit(id);
+  }
+
   async function onAddOrg() {
     if (!orgName.trim()) return;
     setPending("org");
@@ -187,7 +266,8 @@ export function OrgCohortManager({ orgs }: { orgs: AdminOrg[] }) {
         </p>
       ) : null}
 
-      {/* New organisation */}
+      {/* New organisation: ADMINs only */}
+      {canManageOrganisations ? (
       <Card>
         <CardContent className="p-4">
           <p className="text-sm font-semibold mb-2 flex items-center gap-1.5">
@@ -229,6 +309,7 @@ export function OrgCohortManager({ orgs }: { orgs: AdminOrg[] }) {
           </div>
         </CardContent>
       </Card>
+      ) : null}
 
       {/* Organisations + their cohorts */}
       {shown.length === 0 ? (
@@ -241,7 +322,9 @@ export function OrgCohortManager({ orgs }: { orgs: AdminOrg[] }) {
             {/* Labelled region: lets screen readers (and tests) address one
                 organisation's controls without ambiguity. */}
             <CardContent className="p-4" role="region" aria-label={org.name}>
-              <div className="flex items-center gap-2 mb-3">
+              {/* Wraps: the name, its counts and the bin stay on a 320px
+                  screen (WCAG 1.4.10). */}
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mb-3">
                 <Building2 className="h-4 w-4 text-[var(--accent)]" />
                 <p className="font-semibold">{org.name}</p>
                 <Badge variant="muted" className="text-[10px]">
@@ -251,15 +334,20 @@ export function OrgCohortManager({ orgs }: { orgs: AdminOrg[] }) {
                   {org.cohorts.length} cohort
                   {org.cohorts.length === 1 ? "" : "s"}
                 </Badge>
-                <button
-                  id={binId("org", org.id)}
-                  type="button"
-                  onClick={() => ask("org", org.id)}
-                  aria-label={`Delete ${org.name}`}
-                  className="ml-auto rounded-md p-1 text-[var(--muted-foreground)] hover:text-[var(--danger)]"
-                >
-                  <Trash2 className="h-4 w-4" aria-hidden />
-                </button>
+                <Badge variant="muted" className="text-[10px]">
+                  {org.people} {org.people === 1 ? "person" : "people"}
+                </Badge>
+                {canManageOrganisations ? (
+                  <button
+                    id={binId("org", org.id)}
+                    type="button"
+                    onClick={() => ask("org", org.id)}
+                    aria-label={`Delete ${org.name}`}
+                    className="ml-auto rounded-md p-1 text-[var(--muted-foreground)] hover:text-[var(--danger)]"
+                  >
+                    <Trash2 className="h-4 w-4" aria-hidden />
+                  </button>
+                ) : null}
               </div>
 
               {isAsking("org", org.id) ? (
@@ -275,8 +363,7 @@ export function OrgCohortManager({ orgs }: { orgs: AdminOrg[] }) {
                     onKeep={() => keep("org", org.id)}
                   >
                     <p className="mt-1 text-xs">
-                      It has no cohorts. People linked to it keep their
-                      accounts and data.
+                      It has no cohorts, no country and nobody in it.
                     </p>
                   </InlineConfirm>
                 </div>
@@ -301,14 +388,86 @@ export function OrgCohortManager({ orgs }: { orgs: AdminOrg[] }) {
                         {c.memberCount} member{c.memberCount === 1 ? "" : "s"}
                       </Badge>
                       <button
+                        id={editId(c.id)}
+                        type="button"
+                        onClick={() => openEdit(c)}
+                        aria-label={`Change ${c.name}`}
+                        aria-expanded={editing?.id === c.id}
+                        className="ml-auto rounded-md p-1 text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+                      >
+                        <Pencil className="h-4 w-4" aria-hidden />
+                      </button>
+                      <button
                         id={binId("cohort", c.id)}
                         type="button"
                         onClick={() => ask("cohort", c.id)}
                         aria-label={`Delete ${c.name}`}
-                        className="ml-auto rounded-md p-1 text-[var(--muted-foreground)] hover:text-[var(--danger)]"
+                        className="rounded-md p-1 text-[var(--muted-foreground)] hover:text-[var(--danger)]"
                       >
                         <Trash2 className="h-4 w-4" aria-hidden />
                       </button>
+                      {editing?.id === c.id ? (
+                        <div
+                          className="basis-full"
+                          role="group"
+                          aria-label={`Change ${c.name}`}
+                          onKeyDown={(e) => {
+                            if (e.key === "Escape" && pending !== `editcohort-${c.id}`) closeEdit(c.id);
+                          }}
+                        >
+                          <div className="mt-1 flex flex-wrap items-end gap-2">
+                            <label className="text-xs text-[var(--muted-foreground)]">
+                              <span className="block mb-1">Name</span>
+                              <input
+                                autoFocus
+                                value={editing.name}
+                                onChange={(e) => setEditing({ ...editing, name: e.target.value })}
+                                className={`${inputCls} w-64`}
+                              />
+                            </label>
+                            <label className="text-xs text-[var(--muted-foreground)]">
+                              <span className="block mb-1">Starts</span>
+                              <input
+                                type="date"
+                                value={editing.startsAt}
+                                onChange={(e) => setEditing({ ...editing, startsAt: e.target.value })}
+                                className={inputCls}
+                              />
+                            </label>
+                            <label className="text-xs text-[var(--muted-foreground)]">
+                              <span className="block mb-1">Ends</span>
+                              <input
+                                type="date"
+                                value={editing.endsAt}
+                                onChange={(e) => setEditing({ ...editing, endsAt: e.target.value })}
+                                className={inputCls}
+                              />
+                            </label>
+                            <Button
+                              size="sm"
+                              onClick={() => onSaveCohort(c.id)}
+                              disabled={!editing.name.trim() || pending === `editcohort-${c.id}`}
+                            >
+                              {pending === `editcohort-${c.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                              Save
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => closeEdit(c.id)}
+                              disabled={pending === `editcohort-${c.id}`}
+                            >
+                              Cancel
+                            </Button>
+                          </div>
+                          {editError ? (
+                            <p role="alert" className="mt-1 text-xs text-[var(--danger)] flex items-center gap-1.5">
+                              <AlertTriangle className="h-3.5 w-3.5" aria-hidden />
+                              {editError}
+                            </p>
+                          ) : null}
+                        </div>
+                      ) : null}
                       {isAsking("cohort", c.id) ? (
                         <div className="basis-full">
                           <InlineConfirm

@@ -12,6 +12,8 @@ import {
   Download,
   Trash2,
   ChevronRight,
+  Database,
+  LifeBuoy,
 } from "lucide-react";
 
 export interface AdminCounts {
@@ -21,34 +23,52 @@ export interface AdminCounts {
   courses: number;
 }
 
-/** The admin overview. The page renders it for admins only. */
-export function AdminDashboard({ counts }: { counts?: AdminCounts }) {
+/**
+ * The admin overview, for people managers (the page checks): an ADMIN's
+ * counts are the whole project's; a partner admin's (`organisationName`)
+ * its organisation's, and the labels say so (spec 6.3, SP10). The data
+ * tools and the safeguarding contacts are an ADMIN's.
+ */
+export function AdminDashboard({
+  counts,
+  organisationName,
+}: {
+  counts?: AdminCounts;
+  /** A partner admin's organisation; null for an ADMIN (the whole project). */
+  organisationName: string | null;
+}) {
   const t = useTranslations("admin");
+  const admin = organisationName === null;
+  const scope = { scope: admin ? "project" : "organisation", organisation: organisationName ?? "" };
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8">
       <h1 className="mb-2 text-2xl sm:text-3xl font-bold tracking-tight">
-        {t("title")}
+        {t("title", scope)}
       </h1>
 
-      <div className="mt-6 grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* counts.users counts learners only, not staff who still hold an
-            old LEARNER role (getAdminCounts) */}
+      <div className={`mt-6 grid sm:grid-cols-2 gap-4 ${admin ? "lg:grid-cols-4" : "lg:grid-cols-3"}`}>
+        {/* counts.users counts learners only (the statistics filter without
+            a date: never staff, never a test account; getAdminCounts), and
+            the figure says so (spec 7.4). */}
         <Stat
           icon={<Users className="h-5 w-5" />}
-          label={t("learners")}
+          label={t("learners", { ...scope, part: "label" })}
           value={String(counts?.users ?? 0)}
+          note={t("learners", { ...scope, part: "note" })}
         />
         <Stat
           icon={<GraduationCap className="h-5 w-5" />}
-          label={t("cohorts")}
+          label={t("cohorts", scope)}
           value={String(counts?.cohorts ?? 0)}
         />
-        <Stat
-          icon={<Building2 className="h-5 w-5" />}
-          label={t("organisations")}
-          value={String(counts?.organisations ?? 0)}
-        />
+        {admin ? (
+          <Stat
+            icon={<Building2 className="h-5 w-5" />}
+            label={t("organisations")}
+            value={String(counts?.organisations ?? 0)}
+          />
+        ) : null}
         <Stat
           icon={<BookOpen className="h-5 w-5" />}
           label={t("courses")}
@@ -59,20 +79,45 @@ export function AdminDashboard({ counts }: { counts?: AdminCounts }) {
       {/* Management entry points */}
       <div className="mt-6 grid sm:grid-cols-2 gap-4">
         <ManageLink
-          href="/admin/cohorts"
-          icon={<Building2 className="h-5 w-5" />}
-          title="Organisations & cohorts"
-          desc="Add partner organisations and the cohorts learners belong to."
-        />
-        <ManageLink
           href="/admin/people"
           icon={<Users className="h-5 w-5" />}
           title="People & roles"
-          desc="Invite people, set what they can do, assign them to a cohort."
+          desc={
+            admin
+              ? "Invite people, set what they can do, assign them to a cohort."
+              : `Invite people to ${organisationName}, set what they can do, assign them to a cohort.`
+          }
         />
+        <ManageLink
+          href="/admin/cohorts"
+          icon={<Building2 className="h-5 w-5" />}
+          title={admin ? "Organisations & cohorts" : "Cohorts"}
+          desc={
+            admin
+              ? "Add partner organisations, map countries to them, and set up cohorts."
+              : `Set up the cohorts of ${organisationName}.`
+          }
+        />
+        {admin ? (
+          <>
+            <ManageLink
+              href="/admin/data"
+              icon={<Database className="h-5 w-5" />}
+              title="Data"
+              desc="Find a person, mark test accounts, export or erase on request, and the go-live clean-up."
+            />
+            <ManageLink
+              href="/admin/safeguarding"
+              icon={<LifeBuoy className="h-5 w-5" />}
+              title="Safeguarding contacts"
+              desc="Who learners in each country can contact for help."
+            />
+          </>
+        ) : null}
       </div>
 
-      {/* GDPR self-service — the account page handles both requests */}
+      {/* GDPR self-service: the account page handles both requests; DIESIS
+          handles any that come another way, on the Data page (spec 13). */}
       <Card className="mt-8">
         <CardContent className="p-6">
           <h2 className="text-lg font-semibold flex items-center gap-2">
@@ -80,8 +125,10 @@ export function AdminDashboard({ counts }: { counts?: AdminCounts }) {
             {t("gdpr")}
           </h2>
           <p className="text-sm text-[var(--muted-foreground)] mt-1 mb-4">
-            Everyone handles these requests themselves from their account page
-            — no admin step is needed.
+            Everyone can do both themselves from their account page.{" "}
+            {admin
+              ? "A request that reaches DIESIS another way is handled on the Data page."
+              : "Pass a request that reaches you another way to DIESIS."}
           </p>
           <ul className="grid sm:grid-cols-2 gap-2 text-sm">
             <li className="flex items-center gap-3 rounded-lg border border-[var(--border)] px-3 py-2">
@@ -104,9 +151,9 @@ export function AdminDashboard({ counts }: { counts?: AdminCounts }) {
       </Card>
 
       <p className="mt-8 rounded-xl border border-[var(--border)] bg-[var(--surface-muted)] p-4 text-sm text-[var(--muted-foreground)]">
-        Counts above are live. Organisations, cohorts, people and roles are
-        editable from the two panels above — every change is written to the
-        database and recorded in the audit log.
+        Counts above are live. {admin ? "Organisations, cohorts" : "Cohorts"},
+        people and roles are editable from the panels above — every change is
+        written to the database and recorded in the audit log.
       </p>
     </div>
   );
@@ -144,10 +191,13 @@ function Stat({
   icon,
   label,
   value,
+  note,
 }: {
   icon: React.ReactNode;
   label: string;
   value: string;
+  /** Who the figure leaves out, under it (in sentence case, unlike the label). */
+  note?: string;
 }) {
   return (
     <Card>
@@ -160,6 +210,7 @@ function Stat({
             {label}
           </p>
           <p className="text-2xl font-bold">{value}</p>
+          {note ? <span className="mt-0.5 block text-xs text-[var(--muted-foreground)]">{note}</span> : null}
         </div>
       </CardContent>
     </Card>

@@ -4,20 +4,24 @@
  * hub and the header's workspace switcher: the production equivalent of the
  * demo's role picker (D26).
  *
- * The role → workspace rules mirror the server-side gates they lead to:
- *   content     — canEditContent: Editor, or Admin which includes it
- *                 (the CMS actions' requireEditor)
+ * The role → workspace rules mirror the server-side gates they lead to
+ * (src/lib/permissions.ts):
+ *   content     — canEditContent: Editor, or Admin or Partner admin, which
+ *                 include it (the CMS actions' requireEditor)
  *   courses     — canEditContent (same gate as content)
- *   admin       — ADMIN
- *   facilitator — FACILITATOR or ADMIN      (getProjectLearners)
- *   analytics   — FACILITATOR or ADMIN      (the analytics page's isStaff)
+ *   admin       — canManagePeople: Admin, Partner admin (the admin pages)
+ *   facilitator — canSupportLearners: Facilitator, Partner admin, Admin
+ *                 (the facilitator page)
+ *   analytics   — canSupportLearners (the analytics page)
  *   learner     — everyone signed in
+ * Which learners and people those pages show is the scope's to say
+ * (src/lib/scope.ts), not the workspace's.
  *
  * Pure (no server imports), so client components can use it too.
  */
 
 import type { Role } from "@prisma/client";
-import { canEditContent } from "@/lib/permissions";
+import { canEditContent, canManagePeople, canSupportLearners } from "@/lib/permissions";
 
 export type WorkspaceId =
   | "content"
@@ -44,11 +48,10 @@ export const WORKSPACE_HREF: Record<WorkspaceId, string> = {
 
 /** The user's workspaces, most relevant first. Always includes "learner". */
 export function workspacesFor(roles: readonly Role[]): Workspace[] {
-  const has = (r: Role) => roles.includes(r);
   const ids: WorkspaceId[] = [];
   if (canEditContent(roles)) ids.push("content", "courses");
-  if (has("ADMIN")) ids.push("admin");
-  if (has("FACILITATOR") || has("ADMIN")) ids.push("facilitator", "analytics");
+  if (canManagePeople(roles)) ids.push("admin");
+  if (canSupportLearners(roles)) ids.push("facilitator", "analytics");
   ids.push("learner");
   return ids.map((id) => ({ id, href: WORKSPACE_HREF[id] }));
 }
@@ -62,9 +65,13 @@ export function featuredWorkspaces(roles: readonly Role[]): Workspace[] {
   return all.length > 1 ? all.filter((w) => w.id !== "learner") : all;
 }
 
-/** The most senior role held — for "Your role: …" in an invitation. */
+/**
+ * The most senior role held — for "Your role: …" in an invitation. A
+ * partner admin ranks after an ADMIN (it includes the editor and the
+ * facilitator).
+ */
 export function primaryRole(roles: readonly Role[]): Role {
-  for (const r of ["ADMIN", "CONTENT_EDITOR", "FACILITATOR"] as const) {
+  for (const r of ["ADMIN", "PARTNER_ADMIN", "CONTENT_EDITOR", "FACILITATOR"] as const) {
     if (roles.includes(r)) return r;
   }
   return "LEARNER";

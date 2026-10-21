@@ -2,8 +2,10 @@ import { readFileSync } from "node:fs";
 import { describe, it, expect } from "vitest";
 import {
   renderInviteEmail,
+  renderSignInEmail,
   escapeHtml,
   emailLogoUrl,
+  legalFooterLinks,
   EMAIL_LOGO,
   type InviteCopy,
 } from "./invite-email";
@@ -30,6 +32,7 @@ function copy(overrides: Partial<InviteCopy> = {}): InviteCopy {
     expiredHelp: "If it has expired, go to seq-elevate.eu.",
     ignore: "Not expecting this? Ignore it.",
     footer: "Created and Powered by SENIC · senic.world",
+    legalLinks: [{ label: "Privacy notice", path: "/en/legal/privacy" }],
     ...overrides,
   };
 }
@@ -113,5 +116,48 @@ describe("renderInviteEmail", () => {
     expect(html).toContain('<html lang="de">');
     expect(text).toContain(`Join SEQ Elevate: ${URL_WITH_QUERY}`);
     expect(text).toContain("- Support learners: Follow each learner's progress.");
+  });
+});
+
+/*
+ * Release 3 (spec 6.3, Art. 14 for invitees): the invitation's and the
+ * sign-in email's footers link the privacy notice, in the email's
+ * language, on the site the link belongs to; and the legal notice once
+ * the site has one.
+ */
+describe("the emails' legal links", () => {
+  it("are the privacy notice in the email's language, while there is no legal notice", () => {
+    expect(legalFooterLinks("de")).toEqual([{ label: "Datenschutzhinweise", path: "/de/legal/privacy" }]);
+    expect(legalFooterLinks("el")).toEqual([{ label: "Ενημέρωση για το απόρρητο", path: "/el/legal/privacy" }]);
+  });
+
+  it("add the legal notice once the site has one", () => {
+    expect(legalFooterLinks("en", ["privacy", "terms", "notice"])).toEqual([
+      { label: "Privacy notice", path: "/en/legal/privacy" },
+      { label: "Legal notice", path: "/en/legal/notice" },
+    ]);
+  });
+
+  it("sit in the invitation's footer, on the site the join link belongs to, and in its text", () => {
+    const { html, text } = renderInviteEmail({
+      url: URL_WITH_QUERY,
+      copy: copy({ legalLinks: legalFooterLinks("en", ["privacy", "notice"]) }),
+    });
+    const footer = html.slice(html.indexOf("Created and Powered by SENIC"));
+    expect(footer).toContain('<a href="https://seq-elevate.eu/en/legal/privacy"');
+    expect(footer).toContain(">Privacy notice</a>");
+    expect(footer).toContain('<a href="https://seq-elevate.eu/en/legal/notice"');
+    expect(text).toContain("Privacy notice: https://seq-elevate.eu/en/legal/privacy");
+    expect(text).toContain("Legal notice: https://seq-elevate.eu/en/legal/notice");
+  });
+
+  it("sit in the sign-in email's footer too", () => {
+    const signIn = "http://localhost:3000/api/auth/callback/resend?callbackUrl=%2Fen&token=x&email=a%40b.eu";
+    const { html, text } = renderSignInEmail(signIn);
+    expect(html).toContain('<a href="http://localhost:3000/en/legal/privacy"');
+    expect(html).toContain(">Privacy notice</a>");
+    expect(html).toContain(`href="${signIn.replace(/&/g, "&amp;")}"`);
+    expect(text).toContain(`Sign in to SEQ Elevate: ${signIn}`);
+    expect(text).toContain("Privacy notice: http://localhost:3000/en/legal/privacy");
   });
 });

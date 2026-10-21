@@ -1,5 +1,5 @@
 import { setRequestLocale } from "next-intl/server";
-import { getAdminCounts } from "@/lib/server-queries";
+import { getAdminCounts, scopeOrganisationName } from "@/lib/server-queries";
 import { getViewer } from "@/lib/scope";
 import { canManagePeople } from "@/lib/permissions";
 import { AdminDashboard } from "@/components/role/AdminDashboard";
@@ -18,13 +18,33 @@ export default async function Page({
   // The overview is for people managers (an ADMIN: the project; a partner
   // admin: their organisation) with a scope — decide before counting anything.
   const viewer = await getViewer();
-  if (!canManagePeople(viewer.roles) || viewer.scope.kind === "none") {
+  if (!canManagePeople(viewer.roles)) {
     return (
       <AccessNotice title="Admins only">
         Sign in with an admin account to see the project overview.
       </AccessNotice>
     );
   }
-  const counts = await getAdminCounts(viewer.scope);
-  return <AdminDashboard counts={counts} />;
+  // A people manager with no scope: their own profile isn't complete, or
+  // (a partner admin) no organisation, or partner access isn't on yet.
+  if (viewer.scope.kind === "none") {
+    return (
+      <AccessNotice title="Nothing to show yet">
+        Your profile isn&apos;t complete, or your account isn&apos;t linked to
+        an organisation yet. Ask DIESIS if this doesn&apos;t change.
+      </AccessNotice>
+    );
+  }
+  // An ADMIN's counts are the project's; a partner admin's its
+  // organisation's, and the labels name it.
+  const [counts, organisationName] = await Promise.all([
+    getAdminCounts(viewer.scope),
+    viewer.scope.kind === "organisation" ? scopeOrganisationName(viewer.scope) : null,
+  ]);
+  return (
+    <AdminDashboard
+      counts={counts}
+      organisationName={viewer.scope.kind === "organisation" ? (organisationName ?? "your organisation") : null}
+    />
+  );
 }

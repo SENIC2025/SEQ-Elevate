@@ -301,7 +301,9 @@ function filterOf(table: TableName, world: World): { columns: string; where: str
         params: [cohorts, orgs, like],
       };
     case "CountryMapping":
-      return { columns: all, where: "true", params: [] };
+      // Rows naming the world's organisations only: a refused call aims at
+      // one of them (Ctx.other), and other specs set the mapping meanwhile.
+      return { columns: all, where: `"organisationId" = ANY($1::text[])`, params: [orgs] };
     case "Course":
       return { columns: all, where: `"id" = $1 OR "slug" LIKE $2`, params: [world.course.id, like] };
     case "Lesson":
