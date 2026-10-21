@@ -15,6 +15,7 @@ import {
 } from "@/app/actions/admin-data";
 import type {
   AdminRefusal,
+  CleanupAccount,
   CleanupPlan,
   CleanupResult,
   FoundPerson,
@@ -31,10 +32,18 @@ import { AlertTriangle, CheckCircle2, Download, Loader2, Search, Trash2 } from "
  * accounts; the clean-up's dry run and run; the log of what was done.
  * English, like the other staff screens. Every action is refused on the
  * server for anyone else (actions/admin-data.ts); this screen only offers.
+ *
+ * Focus never falls to the page's start: a control that is busy says so
+ * with aria-disabled (it stays focusable), and once something closes or is
+ * gone, focus goes to what is nearby (the person's actions, the search
+ * field, the list's heading).
  */
 
 const inputCls = "rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm";
+/** A button that is busy or has nothing to act on looks it, and stays focusable. */
+const ariaDisabledCls = "aria-disabled:cursor-not-allowed aria-disabled:opacity-50";
 const REF_PATTERN = "REQ-[0-9]{4}-[0-9]{3}";
+const FIND_MIN = 3;
 
 type Notice = { kind: "ok" | "warn"; text: string };
 
@@ -58,9 +67,13 @@ function errorText(error?: string, expected?: string): string {
     case "confirm-mismatch":
       return `To run the clean-up, type exactly: ${expected ?? "ERASE <n> TEST ACCOUNTS"}`;
     case "too-short":
-      return "Type at least three characters of the address.";
+      return `Type at least ${FIND_MIN} characters of the address.`;
     case "not-found":
       return "That account no longer exists.";
+    case "signed-out":
+      return "You are signed out. Sign in again, then try once more.";
+    case "export-refused":
+      return "Refused: only an admin with a completed profile can export, from this page. Reload the page and try again.";
     case "no-answer":
       return "There was no answer from the server. Reload the page to see whether it was done.";
     default:
@@ -72,6 +85,33 @@ const REFUSAL_TEXT: Record<AdminRefusal, string> = {
   self: "your own account",
   "last-admin": "the project's last admin",
   "admin-email": "on ADMIN_EMAILS (ask SENIC to remove the address first)",
+};
+
+/** Roles as Manage people names them. */
+const ROLE_LABELS: Record<string, string> = {
+  LEARNER: "Learner",
+  FACILITATOR: "Facilitator",
+  CONTENT_EDITOR: "Editor",
+  PARTNER_ADMIN: "Partner admin",
+  ADMIN: "Admin",
+};
+const roleLabel = (role: string) => ROLE_LABELS[role] ?? role;
+const holdsStaffRole = (a: CleanupAccount) => a.roles.some((r) => r !== "LEARNER");
+
+/** The logged actions, in words (the code stays as secondary text). */
+const ACTION_LABELS: Record<string, string> = {
+  "account.exported": "Data exported",
+  "account.deleted": "Account erased",
+  "account.reset": "Test account reset",
+  "account.test_marked": "Marked as a test account",
+  "account.test_unmarked": "Test account mark removed",
+  "data.cleanup_run": "Clean-up run",
+  "person.organisation_changed": "Organisation changed",
+  "person.country_changed": "Country changed",
+  "profile.organisation_released": "Organisation released by the country rule",
+  "member.add_refused": "Addition refused on Manage people",
+  "member.guardian_consent_recorded": "Guardian's permission recorded",
+  "safeguarding.saved": "Safeguarding contacts saved",
 };
 
 const REVIEW: { key: ReviewKey; title: (from: string | null) => string; desc: string }[] = [
@@ -93,7 +133,7 @@ const REVIEW: { key: ReviewKey; title: (from: string | null) => string; desc: st
   {
     key: "staff-with-data",
     title: () => "Staff who also have learner data",
-    desc: "People who hold or held a staff role and played courses.",
+    desc: "People who hold or held a staff role and played courses. Statistics already leave staff out, so mark only the accounts that are tests: the clean-up run erases every marked account, with its roles.",
   },
   {
     key: "member-targets",
@@ -103,7 +143,7 @@ const REVIEW: { key: ReviewKey; title: (from: string | null) => string; desc: st
   {
     key: "partner-never-signed-in",
     title: () => "Added by a partner admin, never signed in",
-    desc: "With the organisation and the date.",
+    desc: "With the organisation and the date they were added.",
   },
   {
     key: "country-mismatch",
@@ -155,7 +195,7 @@ function NoticeLine({ notice }: { notice: Notice }) {
       ) : (
         <AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" aria-hidden />
       )}
-      {notice.text}
+      <span className="min-w-0 break-words">{notice.text}</span>
     </p>
   );
 }
@@ -171,6 +211,8 @@ async function attempt<T>(call: () => Promise<T>): Promise<T | { ok: false; erro
 
 /* ---------------------------------------------------------- find a person --- */
 
+type Changed = (n: Notice, after?: { gone?: boolean }) => Promise<void>;
+
 function FindPerson({ say, refresh }: { say: (n: Notice | null) => void; refresh: () => void }) {
   const ids = React.useId();
   const [query, setQuery] = React.useState("");
@@ -178,6 +220,7 @@ function FindPerson({ say, refresh }: { say: (n: Notice | null) => void; refresh
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const last = React.useRef("");
+  const field = React.useRef<HTMLInputElement>(null);
 
   async function search(q: string) {
     setBusy(true);
@@ -192,12 +235,17 @@ function FindPerson({ say, refresh }: { say: (n: Notice | null) => void; refresh
     setPeople(res.people);
   }
 
-  /** After a change: the list again, and the page's lists and log. */
-  async function changed(n: Notice) {
+  /**
+   * After a change: the list again, and the page's lists and log. When the
+   * person is gone (erased), focus goes to the search field: what they acted
+   * on no longer exists.
+   */
+  const changed: Changed = async (n, after) => {
     say(n);
+    if (after?.gone) field.current?.focus();
     refresh();
     if (last.current) await search(last.current);
-  }
+  };
 
   return (
     <section aria-labelledby={`${ids}-h`}>
@@ -210,23 +258,32 @@ function FindPerson({ say, refresh }: { say: (n: Notice | null) => void; refresh
             className="flex flex-wrap items-end gap-2"
             onSubmit={(e) => {
               e.preventDefault();
+              if (busy) return;
+              // Too short: said here, so Find and Enter always answer.
+              if (query.trim().length < FIND_MIN) return setError(errorText("too-short"));
               void search(query);
             }}
           >
-            <label className="text-xs text-[var(--muted-foreground)]">
+            <label className="w-full min-w-0 text-xs text-[var(--muted-foreground)] sm:w-auto">
               <span className="block mb-1">Email address (or part of it)</span>
               <input
+                ref={field}
                 type="search"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                className={`${inputCls} w-72 max-w-full`}
+                aria-describedby={`${ids}-hint`}
+                className={`${inputCls} w-full sm:w-72`}
                 autoComplete="off"
               />
             </label>
-            <Button type="submit" size="sm" disabled={busy || query.trim().length < 3}>
+            {/* aria-disabled, not disabled, while it searches: focus stays on it. */}
+            <Button type="submit" size="sm" className={ariaDisabledCls} aria-disabled={busy || undefined}>
               {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Search className="h-4 w-4" aria-hidden />}
               Find
             </Button>
+            <p id={`${ids}-hint`} className="w-full text-xs text-[var(--muted-foreground)]">
+              {`At least ${FIND_MIN} characters.`}
+            </p>
           </form>
           <p className="text-xs text-[var(--muted-foreground)]">
             Anyone with an account, member or not: people removed from the project and accounts that never
@@ -234,7 +291,7 @@ function FindPerson({ say, refresh }: { say: (n: Notice | null) => void; refresh
           </p>
           {error ? (
             <p role="alert" className="text-sm text-[var(--danger)] flex items-center gap-1.5">
-              <AlertTriangle className="h-4 w-4" aria-hidden />
+              <AlertTriangle className="h-4 w-4 flex-shrink-0" aria-hidden />
               {error}
             </p>
           ) : null}
@@ -265,7 +322,28 @@ function Chip({ children }: { children: React.ReactNode }) {
   );
 }
 
-function PersonActions({ person: p, onChanged }: { person: FoundPerson; onChanged: (n: Notice) => Promise<void> }) {
+/** The export route's refusals, by status, in plain words. */
+const EXPORT_REFUSALS: Record<number, string> = {
+  400: "request-ref",
+  401: "signed-out",
+  403: "export-refused",
+  404: "not-found",
+};
+
+/** Saves `blob` as a download called `name`. */
+function saveFile(blob: Blob, name: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  a.hidden = true;
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+}
+
+function PersonActions({ person: p, onChanged }: { person: FoundPerson; onChanged: Changed }) {
   const ids = React.useId();
   const [open, setOpen] = React.useState<"export" | "reset" | "erase" | null>(null);
   // What opens takes focus: the reference to type, or the question to read
@@ -281,6 +359,7 @@ function PersonActions({ person: p, onChanged }: { person: FoundPerson; onChange
   const [confirmEmail, setConfirmEmail] = React.useState("");
   const [ref, setRef] = React.useState("");
 
+  /** Closes what is open; focus goes back to the person's actions. */
   const close = () => {
     setOpen(null);
     setError(null);
@@ -290,6 +369,7 @@ function PersonActions({ person: p, onChanged }: { person: FoundPerson; onChange
   };
 
   async function onMark() {
+    if (busy) return;
     setBusy(true);
     setError(null);
     const res = await attempt(() => markTestAccount(p.id, !p.testAccount));
@@ -298,13 +378,43 @@ function PersonActions({ person: p, onChanged }: { person: FoundPerson; onChange
     await onChanged({ kind: "ok", text: `${p.email} is ${res.testAccount ? "now marked" : "no longer marked"} as a test account.` });
   }
 
+  /**
+   * Posts the export from this page (the browser sends the page's Origin,
+   * which the route requires) and saves the answer as a file; a refusal is
+   * said here, and the page stays. The logged export then shows in the log.
+   */
+  async function onExport(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (busy) return;
+    const requestRef = String(new FormData(e.currentTarget).get("requestRef") ?? "").trim();
+    setBusy(true);
+    setError(null);
+    let res: Response;
+    try {
+      res = await fetch(`/api/admin/people/${encodeURIComponent(p.id)}/export`, {
+        method: "POST",
+        body: new URLSearchParams({ requestRef }),
+      });
+      if (res.ok) {
+        const name = /filename="([^"]+)"/.exec(res.headers.get("content-disposition") ?? "")?.[1];
+        saveFile(await res.blob(), name ?? `seq-elevate-data-${requestRef}.json`);
+      }
+    } catch {
+      setBusy(false);
+      return setError(errorText("no-answer"));
+    }
+    setBusy(false);
+    if (!res.ok) return setError(errorText(EXPORT_REFUSALS[res.status]));
+    await onChanged({ kind: "ok", text: `Downloaded the data of ${p.email} (${requestRef}). The export is in the log.` });
+  }
+
   async function onReset() {
     setBusy(true);
     setError(null);
     const res = await attempt(() => resetTestAccount(p.id));
     setBusy(false);
     if (!res.ok) return setError(errorText(res.error));
-    setOpen(null);
+    close();
     await onChanged({ kind: "ok", text: `Reset ${p.email}: its learner data and sessions are gone; the account stays.` });
   }
 
@@ -317,11 +427,11 @@ function PersonActions({ person: p, onChanged }: { person: FoundPerson; onChange
     setBusy(false);
     if (!res.ok) return setError(errorText(res.error));
     setOpen(null);
-    await onChanged({ kind: "ok", text: `Erased ${p.email}. The log keeps a record without the address.` });
+    await onChanged({ kind: "ok", text: `Erased ${p.email}. The log keeps a record without the address.` }, { gone: true });
   }
 
   const facts = [
-    p.roles.length ? p.roles.join(", ") : "no role",
+    p.roles.length ? p.roles.map(roleLabel).join(", ") : "no role",
     p.organisation ?? "no organisation",
     `${p.enrolments} course${p.enrolments === 1 ? "" : "s"}${p.compCard ? ", a Comp Card" : ""}`,
   ];
@@ -329,7 +439,7 @@ function PersonActions({ person: p, onChanged }: { person: FoundPerson; onChange
   return (
     <div className="rounded-lg border border-[var(--border)] p-3">
       <p className="font-medium break-all">{p.email}</p>
-      <p className="mt-0.5 text-xs text-[var(--muted-foreground)]">
+      <p className="mt-0.5 text-xs text-[var(--muted-foreground)] break-words">
         {p.name ? `${p.name} · ` : ""}
         {facts.join(" · ")}
       </p>
@@ -351,7 +461,8 @@ function PersonActions({ person: p, onChanged }: { person: FoundPerson; onChange
           <Download className="h-4 w-4" aria-hidden />
           Export data
         </Button>
-        <Button size="sm" variant="outline" onClick={onMark} disabled={busy}>
+        {/* aria-disabled, not disabled, while it saves: focus stays on it. */}
+        <Button size="sm" variant="outline" className={ariaDisabledCls} onClick={onMark} aria-disabled={busy || undefined}>
           {p.testAccount ? "Unmark test account" : "Mark as test account"}
         </Button>
         {p.refusal === null && p.testAccount ? (
@@ -368,7 +479,11 @@ function PersonActions({ person: p, onChanged }: { person: FoundPerson; onChange
       </div>
       {p.refusal ? (
         <p className="mt-2 text-xs text-[var(--muted-foreground)]">Can&apos;t be reset or erased here: {REFUSAL_TEXT[p.refusal]}.</p>
-      ) : null}
+      ) : p.testAccount ? null : (
+        <p className="mt-2 text-xs text-[var(--muted-foreground)]">
+          Reset is for marked test accounts: mark the account first to reset it.
+        </p>
+      )}
       {error && open === null ? (
         <p role="alert" className="mt-2 text-xs text-[var(--danger)]">
           {error}
@@ -376,11 +491,8 @@ function PersonActions({ person: p, onChanged }: { person: FoundPerson; onChange
       ) : null}
 
       {open === "export" ? (
-        // A plain form: the browser sends this page's origin with it, and
-        // downloads the answer (the route refuses anything else).
         <form
-          method="post"
-          action={`/api/admin/people/${encodeURIComponent(p.id)}/export`}
+          onSubmit={onExport}
           className="mt-3 flex flex-wrap items-end gap-2 rounded-lg border border-[var(--border)] p-3"
         >
           <label className="text-xs text-[var(--muted-foreground)]">
@@ -394,21 +506,27 @@ function PersonActions({ person: p, onChanged }: { person: FoundPerson; onChange
               className={`${inputCls} w-44`}
             />
           </label>
-          <Button type="submit" size="sm">
-            <Download className="h-4 w-4" aria-hidden />
+          <Button type="submit" size="sm" className={ariaDisabledCls} aria-disabled={busy || undefined}>
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Download className="h-4 w-4" aria-hidden />}
             Download their data
           </Button>
           <p className="w-full text-xs text-[var(--muted-foreground)]">
             The file holds everything about them, their Comp Card and reflections included. The download is
             logged with the reference.
           </p>
+          {error ? (
+            <p role="alert" className="flex w-full items-start gap-1.5 text-xs text-[var(--danger)]">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" aria-hidden />
+              {error}
+            </p>
+          ) : null}
         </form>
       ) : null}
 
       {open === "reset" ? (
         <div className="mt-3">
           <InlineConfirm
-            title={`Reset ${p.email}?`}
+            title={<span className="break-words">Reset {p.email}?</span>}
             confirmLabel="Reset"
             keepLabel="Keep"
             busy={busy}
@@ -434,7 +552,7 @@ function PersonActions({ person: p, onChanged }: { person: FoundPerson; onChange
             if (e.key === "Escape" && !busy) close();
           }}
         >
-          <h3 id={`${ids}-erase`} ref={eraseHeading} tabIndex={-1} className="text-sm font-semibold outline-none">
+          <h3 id={`${ids}-erase`} ref={eraseHeading} tabIndex={-1} className="text-sm font-semibold outline-none break-words">
             Erase {p.email} for good?
           </h3>
           <p className="text-xs">
@@ -443,14 +561,14 @@ function PersonActions({ person: p, onChanged }: { person: FoundPerson; onChange
             reference and without the address.
           </p>
           <div className="flex flex-wrap items-end gap-2">
-            <label className="text-xs text-[var(--muted-foreground)]">
+            <label className="w-full min-w-0 text-xs text-[var(--muted-foreground)] sm:w-auto">
               <span className="block mb-1">Type their address to confirm</span>
               <input
                 type="email"
                 value={confirmEmail}
                 onChange={(e) => setConfirmEmail(e.target.value)}
                 autoComplete="off"
-                className={`${inputCls} w-64 max-w-full`}
+                className={`${inputCls} w-full sm:w-64`}
               />
             </label>
             <label className="text-xs text-[var(--muted-foreground)]">
@@ -541,11 +659,14 @@ function ReviewList({
   refresh: () => void;
 }) {
   const ids = React.useId();
+  const heading = React.useRef<HTMLHeadingElement>(null);
   const [ticked, setTicked] = React.useState<Set<string>>(new Set());
   const [busy, setBusy] = React.useState(false);
   const unmarked = people.filter((p) => !p.testAccount);
 
+  /** Marks `list`; the marked become chips, so focus goes to the list's heading. */
   async function mark(list: string[]) {
+    if (busy || list.length === 0) return;
     setBusy(true);
     let done = 0;
     let error: string | undefined;
@@ -561,13 +682,14 @@ function ReviewList({
         ? { kind: "warn", text: `Marked ${done} of ${list.length}. ${errorText(error)}` }
         : { kind: "ok", text: `Marked ${done} account${done === 1 ? "" : "s"} as test accounts.` }
     );
+    heading.current?.focus();
     refresh();
   }
 
   return (
     <Card>
       <CardContent className="p-4">
-        <h3 className="text-sm font-semibold">
+        <h3 ref={heading} tabIndex={-1} className="text-sm font-semibold outline-none">
           {title} <span className="font-normal text-[var(--muted-foreground)]">({people.length})</span>
         </h3>
         <p className="text-xs text-[var(--muted-foreground)]">{desc}</p>
@@ -598,13 +720,14 @@ function ReviewList({
                   {p.testAccount ? (
                     <Chip>Test account</Chip>
                   ) : (
+                    // Named by its visible words first, then whose (WCAG 2.5.3).
                     <Button
                       size="sm"
                       variant="ghost"
-                      className="ml-auto"
-                      disabled={busy}
+                      className={`ml-auto ${ariaDisabledCls}`}
+                      aria-disabled={busy || undefined}
                       onClick={() => mark([p.id])}
-                      aria-label={`Mark ${p.email} as a test account`}
+                      aria-label={`Mark as test account: ${p.email}`}
                     >
                       Mark as test account
                     </Button>
@@ -616,8 +739,8 @@ function ReviewList({
               <Button
                 size="sm"
                 variant="outline"
-                className="mt-2"
-                disabled={busy || ticked.size === 0}
+                className={`mt-2 ${ariaDisabledCls}`}
+                aria-disabled={busy || ticked.size === 0 || undefined}
                 onClick={() => mark([...ticked])}
                 aria-describedby={`${ids}-n`}
               >
@@ -680,6 +803,18 @@ function fileRows(files: CleanupPlan["files"], done: boolean) {
   ];
 }
 
+/** An account the run erases, with its roles; a staff role is said in words. */
+function AccountLine({ account: a }: { account: CleanupAccount }) {
+  return (
+    <li>
+      <span className="break-all">{a.email}</span>
+      {" · "}
+      {a.roles.length ? a.roles.map(roleLabel).join(", ") : "no role"}
+      {holdsStaffRole(a) ? <strong className="font-semibold"> (holds a staff role)</strong> : null}
+    </li>
+  );
+}
+
 function Cleanup({ say, refresh }: { say: (n: Notice | null) => void; refresh: () => void }) {
   const ids = React.useId();
   const [plan, setPlan] = React.useState<CleanupPlan | null>(null);
@@ -691,6 +826,7 @@ function Cleanup({ say, refresh }: { say: (n: Notice | null) => void; refresh: (
   const planRef = React.useRef<HTMLHeadingElement>(null);
 
   async function onPlan() {
+    if (busy) return;
     setBusy("plan");
     setError(null);
     const res = await attempt(() => previewCleanup());
@@ -718,6 +854,7 @@ function Cleanup({ say, refresh }: { say: (n: Notice | null) => void; refresh: (
   }
 
   const n = plan?.accounts.length ?? 0;
+  const staff = plan?.accounts.filter(holdsStaffRole).length ?? 0;
 
   return (
     <section aria-labelledby={`${ids}-h`}>
@@ -731,7 +868,8 @@ function Cleanup({ say, refresh }: { say: (n: Notice | null) => void; refresh: (
       </p>
       <Card>
         <CardContent className="p-4 space-y-4">
-          <Button size="sm" variant="outline" onClick={onPlan} disabled={busy !== null}>
+          {/* aria-disabled, not disabled, while it works: focus stays on it. */}
+          <Button size="sm" variant="outline" className={ariaDisabledCls} onClick={onPlan} aria-disabled={busy !== null || undefined}>
             {busy === "plan" ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
             Dry run
           </Button>
@@ -758,11 +896,12 @@ function Cleanup({ say, refresh }: { say: (n: Notice | null) => void; refresh: (
                 ]}
               />
               {plan.accounts.length ? (
-                <details className="text-sm">
-                  <summary className="cursor-pointer">The accounts to erase</summary>
-                  <ul className="mt-1 list-disc pl-5 break-all">
+                // Open from the start when a staff account is among them.
+                <details className="text-sm" open={staff > 0}>
+                  <summary className="cursor-pointer">The accounts to erase, with their roles</summary>
+                  <ul className="mt-1 list-disc pl-5" aria-label="The accounts to erase">
                     {plan.accounts.map((a) => (
-                      <li key={a.id}>{a.email}</li>
+                      <AccountLine key={a.id} account={a} />
                     ))}
                   </ul>
                 </details>
@@ -796,7 +935,16 @@ function Cleanup({ say, refresh }: { say: (n: Notice | null) => void; refresh: (
               ) : null}
 
               <form onSubmit={onRun} className="flex flex-wrap items-end gap-2 border-t border-[var(--border)] pt-3">
-                <label className="text-xs text-[var(--muted-foreground)]">
+                {staff > 0 ? (
+                  <p className="flex w-full items-start gap-1.5 text-sm text-[var(--danger)]">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" aria-hidden />
+                    <span className="min-w-0">
+                      {staff === 1 ? "1 of them holds a staff role" : `${staff} of them hold a staff role`}: the run
+                      erases the account with its roles. Unmark any that isn&apos;t a test account before you run it.
+                    </span>
+                  </p>
+                ) : null}
+                <label className="w-full min-w-0 text-xs text-[var(--muted-foreground)] sm:w-auto">
                   <span className="block mb-1">
                     To run it, type: <strong className="text-[var(--foreground)]">ERASE {n} TEST ACCOUNTS</strong>
                   </span>
@@ -804,7 +952,7 @@ function Cleanup({ say, refresh }: { say: (n: Notice | null) => void; refresh: (
                     value={confirm}
                     onChange={(e) => setConfirm(e.target.value)}
                     autoComplete="off"
-                    className={`${inputCls} w-64 max-w-full`}
+                    className={`${inputCls} w-full sm:w-64`}
                   />
                 </label>
                 <Button type="submit" size="sm" variant="danger" aria-disabled={busy !== null || undefined}>
@@ -871,7 +1019,7 @@ function LogViewer({ log }: { log: LogRow[] }) {
             <thead className="bg-[var(--surface-muted)] text-left text-xs">
               <tr>
                 <th scope="col" className="px-3 py-2">
-                  When
+                  When (Brussels time)
                 </th>
                 <th scope="col" className="px-3 py-2">
                   Action
@@ -887,8 +1035,13 @@ function LogViewer({ log }: { log: LogRow[] }) {
             <tbody className="divide-y divide-[var(--border)]">
               {log.map((r) => (
                 <tr key={r.id}>
-                  <td className="px-3 py-1.5 whitespace-nowrap tabular-nums">{r.at.slice(0, 16).replace("T", " ")}</td>
-                  <td className="px-3 py-1.5">{r.action}</td>
+                  <td className="px-3 py-1.5 whitespace-nowrap tabular-nums">{r.when}</td>
+                  <td className="px-3 py-1.5">
+                    {ACTION_LABELS[r.action] ?? r.action}
+                    {ACTION_LABELS[r.action] ? (
+                      <span className="block text-xs text-[var(--muted-foreground)]">{r.action}</span>
+                    ) : null}
+                  </td>
                   <td className="px-3 py-1.5 break-all">{r.who ?? "—"}</td>
                   <td className="px-3 py-1.5 text-xs">{r.details}</td>
                 </tr>

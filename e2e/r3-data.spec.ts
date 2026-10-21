@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type BrowserContext, type Locator, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { createHmac } from "node:crypto";
 import { PrismaClient } from "@prisma/client";
@@ -34,16 +34,24 @@ import { callAction } from "./fixtures/server-action";
  *         partner admin, a facilitator or another learner gets 403; no
  *         reference, free text, another Origin or a GET: refused, nothing
  *         logged (D88)
+ *         On /admin/data itself: the page has its own title; Find says it
+ *         needs 3 characters; focus stays on the page after Find, Mark,
+ *         Reset, Erase and a review list's mark; the mark buttons are named
+ *         by their visible words; nothing scrolls sideways at 320 px; a
+ *         refused export keeps the page and says why, and a download shows
+ *         in the log at once; the dry run names the roles of the accounts it
+ *         erases; the log reads in words and in Brussels time
  *   D-E5  a partner admin calling the test-account actions directly is
- *         refused, even about its own organisation's learner (SC18, guard)
+ *         refused, even about its own organisation's learner (SC18, role
+ *         guard: refused by role)
  *
  * D-E4 (reset) and D-E6 (the clean-up run) act on the whole database and
  * are in r3-data-last.spec.ts, which runs after every other spec.
  *
  * On the old build: D-E1 fails because the rows survive and the note goes
  * with its author; D-E2 because the file and the page lack them; D-E3
- * because the route doesn't exist (404); D-E5 is a guard (the actions and
- * the role don't exist there).
+ * because the route and the page don't exist (404); D-E5 is a guard (the
+ * actions and the role don't exist there).
  *
  * Requires a real database — gated on E2E_DB=1. Everything the run makes
  * is unique to it and removed afterwards.
@@ -389,10 +397,183 @@ describe("D-E3 (SC17): the admin export", () => {
     await found.getByRole("button", { name: "Download their data" }).click();
     expect((await download).suggestedFilename()).toBe("seq-elevate-data-REQ-2026-906.json");
     await expect.poll(() => exportsOf(world.people.LB1.userId)).toBe(1);
+    // The page stays, and its log shows the export without a reload.
+    await expect(page).toHaveURL(/\/en\/admin\/data$/);
+    await expect(
+      main.getByRole("table").getByRole("row").filter({ hasText: "REQ-2026-906" }),
+      "the export is in the log at once"
+    ).toContainText(world.people.AD.email);
   });
 });
 
-describe("D-E5 (SC18): a partner admin can't mark, reset or erase (guard)", () => {
+describe("D-E3: /admin/data by keyboard, at 320 px, and when an export is refused", () => {
+  const emails = {
+    admin: `e2e-data-page-admin-${RUN}@example.com`,
+    subject: `e2e-data-page-subject-${RUN}@example.com`,
+    staff: `e2e-data-page-staff-${RUN}@example.com`,
+    reflow: `e2e-data-page-reflow-subject-with-a-long-address-${RUN}@example.com`,
+    gone: `e2e-data-page-gone-${RUN}@example.com`,
+  };
+  let admin: Person;
+  let subject: Person;
+  let staff: Person;
+  let gone: Person;
+  let logRow = "";
+
+  test.beforeAll(async () => {
+    await removePeople(prisma, Object.values(emails));
+    admin = await createPerson(prisma, { email: emails.admin, roles: ["ADMIN"] });
+    subject = await createPerson(prisma, { email: emails.subject, roles: ["LEARNER"] });
+    // A facilitator who played: on "Staff who also have learner data".
+    staff = await createPerson(prisma, { email: emails.staff, roles: ["FACILITATOR"] });
+    await prisma.compCard.create({ data: { userId: staff.userId, projectId: PROJECT, wentWell: "tried it" }, select: { id: true } });
+    await createPerson(prisma, { email: emails.reflow, roles: ["LEARNER"] });
+    gone = await createPerson(prisma, { email: emails.gone, roles: ["LEARNER"] });
+    // A test mark logged at 08:15 UTC on 30 November: 09:15 in Brussels.
+    logRow = (
+      await prisma.auditLog.create({
+        data: {
+          projectId: PROJECT,
+          actorId: admin.userId,
+          action: "account.test_marked",
+          entity: "ProjectProfile",
+          createdAt: new Date("2026-11-30T08:15:00Z"),
+        },
+        select: { id: true },
+      })
+    ).id;
+  });
+
+  test.afterAll(async () => {
+    await prisma.auditLog.deleteMany({ where: { OR: [{ id: logRow }, { actorId: admin?.userId }] } });
+    await removePeople(prisma, Object.values(emails));
+  });
+
+  const open = async (page: Page, context: BrowserContext) => {
+    await signIn(context, admin.sessionToken);
+    await page.goto("/en/admin/data");
+    return page.getByRole("main");
+  };
+  const find = async (main: Locator, email: string) => {
+    await main.getByLabel("Email address (or part of it)").fill(email);
+    await main.getByRole("button", { name: "Find" }).click();
+    const card = main.getByRole("list", { name: "People found" }).getByRole("listitem");
+    await expect(card).toHaveCount(1);
+    return card;
+  };
+
+  test("the page has a title; Find says what it needs; focus stays on the page after Find, Mark, Reset and Erase", async ({
+    page,
+    context,
+  }) => {
+    const main = await open(page, context);
+    await expect.soft(page, "the page's own title").toHaveTitle("Data · SEQ Elevate");
+    const field = main.getByLabel("Email address (or part of it)");
+    await field.fill("ab");
+    await field.press("Enter");
+    await expect.soft(main.getByRole("alert"), "two characters: told why nothing happens").toContainText("at least 3 characters");
+
+    await field.fill(subject.email);
+    const findButton = main.getByRole("button", { name: "Find" });
+    await findButton.focus();
+    await page.keyboard.press("Enter");
+    const card = main.getByRole("list", { name: "People found" }).getByRole("listitem");
+    await expect(card).toHaveCount(1);
+    await expect.soft(findButton, "focus stays on Find").toBeFocused();
+    await expect.soft(card, "roles in words").toContainText("Learner");
+    await expect.soft(card).not.toContainText("LEARNER");
+    await expect.soft(card, "why there is no Reset").toContainText("Reset is for marked test accounts");
+
+    await card.getByRole("button", { name: "Mark as test account" }).click();
+    await expect(card.getByRole("button", { name: "Unmark test account" })).toBeVisible();
+    await expect.soft(card.getByRole("button", { name: "Unmark test account" }), "focus stays on the mark button").toBeFocused();
+
+    await card.getByRole("button", { name: "Reset" }).click();
+    await card.getByRole("group", { name: `Reset ${subject.email}?` }).getByRole("button", { name: "Reset" }).click();
+    await expect(main.getByText(`Reset ${subject.email}: its learner data`)).toBeVisible();
+    await expect.soft(card.getByRole("group", { name: `Actions for ${subject.email}` }), "focus on the person's actions").toBeFocused();
+
+    await card.getByRole("button", { name: "Erase" }).click();
+    await card.getByLabel("Type their address to confirm").fill(subject.email);
+    await card.getByRole("button", { name: "Erase for good" }).click();
+    await expect(main.getByText(`Erased ${subject.email}.`)).toBeVisible();
+    await expect.soft(field, "focus on the search field").toBeFocused();
+    expect.soft(await page.evaluate(() => document.activeElement !== document.body), "focus is somewhere").toBe(true);
+    expect(await prisma.user.count({ where: { id: subject.userId } })).toBe(0);
+  });
+
+  test("a review list's mark is named by its words and leaves focus on the list; the dry run names the staff role", async ({
+    page,
+    context,
+  }) => {
+    const main = await open(page, context);
+    const list = main.getByRole("list", { name: "Staff who also have learner data" });
+    const item = list.getByRole("listitem").filter({ hasText: staff.email });
+    const mark = item.getByRole("button");
+    await expect.soft(mark, "visible words first (WCAG 2.5.3)").toHaveAccessibleName(`Mark as test account: ${staff.email}`);
+    await expect.soft(main.getByText("Statistics already leave staff out"), "why staff need no mark").toBeVisible();
+    await mark.click();
+    await expect(item.getByText("Test account")).toBeVisible();
+    await expect
+      .soft(main.getByRole("heading", { name: /^Staff who also have learner data/ }), "focus on the list's heading")
+      .toBeFocused();
+
+    await main.getByRole("button", { name: "Dry run" }).click();
+    const toErase = main.getByRole("list", { name: "The accounts to erase" });
+    await expect.soft(toErase.getByRole("listitem").filter({ hasText: staff.email }), "shown, with the role").toContainText("Facilitator");
+    await expect.soft(main.getByText(/hold(s)? a staff role/).first(), "a warning before the run").toBeVisible();
+    // The dry run with its warning has no serious accessibility violation.
+    const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]).analyze();
+    const serious = results.violations.filter((v) => v.impact === "serious" || v.impact === "critical");
+    expect(serious, JSON.stringify(serious.map((v) => v.id))).toEqual([]);
+  });
+
+  test("nothing scrolls sideways at 320 px, with a person found and each panel open", async ({ page, context }) => {
+    await page.setViewportSize({ width: 320, height: 800 });
+    const main = await open(page, context);
+    const width = () => page.evaluate(() => document.documentElement.scrollWidth);
+    expect.soft(await width(), "the page").toBeLessThanOrEqual(320);
+    const card = await find(main, emails.reflow);
+    expect.soft(await width(), "a person found").toBeLessThanOrEqual(320);
+    await card.getByRole("button", { name: "Export data" }).click();
+    expect.soft(await width(), "the export open").toBeLessThanOrEqual(320);
+    await card.getByRole("button", { name: "Erase" }).click();
+    await expect(card.getByLabel("Type their address to confirm")).toBeVisible();
+    expect.soft(await width(), "the erasure open").toBeLessThanOrEqual(320);
+    await card.getByRole("button", { name: "Keep" }).click();
+    await card.getByRole("button", { name: "Mark as test account" }).click();
+    await card.getByRole("button", { name: "Reset" }).click();
+    await expect(card.getByRole("group", { name: `Reset ${emails.reflow}?` })).toBeVisible();
+    expect.soft(await width(), "the reset open").toBeLessThanOrEqual(320);
+    await main.getByRole("button", { name: "Dry run" }).click();
+    await expect(main.getByRole("heading", { name: "What a run would delete now" })).toBeVisible();
+    expect.soft(await width(), "the dry run").toBeLessThanOrEqual(320);
+  });
+
+  test("a refused export keeps the page and says why", async ({ page, context }) => {
+    const main = await open(page, context);
+    const card = await find(main, gone.email);
+    await card.getByRole("button", { name: "Export data" }).click();
+    await card.getByLabel("Request reference (REQ-YYYY-NNN)").fill("REQ-2026-908");
+    // The person is erased elsewhere before the download.
+    await prisma.user.delete({ where: { id: gone.userId } });
+    await card.getByRole("button", { name: "Download their data" }).click();
+    await expect.soft(main.getByRole("alert").filter({ hasText: "no longer exists" }), "said on the page").toBeVisible();
+    await expect.soft(page, "the page stays").toHaveURL(/\/en\/admin\/data$/);
+  });
+
+  test("the log reads in words and in Brussels time", async ({ page, context }) => {
+    const main = await open(page, context);
+    const log = main.getByRole("table");
+    await expect.soft(log.getByRole("columnheader", { name: "When (Brussels time)" })).toBeVisible();
+    const row = log.getByRole("row").filter({ hasText: emails.admin }).filter({ hasText: "2026-11-30" });
+    await expect.soft(row, "09:15 in Brussels").toContainText("2026-11-30 09:15");
+    await expect.soft(row, "the action in words").toContainText("Marked as a test account");
+    await expect.soft(log.getByRole("cell", { name: "account.test_marked", exact: true }), "never the bare code").toHaveCount(0);
+  });
+});
+
+describe("D-E5 (SC18): a partner admin can't mark, reset or erase (role guard)", () => {
   let world: World;
   const DATA = "/en/admin/data";
   const FILE = "src/app/actions/admin-data.ts";

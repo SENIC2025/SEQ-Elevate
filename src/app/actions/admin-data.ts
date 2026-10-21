@@ -4,8 +4,9 @@
  * Release 3 (D85, D88; spec 8, 13.4, 14): the data tools of /admin/data.
  * ADMIN with project scope only (requireAdminProject: the ADMIN role and a
  * complete profile of their own): DIESIS is the controller, and partner
- * admins don't handle data requests. Each action is audited, with no
- * personal data in the row.
+ * admins don't handle data requests. Each change is audited, with no
+ * personal data in the row; finding people and the dry run change nothing
+ * and write no row.
  *
  * - findPeople: anyone by address, member or not (removed people, and
  *   accounts that never finished the profile step, included).

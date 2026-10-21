@@ -20,8 +20,9 @@ import { callAction } from "./fixtures/server-action";
  *         the marked test accounts, ends every demo session (unexpired too)
  *         and purges expired sessions and sign-in links; a queued course file
  *         due for deletion is listed (and kept: the e2e server is not
- *         production), one a record uses again leaves the queue; the run is
- *         logged; a second run does nothing (D88, D92)
+ *         production), one a record uses again leaves the queue, also when
+ *         the record writes its address in another form (the host's case, a
+ *         query); the run is logged; a second run does nothing (D88, D92)
  *
  * The clean-up run erases every marked test account and ends every demo
  * session in the database, whoever made them: another spec running at the
@@ -168,6 +169,7 @@ describe("D-E6: the go-live clean-up", () => {
     due: `https://${HOST}/${RUN}/due.pdf`,
     pastedBack: `https://${HOST}/${RUN}/pasted-back.pdf`,
     recent: `https://${HOST}/${RUN}/recent.pdf`,
+    variant: `https://${HOST}/${RUN}/variant.pdf`,
   };
   const tokens = { demo: `demo-e2e-${RUN}`, expired: `e2e-expired-${RUN}`, live: "" };
   const expiredLink = `e2e-clean-link-${RUN}@example.com`;
@@ -205,13 +207,15 @@ describe("D-E6: the go-live clean-up", () => {
       data: { identifier: expiredLink, token: `e2e-clean-link-${RUN}`, expires: new Date(Date.now() - HOUR) },
     });
     // Queued course files: one due that nothing uses, one due that a lesson
-    // document uses again, one queued just now.
+    // document uses again (and one whose document writes the address in
+    // another form), one queued just now.
     const [table] = await prisma.$queryRaw<{ t: string | null }[]>`SELECT to_regclass('"PendingFileDeletion"')::text AS t`;
     if (table.t) {
       await prisma.pendingFileDeletion.createMany({
         data: [
           { url: files.due, reason: "document.removed", queuedAt: new Date(Date.now() - 8 * DAY) },
           { url: files.pastedBack, reason: "document.removed", queuedAt: new Date(Date.now() - 8 * DAY) },
+          { url: files.variant, reason: "document.removed", queuedAt: new Date(Date.now() - 8 * DAY) },
           { url: files.recent, reason: "video.cleared" },
         ],
       });
@@ -221,6 +225,15 @@ describe("D-E6: the go-live clean-up", () => {
       });
       await prisma.lessonDocument.create({
         data: { lessonId: lesson.id, name: "Pasted back", url: files.pastedBack, mimeType: "application/pdf", sizeBytes: 10 },
+      });
+      await prisma.lessonDocument.create({
+        data: {
+          lessonId: lesson.id,
+          name: "Pasted back, written otherwise",
+          url: `https://${HOST.toUpperCase()}/${RUN}/variant.pdf?download=1`,
+          mimeType: "application/pdf",
+          sizeBytes: 10,
+        },
       });
     }
   });
@@ -275,7 +288,7 @@ describe("D-E6: the go-live clean-up", () => {
     expect(plan.expiredSignInLinks).toBeGreaterThanOrEqual(1);
     expect(plan.files).toMatchObject({ mode: "keep" });
     expect(plan.files.kept, "a due file is listed, kept off production").toBeGreaterThanOrEqual(1);
-    expect(plan.files.dropped, "a file in use again").toBeGreaterThanOrEqual(1);
+    expect(plan.files.dropped, "two files in use again").toBeGreaterThanOrEqual(2);
     expect(plan.files.waiting).toBeGreaterThanOrEqual(1);
     expect(plan.trialCourses.map((c) => c.slug), "a created course only test accounts took").toContain(slug);
     // Nothing changed.
@@ -323,7 +336,7 @@ describe("D-E6: the go-live clean-up", () => {
     expect(await prisma.verificationToken.count({ where: { identifier: expiredLink } }), "the expired link purged").toBe(0);
     expect(await prisma.verificationToken.count({ where: { identifier: { in: [emails.m1, emails.m2] } } })).toBe(0);
     const queued = (await prisma.pendingFileDeletion.findMany({ where: { url: { in: Object.values(files) } } })).map((f) => f.url);
-    expect(queued.sort(), "the due file stays queued (not production); the one in use again left the queue").toEqual(
+    expect(queued.sort(), "the due file stays queued (not production); the two in use again left the queue").toEqual(
       [files.due, files.recent].sort()
     );
     const logged = await prisma.auditLog.findFirst({

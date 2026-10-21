@@ -65,7 +65,8 @@ function client(name: string) {
 const tx = client("tx");
 const prisma = client("prisma");
 vi.mock("@/lib/prisma", () => ({ prisma }));
-vi.mock("@/lib/scope", () => ({ requireAdminProject: vi.fn(async () => null), PROJECT: "seq-elevate" }));
+const requireAdminProject = vi.fn<() => Promise<unknown>>(async () => null);
+vi.mock("@/lib/scope", () => ({ requireAdminProject, PROJECT: "seq-elevate" }));
 const del = vi.fn(async (url: string) => {
   if (url.includes("broken")) throw new Error("blob unavailable");
 });
@@ -79,6 +80,10 @@ const {
   cleanupRunId,
   deletePendingFiles,
   adminRefusal,
+  planCleanup,
+  getDataTools,
+  brusselsDay,
+  brusselsTime,
 } = await import("./account-data");
 const { TELEMETRY_ACTIONS } = await import("./gdpr-export");
 const { rateLimitKeysOf } = await import("./rate-limit");
@@ -370,5 +375,161 @@ describe("deletePendingFiles", () => {
     expect(dry).toEqual({ deleted: 1, failed: 0, dropped: 2, kept: 0, waiting: 2, mode: "delete" });
     expect(del).not.toHaveBeenCalled();
     expect(calls.some((c) => c.what.endsWith(".deleteMany"))).toBe(false);
+  });
+});
+
+describe("deletePendingFiles: a record using a queued file again", () => {
+  const NOW = new Date(Date.UTC(2026, 11, 1, 9));
+  const HOST = "store.public.blob.vercel-storage.com";
+  const PRODUCTION = { VERCEL_ENV: "production", BLOB_PUBLIC_HOST: HOST };
+  const queued = (urls: string[]) => {
+    answers["pendingFileDeletion.findMany"] = (args: { where: { queuedAt: { lt?: Date } } }) =>
+      args.where.queuedAt.lt ? urls.map((url) => ({ url, queuedAt: new Date(NOW.getTime() - 8 * 86_400_000) })) : [];
+  };
+
+  it("keeps it when the two addresses differ only in the host's case, the query, the fragment or the path's encoding", async () => {
+    // As the queue may store it, and as the record keeps what the editor saved.
+    queued([`https://${HOST}/a.pdf`, `https://${HOST}/b.pdf`, `https://${HOST}/c%20d.pdf`, `https://${HOST}/e.vtt`]);
+    answers["lessonDocument.findMany"] = [
+      { url: `https://${HOST.toUpperCase()}/a.pdf` },
+      { url: `https://${HOST}/b.pdf?download=1` },
+      { url: `https://${HOST}/c d.pdf` },
+    ];
+    answers["lesson.findMany"] = [{ video: { provider: "file", src: "/demo/x.webm", captions: [{ src: `https://${HOST}/e.vtt#t=0` }] } }];
+    const result = await deletePendingFiles({ dryRun: false, now: NOW, env: PRODUCTION });
+    expect(del).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ deleted: 0, dropped: 4 });
+  });
+
+  it("still deletes a file whose path differs", async () => {
+    queued([`https://${HOST}/a.pdf`]);
+    answers["lessonDocument.findMany"] = [{ url: `https://${HOST}/a2.pdf` }, { url: `https://other.example/a.pdf` }];
+    answers["lesson.findMany"] = [];
+    const result = await deletePendingFiles({ dryRun: false, now: NOW, env: PRODUCTION });
+    expect(del.mock.calls.map((c) => c[0])).toEqual([`https://${HOST}/a.pdf`]);
+    expect(result).toMatchObject({ deleted: 1, dropped: 0 });
+  });
+});
+
+describe("planCleanup", () => {
+  it("says which roles each account it erases holds", async () => {
+    answers["user.findMany"] = (args: { where: { profiles?: unknown } }) =>
+      args.where.profiles
+        ? [
+            { id: "u1", email: "fac@example.org", memberships: [{ role: "FACILITATOR" }, { role: "LEARNER" }] },
+            { id: "u2", email: "tester@example.org", memberships: [] },
+          ]
+        : [];
+    const plan = await planCleanup("admin-1", new Date(Date.UTC(2026, 11, 1)), {});
+    expect(plan.accounts).toEqual([
+      { id: "u1", email: "fac@example.org", roles: ["FACILITATOR", "LEARNER"] },
+      { id: "u2", email: "tester@example.org", roles: [] },
+    ]);
+    expect(JSON.stringify(call("prisma.user.findMany")?.args)).toContain('"memberships"');
+  });
+});
+
+describe("Brussels time", () => {
+  it("shows a moment as the date and time in Brussels, summer and winter", () => {
+    expect(brusselsTime(new Date("2026-11-30T08:15:00Z"))).toBe("2026-11-30 09:15");
+    expect(brusselsTime(new Date("2026-07-01T08:15:00Z"))).toBe("2026-07-01 10:15");
+    expect(brusselsDay(new Date("2026-11-30T23:00:00Z"))).toBe("2026-12-01");
+  });
+});
+
+describe("getDataTools", () => {
+  const ADMIN = { user: { id: "admin-1", email: "admin@example.org" }, roles: ["ADMIN"], profile: null, scope: { kind: "project" } };
+  const staffActor = { email: "admin@example.org", staffHistory: [{ userId: "admin-1" }], memberships: [{ id: "m1" }] };
+
+  it("is null for anyone but an ADMIN with project scope, before any read", async () => {
+    await expect(getDataTools()).resolves.toBeNull();
+    expect(calls).toEqual([]);
+  });
+
+  it("dates a partner admin's addition by when the profile was made, which a later mark doesn't move", async () => {
+    requireAdminProject.mockResolvedValueOnce(ADMIN);
+    answers["user.findMany"] = (args: { where: { emailVerified?: unknown } }) =>
+      "emailVerified" in args.where
+        ? [
+            {
+              id: "u9",
+              email: "added@example.org",
+              profiles: [
+                {
+                  testAccountAt: new Date("2026-11-30T10:00:00Z"),
+                  createdAt: new Date("2026-11-26T10:00:00Z"),
+                  updatedAt: new Date("2026-11-30T10:00:00Z"),
+                  organisation: { name: "Pro Arbeit" },
+                },
+              ],
+            },
+          ]
+        : [];
+    const tools = await getDataTools();
+    expect(tools?.review["partner-never-signed-in"]).toEqual([
+      { id: "u9", email: "added@example.org", testAccount: true, detail: "Pro Arbeit · 2026-11-26" },
+    ]);
+  });
+
+  it("gives each log row its Brussels time and its details in words, organisations by name", async () => {
+    requireAdminProject.mockResolvedValueOnce(ADMIN);
+    answers["auditLog.findMany"] = (args: { distinct?: unknown }) =>
+      args.distinct
+        ? []
+        : [
+            {
+              id: "r1",
+              action: "account.exported",
+              createdAt: new Date("2026-11-30T08:15:00Z"),
+              metadata: { byAdmin: true, requestRef: "REQ-2026-004" },
+              actor: staffActor,
+            },
+            {
+              id: "r2",
+              action: "person.organisation_changed",
+              createdAt: new Date("2026-07-01T08:15:00Z"),
+              metadata: { scope: "org-a" },
+              actor: staffActor,
+            },
+            {
+              id: "r3",
+              action: "person.organisation_changed",
+              createdAt: new Date("2026-07-01T08:15:00Z"),
+              metadata: { scope: "project" },
+              actor: staffActor,
+            },
+            {
+              id: "r4",
+              action: "account.deleted",
+              createdAt: new Date("2026-11-30T08:15:00Z"),
+              metadata: { selfService: true },
+              actor: null,
+            },
+            {
+              id: "r5",
+              action: "data.cleanup_run",
+              createdAt: new Date("2026-11-30T08:15:00Z"),
+              metadata: { runId: "abc123", counts: { accountsErased: 2, demoSessions: 1, enrolments: 0 } },
+              actor: staffActor,
+            },
+            {
+              id: "r6",
+              action: "account.reset",
+              createdAt: new Date("2026-11-30T08:15:00Z"),
+              metadata: { sessions: 1, enrolments: 2, badges: 0 },
+              actor: staffActor,
+            },
+          ];
+    answers["organisation.findMany"] = [{ id: "org-a", name: "Pro Arbeit" }];
+    const tools = await getDataTools();
+    expect(tools?.log.map((r) => [r.when, r.details])).toEqual([
+      ["2026-11-30 09:15", "by an admin · reference REQ-2026-004"],
+      ["2026-07-01 10:15", "scope: Pro Arbeit"],
+      ["2026-07-01 10:15", "scope: whole project"],
+      ["2026-11-30 09:15", "by the account holder"],
+      ["2026-11-30 09:15", "run abc123 · accounts erased: 2, showcase sign-in sessions: 1"],
+      ["2026-11-30 09:15", "sessions: 1, enrolments: 2"],
+    ]);
+    expect(tools?.log[0]).toMatchObject({ at: "2026-11-30T08:15:00.000Z", action: "account.exported", who: "admin@example.org" });
   });
 });

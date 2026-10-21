@@ -1,8 +1,9 @@
 /**
  * POST /api/admin/people/[id]/export — an ADMIN downloads everything we
  * hold about one person, for a data request DIESIS logged in its register
- * (spec 13.4, SP30, D88). A form on /admin/data posts here and the browser
- * downloads the answer.
+ * (spec 13.4, SP30, D88). The export form on /admin/data posts here from the
+ * page (so the browser sends the page's Origin), saves the answer as a file,
+ * and shows a refusal in place.
  *
  * - ADMIN with project scope only, checked here on the server
  *   (requireAdminProject); anyone else gets 403 (401 with no session).

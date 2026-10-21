@@ -295,6 +295,31 @@ function videoUrls(video: unknown): string[] {
   return [v.src, v.poster, ...captions].filter((u): u is string => typeof u === "string" && u.length > 0);
 }
 
+/**
+ * Which file an address names, for "does a record use it": the scheme, the
+ * host in lower case and the decoded path; the query and the fragment don't
+ * name another file. A queued address and a record's address that differ
+ * only in those (the queue may store the address in a normalised form while
+ * the record keeps what the editor saved) are the same file, so it stays.
+ * Matching more loosely than exactly only ever keeps a file.
+ */
+function fileKey(url: string): string {
+  const decode = (path: string) => {
+    try {
+      return decodeURIComponent(path);
+    } catch {
+      return path;
+    }
+  };
+  try {
+    const u = new URL(url.trim());
+    return `${u.protocol}//${u.host.toLowerCase()}${decode(u.pathname)}`;
+  } catch {
+    // A relative address (/demo/…): its path, without query or fragment.
+    return decode(url.trim().split(/[?#]/)[0]);
+  }
+}
+
 /** Is `url` a file of our own store (https and exactly BLOB_PUBLIC_HOST)? */
 function onOurStore(url: string, env: Env): boolean {
   const host = env.BLOB_PUBLIC_HOST?.trim().toLowerCase();
@@ -317,7 +342,8 @@ function onOurStore(url: string, env: Env): boolean {
  * store (BLOB_PUBLIC_HOST), since other deployments may share the store.
  * Elsewhere it stays queued and is counted as kept. A failed deletion stays
  * queued and is counted. A dry run changes nothing and answers what the run
- * would do.
+ * would do. "Uses it again" compares the file each address names (fileKey),
+ * not the strings.
  */
 export async function deletePendingFiles(opts: {
   dryRun: boolean;
@@ -338,20 +364,21 @@ export async function deletePendingFiles(opts: {
   if (due.length === 0) return counts;
 
   const urls = due.map((d) => d.url);
-  const documents = await prisma.lessonDocument.findMany({ where: { url: { in: urls } }, select: { url: true } });
+  const documents = await prisma.lessonDocument.findMany({ select: { url: true } });
   const lessons = await prisma.lesson.findMany({
     where: { NOT: { video: { equals: Prisma.DbNull } } },
     select: { video: true },
   });
-  const used = new Set([...documents.map((d) => d.url), ...lessons.flatMap((l) => videoUrls(l.video))]);
+  const used = new Set([...documents.map((d) => d.url), ...lessons.flatMap((l) => videoUrls(l.video))].map(fileKey));
+  const inUse = (url: string) => used.has(fileKey(url));
 
-  const usedAgain = urls.filter((u) => used.has(u));
+  const usedAgain = urls.filter(inUse);
   counts.dropped = usedAgain.length;
   if (!opts.dryRun && usedAgain.length) {
     await prisma.pendingFileDeletion.deleteMany({ where: { url: { in: usedAgain } } });
   }
 
-  for (const url of urls.filter((u) => !used.has(u))) {
+  for (const url of urls.filter((u) => !inUse(u))) {
     if (mode === "keep" || !onOurStore(url, env)) {
       counts.kept += 1;
       continue;
@@ -427,6 +454,8 @@ async function accountRows(db: Db, person: { id: string; email: string }): Promi
 export interface CleanupAccount {
   id: string;
   email: string;
+  /** Its roles in the project: the run erases them with the account, staff roles included. */
+  roles: string[];
 }
 
 export interface CleanupPlan {
@@ -448,16 +477,21 @@ export interface CleanupPlan {
   trialCourses: { slug: string; title: string; status: string; learners: number }[];
 }
 
-/** The marked test accounts, split into the ones `adminId` may erase and the ones it may not. */
+/**
+ * The marked test accounts, split into the ones `adminId` may erase and the
+ * ones it may not, each with its roles (the dry run shows them, so a staff
+ * account marked by mistake is seen before the run erases it).
+ */
 async function markedAccounts(adminId: string, env: Env) {
   const marked = await prisma.user.findMany({
     where: { profiles: { some: { projectId: PROJECT, testAccountAt: { not: null } } } },
-    select: { id: true, email: true },
+    select: { id: true, email: true, memberships: { where: { projectId: PROJECT }, select: { role: true } } },
     orderBy: { email: "asc" },
   });
   const accounts: CleanupAccount[] = [];
   const kept: CleanupPlan["kept"] = [];
-  for (const person of marked) {
+  for (const { memberships, ...rest } of marked) {
+    const person: CleanupAccount = { ...rest, roles: memberships.map((m) => m.role) };
     const reason = await adminRefusal(adminId, person, env);
     if (reason) kept.push({ ...person, reason });
     else accounts.push(person);
@@ -613,6 +647,8 @@ export interface ReviewPerson {
 export interface LogRow {
   id: string;
   at: string;
+  /** `at` as the date and time in Brussels (YYYY-MM-DD HH:MM), as the page shows it. */
+  when: string;
   action: string;
   /** An admin's address, "the account holder" (their own request), or null (erased, or the system). */
   who: string | null;
@@ -639,7 +675,28 @@ const HAS_LEARNER_DATA: Prisma.UserWhereInput = {
 const MARKED: Prisma.UserWhereInput = { profiles: { some: { projectId: PROJECT, testAccountAt: { not: null } } } };
 const EVER_STAFF: Prisma.UserWhereInput = { staffHistory: { some: { projectId: PROJECT } } };
 
-const day = (d: Date) => d.toISOString().slice(0, 10);
+/**
+ * Dates and times on /admin/data are Brussels's (DIESIS, the controller,
+ * reads the log there): summer time included, whatever the server's zone.
+ */
+const BRUSSELS = new Intl.DateTimeFormat("en-GB", {
+  timeZone: "Europe/Brussels",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+});
+
+/** `d` as the date and time in Brussels: YYYY-MM-DD HH:MM. */
+export function brusselsTime(d: Date): string {
+  const part = Object.fromEntries(BRUSSELS.formatToParts(d).map((p) => [p.type, p.value]));
+  return `${part.year}-${part.month}-${part.day} ${part.hour}:${part.minute}`;
+}
+
+/** `d` as the date in Brussels: YYYY-MM-DD. */
+export const brusselsDay = (d: Date): string => brusselsTime(d).slice(0, 10);
 
 /** The review lists of spec 14 item 2 (and 2.6): people an ADMIN may want to mark as test accounts. */
 async function reviewLists(): Promise<DataTools["review"]> {
@@ -682,7 +739,10 @@ async function reviewLists(): Promise<DataTools["review"]> {
       : Promise.resolve([]),
   ]);
 
-  // Added or claimed by a partner admin, never signed in (a sign-in by link sets emailVerified).
+  // Added or claimed by a partner admin, never signed in (a sign-in by link
+  // sets emailVerified). The date is the profile's creation, when the
+  // partner admin added them: later writes (a test mark, a guardian's
+  // permission) don't move it.
   const partnerAdded = await prisma.user.findMany({
     where: {
       emailVerified: null,
@@ -692,7 +752,7 @@ async function reviewLists(): Promise<DataTools["review"]> {
       ...person,
       profiles: {
         where: { projectId: PROJECT },
-        select: { testAccountAt: true, updatedAt: true, organisation: { select: { name: true } } },
+        select: { testAccountAt: true, createdAt: true, organisation: { select: { name: true } } },
       },
     },
     orderBy: { email: "asc" },
@@ -743,7 +803,7 @@ async function reviewLists(): Promise<DataTools["review"]> {
     "member-targets": memberTargets.map((u) => row(u)),
     "partner-never-signed-in": partnerAdded.map((u) => {
       const p = u.profiles[0];
-      return row(u, p ? `${p.organisation?.name ?? "no organisation"} · ${day(p.updatedAt)}` : undefined);
+      return row(u, p ? `${p.organisation?.name ?? "no organisation"} · ${brusselsDay(p.createdAt)}` : undefined);
     }),
     "country-mismatch": mismatch,
   };
@@ -764,27 +824,81 @@ const LOGGED: Prisma.AuditLogWhereInput = {
   ],
 };
 
-/** What a log row's metadata says, without personal data (references, runs, counts, flags). */
-function detailsOf(metadata: unknown): string {
+/** Log metadata flags, in words. */
+const FLAG_WORDS: Record<string, string> = {
+  selfService: "by the account holder",
+  byAdmin: "by an admin",
+  testAccount: "a test account (no reference needed)",
+};
+
+/** Log metadata counts (a reset's, a run's), in words. */
+const COUNT_WORDS: Record<string, string> = {
+  accountsErased: "accounts erased",
+  accountsFailed: "accounts not erased",
+  accountsKept: "marked accounts left",
+  enrolments: "enrolments",
+  compCards: "Comp Cards",
+  badges: "badges",
+  notes: "notes about them",
+  notesAbout: "notes about them",
+  validations: "validations about them",
+  validationsAbout: "validations about them",
+  missions: "missions",
+  sessions: "sessions",
+  activity: "activity records",
+  sharingLog: "sharing records",
+  signInLinks: "sign-in links",
+  rateLimits: "rate-limit counters",
+  demoSessions: "showcase sign-in sessions",
+  expiredSessions: "expired sessions",
+  expiredSignInLinks: "expired sign-in links",
+  filesDeleted: "files deleted",
+  filesFailed: "files not deleted",
+  filesDropped: "files in use again",
+  filesKept: "files kept",
+};
+
+/**
+ * What a log row's metadata says, in words and without personal data:
+ * references, runs, scopes (an organisation by its name), flags and the
+ * counts that aren't zero.
+ */
+function detailsOf(metadata: unknown, organisations: ReadonlyMap<string, string>): string {
   if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return "";
+  const counts = (values: [string, unknown][]) =>
+    values
+      .filter((entry): entry is [string, number] => typeof entry[1] === "number" && entry[1] > 0)
+      .map(([k, n]) => `${COUNT_WORDS[k] ?? k}: ${n}`)
+      .join(", ");
+  const organisation = (id: string) => (id === "project" ? "whole project" : organisations.get(id) ?? "an organisation");
   const parts: string[] = [];
   for (const [key, value] of Object.entries(metadata as Record<string, unknown>)) {
-    if (key === "requestRef" || key === "runId" || key === "reason" || key === "scope" || key === "to" || key === "version") {
-      if (typeof value === "string") parts.push(`${key} ${value}`);
+    if (typeof value === "string") {
+      if (key === "requestRef") parts.push(`reference ${value}`);
+      else if (key === "runId") parts.push(`run ${value}`);
+      else if (key === "scope") parts.push(`scope: ${organisation(value)}`);
+      else if (key === "to") parts.push(`to: ${organisations.get(value) ?? value}`);
+      else if (key === "reason" || key === "version") parts.push(`${key}: ${value}`);
     } else if (typeof value === "boolean" && value) {
-      parts.push(key);
-    } else if (typeof value === "number") {
-      parts.push(`${key} ${value}`);
+      parts.push(FLAG_WORDS[key] ?? key);
     } else if (value && typeof value === "object" && !Array.isArray(value)) {
-      const numbers = Object.entries(value as Record<string, unknown>).filter(([, n]) => typeof n === "number" && n > 0);
-      if (numbers.length) parts.push(`${key}: ${numbers.map(([k, n]) => `${k} ${n}`).join(", ")}`);
+      const listed = counts(Object.entries(value as Record<string, unknown>));
+      if (listed) parts.push(listed);
     }
   }
+  const topCounts = counts(Object.entries(metadata as Record<string, unknown>));
+  if (topCounts) parts.push(topCounts);
   return parts.join(" · ");
 }
 
 /** The last rows of the data and account log, with who did them (an admin's address), never a learner's name. */
 async function logRows(): Promise<LogRow[]> {
+  const organisations = new Map(
+    (await prisma.organisation.findMany({ where: { projectId: PROJECT }, select: { id: true, name: true } })).map((o) => [
+      o.id,
+      o.name,
+    ])
+  );
   const rows = await prisma.auditLog.findMany({
     where: LOGGED,
     orderBy: { createdAt: "desc" },
@@ -806,13 +920,14 @@ async function logRows(): Promise<LogRow[]> {
   return rows.map((r) => ({
     id: r.id,
     at: r.createdAt.toISOString(),
+    when: brusselsTime(r.createdAt),
     action: r.action,
     who: r.actor
       ? r.actor.staffHistory.length || r.actor.memberships.length
         ? r.actor.email
         : "the account holder"
       : null,
-    details: detailsOf(r.metadata),
+    details: detailsOf(r.metadata, organisations),
   }));
 }
 

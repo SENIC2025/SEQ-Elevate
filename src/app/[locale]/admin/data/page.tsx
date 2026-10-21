@@ -1,5 +1,6 @@
+import type { Metadata } from "next";
 import { setRequestLocale } from "next-intl/server";
-import { getDataTools } from "@/lib/account-data";
+import { brusselsDay, getDataTools } from "@/lib/account-data";
 import { statsFrom } from "@/lib/stats-from";
 import { DataTools } from "@/components/role/DataTools";
 import { AccessNotice } from "@/components/AccessNotice";
@@ -8,6 +9,10 @@ import { ChevronLeft } from "lucide-react";
 
 // Reads people and the log for the viewer — never prerender.
 export const dynamic = "force-dynamic";
+
+// The page's own name in the tab and to assistive technology ("Data · SEQ
+// Elevate"); English, like the page.
+export const metadata: Metadata = { title: "Data" };
 
 /**
  * Release 3 (spec 8, 13.4, 14; D88): data requests, test accounts and the
@@ -44,7 +49,7 @@ export default async function Page({ params }: { params: Promise<{ locale: strin
       <DataTools
         review={tools.review}
         log={tools.log}
-        statsFrom={from ? from.toISOString().slice(0, 10) : null}
+        statsFrom={from ? brusselsDay(from) : null}
       />
     </div>
   );
