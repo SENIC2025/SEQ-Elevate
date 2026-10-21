@@ -6,6 +6,7 @@ import { ReflectionIntro } from "../ReflectionIntro";
 import { AnswerLengthNote, answerLengthState } from "../answer-length";
 import type { PartProps } from "./part-props";
 import { useContentLang } from "../CourseText";
+import { SafeguardingHint } from "@/components/safeguarding/SafeguardingHint";
 
 /**
  * Reflection questions: the intro when there is one, then one labelled box
@@ -13,6 +14,8 @@ import { useContentLang } from "../CourseText";
  * answers are the learner's, saved question by question; in a preview
  * nothing is saved. Up to 5,000 characters each, as in the reflection
  * stage (answer-length.tsx): a note near and past the limit, never a cut.
+ * After the intro, the line that says nobody reads these answers and
+ * where to get help (SafeguardingHint, D93).
  */
 export function ReflectionPart({ part, answer, onAnswer }: PartProps<"reflection">) {
   const uid = useId();
@@ -26,8 +29,10 @@ export function ReflectionPart({ part, answer, onAnswer }: PartProps<"reflection
       {hasIntro ? (
         <ReflectionIntro reflection={{ intro: part.intro ?? "", introRich: part.introRich }} />
       ) : null}
+      {/* Nobody reads reflections: one line says so, and where to get help (D93). */}
+      <SafeguardingHint variant="reflection" />
       {part.prompts.length > 0 ? (
-        <div className={hasIntro ? "mt-4 space-y-5" : "space-y-5"}>
+        <div className="mt-4 space-y-5">
           {part.prompts.map((prompt, i) => {
             const id = `${uid}-${i}`;
             const length = answerLengthState(text[prompt.id]);

@@ -12,6 +12,7 @@ import { ReflectionIntro } from "./ReflectionIntro";
 import { AnswerLengthNote, answerLengthState } from "./answer-length";
 import { RefusedNote } from "./refused-note";
 import { useContentLang } from "./CourseText";
+import { SafeguardingHint } from "@/components/safeguarding/SafeguardingHint";
 
 /**
  * Reflection stage. Renders authored prompts; answers are private to the
@@ -25,6 +26,9 @@ import { useContentLang } from "./CourseText";
  * the browser cutting pasted text short (no maxLength). Held back or
  * refused as too long, that note is all it needs; any other refusal of
  * the answers (D62.d) is said under the boxes (RefusedNote).
+ *
+ * Release 3 (D93): after the intro, one line says facilitators don't read
+ * what is written here and links the help page (SafeguardingHint).
  */
 export function ReflectionStage({
   stage,
@@ -61,6 +65,9 @@ export function ReflectionStage({
             it keeps their formatting, line breaks and lists like narrative
             text does. */}
         <ReflectionIntro reflection={ref} className="mt-2" />
+        {/* Nobody reads reflections, so a disclosure here would reach no
+            one: one line says so and where to get help (D93). */}
+        <SafeguardingHint variant="reflection" />
 
         <div className="mt-6 space-y-5">
           {ref.prompts.slice(0, 3).map((prompt, i) => {

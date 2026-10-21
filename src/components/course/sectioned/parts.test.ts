@@ -4,6 +4,11 @@ import { createElement } from "react";
 // The parts answer into the player's state, never a store: a store hook
 // here would throw (no provider), and this mock would be called.
 const storeUsed = vi.fn();
+// The reflection's help line links /help with the locale-aware Link.
+vi.mock("@/i18n/navigation", async () => {
+  const { createElement: h } = await import("react");
+  return { Link: ({ href, ...rest }: { href: string }) => h("a", { href: `/en${href}`, ...rest }) };
+});
 vi.mock("@/store/demo-state", () => ({
   useDemoState: () => {
     storeUsed();
@@ -310,5 +315,18 @@ describe("RatingPart", () => {
 describe("no store", () => {
   it("no part reads or writes the learner store", () => {
     expect(storeUsed).not.toHaveBeenCalled();
+  });
+});
+
+/* Release 3 (D93, spec 11.3; R3-D1): the help line after a reflection's intro. */
+describe("ReflectionPart: the help line", () => {
+  it("follows the intro, or opens the part when it has none, before the first question", () => {
+    for (const part of [reflectionPart, { ...reflectionPart, intro: undefined }]) {
+      const text = textOf(renderIn(createElement(ReflectionPart, { ...base, part, answer: undefined })));
+      const hint = text.indexOf("Facilitators don't read what you write here.");
+      expect(hint).toBeGreaterThan(-1);
+      expect(hint).toBeLessThan(text.indexOf("What went well?"));
+      if (part.intro) expect(hint).toBeGreaterThan(text.indexOf(part.intro));
+    }
   });
 });
