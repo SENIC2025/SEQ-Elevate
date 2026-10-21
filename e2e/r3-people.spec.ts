@@ -1,4 +1,5 @@
-import { test, expect, type APIRequestContext } from "@playwright/test";
+import { test, expect, type APIRequestContext, type Page } from "@playwright/test";
+import AxeBuilder from "@axe-core/playwright";
 import { createHash, randomBytes } from "node:crypto";
 import { PrismaClient, type Role } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
@@ -67,6 +68,15 @@ async function payload(request: APIRequestContext, person: Person, path: string)
   const rsc = await request.get(path, { headers: { ...cookie, RSC: "1" }, maxRedirects: 0 });
   expect(rsc.status(), `${path}'s payload as ${person.email}`).toBe(200);
   return `${await html.text()}\n${await rsc.text()}`;
+}
+
+/** No serious or critical axe violation on the page (WCAG 2.2 AA). */
+async function noSeriousViolations(page: Page, what: string) {
+  const results = await new AxeBuilder({ page })
+    .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"])
+    .analyze();
+  const serious = results.violations.filter((v) => v.impact === "serious" || v.impact === "critical");
+  expect(serious, `${what}: ${JSON.stringify(serious.map((v) => v.id))}`).toEqual([]);
 }
 
 describe("Release 3 people and organisations", () => {
@@ -340,14 +350,14 @@ describe("Release 3 people and organisations", () => {
 
     await signIn(context, world.people.AS.sessionToken);
     await page.goto(PEOPLE_PAGE);
-    const row = page.locator("tr", { hasText: person.email });
+    const row = page.locator("tr", { hasText: person.email }).first();
     await row.getByRole("button", { name: `Change details of ${person.email}` }).click();
     const form = page.getByRole("group", { name: `Change details of ${person.name}` });
     await expect(form.getByRole("heading")).toBeFocused();
     await form.getByLabel("Country").selectOption("CY");
     await form.getByRole("button", { name: "Save" }).click();
     await expect(page.getByText(`Saved the details of ${person.email}.`)).toBeVisible();
-    await expect(page.locator("tr", { hasText: person.email })).toContainText(world.organisations.B.name);
+    await expect(page.locator("tr", { hasText: person.email }).first()).toContainText(world.organisations.B.name);
 
     expect(await profileOf(person.userId)).toMatchObject({ country: "CY", organisationId: world.organisations.B.id });
     expect(await cardOf(person.userId)).toEqual({ privacy: "SELF", sharedAt: null, sharedWithOrganisationId: null });
@@ -458,7 +468,7 @@ describe("Release 3 people and organisations", () => {
     expect(recorded?.metadata).toMatchObject({ sharing: true, scope: world.organisations.A.id });
 
     // Their row says so; the sharing part can be taken back.
-    const row = page.locator("tr", { hasText: young });
+    const row = page.locator("tr", { hasText: young }).first();
     await expect(row).toContainText(/guardian's permission recorded/);
     await row.getByLabel(/also covers sharing their comp card/i).uncheck();
     await expect.poll(async () => (await profileOf(user.id))?.guardianSharingConsentAt ?? null).toBeNull();
@@ -559,7 +569,7 @@ describe("Release 3 people and organisations", () => {
     await prisma.$executeRaw`UPDATE "ProjectProfile" SET "organisationId" = NULL, "organisationSource" = 'released', "country" = 'CY', "profileCompletedAt" = now() WHERE "userId" = ${user.id} AND "projectId" = ${PROJECT}`;
     await page.reload();
     await page.getByLabel("Show", { exact: true }).first().selectOption("mismatch");
-    const row = page.locator("tr", { hasText: added });
+    const row = page.locator("tr", { hasText: added }).first();
     await expect(row).toContainText("Country doesn't match organisation");
     await expect(row).toContainText("No organisation");
 
@@ -571,6 +581,41 @@ describe("Release 3 people and organisations", () => {
     expect(ownAdd.result).toEqual({ ok: false, error: "self" });
     expect((await profileOf(ad.userId))?.organisationId).toBe(world.organisations.DIESIS.id);
     expect(await rolesOf(ad.userId)).toEqual(["ADMIN"]);
+  });
+
+  test("a partner admin's screens, and an ADMIN's country mapping and change form, have no serious accessibility violations (guard)", async ({
+    page,
+    context,
+  }) => {
+    await signIn(context, world.people.PAA.sessionToken);
+    for (const path of ["/en/admin", PEOPLE_PAGE, COHORTS_PAGE]) {
+      await page.goto(path);
+      await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+      await noSeriousViolations(page, `${path} as a partner admin`);
+    }
+    // A partner admin's learner's "Change details" form, open.
+    const learner = world.people.LA2;
+    await page.goto(PEOPLE_PAGE);
+    await page
+      .locator("tr", { hasText: learner.email })
+      .first()
+      .getByRole("button", { name: `Change details of ${learner.email}` })
+      .click();
+    await expect(page.getByRole("group", { name: `Change details of ${learner.name}` })).toBeVisible();
+    await noSeriousViolations(page, "Change details as a partner admin");
+
+    await signIn(context, world.people.AS.sessionToken);
+    await page.goto(COHORTS_PAGE);
+    await expect(page.getByRole("heading", { name: "Country mapping" })).toBeVisible();
+    await noSeriousViolations(page, "the country mapping");
+    await page.goto(PEOPLE_PAGE);
+    await page
+      .locator("tr", { hasText: learner.email })
+      .first()
+      .getByRole("button", { name: `Change details of ${learner.email}` })
+      .click();
+    await expect(page.getByRole("group", { name: `Change details of ${learner.name}` }).getByLabel("Country")).toBeVisible();
+    await noSeriousViolations(page, "Change details as an ADMIN");
   });
 
   test.fixme("A-E12 (needs Stream B's profile step): that person signs in and picks Cyprus: the screen names A first, then their organisation is released and audited (profile.organisation_released)", () => {});

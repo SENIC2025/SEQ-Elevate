@@ -533,7 +533,10 @@ export function PeopleManager({
                   onChange={(e) => onGuardianSharing(m, e.target.checked)}
                   className="mt-0.5 h-4 w-4 flex-shrink-0 accent-[var(--accent)]"
                 />
-                It also covers sharing their Comp Card with our facilitators
+                <span>
+                  It also covers sharing their Comp Card with our facilitators
+                  <span className="sr-only"> ({m.email})</span>
+                </span>
               </label>
             ) : null}
           </td>
