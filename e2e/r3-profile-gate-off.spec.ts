@@ -10,7 +10,9 @@ import { PROJECT, createPerson, removePeople, runId, signIn } from "./fixtures/p
  * "signed in, nothing saved, not on rosters", never to "no Terms recorded":
  *   - someone without a complete profile reaches the learner area with no
  *     redirect, is told nothing of theirs is saved, and a lesson finished
- *     makes no row (their membership still waits for the profile step);
+ *     makes no row: no enrolment, no record of the course opened or of
+ *     the time spent on a lesson (their membership still waits for the
+ *     profile step);
  *   - staff scope no longer needs a complete profile: an ADMIN without one
  *     sees the learners here, and on the main server (the gate on) is sent
  *     to the profile step. (An ADMIN, not a facilitator: partner access is
@@ -59,7 +61,7 @@ describe("Release 3 switches: the profile gate off", () => {
     await removePeople(prisma, made);
   });
 
-  test("B-E11: an account without a complete profile reaches the learner area, is told nothing is saved, and a lesson finished makes no row", async ({
+  test("B-E11: an account without a complete profile reaches the learner area, is told nothing is saved, and a lesson finished makes no row, nor any record of what they did", async ({
     page,
     context,
   }) => {
@@ -78,6 +80,16 @@ describe("Release 3 switches: the profile gate off", () => {
     expect(await prisma.courseEnrollment.count({ where: { userId: person.userId } }), "no enrolment").toBe(0);
     expect(await prisma.membership.count({ where: { userId: person.userId, projectId: PROJECT } }), "no membership").toBe(0);
     expect(await prisma.compCard.count({ where: { userId: person.userId } }), "no Comp Card").toBe(0);
+    // Nor the activity facilitators are shown: the course opened, the time
+    // on each lesson, in-video answers.
+    await page.goto("/en/learner");
+    await page.waitForLoadState("networkidle");
+    expect(
+      await prisma.auditLog.count({
+        where: { actorId: person.userId, action: { in: ["course.opened", "stage.time", "video.cue_answered"] } },
+      }),
+      "no record of what they did"
+    ).toBe(0);
   });
 
   test("B-E11: staff scope no longer needs a complete profile — an ADMIN without one sees the learners only because the gate is off", async ({

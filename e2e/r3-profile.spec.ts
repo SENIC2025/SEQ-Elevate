@@ -5,6 +5,7 @@ import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { ORGANISATIONS, PROJECT, createPerson, hasProfiles, removePeople, runId, signIn } from "./fixtures/people";
 import { completeProfileStep, fillProfileStep } from "./fixtures/profile-step";
+import { slowActions } from "./fixtures/slow-actions";
 import { currentTermsVersion } from "../src/lib/profile";
 
 /**
@@ -303,6 +304,31 @@ describe("Release 3 profile step", () => {
     await expect(prompt).toHaveCount(0);
   });
 
+  test("B-E3: 'Added to your account.' is said only once the guest work is in the account, however slowly it gets there", async ({
+    page,
+    context,
+  }) => {
+    await playAsGuest(page);
+    const person = await createPerson(prisma, { email: address("slow-claim"), profile: "none", organisation: null });
+    // The guest store stays: signing in leaves the browser's storage alone.
+    await signIn(context, person.sessionToken);
+    await throughProfileStep(page, "/en/learner");
+    const prompt = page.getByRole("region", { name: "Work saved on this browser before you signed in" });
+    await expect(prompt).toBeVisible();
+
+    // A slow connection: every write is on its way for seconds. Someone
+    // told "Added" may sign out at once, so the work must be in the
+    // account by then, and the browser's copy gone.
+    await slowActions(page, 4_000);
+    await prompt.getByRole("button", { name: "Add it to my account" }).click();
+    await expect(prompt.getByRole("status")).toHaveText("Saving…");
+    const added = page.getByRole("status").filter({ hasText: "Added to your account." });
+    await expect(added).toBeVisible({ timeout: 30_000 });
+    expect(await builtInLessons(person.userId), "in the account when the page says so").toEqual(["CONTEXT", "CONCEPT"]);
+    expect(await guestLessons(page), "and no longer in this browser").toBeNull();
+    await expect(added).toBeFocused();
+  });
+
   test("B-E3: 'Remove it from this browser' removes the guest work, and nothing of it reaches the account", async ({
     page,
     context,
@@ -398,6 +424,15 @@ describe("Release 3 profile step", () => {
       await expect(summary).toBeVisible({ timeout: 3000 });
     }).toPass({ timeout: 30_000 });
     await noSeriousViolations(page, "/en/welcome with errors");
+    // The list that takes the focus has a role its name is allowed on (an
+    // alert): a name on a role-less element is one axe can only flag for
+    // review, and a screen reader may not read.
+    await expect(page.locator(":focus")).toHaveAttribute("role", "alert");
+    const review = await new AxeBuilder({ page }).withRules(["aria-prohibited-attr", "aria-allowed-attr"]).analyze();
+    expect(
+      [...review.violations, ...review.incomplete].map((r) => `${r.id}: ${r.nodes.map((n) => n.target.join(" ")).join(", ")}`),
+      "no name where ARIA allows none"
+    ).toEqual([]);
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     expect(overflow).toBeLessThanOrEqual(0);
   });

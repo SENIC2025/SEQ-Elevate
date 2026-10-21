@@ -16,6 +16,7 @@ import {
 } from "./fixtures/people";
 import { callAction } from "./fixtures/server-action";
 import { completeProfileStep } from "./fixtures/profile-step";
+import { slowActions } from "./fixtures/slow-actions";
 
 /**
  * Release 3 (spec 4, 18.2, B-E6 to B-E10): the Comp Card, learner side.
@@ -206,6 +207,41 @@ describe("Release 3 Comp Card, learner side", () => {
       await prisma.auditLog.count({ where: { action: "compcard.sharing_changed", entityId: (await cardOf(learner.userId))!.id } }),
       "each change is logged by the card's id"
     ).toBe(2);
+  });
+
+  test("B-E6: a shared card says it is shared from the first paint, before the learner's data has loaded", async ({
+    page,
+    context,
+  }) => {
+    const learner = await learnerOfA("shared-slow");
+    const sharedAt = new Date("2026-11-21T09:00:00Z");
+    await prisma.compCard.create({
+      data: {
+        userId: learner.userId,
+        projectId: PROJECT,
+        wentWell: `cardtext-shared-slow-${RUN}`,
+        privacy: "FACILITATOR",
+        // (Release 2's schema has no sharing columns: there "FACILITATOR" alone is shared.)
+        ...(profiles ? { sharedAt, sharedWithOrganisationId: world.organisations.A.id } : {}),
+      },
+      select: { id: true },
+    });
+    await signIn(context, learner.sessionToken);
+    // The learner's data takes seconds to load (a slow connection).
+    await slowActions(page, 5_000);
+    await page.goto(CARD_PAGE);
+    const onlyMe = page.getByRole("button", { name: "Only me" });
+    const share = page.getByRole("button", { name: `Me and the facilitators at ${world.organisations.A.name}` });
+    await expect(share).toBeVisible();
+    // Not loaded yet: the choice can't be changed meanwhile...
+    await expect(onlyMe).toHaveAttribute("aria-disabled", "true");
+    // ...and it says what the learner chose, not "Only me".
+    await expect(share).toHaveAttribute("aria-pressed", "true");
+    await expect(onlyMe).toHaveAttribute("aria-pressed", "false");
+    await expect(page.getByRole("main").getByText("Shared since November 21, 2026.")).toBeVisible();
+    // Loaded, the same.
+    await expect(onlyMe).not.toHaveAttribute("aria-disabled", "true", { timeout: 30_000 });
+    await expect(share).toHaveAttribute("aria-pressed", "true");
   });
 
   test("B-E7 (SC16): a Comp Card save that sends privacy 'facilitator', as a page from before Release 3 does, saves the text and shares nothing", async ({
