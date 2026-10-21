@@ -10,13 +10,15 @@
  * has none: the saved data always wins — per course for the course (D37, D69:
  * the guest store holds one), which is sent in fill mode, so the account
  * still wins if another device saves it at the same moment (spec 5.4).
- * The guest store is emptied before the writes (so a second tab can't move
- * it twice), which leaves the learner store in memory as the only other
- * place for it. So no write is given up on at its first failure — a
- * dropped connection, or a session lookup that failed (the save actions
- * fail then: see requireLearner in src/app/actions/learner.ts) — and one
- * failure doesn't stop the rest: each write is tried again (retry.ts), and
- * what the account should now hold goes to the store whether its write got
+ * The guest store is emptied only once every write has got through (or
+ * been refused, which no try can change: `settled`): until then it is the
+ * copy that outlives a tab closed mid-move, and is offered again on the
+ * next page. Moving it twice changes nothing — the account has it then,
+ * and wins. No write is given up on at its first failure — a dropped
+ * connection, or a session lookup that failed (the save actions fail then:
+ * see requireLearner in src/app/actions/learner.ts) — and one failure
+ * doesn't stop the rest: each write is tried again (retry.ts), and what
+ * the account should now hold goes to the store whether its write got
  * through or not. What didn't is then saved by the store's own
  * write-throughs, which try again too: the Comp Card, the badges not yet
  * awarded, and the course once it has loaded.
@@ -60,6 +62,8 @@ export interface Migrated {
   course: CourseProgress | null;
   /** Did any write get through (so server-rendered pages are stale)? */
   wrote: boolean;
+  /** Did every write get through or get refused (none left to the store)? */
+  settled: boolean;
 }
 
 /**
@@ -74,6 +78,7 @@ export async function migrateGuest(
   retry: <T>(call: () => Promise<T>) => Promise<T> = (call) => withRetry(call)
 ): Promise<Migrated> {
   let wrote = false;
+  let settled = true;
   const write = async (call: () => Promise<unknown>) => {
     try {
       const result = await retry(call);
@@ -87,6 +92,7 @@ export async function migrateGuest(
       wrote = true;
       return true;
     } catch (err) {
+      settled = false;
       console.error(
         "A guest's progress didn't reach their account; the learner store saves it.",
         err
@@ -130,7 +136,7 @@ export async function migrateGuest(
     course = gc;
   }
 
-  return { badges: [...saved.badges, ...newBadges], awarded, compCard, course, wrote };
+  return { badges: [...saved.badges, ...newBadges], awarded, compCard, course, wrote, settled };
 }
 
 /** A summary of the work a guest store holds, for the prompt that offers it (spec 5.5). */

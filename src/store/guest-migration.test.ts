@@ -107,6 +107,7 @@ describe("migrateGuest", () => {
       compCard: card,
       course,
       wrote: true,
+      settled: true,
     });
   });
 
@@ -137,11 +138,12 @@ describe("migrateGuest", () => {
     expect(tries).toEqual({ badge: 2, card: 3, course: 2 });
     expect(server).toEqual({ badges: ["voice-without-edges"], card, course: moved });
     expect(migrated.awarded).toEqual(["voice-without-edges"]);
+    expect(migrated.settled, "all of it in the account: the guest store can go").toBe(true);
   });
 
   it("keeps the rest going, and hands the store all of it, when a write never gets through", async () => {
-    // The guest store is already emptied: the learner store in memory is
-    // the only other place left for it, and its write-throughs save it.
+    // The learner store's write-throughs save it, and the guest store,
+    // not settled, stays: it outlives a tab closed before they do.
     const { writes: w, server } = writes({ badge: 100, card: 100 });
     const migrated = await migrateGuest(guest, nothingSaved, w, retry);
 
@@ -152,6 +154,7 @@ describe("migrateGuest", () => {
       compCard: card, // saved by its Comp Card write-through
       course, // saved once it has loaded
       wrote: true,
+      settled: false,
     });
     expect(console.error).toHaveBeenCalled();
   });
@@ -173,6 +176,7 @@ describe("migrateGuest", () => {
     expect(tries.badge).toBe(1);
     expect(migrated.badges).toEqual(["voice-without-edges"]); // still shown
     expect(migrated.awarded).toEqual([]); // not counted as saved
+    expect(migrated.settled, "a refusal leaves nothing to try again").toBe(true);
   });
 
   it("hands the store the guest's course when its save never gets through", async () => {
@@ -181,6 +185,7 @@ describe("migrateGuest", () => {
 
     expect(server.course).toBeNull();
     expect(migrated.course).toEqual(course);
+    expect(migrated.settled).toBe(false);
   });
 
   it("leaves what the account has saved as it is: the saved data wins", async () => {
@@ -204,6 +209,7 @@ describe("migrateGuest", () => {
       compCard: savedCard,
       course: null,
       wrote: false,
+      settled: true,
     });
   });
 

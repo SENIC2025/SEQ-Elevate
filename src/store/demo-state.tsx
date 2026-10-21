@@ -1085,13 +1085,15 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
 
   // ---- The guest store's work (spec 5.5) ----
   // "Add it to my account": what the account holds now is read first (the
-  // guest store stays if that fails), then the guest store is removed (so
-  // no other tab moves it twice) and moved in under the account-wins rules
-  // (guest-migration.ts), each write tried again. What the account should
-  // now hold goes to the store whether its write got through or not, and
-  // the store's write-throughs save what didn't: the Comp Card, the badges
-  // not yet awarded, and the course once it has loaded (migratedRef, read
-  // back from the server and merged, the account's answers first).
+  // guest store stays if that fails), then the guest store is moved in
+  // under the account-wins rules (guest-migration.ts), each write tried
+  // again, and removed once every write is through: until then it outlives
+  // a tab closed mid-move, and is offered again (a second move changes
+  // nothing: the account has it, and wins). What the account should now
+  // hold goes to the store whether its write got through or not, and the
+  // store's write-throughs save what didn't: the Comp Card, the badges not
+  // yet awarded, and the course once it has loaded (migratedRef, read back
+  // from the server and merged, the account's answers first).
   const claimGuestWork = React.useCallback(async () => {
     const forUser = dbOwnerRef.current;
     if (!forUser) return;
@@ -1104,14 +1106,19 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
     }
     if (dbOwnerRef.current !== forUser) return;
     const guest = readGuestStore();
-    try {
-      window.localStorage.removeItem(STORAGE_KEY);
-    } catch {
-      /* nothing to remove */
-    }
+    const removeGuestStore = () => {
+      try {
+        window.localStorage.removeItem(STORAGE_KEY);
+      } catch {
+        /* nothing to remove */
+      }
+    };
     setGuestWork(null);
     setGuestWorkDone("added");
-    if (!guest) return;
+    if (!guest) {
+      removeGuestStore();
+      return;
+    }
     const migrated = await migrateGuest(
       guest,
       { compCard: saved.compCard as CompCardData | null, badges: saved.badges, enrollments: saved.enrollments },
@@ -1121,6 +1128,8 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
         saveCourse: (slug, patch) => saveCourseProgressPatch(slug, patch, forUser),
       }
     );
+    // All of it in the account: the browser's copy goes.
+    if (migrated.settled) removeGuestStore();
     // The account let go of meanwhile (signed out, another account): none
     // of it goes to the next one.
     if (dbOwnerRef.current !== forUser) return;
