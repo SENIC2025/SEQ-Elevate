@@ -410,7 +410,8 @@ export function SafeguardingEditor({ initial }: { initial: SafeguardingSetting }
           {pending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
           Save contacts
         </Button>
-        <p className="text-xs text-[var(--muted-foreground)]">
+        {/* A time as the server and the browser each write it: they may differ by a space. */}
+        <p className="text-xs text-[var(--muted-foreground)]" suppressHydrationWarning>
           {savedAt ? `Last saved ${new Date(savedAt).toLocaleString("en-GB", { timeZone: "Europe/Brussels" })} (Brussels).` : "Not saved yet."}
         </p>
       </div>

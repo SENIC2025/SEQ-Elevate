@@ -108,7 +108,7 @@ const LEGACY: Partial<Record<LegalDocId, LegacyText>> = {
       {
         heading: "Saved in your browser",
         body: [
-          "Your browser also keeps a few things for the platform. They stay on your device and are never sent to anyone else.",
+          "Your browser also keeps a few things for the platform, on your device. Only your guest work ever leaves it: when you add it to your account.",
         ],
         list: [
           "Your work as a guest (seq-elevate-demo-state-v1): your progress, answers, reflections and Comp Card when you use a course without signing in. It stays in this browser until you add it to your account after signing in, remove it, or clear this site's data. On a shared computer, sign in first, or remove your work before you leave.",

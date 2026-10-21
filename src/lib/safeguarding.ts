@@ -83,7 +83,8 @@ function line(value: unknown): string {
 }
 
 const PHONE = /^\+?[0-9](?:[0-9 ]{0,22}[0-9])?$/;
-const EMAIL = /^[^\s@<>()"',;:\\[\]]+@[^\s@<>()"',;:\\[\]]+\.[^\s@<>()"',;:\\[\]]+$/;
+// An address and nothing more: no "?", "&" or "#" that would add a subject or a copy to a mailto: link.
+const EMAIL = /^[^\s@<>()"',;:\\[\]?&#=/%]+@[^\s@<>()"',;:\\[\]?&#=/%]+\.[^\s@<>()"',;:\\[\]?&#=/%]+$/;
 
 /** A phone number as entered: "+" first if at all, digits and spaces, 3 to 15 digits. */
 export function validPhone(phone: string): boolean {

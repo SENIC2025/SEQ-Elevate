@@ -10,6 +10,7 @@ import {
   telHref,
   textIn,
   validateSafeguarding,
+  validEmail,
   validPhone,
   type SafeguardingContact,
   type SafeguardingSetting,
@@ -113,6 +114,13 @@ describe("phone, web address", () => {
     expect(httpsUrl("https://www.nummergegenkummer.de")).toBe("https://www.nummergegenkummer.de/");
     for (const bad of ["http://example.org", "javascript:alert(1)", "https://localhost", "https://user:pw@example.org", "example.org"]) {
       expect(httpsUrl(bad), bad).toBeNull();
+    }
+  });
+
+  it("takes an email address and nothing more", () => {
+    expect(validEmail("schutz@example.org")).toBe(true);
+    for (const bad of ["schutz@example.org?cc=x@y.org", "a@b.org?subject=hi", "a@b.org#x", "a b@c.org", "a@b", "<a@b.org>"]) {
+      expect(validEmail(bad), bad).toBe(false);
     }
   });
 });
