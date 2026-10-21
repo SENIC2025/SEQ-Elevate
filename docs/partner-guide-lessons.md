@@ -11,6 +11,7 @@ For course editors in the SEQ Elevate consortium. It covers the lesson editor th
 - **Once people are taking a course**, adding, moving, hiding or showing lessons, and adding, moving or removing content, first tell you how many learners it affects and ask you to confirm. On a published course with learners, no lesson can be deleted: hide it instead. On a course that isn't published, only a lesson no learner has anything in can be deleted, until 1 December. A question learners may have answered can't be removed while they are there; you can still edit it.
 - **From 1 December**, a course with learners keeps its shape, published or not: lessons and content can no longer be added, moved or removed. Hiding and showing lessons, renaming, and editing text and questions stay open.
 - Nothing you wrote before 13 October moves or changes. Existing courses look and work as they did.
+- **From 20 November, German and Greek are switched on per course.** Write the course in English first; learners using German or Greek get it in English until their language is switched on (see *Switching German or Greek on*).
 
 ## The lesson list
 
@@ -59,8 +60,25 @@ From 10 November a course you created can be published with lessons of your own,
 
 - **no lesson has anything learners can see** (every lesson is hidden or empty), or
 - **something can't be read** (the lesson list, or a lesson's content). The page names the lesson. Contact the platform team, who can repair it.
+- **the English isn't complete**, the first time a course you created is published (from 20 November). English is the source language: the page lists what has no English yet. On a course already published, the same thing is a warning and nothing is unpublished.
 
 On a published course, hiding or deleting the last lesson learners can see is refused. Removing a lesson's last content isn't: that lesson then leaves what learners get (until it has content again), and if it was the last one, learners find a course with no lessons yet. Check with **Preview as learner**.
+
+## Switching German or Greek on
+
+From 20 November, a course you created reaches learners in German or Greek only once that language is **switched on** for it. Until then, learners using German or Greek get the whole course in English, with a note saying so, rather than a mix of languages. The two courses that came with the platform are in every language already and have no switch.
+
+1. **Write the course in English first.** English is the source language: a course is first published only when its English is complete, and English is what learners get wherever a translation is missing.
+2. **Translate it.** Switch the content language at the top of the course page to German or Greek, and write each lesson's text and exercises in it. **Preview as learner** in that language shows the translation as learners will get it, with a banner while the language isn't switched on yet.
+3. **Have it signed off and switched on.** Under **Publish**, the panel **Languages for learners** has one switch per language, with how much of the course is written in it. German is signed off by Pro Arbeit's partner admin, Greek by the partner admin of a Greek-speaking partner (Synthesis or the University of Macedonia), whoever built the course. Until partner admins are invited (25 November), email DIESIS or SENIC to switch a language on; they do it at your written request, and the platform records who did.
+
+What the switch's coverage checks, and what it doesn't:
+
+- It counts the **main text and exercises** of each lesson. Switching on a language that isn't complete asks first; learners then see English wherever text is missing.
+- It does **not** check added content, lesson names, video questions or documents. Check those yourself in **Preview as learner** before you switch the language on.
+- If the English changes after a language is live, the panel warns that some text is now missing in that language. The language stays on; translate the new text, and learners get English there until you do.
+
+Editors who can't switch a language see the panel read-only. On **Manage courses**, a language that is live for learners has a mark beside its name.
 
 ## Courses that have learners
 
@@ -102,6 +120,6 @@ A course nobody has started yet can be restructured as before.
 - **Can I publish my course with a lesson of my own?** Yes, from 10 November. Use Preview as learner to check it first.
 - **I need to restructure a course after 1 December.** Hide what learners shouldn't see. For anything more, talk to the platform team.
 - **Can two of us edit at once?** Yes. If you both change the same thing, the second save is refused with a message, and the page shows the other person's version.
-- **Translations:** each lesson name and text is per language. Learners get English (then the first language written) where a translation is missing.
+- **Translations:** each lesson name and text is per language. Until German or Greek is switched on for a course, its learners get it in English; once it is on, they get English wherever a translation is missing.
 
 *German and Greek wording on screen is a first draft and is being reviewed by partners.*
