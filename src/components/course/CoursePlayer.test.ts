@@ -451,6 +451,26 @@ describe("CoursePlayer: a course shown in English on a German page", () => {
     expect(html).toContain('/content/courses/speak-up?lesson=concept&amp;lang=de"');
   });
 
+  it("marks the completion screen's course text (its heading, words and badge), and none of its own words", () => {
+    // The completion screen's animation library wants a real window.
+    vi.unstubAllGlobals();
+    store.over = { courseSlug: "speak-up", completedAt: "2026-11-10T09:00:00.000Z" };
+    const html = render({ course: english, serverResume: "complete" }, "de");
+    const texts = textsWithLang(html.slice(html.indexOf("</nav>")));
+    const langOf = (text: string) => texts.filter((t) => t.text === text).map((t) => t.lang);
+    for (const text of ["Course complete", "Well done.", "Clear voice", "Says what matters"]) {
+      expect(langOf(text), text).toEqual(["en"]);
+    }
+    for (const text of [
+      de.coursePlayer.badgeUnlocked,
+      de.coursePlayer.noLeaderboards,
+      de.coursePlayer.openCompCard,
+      de.coursePlayer.backToDashboard,
+    ]) {
+      expect(langOf(text), text).toEqual([undefined]);
+    }
+  });
+
   it("changes nothing on a page in the course's own language", () => {
     const html = render({ course: english, preview: true, initialLesson: "concept" }, "en");
     expect(html).not.toContain(' lang="');
