@@ -695,7 +695,9 @@
     "noOrganisation": "Your account isn't linked to an organisation yet, so no learners are shown. Ask DIESIS to link it.",
     "emptyOrganisation": "No learners at {organisation} yet.",
     "testAccount": "Test account",
-    "formerStaff": "Former staff"
+    "formerStaff": "Former staff",
+    "sharedEmpty": "Shared with you. Nothing is filled in yet.",
+    "scenarioChoice": "Choice in the applied scenario"
   },
   "admin": {
     "title": "Admin dashboard",
