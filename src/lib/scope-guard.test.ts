@@ -1027,6 +1027,7 @@ const ALLOW: AllowList = {
   "src/lib/cms/lesson-plans.ts#readLessonPlans": system("reads courses' lesson lists (no people's data)"),
   "src/app/actions/course.ts#guardPublish": system("locks a course row before publishing (no people's data)"),
   "src/app/actions/course.ts#write": system("locks a course row for an editor's change (no people's data)"),
+  "src/app/actions/course.ts#setCourseLanguageReady": system("switches a course's language on under its row lock (no people's data)"),
   "src/app/actions/lesson.ts#lockLesson": system("locks a lesson row for an editor's change (no people's data)"),
   "src/app/actions/structure.ts#writeIfUnchanged": system("an editor's structure change under a row lock (no people's data)"),
 };

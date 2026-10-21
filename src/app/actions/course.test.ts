@@ -21,7 +21,7 @@ vi.mock("@/lib/auth-helpers", () => ({ getCurrentUser, getProjectMemberships }))
 vi.mock("@/lib/prisma", () => ({ prisma }));
 vi.mock("@/lib/cms", () => ({ listCourses, getBaseCourseCopy }));
 
-const { createCourse, setCourseStatus, updateCourseMeta } = await import("./course");
+const { createCourse, setCourseStatus, updateCourseMeta, setCourseLanguageReady } = await import("./course");
 
 const EDITOR = { id: "editor-1", email: "ed@example.org" };
 
@@ -512,5 +512,112 @@ describe("createCourse: arguments and layout", () => {
         (id) => ({ id, template: id })
       ),
     });
+  });
+});
+
+/*
+ * Release 3 (D90, spec 9.4): a created course's German or Greek is
+ * switched on for learners by a partner admin or an ADMIN, atomically and
+ * audited. Release 2 had no such switch: every language a course had any
+ * text in went to learners, half-translated or not.
+ */
+describe("setCourseLanguageReady", () => {
+  afterEach(() => vi.clearAllMocks());
+
+  /** The course row as it is locked, and the arrays the UPDATE leaves. */
+  function course(row: { id: string; builtin: boolean } | null, before: string[] = [], after: string[] = before) {
+    getCurrentUser.mockResolvedValue(EDITOR);
+    prisma.$transaction.mockImplementation(async (arg: unknown) =>
+      typeof arg === "function" ? arg(prisma) : Promise.all(arg as unknown[])
+    );
+    prisma.auditLog.create.mockResolvedValue({});
+    prisma.$queryRaw.mockImplementation(async (strings: TemplateStringsArray) => {
+      const sql = strings.join("?");
+      if (sql.includes("FOR UPDATE")) return row ? [{ ...row, readyLocales: before }] : [];
+      if (sql.startsWith("UPDATE")) return [{ readyLocales: after }];
+      return [];
+    });
+  }
+  const as = (...roles: string[]) =>
+    getProjectMemberships.mockResolvedValue(roles.map((role) => ({ role, projectId: "seq-elevate" })));
+  const sqlOf = () => prisma.$queryRaw.mock.calls.map((c) => (c[0] as TemplateStringsArray).join("?"));
+
+  it.each([["CONTENT_EDITOR"], ["FACILITATOR"], ["LEARNER"]])("refuses a %s: nothing is read or written", async (role) => {
+    course({ id: "course-1", builtin: false });
+    as(role);
+    expect(await setCourseLanguageReady("speaking-up", "de", true)).toEqual({ ok: false, error: "forbidden" });
+    expect(prisma.$queryRaw).not.toHaveBeenCalled();
+    expect(prisma.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it("refuses someone signed out", async () => {
+    course({ id: "course-1", builtin: false });
+    getCurrentUser.mockResolvedValue(null);
+    expect(await setCourseLanguageReady("speaking-up", "de", true)).toEqual({ ok: false, error: "forbidden" });
+  });
+
+  it.each([["PARTNER_ADMIN"], ["ADMIN"]])("lets a %s switch German on, in one statement under the course's lock, audited", async (role) => {
+    course({ id: "course-1", builtin: false }, ["el"], ["el", "de"]);
+    as(role);
+    expect(await setCourseLanguageReady("speaking-up", "de", true)).toEqual({ ok: true, readyLocales: ["el", "de"] });
+    const [lock, update] = sqlOf();
+    expect(lock).toContain('FROM "Course"');
+    expect(lock).toContain("FOR UPDATE");
+    // The array changes in the database, so two languages switched at once
+    // never drop each other.
+    expect(update).toMatch(/^UPDATE "Course" SET "readyLocales" = array_append\(array_remove\(/);
+    expect(prisma.$queryRaw.mock.calls[1].slice(1)).toEqual(["de", "de", "course-1"]);
+    expect(prisma.auditLog.create).toHaveBeenCalledTimes(1);
+    expect(prisma.auditLog.create.mock.calls[0][0].data).toMatchObject({
+      action: "course.language_ready",
+      entity: "Course",
+      entityId: "speaking-up",
+      metadata: { locale: "de" },
+      actorId: "editor-1",
+    });
+  });
+
+  it("switches Greek off with array_remove alone, audited as such", async () => {
+    course({ id: "course-1", builtin: false }, ["de", "el"], ["de"]);
+    as("ADMIN");
+    expect(await setCourseLanguageReady("speaking-up", "el", false)).toEqual({ ok: true, readyLocales: ["de"] });
+    expect(sqlOf()[1]).toMatch(/^UPDATE "Course" SET "readyLocales" = array_remove\(/);
+    expect(prisma.auditLog.create.mock.calls[0][0].data).toMatchObject({
+      action: "course.language_unready",
+      metadata: { locale: "el" },
+    });
+  });
+
+  it("writes no audit row when nothing changed", async () => {
+    course({ id: "course-1", builtin: false }, ["de"], ["de"]);
+    as("ADMIN");
+    expect(await setCourseLanguageReady("speaking-up", "de", true)).toEqual({ ok: true, readyLocales: ["de"] });
+    expect(prisma.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it("refuses a built-in course, an unknown one, English and arguments no form sends", async () => {
+    as("ADMIN");
+    course({ id: "course-1", builtin: true });
+    expect(await setCourseLanguageReady("speaking-up", "de", true)).toEqual({ ok: false, error: "built-in" });
+    // A course the platform ships is never even looked up.
+    course({ id: "course-1", builtin: false });
+    prisma.$queryRaw.mockClear();
+    expect(await setCourseLanguageReady("receiving-feedback", "de", true)).toEqual({ ok: false, error: "built-in" });
+    expect(prisma.$queryRaw).not.toHaveBeenCalled();
+    course(null);
+    expect(await setCourseLanguageReady("no-such-course", "de", true)).toEqual({ ok: false, error: "unknown-course" });
+    for (const args of [
+      ["speaking-up", "en", true],
+      ["speaking-up", "fr", true],
+      ["speaking-up", "de", "yes"],
+      [42, "de", true],
+      ["../x", "de", true],
+    ]) {
+      expect(await (setCourseLanguageReady as (...a: unknown[]) => Promise<unknown>)(...args)).toEqual({
+        ok: false,
+        error: "bad-input",
+      });
+    }
+    expect(prisma.auditLog.create).not.toHaveBeenCalled();
   });
 });

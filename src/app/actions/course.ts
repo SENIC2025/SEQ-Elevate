@@ -15,7 +15,8 @@
 
 import { Prisma } from "@prisma/client";
 import { getCurrentUser, getProjectMemberships } from "@/lib/auth-helpers";
-import { canEditContent } from "@/lib/permissions";
+import { canEditContent, canSignOffLanguage } from "@/lib/permissions";
+import { COURSE_DEFS } from "@/data/course";
 import { prisma } from "@/lib/prisma";
 import { getBaseCourseCopy, listCourses } from "@/lib/cms";
 import {
@@ -480,5 +481,71 @@ export async function updateCourseMeta(
       tagline: result.copy.tagline,
       clusterLabel: result.copy.clusterLabel,
     },
+  };
+}
+
+export type LanguageReadyResult =
+  | { ok: true; readyLocales: Locale[] }
+  | { ok: false; error: "forbidden" | "bad-input" | "unknown-course" | "built-in" };
+
+const SIGN_OFF_LOCALES: readonly Locale[] = ["de", "el"];
+// Slugs are [a-z0-9-] (src/lib/slug.ts); anything else can't be a course.
+const SLUG = /^[a-z0-9][a-z0-9-]{0,79}$/;
+
+/**
+ * Switch a created course's German or Greek on or off for learners (D90,
+ * spec 9.4): until a language is on, learners using it get the whole
+ * course in English (language-ready.ts). Signed off by a partner admin or
+ * an ADMIN (canSignOffLanguage); until partner admins are invited, an
+ * ADMIN switches at the partner's written request, and this row records
+ * who did. German is signed off by Pro Arbeit, Greek by a Greek-speaking
+ * partner: a rule of the process, since a course has no owner here.
+ *
+ * Built-in courses are refused: they ship complete in every language and
+ * are always on. The array changes in the database, in one statement under
+ * the Course row lock this file's other changes take, so two languages
+ * switched at the same moment never drop each other. A change is audited
+ * (course.language_ready / course.language_unready); a switch to what is
+ * already set changes and logs nothing.
+ */
+export async function setCourseLanguageReady(
+  slug: string,
+  locale: "de" | "el",
+  ready: boolean
+): Promise<LanguageReadyResult> {
+  const user = await getCurrentUser();
+  if (!user) return { ok: false, error: "forbidden" };
+  const roles = (await getProjectMemberships(PROJECT)).map((m) => m.role);
+  if (!canSignOffLanguage(roles)) return { ok: false, error: "forbidden" };
+  if (
+    typeof slug !== "string" ||
+    !SLUG.test(slug) ||
+    !SIGN_OFF_LOCALES.includes(locale) ||
+    typeof ready !== "boolean"
+  ) {
+    return { ok: false, error: "bad-input" };
+  }
+  if (Object.prototype.hasOwnProperty.call(COURSE_DEFS, slug)) return { ok: false, error: "built-in" };
+
+  const result = await prisma.$transaction(async (tx) => {
+    const [row] = await tx.$queryRaw<{ id: string; builtin: boolean; readyLocales: string[] | null }[]>`
+      SELECT "id", "meta" IS NULL AS "builtin", "readyLocales" FROM "Course"
+       WHERE "projectId" = ${PROJECT} AND "slug" = ${slug} FOR UPDATE`;
+    if (!row) return { kind: "unknown-course" as const };
+    if (row.builtin) return { kind: "built-in" as const };
+    const [updated] = ready
+      ? await tx.$queryRaw<{ readyLocales: string[] | null }[]>`UPDATE "Course" SET "readyLocales" = array_append(array_remove(COALESCE("readyLocales", ARRAY[]::TEXT[]), ${locale}), ${locale}) WHERE "id" = ${row.id} RETURNING "readyLocales"`
+      : await tx.$queryRaw<{ readyLocales: string[] | null }[]>`UPDATE "Course" SET "readyLocales" = array_remove(COALESCE("readyLocales", ARRAY[]::TEXT[]), ${locale}) WHERE "id" = ${row.id} RETURNING "readyLocales"`;
+    const before = (row.readyLocales ?? []).includes(locale);
+    return { kind: "ok" as const, readyLocales: updated?.readyLocales ?? [], changed: before !== ready };
+  });
+  if (result.kind !== "ok") return { ok: false, error: result.kind };
+
+  if (result.changed) {
+    await audit(user.id, ready ? "course.language_ready" : "course.language_unready", slug, { locale });
+  }
+  return {
+    ok: true,
+    readyLocales: result.readyLocales.filter((l): l is Locale => SIGN_OFF_LOCALES.includes(l as Locale)),
   };
 }

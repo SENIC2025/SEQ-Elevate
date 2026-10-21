@@ -56,6 +56,19 @@ export const rows: Row[] = [
     "editors only rename a course"
   ),
 
+  {
+    kind: "call",
+    file: COURSE,
+    name: "setCourseLanguageReady",
+    page: coursePage,
+    // German is on for the world's course: a call that slipped through would switch it off.
+    args: (c) => [c.world.course.slug, "de", false],
+    refuse: ["FA", "FB", "FN", "FI", "EA", "LA1", "anonymous"],
+    outcome: forbidden,
+    tables: COURSE_TABLES,
+    why: "only a partner admin or an ADMIN switches a language on or off for learners (D90), never an editor or a facilitator",
+  },
+
   /* -------------------------------------------------------- lesson.ts --- */
   refused(
     LESSON,
