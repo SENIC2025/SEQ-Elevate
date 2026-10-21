@@ -6,6 +6,7 @@ import { actionId, builtActions, callAction } from "./fixtures/server-action";
 import {
   TABLE,
   coverage,
+  guardLabel,
   matches,
   otherOrganisationOf,
   rowKey,
@@ -31,11 +32,16 @@ import {
  *
  * Personas: the world's FA, FB, FN, FI, PAA, EA and LA1 (e2e/fixtures/
  * people.ts), and someone with no session. On the old build the partner
- * admin holds no role (PARTNER_ADMIN doesn't exist there), so its rows are
- * guards, titled so: most refuse it by role (an ADMIN-only action, someone
- * else's own data), which the scope module's negative control (spec 18.3)
- * doesn't reach either; their positive control is the partner admin's own
- * in-scope people actions, once those are its (Stream A).
+ * admin holds no role (PARTNER_ADMIN doesn't exist there), so a refusal of
+ * it can't be shown red there. Each row says why it refuses the partner
+ * admin (kit.ts, PartnerAdminRefusal), and the title names the negative
+ * control (spec 18.3) that shows it can fail: "(guard)" when the scope
+ * refuses it (red when every staff role gets project scope), "(role guard)"
+ * when a power the role doesn't carry does (red when a partner admin holds
+ * ADMIN's), and nothing when it is refused as anyone else is (someone
+ * else's own data). The people rows are role guards until partner admins
+ * manage their own organisation (Stream A), whose in-scope calls are then
+ * their positive control.
  *
  * A read whose refusal is an empty answer (null) has a control: the same
  * call as someone it serves answers something, so a refusal can't come
@@ -84,8 +90,6 @@ describe("Every action refuses who it must, and changes nothing", () => {
     run: world.run,
   });
   const caller = (as: Persona) => (as === "anonymous" ? null : world.people[as]);
-  /** The partner admin's rows are guards: the role doesn't exist on the build before Release 3. */
-  const guard = (as: Persona) => (as === "PAA" ? " (guard)" : "");
 
   test("an export no page imports has no action id in the build", () => {
     for (const row of TABLE.filter((r) => r.kind === "unbuilt")) {
@@ -95,7 +99,7 @@ describe("Every action refuses who it must, and changes nothing", () => {
 
   for (const row of TABLE.filter((r): r is CallRow & { stream: Stream } => r.kind === "call")) {
     for (const as of row.refuse) {
-      test(`${row.name} (${row.file.replace("src/app/actions/", "")}) refuses ${as}${guard(as)}`, async ({ request }) => {
+      test(`${row.name} (${row.file.replace("src/app/actions/", "")}) refuses ${as}${guardLabel(row, as)}`, async ({ request }) => {
         const c = ctx(as);
         const before = await snapshot(prisma, world, row.tables);
         const answer = await callAction(request, {
@@ -138,7 +142,7 @@ describe("Every action refuses who it must, and changes nothing", () => {
 
   for (const row of TABLE.filter((r): r is RouteRow & { stream: Stream } => r.kind === "route")) {
     for (const as of row.refuse) {
-      test(`${row.route} refuses ${as}${guard(as)}`, async ({ request }) => {
+      test(`${row.route} refuses ${as}${guardLabel(row, as)}`, async ({ request }) => {
         const c = ctx(as);
         const person = caller(as);
         const before = await snapshot(prisma, world, row.tables);

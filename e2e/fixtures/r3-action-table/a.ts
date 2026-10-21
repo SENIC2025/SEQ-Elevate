@@ -7,7 +7,10 @@ import { NOT_PEOPLE_MANAGERS, PEOPLE_TABLES, forbidden, type Row } from "./kit";
  * Until Stream A lets partner admins manage their own organisation, every
  * action of admin.ts is ADMIN-only, so a partner admin is refused there
  * too; Stream A keeps these rows current (a partner admin's refusal of
- * another organisation's person may then answer "out-of-scope").
+ * another organisation's person may then answer "out-of-scope"). Until
+ * then the partner admin's refusals are role guards (partnerAdmin: "role");
+ * a row whose refusal becomes the organisation's turns "scope", a guard the
+ * scope control (spec 18.3) must show failing.
  */
 
 const ADMIN = "src/app/actions/admin.ts";
@@ -22,6 +25,7 @@ export const rows: Row[] = [
     page: ORGANISATIONS,
     args: (c) => [`E2E refused ${c.run}`, `R ${c.run}`],
     refuse: NOT_PEOPLE_MANAGERS,
+    partnerAdmin: "role",
     outcome: forbidden,
     tables: ["Organisation", "AuditLog"],
     why: "only an ADMIN with project scope creates organisations (SP16)",
@@ -33,6 +37,7 @@ export const rows: Row[] = [
     page: ORGANISATIONS,
     args: (c) => [c.other.id],
     refuse: NOT_PEOPLE_MANAGERS,
+    partnerAdmin: "role",
     outcome: forbidden,
     tables: ["Organisation", "Cohort", "ProjectProfile", "AuditLog"],
     why: "only an ADMIN with project scope deletes organisations (SP16)",
@@ -44,6 +49,7 @@ export const rows: Row[] = [
     page: ORGANISATIONS,
     args: (c) => [c.other.id, `E2E refused cohort ${c.run}`],
     refuse: NOT_PEOPLE_MANAGERS,
+    partnerAdmin: "role",
     outcome: forbidden,
     tables: ["Cohort", "AuditLog"],
     why: "a cohort only in an organisation in scope (SP17)",
@@ -61,6 +67,7 @@ export const rows: Row[] = [
     page: ORGANISATIONS,
     args: (c) => [c.other.cohortId],
     refuse: NOT_PEOPLE_MANAGERS,
+    partnerAdmin: "role",
     outcome: forbidden,
     tables: ["Cohort", "Membership", "AuditLog"],
     why: "only a cohort in scope is deleted (SP18)",
@@ -72,6 +79,7 @@ export const rows: Row[] = [
     page: PEOPLE,
     args: (c) => [c.target.email, "FACILITATOR", `Renamed ${c.run}`, { invite: true, locale: "en" }],
     refuse: NOT_PEOPLE_MANAGERS,
+    partnerAdmin: "role",
     outcome: forbidden,
     tables: [...PEOPLE_TABLES, "VerificationToken"],
     why: "no one outside the caller's scope is added, renamed or invited (SP19)",
@@ -83,6 +91,7 @@ export const rows: Row[] = [
     page: PEOPLE,
     args: (c) => [c.target.userId, "en"],
     refuse: NOT_PEOPLE_MANAGERS,
+    partnerAdmin: "role",
     outcome: forbidden,
     tables: ["AuditLog", "VerificationToken"],
     why: "invitations only for people in scope (SP20)",
@@ -94,6 +103,7 @@ export const rows: Row[] = [
     page: PEOPLE,
     args: (c) => [c.target.userId, ["FACILITATOR"]],
     refuse: NOT_PEOPLE_MANAGERS,
+    partnerAdmin: "role",
     outcome: forbidden,
     tables: PEOPLE_TABLES,
     why: "roles only of people in scope, and only grantable ones (SP21)",
@@ -105,6 +115,7 @@ export const rows: Row[] = [
     page: PEOPLE,
     args: (c) => [c.target.userId, c.other.cohortId],
     refuse: NOT_PEOPLE_MANAGERS,
+    partnerAdmin: "role",
     outcome: forbidden,
     tables: [...PEOPLE_TABLES, "Cohort"],
     why: "a cohort only for a person in scope, never moving their organisation (SP22)",
@@ -116,6 +127,7 @@ export const rows: Row[] = [
     page: PEOPLE,
     args: (c) => [c.target.userId],
     refuse: NOT_PEOPLE_MANAGERS,
+    partnerAdmin: "role",
     outcome: forbidden,
     tables: PEOPLE_TABLES,
     why: "only people in scope are removed (SP23)",

@@ -119,13 +119,34 @@ export const PEOPLE_TABLES: readonly TableName[] = [
 /** The tables of a course's content. */
 export const COURSE_TABLES: readonly TableName[] = ["Course", "Lesson", "LessonDocument", "Badge", "AuditLog"];
 
+/**
+ * Why a row refuses the partner admin. The role doesn't exist before
+ * Release 3, so its refusal can't be shown red on the old build; a
+ * negative control (spec 18.3) shows it can fail instead, and which one
+ * depends on what refuses it:
+ *   "scope"   the target is outside its organisation: a guard, red when
+ *             every staff role gets project scope and inScope answers true
+ *   "role"    the action needs a power the role doesn't carry (an
+ *             ADMIN's): a role guard, red when a partner admin holds
+ *             ADMIN's powers
+ *   "anyone"  it is refused as any other signed-in person is (someone
+ *             else's own data, a wrong access code): the role plays no
+ *             part, so the row is no guard
+ */
+export type PartnerAdminRefusal = "scope" | "role" | "anyone";
+
 interface Base {
   /** One line: what the row proves. */
   why: string;
 }
 
+interface RefusesPartnerAdmin {
+  /** Why the partner admin is refused: required when `refuse` names it (coverage.test.ts). */
+  partnerAdmin?: PartnerAdminRefusal;
+}
+
 /** A server action, called directly as each persona in `refuse`. */
-export interface CallRow extends Base {
+export interface CallRow extends Base, RefusesPartnerAdmin {
   kind: "call";
   /** The "use server" file, from the repository root. */
   file: string;
@@ -173,7 +194,7 @@ export interface OpenRow extends Base {
 }
 
 /** A route, requested directly as each persona in `refuse`. */
-export interface RouteRow extends Base {
+export interface RouteRow extends Base, RefusesPartnerAdmin {
   kind: "route";
   /** "METHOD /path/[param]": what the row is known by. */
   route: string;
@@ -192,6 +213,23 @@ export type Row = CallRow | UnbuiltRow | OpenRow | RouteRow;
 
 /** A row's name: "file#export" for an action, the route for a route. */
 export const rowKey = (row: Row) => (row.kind === "route" ? row.route : `${row.file}#${row.name}`);
+
+/**
+ * What a refusal's title adds for the partner admin: the negative control
+ * that can show it failing (PartnerAdminRefusal). A row that doesn't say
+ * is taken for a scope guard, so the scope control shows whether it fails.
+ */
+export function guardLabel(row: CallRow | RouteRow, as: Persona): string {
+  if (as !== "PAA") return "";
+  switch (row.partnerAdmin) {
+    case "role":
+      return " (role guard)";
+    case "anyone":
+      return "";
+    default:
+      return " (guard)";
+  }
+}
 
 /**
  * Does the call's answer match the outcome? A throw is the action's own

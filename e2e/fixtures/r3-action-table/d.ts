@@ -23,6 +23,7 @@ export const rows: Row[] = [
     page: "/en/account",
     args: (c) => [c.target.email],
     refuse: PERSONAS,
+    partnerAdmin: "anyone",
     outcome: (as) =>
       answers({ ok: false, error: as === "anonymous" ? "not-authenticated" : "confirmation-mismatch" }),
     tables: PEOPLE_TABLES,

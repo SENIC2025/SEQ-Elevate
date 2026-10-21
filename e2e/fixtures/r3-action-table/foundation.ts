@@ -59,6 +59,7 @@ export const rows: Row[] = [
     refuse: PERSONAS,
     outcome: () => answers({ ok: false }),
     tables: ["Observation", "AuditLog"],
+    partnerAdmin: "scope",
     why: "a note only about a learner in the writer's scope (SP6)",
   },
   {
@@ -70,6 +71,7 @@ export const rows: Row[] = [
     refuse: PERSONAS,
     outcome: () => answers({ ok: false }),
     tables: ["Validation", "AuditLog"],
+    partnerAdmin: "scope",
     why: "a validation only about a learner in the writer's scope (SP7)",
   },
 
@@ -83,6 +85,7 @@ export const rows: Row[] = [
     refuse: PERSONAS,
     outcome: () => answers({ ok: false, error: "bad-code" }),
     tables: ["User", "Session", "Membership", "ProjectProfile"],
+    partnerAdmin: "anyone",
     why: "test sign-in only with the deployment's access code (D98)",
   },
 
@@ -121,6 +124,7 @@ export const rows: Row[] = [
     refuse: PERSONAS,
     outcome: (as) => (as === "anonymous" ? THROWN : answers(false)),
     tables: ["User"],
+    partnerAdmin: "anyone",
     why: "reading help settings are saved only for the account that loaded them",
   },
 

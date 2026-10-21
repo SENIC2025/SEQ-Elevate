@@ -1,5 +1,13 @@
 import { describe, it, expect } from "vitest";
-import { coverage, rowKey, TABLE, useServerExports } from "./index";
+import {
+  coverage,
+  guardLabel,
+  rowKey,
+  TABLE,
+  useServerExports,
+  type CallRow,
+  type PartnerAdminRefusal,
+} from "./index";
 
 /**
  * Release 3 (spec 18.3): the action table covers every export of every
@@ -21,6 +29,30 @@ describe("the action table", () => {
 
   it("has a row for every export, none for anything else, and none twice", () => {
     expect(coverage(exports)).toEqual({ missing: [], stale: [], twice: [] });
+  });
+
+  it("says why each row refuses the partner admin, and only where it does", () => {
+    for (const row of TABLE) {
+      if (row.kind !== "call" && row.kind !== "route") continue;
+      if (row.refuse.includes("PAA")) {
+        expect(["scope", "role", "anyone"], rowKey(row)).toContain(row.partnerAdmin);
+      } else {
+        expect(row.partnerAdmin, rowKey(row)).toBeUndefined();
+      }
+    }
+  });
+
+  it("titles a partner admin's refusal by the negative control that can show it failing", () => {
+    const row = (partnerAdmin?: PartnerAdminRefusal) =>
+      ({ ...TABLE.find((r) => r.kind === "call")!, partnerAdmin }) as CallRow;
+    expect(guardLabel(row("scope"), "PAA")).toBe(" (guard)");
+    expect(guardLabel(row("role"), "PAA")).toBe(" (role guard)");
+    expect(guardLabel(row("anyone"), "PAA")).toBe("");
+    // A row that doesn't say is taken for a scope guard: the scope control then shows whether it fails.
+    expect(guardLabel(row(undefined), "PAA")).toBe(" (guard)");
+    for (const as of ["FA", "FB", "FN", "FI", "EA", "LA1", "anonymous"] as const) {
+      expect(guardLabel(row("scope"), as)).toBe("");
+    }
   });
 
   it("names the personas each callable row must refuse", () => {

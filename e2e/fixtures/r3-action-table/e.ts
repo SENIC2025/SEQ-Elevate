@@ -126,6 +126,7 @@ export const rows: Row[] = [
     page: "/en/dev/cms-check",
     args: (c) => [c.world.course.slug],
     refuse: PERSONAS,
+    partnerAdmin: "role",
     outcome: forbidden,
     tables: COURSE_TABLES,
     why: "the repair tool is an ADMIN's only (spec 3.4), editors and partner admins included",
