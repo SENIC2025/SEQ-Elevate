@@ -1,12 +1,18 @@
 -- Release 3 (D72–D93, D101). Additive: new types and tables, nullable or defaulted
 -- columns, two triggers, one default change and two data updates. Release 2 keeps
 -- serving while this applies (vercel-build migrates before it builds), and every
--- statement here is one Release 2 code tolerates. The file runs as one implicit
--- transaction (no BEGIN, like 20261021120000), so every lock is held until the
--- end: statements that lock tables Release 2 uses come LAST. Rollback: redeploy
--- Release 2 after the pre-rollback step; everything here stays.
+-- statement here is one Release 2 code tolerates. Rollback: redeploy Release 2
+-- after the pre-rollback step; everything here stays.
+--
+-- One transaction, BEGIN to COMMIT: Prisma applies a migration's statements one
+-- by one, and without them each would commit on its own, so a failure half-way
+-- would leave half of this applied. With them a failure leaves nothing. Every
+-- lock is then held until the end, so the statements that lock tables Release 2
+-- uses come LAST.
 
-SET lock_timeout = '5s';   -- a blocked ALTER fails the build (retry later), never stalls the site
+BEGIN;
+
+SET LOCAL lock_timeout = '5s';   -- a blocked ALTER fails the build (retry later), never stalls the site
 
 -- Part 1: new types and tables, no foreign keys yet (nothing Release 2 uses is locked)
 
@@ -252,3 +258,5 @@ FROM "Membership" m
 WHERE m."role" <> 'LEARNER'
 ORDER BY m."userId", m."projectId", m."createdAt", m."role"
 ON CONFLICT ("userId", "projectId") DO NOTHING;
+
+COMMIT;

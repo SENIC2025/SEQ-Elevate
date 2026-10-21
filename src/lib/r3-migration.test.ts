@@ -4,9 +4,10 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 // Release 3's migrations (spec 2.2–2.4) run while the Release 2 deployment is
-// still serving (vercel-build migrates before it builds), as one implicit
-// transaction each. Both stay safe only while they are what they were
-// reviewed as: one enum value on its own, then new types and tables, the
+// still serving (vercel-build migrates before it builds). Both stay safe only
+// while they are what they were reviewed as: one enum value on its own, then,
+// in one transaction (BEGIN to COMMIT: Prisma applies a file's statements one
+// by one, each committing on its own otherwise), new types and tables, the
 // backfills, and only then the statements that lock tables Release 2 uses,
 // the two triggers and a repeat of the Membership-based backfills.
 //
@@ -115,7 +116,8 @@ const EXPECTED_A = `ALTER TYPE "Role" ADD VALUE IF NOT EXISTS 'PARTNER_ADMIN';`;
 
 /** The first words of each statement of migration B, in order. */
 const SHAPE_B = [
-  "SET lock_timeout = '5s'",
+  "BEGIN",
+  "SET LOCAL lock_timeout = '5s'",
   'CREATE TYPE "Country"',
   'CREATE TYPE "AgeRule"',
   'CREATE TABLE "ProjectProfile"',
@@ -159,8 +161,9 @@ const SHAPE_B = [
   'CREATE TRIGGER "ProjectProfile_unshare_on_organisation_change"',
   'INSERT INTO "ProjectProfile"',
   'INSERT INTO "StaffHistory"',
+  "COMMIT",
 ];
-const SHA256_B = "2203768503ecedb450ff06f3cca7eb65928f65e01086981039bdcb5afc519d84";
+const SHA256_B = "d1ae717b33a2a285a84e504201716b86ac727265d9292eb2abc16bae8e337ba8";
 
 describe("the Release 3 migrations", () => {
   const b = statements(normalised(read(B)));
@@ -183,8 +186,11 @@ describe("the Release 3 migrations", () => {
     expect(sha256(normalised(read(B)))).toBe(SHA256_B);
   });
 
-  it("sets the lock timeout first", () => {
-    expect(b[0]).toBe("SET lock_timeout = '5s'");
+  it("is one transaction that sets its lock timeout first and commits last", () => {
+    expect(b[0]).toBe("BEGIN");
+    expect(b[1]).toBe("SET LOCAL lock_timeout = '5s'");
+    expect(b[b.length - 1]).toBe("COMMIT");
+    expect(b.filter((s) => /^(BEGIN|COMMIT|ROLLBACK|END|START TRANSACTION)\b/.test(s))).toEqual(["BEGIN", "COMMIT"]);
   });
 
   it("changes no table Release 2 uses, and adds no foreign key, before the last backfill of Part 2", () => {

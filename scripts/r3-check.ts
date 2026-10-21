@@ -120,10 +120,14 @@ async function main(): Promise<number> {
     check(names.has("Membership_record_staff_history"), "staff-history trigger on Membership present");
     check(names.has("ProjectProfile_unshare_on_organisation_change"), "unshare trigger on ProjectProfile present");
 
-    // Smoke test, rolled back: nothing it writes stays.
-    const seen = await smoke(prisma);
-    check(seen.history, "smoke: a staff membership wrote a staff-history row (rolled back)");
-    check(seen.unshared, "smoke: an organisation change unshared the Comp Card (rolled back)");
+    // Smoke test, rolled back: nothing it writes stays. It needs the project.
+    const [project] = await prisma.$queryRaw<Count[]>`SELECT count(*)::int AS n FROM "Project" WHERE "id" = ${PROJECT}`;
+    check(project.n === 1, `project ${PROJECT} exists`);
+    if (project.n === 1) {
+      const seen = await smoke(prisma);
+      check(seen.history, "smoke: a staff membership wrote a staff-history row (rolled back)");
+      check(seen.unshared, "smoke: an organisation change unshared the Comp Card (rolled back)");
+    }
 
     // Roles.
     const [partnerRole] = await prisma.$queryRaw<Count[]>`
