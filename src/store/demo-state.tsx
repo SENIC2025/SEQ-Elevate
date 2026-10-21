@@ -11,8 +11,10 @@ import {
   saveCourseProgress,
   saveCourseProgressPatch,
   saveCompCard,
+  setCompCardSharing,
   awardBadgeAction,
 } from "@/app/actions/learner";
+import type { Sharing } from "@/lib/comp-card-visibility";
 import type { Locale } from "@/lib/cms/types";
 import {
   answerQuestion,
@@ -43,7 +45,7 @@ import {
   mergeCompCardOnHydrate,
   storedGuestState,
 } from "./progress-merge";
-import { migrateGuest } from "./guest-migration";
+import { cardToSave, guestWorkOf, migrateGuest, type GuestWork } from "./guest-migration";
 import { courseChanged, courseSaveRefs, saveCourse } from "./course-save";
 import { clearEveryOutbox, restoreOutbox } from "./outbox";
 import { pendingSave } from "./pending-save";
@@ -130,7 +132,15 @@ export interface CompCardData {
   improve: string;
   behaviour: string;
   confidence: number;
-  privacy: "self" | "facilitator" | "facilitatorAndMentor";
+  /**
+   * Who sees the card (D80): "Only me", or the facilitators of the learner's
+   * organisation. The server's, always (loadLearnerGlobal); changed only by
+   * its own action (setSharing), never as an edit of the card.
+   */
+  sharing: Sharing;
+  /** When it was shared, and with whom; null when it isn't. */
+  sharedAt?: string | null;
+  organisationName?: string | null;
   updatedAt: string | null;
 }
 
@@ -176,7 +186,9 @@ export const DEFAULT_STATE: DemoState = {
     improve: "",
     behaviour: "",
     confidence: 3,
-    privacy: "facilitator",
+    sharing: "onlyMe",
+    sharedAt: null,
+    organisationName: null,
     updatedAt: null,
   },
   refusedKeys: {},
@@ -210,7 +222,37 @@ function savedProgress(saved: CourseProgress | null): ProgressState {
   };
 }
 
+/** The same texts and confidence: what a Comp Card save sends. */
+function sameCardText(a: CompCardData, b: CompCardData): boolean {
+  return (
+    a.wentWell === b.wentWell &&
+    a.difficult === b.difficult &&
+    a.improve === b.improve &&
+    a.behaviour === b.behaviour &&
+    a.confidence === b.confidence
+  );
+}
+
 const STORAGE_KEY = "seq-elevate-demo-state-v1";
+
+/** ensureLearnerMembership's answer before the profile step is done (D79). */
+const PROFILE_INCOMPLETE = Symbol("profile-incomplete");
+
+/** This browser's guest store, as storedGuestState reads it; null when there is none or it can't be read. */
+function readGuestStore(): DemoState | null {
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    return raw ? storedGuestState(JSON.parse(raw), DEFAULT_STATE) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The work this browser's guest store holds (guest-migration.ts), if any. */
+function readGuestWork(): GuestWork | null {
+  const guest = readGuestStore();
+  return guest ? guestWorkOf(guest) : null;
+}
 
 type Action =
   | { type: "setProject"; projectId: string }
@@ -227,6 +269,8 @@ type Action =
   | { type: "completeCourse" }
   | { type: "awardBadge"; badge: string }
   | { type: "updateCompCard"; patch: Partial<CompCardData> }
+  /** Who sees the Comp Card, as shown: not an edit (updatedAt stays). */
+  | { type: "sharingShown"; sharing: Sharing; sharedAt: string | null; organisationName: string | null }
   | { type: "reset" }
   | { type: "forgetLearner" }
   | { type: "hydrate"; state: DemoState }
@@ -416,6 +460,16 @@ export function reducer(state: DemoState, action: Action): DemoState {
           updatedAt: new Date().toISOString(),
         },
       };
+    case "sharingShown":
+      return {
+        ...state,
+        compCard: {
+          ...state.compCard,
+          sharing: action.sharing,
+          sharedAt: action.sharedAt,
+          organisationName: action.organisationName,
+        },
+      };
     case "reset":
       return DEFAULT_STATE;
     case "forgetLearner":
@@ -497,6 +551,33 @@ interface ContextValue {
    * the learner is asked to reload.
    */
   staleBuild: boolean;
+  /**
+   * Release 3 (D79): the signed-in person hasn't done the profile step, so
+   * the store loads, moves and saves nothing — it holds what is on screen —
+   * and the page says so (ProfileNotSaving).
+   */
+  profileIncomplete: boolean;
+  /**
+   * Work this browser's guest store holds, offered to the signed-in person
+   * (GuestWorkPrompt, spec 5.5): it moves only when they say it is theirs.
+   * Null when there is none, for guests, and until their data has loaded.
+   */
+  guestWork: GuestWork | null;
+  /** What became of it on this page: added to the account, removed from this browser, or a move that didn't start. */
+  guestWorkDone: "added" | "removed" | "failed" | null;
+  /** "Add it to my account": the guest store moves into the account (guest-migration.ts), then is removed. */
+  claimGuestWork: () => Promise<void>;
+  /** "Remove it from this browser": the guest store is removed; nothing is sent. */
+  discardGuestWork: () => void;
+  /** A guest's "Clear my work from this browser": the guest store and what the page holds of it. */
+  clearGuestWork: () => void;
+  /**
+   * Who sees the Comp Card (setCompCardSharing): shown at once and sent at
+   * once, never debounced; put back, answering false, when it didn't save.
+   */
+  setSharing: (choice: Sharing) => Promise<boolean>;
+  /** The signed-in person's saved data has loaded: their choices can be saved. */
+  accountLoaded: boolean;
 }
 
 const DemoStateContext = React.createContext<ContextValue | null>(null);
@@ -560,6 +641,19 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
   // readyCourse (a signed-in learner's; loadedCourseRef, as state).
   const [loadedCourse, setLoadedCourse] = React.useState<string | null>(null);
   const [staleBuild, setStaleBuild] = React.useState(false);
+  // Release 3 (D79, spec 5.5): no complete profile yet; the guest store's
+  // work on offer, and what became of it.
+  const [profileIncomplete, setProfileIncomplete] = React.useState(false);
+  const [guestWork, setGuestWork] = React.useState<GuestWork | null>(null);
+  const [guestWorkDone, setGuestWorkDone] = React.useState<"added" | "removed" | "failed" | null>(null);
+  // A guest's work just cleared: the guest write-through doesn't write the
+  // empty store back.
+  const clearedGuest = React.useRef(false);
+  // The Comp Card as shown, for putting a sharing change back.
+  const cardShown = React.useRef(state.compCard);
+  React.useEffect(() => {
+    cardShown.current = state.compCard;
+  }, [state.compCard]);
   // next-auth's "read the session again, and tell the other tabs", for the
   // identity effect below: the latest one, without re-running it.
   const updateSession = React.useRef(update);
@@ -605,6 +699,9 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
     courseScheduled.current = null;
     cardScheduled.current = null;
     setDbOwner(null);
+    setProfileIncomplete(false);
+    setGuestWork(null);
+    setGuestWorkDone(null);
     dispatch({ type: "forgetLearner" });
     setGeneration((g) => g + 1);
   }, [courseSave, cardSave, setDbOwner]);
@@ -665,8 +762,9 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
       // A guest tab signed in in place (the sign-in link opened in another
       // tab): the guest's copy in memory isn't newer than what the account
       // has saved, and would win over it as if entered while it loaded. It's
-      // still in the guest store, and moves over from there under the
-      // account-wins rules (guest-migration.ts), as on a fresh page.
+      // still in the guest store, and is offered from there, as on a fresh
+      // page: it moves, under the account-wins rules (guest-migration.ts),
+      // only if the person says it is theirs.
       dispatch({ type: "forgetLearner" });
     }
   }, [owner, courseSave, cardSave, letGo, hydrateGuest]);
@@ -692,11 +790,13 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
         // does meanwhile stays in memory until it's through. A session
         // lookup that failed is a failed try too: the actions fail rather
         // than answer "nothing saved" (see requireLearner).
-        let global: Awaited<ReturnType<typeof loadLearnerGlobal>>;
+        let global: Awaited<ReturnType<typeof loadLearnerGlobal>> | typeof PROFILE_INCOMPLETE;
         try {
           global = await withRetry(
             async () => {
-              await ensureLearnerMembership();
+              // Release 3 (D79): before the profile step nothing of theirs
+              // loads, moves or saves.
+              if ((await ensureLearnerMembership()) === "profile-incomplete") return PROFILE_INCOMPLETE;
               return loadLearnerGlobal();
             },
             { signal: abort.signal }
@@ -711,96 +811,31 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
           return;
         }
         if (cancelled()) return;
-
-        // One-time guest→DB migration: a learner who built progress as a
-        // guest (localStorage) and then signed in keeps that progress. The
-        // DB always wins on conflict — we only fill gaps the server has no
-        // data for. Runs before the data counts as loaded (setDbOwner) so
-        // the write-through effects below don't race the migration.
-        let mergedCompCard = global.compCard as CompCardData | null;
-        let mergedBadges = global.badges;
-        let awardedBadges = global.badges;
-        let migratedCourse: CourseProgress | null = null;
-        let migratedAnything = false;
-        let guest: DemoState | null = null;
-        try {
-          const raw = window.localStorage.getItem(STORAGE_KEY);
-          if (raw) {
-            // Remove first, so a re-run (StrictMode, second tab) can't
-            // double-migrate.
-            window.localStorage.removeItem(STORAGE_KEY);
-            guest = storedGuestState(JSON.parse(raw), DEFAULT_STATE);
-          }
-        } catch {
-          /* a bad localStorage blob: dropped — never block sign-in on it */
+        if (global === PROFILE_INCOMPLETE) {
+          // What is on screen is held, nothing is saved, and the guest
+          // store is neither read nor removed. The page says so; the next
+          // full page load goes to the profile step.
+          setProfileIncomplete(true);
+          return;
         }
-        if (guest) {
-          try {
-            // Each write is tried again, and what didn't get through is
-            // still handed to the store below, whose write-throughs save
-            // it: the guest store no longer holds it (guest-migration.ts).
-            // Not stopped by this effect re-running, for the same reason.
-            const migrated = await migrateGuest(
-              guest,
-              {
-                compCard: mergedCompCard,
-                badges: mergedBadges,
-                enrollments: global.enrollments,
-              },
-              {
-                awardBadge: (slug) => awardBadgeAction(slug, forUser),
-                saveCompCard: (card) =>
-                  saveCompCard(
-                    {
-                      wentWell: card.wentWell,
-                      difficult: card.difficult,
-                      improve: card.improve,
-                      behaviour: card.behaviour,
-                      confidence: card.confidence,
-                      privacy: card.privacy,
-                    },
-                    forUser
-                  ),
-                saveCourse: (slug, patch) =>
-                  saveCourseProgressPatch(slug, patch, forUser),
-              }
-            );
-            mergedCompCard = migrated.compCard;
-            mergedBadges = migrated.badges;
-            awardedBadges = migrated.awarded;
-            migratedCourse = migrated.course;
-            migratedAnything = migrated.wrote;
-          } catch {
-            /* a malformed guest store — never block sign-in on it */
-          }
-        }
-        if (cancelled()) return;
+        setProfileIncomplete(false);
 
+        // The browser's guest store stays where it is (spec 5.5): on a
+        // shared computer it may be another person's. Its work is offered
+        // (guestWork), and moves only when they say it is theirs
+        // (claimGuestWork) — nothing moves, and nothing is removed, until
+        // they do.
+        setGuestWork(readGuestWork());
         dispatch({
           type: "hydrateGlobal",
-          compCard: mergedCompCard,
-          badges: mergedBadges,
+          compCard: global.compCard as CompCardData | null,
+          badges: global.badges,
         });
-        // Only what the server now holds. A badge earned while this loaded,
-        // or a guest's whose award didn't get through, stays in state
-        // (hydrateGlobal unions) but not here, so the badge write-through
-        // below awards it.
-        persistedBadges.current = new Set(awardedBadges);
-        if (migratedCourse) {
-          // Shown at once if it's the course being played (merged with the
-          // steps taken meanwhile) or no course is; another course's player
-          // keeps its own. It isn't marked loaded: the course load below
-          // reads it back from the server and merges it, the account's
-          // answers first as the move was sent (migratedRef), and only then
-          // is the course saved — a save that didn't get through above
-          // among it.
-          migratedRef.current = migratedCourse;
-          dispatch({ type: "guestCourseMigrated", course: migratedCourse });
-        }
+        // Only what the server holds. A badge earned while this loaded stays
+        // in state (hydrateGlobal unions) but not here, so the badge
+        // write-through below awards it.
+        persistedBadges.current = new Set(global.badges);
         setDbOwner(forUser);
-        // Server components (dashboard journey, facilitator) were rendered
-        // with pre-migration data — refresh them to pick up what we just wrote.
-        if (migratedAnything) router.refresh();
       } else if (typeof heldBy.current !== "string") {
         // Not while a learner's data is held (the identity effect above):
         // a guest's progress would take its place. It's read once that has
@@ -823,6 +858,12 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
   // go from there into the next account that signs in on this browser.
   React.useEffect(() => {
     if (!hydrated || authed || dbReady || typeof heldBy.current === "string") {
+      return;
+    }
+    // Just cleared (clearGuestWork): the store stays removed until the
+    // guest does something again.
+    if (clearedGuest.current) {
+      clearedGuest.current = false;
       return;
     }
     try {
@@ -956,25 +997,20 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
   }, [authed, dbOwner, state.course, courseSave, saveFor]);
 
   // ---- DB write-through: Comp Card (debounced) ----
+  // What is sent leaves out who sees the card (its own action, setSharing)
+  // and any text over the limit, which keeps its stored text while the
+  // learner is told it is too long; the other fields save (cardToSave).
+  // A change of who sees it alone (updatedAt and the texts as they were)
+  // isn't an edit, and sends nothing.
   React.useEffect(() => {
     if (!authed || !dbOwner || !state.compCard.updatedAt) return;
     const snap = state.compCard;
-    if (snap === cardScheduled.current) return;
+    const prev = cardScheduled.current;
+    if (snap === prev) return;
     cardScheduled.current = snap;
+    if (prev && prev.updatedAt === snap.updatedAt && sameCardText(prev, snap)) return;
     const forUser = dbOwner;
-    cardSave.schedule(() =>
-      saveCompCard(
-        {
-          wentWell: snap.wentWell,
-          difficult: snap.difficult,
-          improve: snap.improve,
-          behaviour: snap.behaviour,
-          confidence: snap.confidence,
-          privacy: snap.privacy,
-        },
-        forUser
-      )
-    );
+    cardSave.schedule(() => saveCompCard(cardToSave(snap), forUser));
   }, [authed, dbOwner, state.compCard, cardSave]);
 
   // ---- DB write-through: badges (append-only) ----
@@ -1047,6 +1083,130 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
     [courseSave, cardSave]
   );
 
+  // ---- The guest store's work (spec 5.5) ----
+  // "Add it to my account": what the account holds now is read first (the
+  // guest store stays if that fails), then the guest store is moved in
+  // under the account-wins rules (guest-migration.ts), each write tried
+  // again, and removed once every write is through: until then it outlives
+  // a tab closed mid-move, and is offered again (a second move changes
+  // nothing: the account has it, and wins). What the account should now
+  // hold goes to the store whether its write got through or not, and the
+  // store's write-throughs save what didn't: the Comp Card, the badges not
+  // yet awarded, and the course once it has loaded (migratedRef, read back
+  // from the server and merged, the account's answers first). The page
+  // says it was added only once every write is through: someone who signs
+  // out on a shared computer when told so leaves nothing of theirs behind.
+  // A write that didn't get through is said too, and the offer comes back.
+  const claimGuestWork = React.useCallback(async () => {
+    const forUser = dbOwnerRef.current;
+    if (!forUser) return;
+    let saved: Awaited<ReturnType<typeof loadLearnerGlobal>>;
+    try {
+      saved = await withRetry(() => loadLearnerGlobal());
+    } catch {
+      setGuestWorkDone("failed");
+      return;
+    }
+    if (dbOwnerRef.current !== forUser) return;
+    const guest = readGuestStore();
+    const removeGuestStore = () => {
+      try {
+        window.localStorage.removeItem(STORAGE_KEY);
+      } catch {
+        /* nothing to remove */
+      }
+    };
+    if (!guest) {
+      removeGuestStore();
+      setGuestWork(null);
+      setGuestWorkDone("added");
+      return;
+    }
+    const migrated = await migrateGuest(
+      guest,
+      { compCard: saved.compCard as CompCardData | null, badges: saved.badges, enrollments: saved.enrollments },
+      {
+        awardBadge: (slug) => awardBadgeAction(slug, forUser),
+        saveCompCard: (card) => saveCompCard(cardToSave(card), forUser),
+        saveCourse: (slug, patch) => saveCourseProgressPatch(slug, patch, forUser),
+      }
+    );
+    // All of it in the account: the browser's copy goes.
+    if (migrated.settled) removeGuestStore();
+    // The account let go of meanwhile (signed out, another account): none
+    // of it goes to the next one.
+    if (dbOwnerRef.current !== forUser) return;
+    dispatch({ type: "hydrateGlobal", compCard: migrated.compCard, badges: migrated.badges });
+    for (const slug of migrated.awarded) persistedBadges.current.add(slug);
+    if (migrated.course) {
+      migratedRef.current = migrated.course;
+      dispatch({ type: "guestCourseMigrated", course: migrated.course });
+    }
+    // Server-rendered parts (the dashboard) show what was just written.
+    if (migrated.wrote) router.refresh();
+    if (migrated.settled) {
+      setGuestWork(null);
+      setGuestWorkDone("added");
+    } else {
+      // Offered again: a second move sends only what the account lacks.
+      setGuestWork(guestWorkOf(guest));
+      setGuestWorkDone("failed");
+    }
+  }, [router]);
+
+  // "Remove it from this browser": nothing is sent.
+  const discardGuestWork = React.useCallback(() => {
+    try {
+      window.localStorage.removeItem(STORAGE_KEY);
+    } catch {
+      /* nothing to remove */
+    }
+    setGuestWork(null);
+    setGuestWorkDone("removed");
+  }, []);
+
+  // A guest's "Clear my work from this browser": the guest store goes, and
+  // so does what the page holds of it.
+  const clearGuestWork = React.useCallback(() => {
+    if (authed) return;
+    try {
+      window.localStorage.removeItem(STORAGE_KEY);
+    } catch {
+      /* nothing to remove */
+    }
+    clearedGuest.current = true;
+    dispatch({ type: "reset" });
+  }, [authed]);
+
+  // ---- Who sees the Comp Card (D80) ----
+  // Shown at once and sent at once; put back on a refusal or an error. Not
+  // an edit: the text's write-through doesn't send it (above).
+  const setSharing = React.useCallback(async (choice: Sharing): Promise<boolean> => {
+    const forUser = dbOwnerRef.current;
+    if (!forUser) return false;
+    const before = cardShown.current;
+    const put = (c: Pick<CompCardData, "sharing" | "sharedAt" | "organisationName">) =>
+      dispatch({
+        type: "sharingShown",
+        sharing: c.sharing,
+        sharedAt: c.sharedAt ?? null,
+        organisationName: c.organisationName ?? null,
+      });
+    put({ sharing: choice, sharedAt: choice === "facilitators" ? new Date().toISOString() : null, organisationName: before.organisationName });
+    try {
+      const answer = await setCompCardSharing(choice, forUser);
+      if (dbOwnerRef.current !== forUser) return false;
+      if (answer.ok) {
+        put(answer);
+        return true;
+      }
+    } catch {
+      /* put back below */
+    }
+    if (dbOwnerRef.current === forUser) put(before);
+    return false;
+  }, []);
+
   // A signed-in learner's course once loaded and merged; a guest's as soon
   // as the guest store has been read (it holds their one course, D69).
   const readyCourse = authed
@@ -1057,8 +1217,33 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
       ? state.course.courseSlug
       : null;
   const value = React.useMemo(
-    () => ({ state, dispatch, readyCourse, staleBuild }),
-    [state, readyCourse, staleBuild]
+    () => ({
+      state,
+      dispatch,
+      readyCourse,
+      staleBuild,
+      profileIncomplete,
+      guestWork,
+      guestWorkDone,
+      claimGuestWork,
+      discardGuestWork,
+      clearGuestWork,
+      setSharing,
+      accountLoaded: dbReady,
+    }),
+    [
+      state,
+      readyCourse,
+      staleBuild,
+      profileIncomplete,
+      guestWork,
+      guestWorkDone,
+      claimGuestWork,
+      discardGuestWork,
+      clearGuestWork,
+      setSharing,
+      dbReady,
+    ]
   );
 
   return (
@@ -1130,6 +1315,18 @@ export function LearnerView({
   return <React.Fragment key={generation}>{children}</React.Fragment>;
 }
 
+/** A preview's store: no profile, no guest store, nothing shared or saved. */
+const NOTHING_SAVED = {
+  profileIncomplete: false,
+  guestWork: null,
+  guestWorkDone: null,
+  claimGuestWork: async () => {},
+  discardGuestWork: () => {},
+  clearGuestWork: () => {},
+  setSharing: async () => false,
+  accountLoaded: false,
+} satisfies Partial<ContextValue>;
+
 /**
  * In-memory course state for an editor's preview: no hydration and no
  * write-through to the DB or localStorage. The player and its stages read
@@ -1144,7 +1341,7 @@ export function PreviewStateProvider({
 }) {
   const [state, dispatch] = React.useReducer(reducer, DEFAULT_STATE);
   const value = React.useMemo(
-    () => ({ state, dispatch, readyCourse: true as const, staleBuild: false }),
+    () => ({ state, dispatch, readyCourse: true as const, staleBuild: false, ...NOTHING_SAVED }),
     [state]
   );
   return (

@@ -2,6 +2,7 @@ import { test, expect } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { createPerson } from "./fixtures/people";
+import { completeProfileStep } from "./fixtures/profile-step";
 
 /**
  * Release 0, accounts stream:
@@ -58,7 +59,7 @@ type Role = "ADMIN" | "PARTNER_ADMIN" | "FACILITATOR" | "CONTENT_EDITOR" | "LEAR
 const STAFF_ROLES: Role[] = ["ADMIN", "PARTNER_ADMIN", "FACILITATOR", "CONTENT_EDITOR"];
 
 /** A user holding `roles` in the project, plus a live session. */
-async function signedInUser(address: string, roles: Role[], name?: string) {
+async function signedInUser(address: string, roles: Role[], name?: string, profile: "complete" | "none" = "complete") {
   // Everyone in organisation A, where the people fixture puts learners: a
   // facilitator sees the learners of their own organisation (D74), and a
   // staff member who still holds an old learner role is then left off the
@@ -68,6 +69,7 @@ async function signedInUser(address: string, roles: Role[], name?: string) {
     roles,
     name,
     organisation: "A",
+    profile,
   });
   return { userId, sessionToken };
 }
@@ -172,7 +174,7 @@ describe("Release 0 — accounts", () => {
     facilitator = await signedInUser(FACILITATOR, ["FACILITATOR"]);
     editor = await signedInUser(EDITOR, ["CONTENT_EDITOR"]);
     learner = await signedInUser(LEARNER, ["LEARNER"], LEARNER_NAME);
-    newcomer = await signedInUser(NEWCOMER, []);
+    newcomer = await signedInUser(NEWCOMER, [], undefined, "none");
     // An admin who opened a learner page before Release 0, which gave them
     // the LEARNER role; Release 0 leaves that row in place.
     oldAdmin = await signedInUser(OLD_ADMIN, ["ADMIN", "LEARNER"], OLD_ADMIN_NAME);
@@ -221,6 +223,10 @@ describe("Release 0 — accounts", () => {
   }) => {
     await signInAs(context, newcomer.sessionToken);
     await page.goto("/en/learner");
+    // Release 3 (D79): a learner only after the profile step.
+    await expect(page).toHaveURL(/\/en\/welcome$/);
+    expect(await learnerRoles(newcomer.userId), "no role before the profile step").toBe(0);
+    await completeProfileStep(page);
     await expect
       .poll(() => learnerRoles(newcomer.userId), { timeout: 15000 })
       .toBe(1);

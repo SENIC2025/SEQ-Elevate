@@ -1,19 +1,23 @@
 "use client";
 
+import * as React from "react";
 import { useTranslations, useLocale } from "next-intl";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Link } from "@/i18n/navigation";
-import { useDemoState } from "@/store/demo-state";
+import { PlayerAnnouncer, useAnnounce } from "@/components/course/PlayerAnnouncer";
+import { SafeguardingHint } from "@/components/safeguarding/SafeguardingHint";
+import { COMP_CARD_TEXT_MAX } from "@/lib/comp-card-visibility";
+import { useDemoState, type CompCardData } from "@/store/demo-state";
+import type { Sharing } from "@/lib/comp-card-visibility";
 import { CompCardPrint } from "./CompCardPrint";
 import {
   Printer,
   Save,
   Lock,
   Eye,
-  Users as UsersIcon,
   CheckCircle2,
   ChevronLeft,
   Sparkles,
@@ -21,8 +25,71 @@ import {
 import { cn } from "@/lib/utils";
 import type { CompCardTemplate } from "@/lib/cms/types";
 
+/**
+ * Whether this person may share their Comp Card, as the server read it for
+ * the page (learner/comp-card/page.tsx): a guest can't; signed in, they
+ * share with the facilitators of their own organisation, unless they have
+ * none yet, or were invited under the guardian rule without a guardian's
+ * permission that covers sharing (D80, spec 5.6).
+ */
+export interface SharingContext {
+  signedIn: boolean;
+  /** The learner's organisation: the facilitators they would share with. */
+  organisationName: string | null;
+  blocked: "no-organisation" | "guardian-consent-needed" | null;
+  /**
+   * Who sees the card, as the server read it for the page (effectiveSharing):
+   * shown until the learner's own data has loaded into the store, whose
+   * empty card says "Only me" whatever theirs says. Absent when it couldn't
+   * be read: then neither choice is shown as made until the store has it.
+   */
+  saved?: { sharing: Sharing; sharedAt: string | null } | null;
+}
+
+/** Who sees the card, as far as the page knows it; null while it doesn't. */
+type KnownSharing = Pick<CompCardData, "sharing" | "sharedAt" | "organisationName">;
+
+function knownSharing(card: CompCardData, context: SharingContext, accountLoaded: boolean): KnownSharing | null {
+  // A guest's card is theirs and always "Only me"; a learner's, once loaded.
+  if (!context.signedIn || accountLoaded) return card;
+  if (!context.saved) return null;
+  const shared = context.saved.sharing === "facilitators";
+  return { ...context.saved, organisationName: shared ? context.organisationName : null };
+}
+
+const GUEST: SharingContext = { signedIn: false, organisationName: null, blocked: null };
+
+/** From here on the learner is told how many characters are left. */
+export const NEAR_CARD_LIMIT = 1_800;
+
+type FieldLength = { kind: "left"; left: number } | { kind: "tooLong" } | null;
+
+/** What to tell the learner about a text's length: nothing while it's short. */
+export function cardFieldLength(text: string): FieldLength {
+  if (text.length > COMP_CARD_TEXT_MAX) return { kind: "tooLong" };
+  if (text.length >= NEAR_CARD_LIMIT) return { kind: "left", left: COMP_CARD_TEXT_MAX - text.length };
+  return null;
+}
+
+/**
+ * The learner's Comp Card. Release 3 (D80, spec 4.5):
+ * - who sees it is one of two choices, each a toggle button: "Only me"
+ *   (at once) and "Me and the facilitators at ‹organisation›", which asks
+ *   first in place (focus to the question; Escape or Cancel returns to the
+ *   button). It is saved by its own action, never with the text. Guests,
+ *   learners without an organisation and learners whose guardian's
+ *   permission doesn't cover sharing see "Only me", fixed, and why;
+ * - under it, always: what facilitators and the platform's staff see
+ *   whatever the choice, outside every text an editor can reword;
+ * - each text has no maxLength (the browser would cut pasted text without
+ *   a word): from 1,800 characters it says how many are left, and over
+ *   2,000 that it is too long to save — that field is then not sent and
+ *   keeps its saved text, the others save. Crossing into either is said
+ *   once through the page's own polite live region.
+ */
 export function CompCard({
   template,
+  sharing = GUEST,
 }: {
   /**
    * Field wording resolved server-side (bundled copy + the editor's CMS
@@ -30,12 +97,23 @@ export function CompCard({
    * component usable in isolation (storybook, tests).
    */
   template?: CompCardTemplate;
+  sharing?: SharingContext;
 }) {
+  return (
+    <PlayerAnnouncer>
+      <CompCardBody template={template} sharing={sharing} />
+    </PlayerAnnouncer>
+  );
+}
+
+function CompCardBody({ template, sharing }: { template?: CompCardTemplate; sharing: SharingContext }) {
   const t = useTranslations("compCard");
+  const tPlayer = useTranslations("coursePlayer");
   const locale = useLocale();
 
-  const { state, dispatch } = useDemoState();
+  const { state, dispatch, accountLoaded } = useDemoState();
   const c = state.compCard;
+  const known = knownSharing(c, sharing, accountLoaded);
   const set = (patch: Partial<typeof c>) =>
     dispatch({ type: "updateCompCard", patch });
 
@@ -62,17 +140,10 @@ export function CompCard({
     ? `${sc.rootLabel} → ${sc.followupLabel}`
     : "—";
 
+  const dateFormat = { year: "numeric", month: "long", day: "numeric" } as const;
   const dateStr = c.updatedAt
-    ? new Date(c.updatedAt).toLocaleDateString(locale, {
-        year: "numeric",
-        month: "long",
-        day: "numeric",
-      })
-    : new Date().toLocaleDateString(locale, {
-        year: "numeric",
-        month: "long",
-        day: "numeric",
-      });
+    ? new Date(c.updatedAt).toLocaleDateString(locale, dateFormat)
+    : new Date().toLocaleDateString(locale, dateFormat);
 
   return (
     <>
@@ -82,7 +153,7 @@ export function CompCard({
           className="inline-flex items-center gap-1 text-sm text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors mb-3"
         >
           <ChevronLeft className="h-4 w-4" />
-          Dashboard
+          {tPlayer("dashboard")}
         </Link>
 
         <Card>
@@ -171,6 +242,7 @@ export function CompCard({
                 return (
                   <Field
                     key={key}
+                    id={`comp-card-${key}`}
                     label={labelFor(key, d.label)}
                     value={d.value}
                     placeholder={placeholderFor(key, d.placeholder)}
@@ -178,6 +250,7 @@ export function CompCard({
                   />
                 );
               })}
+              <SafeguardingHint />
 
               {/* Confidence */}
               <div hidden={!shown("confidence")}>
@@ -207,48 +280,7 @@ export function CompCard({
                 </p>
               </div>
 
-              {/* Privacy */}
-              <div>
-                <label className="block text-sm font-medium mb-2">
-                  {t("privacyLabel")}
-                </label>
-                <div className="space-y-1.5">
-                  {(["self", "facilitator", "facilitatorAndMentor"] as const).map(
-                    (p) => {
-                      const Icon =
-                        p === "self"
-                          ? Lock
-                          : p === "facilitator"
-                            ? Eye
-                            : UsersIcon;
-                      return (
-                        <button
-                          key={p}
-                          type="button"
-                          onClick={() => set({ privacy: p })}
-                          className={cn(
-                            "w-full text-left rounded-lg border px-4 py-3 flex items-center gap-3 text-sm",
-                            c.privacy === p
-                              ? "border-[var(--primary)] bg-[var(--accent)]/5"
-                              : "border-[var(--border)] hover:bg-[var(--surface-muted)]"
-                          )}
-                          aria-pressed={c.privacy === p}
-                        >
-                          <Icon
-                            className={cn(
-                              "h-4 w-4 flex-shrink-0",
-                              c.privacy === p
-                                ? "text-[var(--accent)]"
-                                : "text-[var(--muted-foreground)]"
-                            )}
-                          />
-                          <span>{t(`privacyChoice.${p}`)}</span>
-                        </button>
-                      );
-                    }
-                  )}
-                </div>
-              </div>
+              <SharingChoice context={sharing} known={known} />
             </div>
 
             <div className="mt-7 flex flex-wrap gap-3 justify-between">
@@ -278,33 +310,226 @@ export function CompCard({
         courseTitle={courseTitle}
         dateStr={dateStr}
         scenarioSummary={scenarioSummary}
-        compCard={c}
+        compCard={known ? { ...c, ...known } : c}
         template={template}
       />
     </>
   );
 }
 
+/**
+ * Who sees the card: "Only me", or the facilitators of the learner's
+ * organisation after a question asked in place (the course page's
+ * DeleteConfirm pattern). Saved at once by its own action; put back, and
+ * said, when that fails. Until the learner's data has loaded the choice
+ * can't be changed, and shows what the server read for the page (`known`),
+ * or neither choice made when it read nothing.
+ */
+function SharingChoice({ context, known }: { context: SharingContext; known: KnownSharing | null }) {
+  const t = useTranslations("compCard");
+  const locale = useLocale();
+  const { setSharing, accountLoaded } = useDemoState();
+  const ids = React.useId();
+  const [asking, setAsking] = React.useState(false);
+  const [busy, setBusy] = React.useState(false);
+  const [failed, setFailed] = React.useState(false);
+  const shareButton = React.useRef<HTMLButtonElement>(null);
+  const question = React.useRef<HTMLHeadingElement>(null);
+
+  const organisation = context.organisationName;
+  const shared = known?.sharing === "facilitators";
+  // Sharing isn't open to them, and nothing is shared to take back.
+  const fixed = !shared && (!context.signedIn || !organisation || context.blocked !== null);
+  const why = !context.signedIn
+    ? t("sharing.guest")
+    : context.blocked === "guardian-consent-needed" && organisation
+      ? t("sharing.guardianNeeded", { organisation })
+      : !organisation || context.blocked === "no-organisation"
+        ? t("sharing.noOrganisation")
+        : null;
+
+  React.useEffect(() => {
+    if (asking) question.current?.focus();
+  }, [asking]);
+
+  const choose = async (choice: "onlyMe" | "facilitators") => {
+    if (busy || !accountLoaded) return;
+    setBusy(true);
+    setFailed(false);
+    const ok = await setSharing(choice);
+    setBusy(false);
+    setFailed(!ok);
+    if (choice === "facilitators") {
+      setAsking(false);
+      shareButton.current?.focus();
+    }
+  };
+  const cancel = () => {
+    setAsking(false);
+    shareButton.current?.focus();
+  };
+
+  const option = (pressed: boolean) =>
+    cn(
+      "w-full text-left rounded-lg border px-4 py-3 flex items-center gap-3 text-sm",
+      pressed ? "border-[var(--primary)] bg-[var(--accent)]/5" : "border-[var(--border)] hover:bg-[var(--surface-muted)]"
+    );
+  const icon = (pressed: boolean) =>
+    cn("h-4 w-4 flex-shrink-0", pressed ? "text-[var(--accent)]" : "text-[var(--muted-foreground)]");
+
+  return (
+    <div>
+      <p id={`${ids}-label`} className="block text-sm font-medium mb-2">
+        {t("privacyLabel")}
+      </p>
+      {fixed ? (
+        <div className={option(true)}>
+          <Lock className={icon(true)} aria-hidden />
+          <span>{t("sharing.onlyMe")}</span>
+        </div>
+      ) : (
+        <div role="group" aria-labelledby={`${ids}-label`} className="space-y-1.5">
+          <button
+            type="button"
+            aria-pressed={!!known && !shared}
+            aria-disabled={!accountLoaded || busy || undefined}
+            onClick={() => {
+              if (shared) void choose("onlyMe");
+            }}
+            className={option(!!known && !shared)}
+          >
+            <Lock className={icon(!!known && !shared)} aria-hidden />
+            <span>{t("sharing.onlyMe")}</span>
+          </button>
+          <button
+            ref={shareButton}
+            type="button"
+            aria-pressed={shared}
+            aria-disabled={!accountLoaded || busy || undefined}
+            onClick={() => {
+              if (!shared && accountLoaded && !busy) setAsking(true);
+            }}
+            className={option(shared)}
+          >
+            <Eye className={icon(shared)} aria-hidden />
+            <span>{t("sharing.facilitators", { organisation: organisation ?? known?.organisationName ?? "" })}</span>
+          </button>
+        </div>
+      )}
+
+      {asking && !shared ? (
+        <div
+          role="group"
+          aria-labelledby={`${ids}-ask`}
+          className="mt-2 rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] p-3"
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              e.stopPropagation();
+              if (!busy) cancel();
+            }
+          }}
+        >
+          <h2 id={`${ids}-ask`} ref={question} tabIndex={-1} className="text-sm font-semibold outline-none">
+            {t("sharing.shareConfirm", { organisation: organisation ?? "" })}
+          </h2>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <Button
+              type="button"
+              size="sm"
+              aria-disabled={busy || undefined}
+              onClick={() => void choose("facilitators")}
+            >
+              {t("sharing.share")}
+            </Button>
+            <Button type="button" size="sm" variant="outline" aria-disabled={busy || undefined} onClick={() => !busy && cancel()}>
+              {t("sharing.cancel")}
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
+      {shared && known?.sharedAt ? (
+        <p className="mt-2 text-sm">
+          {t("sharing.sharedSince", {
+            date: new Date(known.sharedAt).toLocaleDateString(locale, { year: "numeric", month: "long", day: "numeric" }),
+          })}
+        </p>
+      ) : null}
+      {fixed && why ? <p className="mt-2 text-sm text-[var(--muted-foreground)]">{why}</p> : null}
+      {failed ? (
+        <p role="alert" className="mt-2 text-sm font-medium text-[var(--danger)]">
+          {t("sharing.failed")}
+        </p>
+      ) : null}
+      {/* What a signed-in learner's facilitators and the platform's staff
+          see whatever the choice; a guest's work is sent to no one. */}
+      {context.signedIn ? (
+        <p className="mt-3 text-xs text-[var(--muted-foreground)]">
+          {organisation ? t("sharing.always", { organisation }) : t("sharing.alwaysNoOrganisation")}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 function Field({
+  id,
   label,
   value,
   placeholder,
   onChange,
 }: {
+  id: string;
   label: string;
   value: string;
   placeholder: string;
   onChange: (v: string) => void;
 }) {
+  const t = useTranslations("compCard");
+  const announce = useAnnounce();
+  const length = cardFieldLength(value);
+  const kind = length?.kind ?? null;
+  const note =
+    length?.kind === "tooLong"
+      ? t("tooLong", { max: COMP_CARD_TEXT_MAX })
+      : length?.kind === "left"
+        ? t("charsLeft", { count: length.left })
+        : null;
+  // Said once when it crosses into a kind, not every character typed, and
+  // not for a card that opens long already (the note is read with the box).
+  const said = React.useRef<string | null>(kind);
+  React.useEffect(() => {
+    if (kind === said.current) return;
+    said.current = kind;
+    if (kind && note) announce(note);
+    // Said when the kind changes, with the words of that moment.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kind]);
   return (
     <div>
-      <label className="block text-sm font-medium mb-1.5">{label}</label>
+      <label htmlFor={id} className="block text-sm font-medium mb-1.5">
+        {label}
+      </label>
       <Textarea
+        id={id}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         rows={2}
+        aria-describedby={note ? `${id}-length` : undefined}
+        aria-invalid={kind === "tooLong" || undefined}
       />
+      {note ? (
+        <p
+          id={`${id}-length`}
+          className={cn(
+            "mt-1 text-sm",
+            kind === "tooLong" ? "font-medium text-[var(--danger)]" : "text-[var(--muted-foreground)]"
+          )}
+        >
+          {note}
+        </p>
+      ) : null}
     </div>
   );
 }

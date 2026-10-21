@@ -3,6 +3,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { createPerson } from "./fixtures/people";
+import { addGuestWork } from "./fixtures/guest-work";
 
 /**
  * Release 0, the course player (fact-check C7, C8):
@@ -544,6 +545,8 @@ dbDescribe("R0 player — quick-check answers are saved to the account", () => {
 
     await signIn(page, sessionToken);
     await page.goto("/en/learner");
+    // Release 3 (spec 5.5): it moves when the learner says it is theirs.
+    await addGuestWork(page);
     await expect
       .poll(() => savedAssessment(userId, BUILT_IN), { timeout: 15_000 })
       .toEqual({ answers: { q1: "b", q2: "b", q3: "b" }, checked: true });

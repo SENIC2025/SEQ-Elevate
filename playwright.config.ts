@@ -20,7 +20,8 @@ import { defineConfig, devices } from "@playwright/test";
  * them (spec 15, 17.2): R3_PARTNER_ACCESS and STATS_FROM unset, and with
  * the profile gate's kill switch on (R3_PROFILE_GATE=off), on its own port
  * (E2E_SWITCHES_PORT, else E2E_PORT + 20). Only the `switches` project
- * (r3-switches.spec.ts) uses it.
+ * (r3-switches.spec.ts, and r3-profile-gate-off.spec.ts: the profile gate
+ * switched off) uses it.
  *
  * The `last` project (r3-data-last.spec.ts: a test account's reset with a
  * deploy's badge backfill, and the clean-up run) acts on the whole
@@ -38,7 +39,7 @@ const CUTOFF_URL = `http://localhost:${CUTOFF_PORT}`;
 const CUTOFF_SPEC = /r2-cutoff\.spec\.ts$/;
 const SWITCHES_PORT = process.env.E2E_SWITCHES_PORT ?? String(Number(PORT) + 20);
 const SWITCHES_URL = `http://localhost:${SWITCHES_PORT}`;
-const SWITCHES_SPEC = /r3-switches\.spec\.ts$/;
+const SWITCHES_SPEC = /r3-(switches|profile-gate-off)\.spec\.ts$/;
 const LAST_SPEC = /r3-data-last\.spec\.ts$/;
 
 // Demo sign-in is opt-in (D98): DEMO_LOGIN_ENABLED and an access code of at

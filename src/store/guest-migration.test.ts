@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
-import { migrateGuest, type GuestWrites } from "./guest-migration";
+import { cardToSave, guestWorkOf, migrateGuest, type GuestWrites } from "./guest-migration";
 import { withRetry } from "./retry";
 import type { ProgressPatch } from "@/lib/learner-progress/contract";
 import type { CompCardData, CourseProgress, DemoState } from "./demo-state";
@@ -22,7 +22,9 @@ const card: CompCardData = {
   improve: "",
   behaviour: "",
   confidence: 4,
-  privacy: "self",
+  sharing: "onlyMe",
+  sharedAt: null,
+  organisationName: null,
   updatedAt: "2026-09-01T10:00:00.000Z",
 };
 
@@ -105,6 +107,7 @@ describe("migrateGuest", () => {
       compCard: card,
       course,
       wrote: true,
+      settled: true,
     });
   });
 
@@ -135,11 +138,12 @@ describe("migrateGuest", () => {
     expect(tries).toEqual({ badge: 2, card: 3, course: 2 });
     expect(server).toEqual({ badges: ["voice-without-edges"], card, course: moved });
     expect(migrated.awarded).toEqual(["voice-without-edges"]);
+    expect(migrated.settled, "all of it in the account: the guest store can go").toBe(true);
   });
 
   it("keeps the rest going, and hands the store all of it, when a write never gets through", async () => {
-    // The guest store is already emptied: the learner store in memory is
-    // the only other place left for it, and its write-throughs save it.
+    // The learner store's write-throughs save it, and the guest store,
+    // not settled, stays: it outlives a tab closed before they do.
     const { writes: w, server } = writes({ badge: 100, card: 100 });
     const migrated = await migrateGuest(guest, nothingSaved, w, retry);
 
@@ -150,6 +154,7 @@ describe("migrateGuest", () => {
       compCard: card, // saved by its Comp Card write-through
       course, // saved once it has loaded
       wrote: true,
+      settled: false,
     });
     expect(console.error).toHaveBeenCalled();
   });
@@ -171,6 +176,7 @@ describe("migrateGuest", () => {
     expect(tries.badge).toBe(1);
     expect(migrated.badges).toEqual(["voice-without-edges"]); // still shown
     expect(migrated.awarded).toEqual([]); // not counted as saved
+    expect(migrated.settled, "a refusal leaves nothing to try again").toBe(true);
   });
 
   it("hands the store the guest's course when its save never gets through", async () => {
@@ -179,6 +185,7 @@ describe("migrateGuest", () => {
 
     expect(server.course).toBeNull();
     expect(migrated.course).toEqual(course);
+    expect(migrated.settled).toBe(false);
   });
 
   it("leaves what the account has saved as it is: the saved data wins", async () => {
@@ -202,6 +209,7 @@ describe("migrateGuest", () => {
       compCard: savedCard,
       course: null,
       wrote: false,
+      settled: true,
     });
   });
 
@@ -298,5 +306,86 @@ describe("migrateGuest", () => {
     expect(server.course).toBeNull();
     expect(migrated).toMatchObject({ course, wrote: false });
     expect(console.error).toHaveBeenCalled();
+  });
+});
+
+describe("Release 3: a guest's Comp Card moves as Only me, within the limit (D80, UB3)", () => {
+  it("counts a Comp Card save the server refused (a text over the limit) as not saved, and still hands the store the card", async () => {
+    const { writes: base } = writes();
+    const w: GuestWrites = {
+      ...base,
+      saveCompCard: async () => ({ ok: false, error: "too-long", field: "difficult" }),
+    };
+    const migrated = await migrateGuest(
+      { ...guest, badges: [], course: { ...course, courseSlug: null } },
+      nothingSaved,
+      w,
+      retry
+    );
+    expect(migrated.wrote).toBe(false);
+    expect(migrated.compCard).toMatchObject({ wentWell: card.wentWell, difficult: card.difficult, sharing: "onlyMe" });
+    expect(console.error).toHaveBeenCalled();
+  });
+
+  it("hands the store the guest's card as Only me, whatever the guest's copy said", async () => {
+    const { writes: w } = writes();
+    const shared = { ...card, sharing: "facilitators" as const, sharedAt: "2026-11-21T08:00:00.000Z", organisationName: "X" };
+    const migrated = await migrateGuest({ ...guest, compCard: shared }, nothingSaved, w, retry);
+    expect(migrated.compCard).toMatchObject({ sharing: "onlyMe", sharedAt: null, organisationName: null });
+  });
+});
+
+describe("cardToSave (UB3)", () => {
+  it("sends the texts and the confidence, never who sees the card", () => {
+    expect(cardToSave({ ...card, sharing: "facilitators" })).toEqual({
+      wentWell: card.wentWell,
+      difficult: card.difficult,
+      improve: "",
+      behaviour: "",
+      confidence: 4,
+    });
+  });
+
+  it("leaves out a text over 2,000 characters (it keeps its stored text); the others still save", () => {
+    const long = { ...card, improve: "x".repeat(2001), behaviour: "y".repeat(2000) };
+    const sent = cardToSave(long);
+    expect(sent).not.toHaveProperty("improve");
+    expect(sent.behaviour).toHaveLength(2000);
+    expect(sent.wentWell).toBe(card.wentWell);
+  });
+});
+
+describe("guestWorkOf: what a guest store holds, offered after sign-in (spec 5.5)", () => {
+  const empty: DemoState = {
+    ...guest,
+    badges: [],
+    course: { ...course, courseSlug: null, stagesCompleted: [] },
+    compCard: { ...card, wentWell: "", difficult: "", updatedAt: null },
+  };
+
+  it("is nothing for an empty guest store", () => {
+    expect(guestWorkOf(empty)).toBeNull();
+  });
+
+  it("names the course with progress, says whether a Comp Card was filled in, and counts the reflections", () => {
+    const work = guestWorkOf({
+      ...guest,
+      course: { ...course, reflection: { p1: "One", p2: " ", p3: "Three" } },
+    });
+    expect(work).toEqual({ courses: ["Workplace conflict"], compCard: true, reflections: 2, badges: guest.badges.length });
+  });
+
+  it("is a Comp Card alone, or badges alone, too, and counts the badges so the offer can name them", () => {
+    expect(guestWorkOf({ ...empty, compCard: card })).toEqual({ courses: [], compCard: true, reflections: 0, badges: 0 });
+    expect(guestWorkOf({ ...empty, badges: ["voice-without-edges", "listening-first"] })).toEqual({
+      courses: [],
+      compCard: false,
+      reflections: 0,
+      badges: 2,
+    });
+  });
+
+  it("doesn't count a course opened and left empty", () => {
+    expect(guestWorkOf({ ...empty, course: { ...course, stagesCompleted: [] } })).toBeNull();
   });
 });

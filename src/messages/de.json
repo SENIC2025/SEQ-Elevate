@@ -42,8 +42,8 @@
     "country": "Land",
     "organisation": "Organisation",
     "organisationNone": "Noch keiner Partnerorganisation zugeordnet.",
-    "termsAccepted": "Nutzungsbedingungen akzeptiert am {date} (Version {version}).",
-    "ageConfirmed": "Altersregel bestätigt am {date}.",
+    "termsAccepted": "{versioned, select, true {Nutzungsbedingungen akzeptiert am {date} (Version {version}).} other {Nutzungsbedingungen akzeptiert am {date}.}}",
+    "ageConfirmed": "{rule, select, invited {Du hast am {date} bestätigt, dass du die Erlaubnis deiner Eltern oder deines Vormunds hast.} other {Du hast am {date} dein Alter bestätigt.}}",
     "changeDetails": "Deinen Namen und dein Land kannst du hier nicht ändern. Wenn du sie ändern möchtest, kontaktiere uns (siehe die <privacy>Datenschutzhinweise</privacy>) oder bitte deine Partnerorganisation, die Anfrage weiterzugeben.",
     "notes": "Notizen, die Mitarbeitende über dich schreiben, sind in deinem Daten-Download.",
     "alwaysSee": "Egal, was du wählst: Die Trainer:innen bei {organisation} und die Mitarbeitenden von DIESIS und SENIC, die die Plattform betreiben, sehen immer deinen Namen und deine E-Mail-Adresse, deinen Fortschritt, deine letzte Aktivität, wie lange du an jeder Lektion arbeitest, deine Ergebnisse in Quiz und Videofragen und deine Entscheidungen in den Übungen.",
@@ -280,7 +280,7 @@
         "prompt2": "Was war der schwerste Teil im Szenario?",
         "prompt3": "Was würdest du beim nächsten Mal anders versuchen?",
         "placeholder1": "Es kann ein Wort sein, ein Gefühl oder ein Satz.",
-        "placeholder2": "Sei ehrlich — nur du siehst das, wenn du es nicht teilen willst.",
+        "placeholder2": "Sei ehrlich — nur du siehst das.",
         "placeholder3": "Auch eine kleine Veränderung zählt."
       },
       "assessment": {
@@ -611,18 +611,13 @@
     "fieldBehaviour": "Ein Verhalten, das ich gezeigt habe",
     "fieldConfidence": "Wie zuversichtlich ich mich jetzt fühle (1–5)",
     "privacyLabel": "Wer diese Comp Card sehen darf",
-    "privacyChoice": {
-      "self": "Nur ich",
-      "facilitator": "Ich und meine Trainer:in",
-      "facilitatorAndMentor": "Ich, meine Trainer:in und Mentor:in"
-    },
     "downloadPdf": "Als PDF herunterladen",
     "printPdf": "Comp Card drucken",
     "saved": "Gespeichert",
     "saving": "Speichert…",
     "placeholder": {
       "wentWell": "Auch kleine Erfolge zählen.",
-      "difficult": "Sei ehrlich — nichts hier geht irgendwo hin, wo du es nicht willst.",
+      "difficult": "Was war schwer, und warum?",
       "improve": "Eine Sache.",
       "behaviour": "Was hast du wirklich gemacht, worauf du stolz bist?"
     },
@@ -648,7 +643,7 @@
       "guardianNeeded": "Du kannst deine Comp Card teilen, sobald {organisation} bestätigt, dass die Erlaubnis deiner Eltern oder deines Vormunds das abdeckt.",
       "failed": "Deine Auswahl wurde nicht gespeichert. Bitte versuch es noch einmal."
     },
-    "charsLeft": "Noch {count} Zeichen",
+    "charsLeft": "Noch {count, plural, one {# Zeichen} other {# Zeichen}}",
     "tooLong": "Das ist zu lang zum Speichern. Kürze es auf {max} Zeichen."
   },
   "gamification": {
@@ -1366,7 +1361,7 @@
     "whoSees": "Die Trainer:innen bei {organisation} und die Mitarbeitenden von DIESIS und SENIC, die die Plattform betreiben, sehen deinen Namen und deine E-Mail-Adresse, deinen Fortschritt, deine letzte Aktivität, wie lange du an jeder Lektion arbeitest, deine Ergebnisse in Quiz und Videofragen und deine Entscheidungen in den Übungen. Deine Comp Card bleibt privat, außer du teilst sie.",
     "whoSeesNoOrganisation": "Die Mitarbeitenden von DIESIS und SENIC, die die Plattform betreiben, sehen deinen Namen und deine E-Mail-Adresse, deinen Fortschritt, deine letzte Aktivität, wie lange du an jeder Lektion arbeitest, deine Ergebnisse in Quiz und Videofragen und deine Entscheidungen in den Übungen. Sobald dein Konto einer Partnerorganisation zugeordnet ist, sehen das auch ihre Trainer:innen. Deine Comp Card bleibt privat, außer du teilst sie.",
     "setUpBy": "Dein Konto wurde von {organisation} eingerichtet.",
-    "setUpByMismatch": "{organisation} begleitet Lernende in einem anderen Land. Wenn du mit {country} weitermachst, prüft DIESIS, welche Organisation dich begleitet; bis dahin sehen nur Mitarbeitende von DIESIS und SENIC deinen Fortschritt.",
+    "setUpByMismatch": "{organisation} begleitet Lernende in einem anderen Land. Wenn du mit {country, select, DE {Deutschland} CY {Zypern} BE {Belgien} GR {Griechenland} other {einem anderen Land}} weitermachst, prüft DIESIS, welche Organisation dich begleitet; bis dahin sehen nur Mitarbeitende von DIESIS und SENIC deinen Fortschritt.",
     "age": {
       "self": "Ich bin {minAge} Jahre oder älter.",
       "invited": "{organisation} hat mich eingeladen und hat die Erlaubnis meiner Eltern oder meines Vormunds.",
@@ -1392,7 +1387,7 @@
   },
   "guestWork": {
     "title": "Arbeit, die vor deiner Anmeldung in diesem Browser gespeichert wurde",
-    "summary": "{courses}. Comp Card: {compCard, select, true {ja} other {nein}}.",
+    "summary": "{n, plural, =0 {Kein Kursfortschritt} other {{courses}}}. Comp Card: {compCard, select, true {ja} other {nein}}. Abzeichen: {badges}.",
     "add": "Zu meinem Konto hinzufügen",
     "remove": "Aus diesem Browser entfernen",
     "added": "Zu deinem Konto hinzugefügt.",

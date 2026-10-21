@@ -4,6 +4,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { PrismaClient, type Role } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { createPerson } from "./fixtures/people";
+import { completeProfileStep } from "./fixtures/profile-step";
 
 /**
  * Invitation emails (D27): an admin adds someone and they receive a one-click
@@ -61,6 +62,10 @@ const tokensFor = (email: string) =>
   prisma.verificationToken.count({ where: { identifier: email } });
 
 async function cleanUp() {
+  // The profile step's audit rows (Release 3) go with the people who made them.
+  await prisma.auditLog.deleteMany({
+    where: { action: { startsWith: "profile." }, actor: { email: { in: EMAILS } } },
+  });
   await prisma.user.deleteMany({ where: { email: { in: EMAILS } } });
   await prisma.verificationToken.deleteMany({
     where: { identifier: { in: EMAILS } },
@@ -192,6 +197,9 @@ describe("Invitation emails", () => {
         email: INVITEE,
       })}`
     );
+    // Release 3 (spec 5.4): a new account answers the profile step first,
+    // then reaches its workspaces.
+    await completeProfileStep(page, { name: "E2E trainer" });
     await expect(page).toHaveURL(/\/en$/);
     await expect(
       page.getByRole("heading", { name: "Welcome back" }).first()

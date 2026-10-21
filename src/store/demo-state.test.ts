@@ -100,3 +100,31 @@ describe("the learner store's Release 2 actions", () => {
     expect(reducer(migrated, { type: "courseProgressLoaded", slug: SLUG, saved }).course.simulation).toEqual(guest.simulation);
   });
 });
+
+describe("the learner store's Comp Card sharing (D80, UB3)", () => {
+  const loaded = {
+    ...DEFAULT_STATE,
+    compCard: { ...DEFAULT_STATE.compCard, wentWell: "Mine", updatedAt: "2026-11-21T09:00:00.000Z" },
+  };
+
+  it("starts Only me", () => {
+    expect(DEFAULT_STATE.compCard).toMatchObject({ sharing: "onlyMe", sharedAt: null, organisationName: null });
+    expect(DEFAULT_STATE.compCard).not.toHaveProperty("privacy");
+  });
+
+  it("shows a sharing change without marking the card as edited (its texts aren't sent again)", () => {
+    const shared = reducer(loaded, {
+      type: "sharingShown",
+      sharing: "facilitators",
+      sharedAt: "2026-11-21T10:00:00.000Z",
+      organisationName: "Pro Arbeit",
+    });
+    expect(shared.compCard).toEqual({
+      ...loaded.compCard,
+      sharing: "facilitators",
+      sharedAt: "2026-11-21T10:00:00.000Z",
+      organisationName: "Pro Arbeit",
+    });
+    expect(shared.compCard.updatedAt).toBe(loaded.compCard.updatedAt);
+  });
+});

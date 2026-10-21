@@ -2,17 +2,23 @@
  * Moving a guest's progress into the account they sign in to.
  *
  * A guest's progress lives in this browser's guest store (localStorage).
- * When they sign in, it moves to their account, only where the account has
- * none: the saved data always wins — per course for the course (D37, D69:
+ * Release 3 (D79, spec 5.5): it moves only when the person signed in says
+ * it is theirs ("Add it to my account", claimGuestWork in demo-state.tsx),
+ * once their profile step is done — on a shared computer it may be someone
+ * else's. Until then it stays in the guest store, untouched, and the
+ * learner store offers it (guestWorkOf). It moves only where the account
+ * has none: the saved data always wins — per course for the course (D37, D69:
  * the guest store holds one), which is sent in fill mode, so the account
  * still wins if another device saves it at the same moment (spec 5.4).
- * The guest store is emptied before the writes (so a second tab can't move
- * it twice), which leaves the learner store in memory as the only other
- * place for it. So no write is given up on at its first failure — a
- * dropped connection, or a session lookup that failed (the save actions
- * fail then: see requireLearner in src/app/actions/learner.ts) — and one
- * failure doesn't stop the rest: each write is tried again (retry.ts), and
- * what the account should now hold goes to the store whether its write got
+ * The guest store is emptied only once every write has got through (or
+ * been refused, which no try can change: `settled`): until then it is the
+ * copy that outlives a tab closed mid-move, and is offered again on the
+ * next page. Moving it twice changes nothing — the account has it then,
+ * and wins. No write is given up on at its first failure — a dropped
+ * connection, or a session lookup that failed (the save actions fail then:
+ * see requireLearner in src/app/actions/learner.ts) — and one failure
+ * doesn't stop the rest: each write is tried again (retry.ts), and what
+ * the account should now hold goes to the store whether its write got
  * through or not. What didn't is then saved by the store's own
  * write-throughs, which try again too: the Comp Card, the badges not yet
  * awarded, and the course once it has loaded.
@@ -22,6 +28,8 @@
 
 import type { CompCardData, CourseProgress, DemoState } from "./demo-state";
 import { hasCourseProgress } from "./progress-merge";
+import type { CompCardInput } from "@/app/actions/learner";
+import { COMP_CARD_FIELDS, COMP_CARD_TEXT_MAX } from "@/lib/comp-card-visibility";
 import { withRetry } from "./retry";
 import { isRefusedAward } from "@/lib/badge-award";
 import type { ProgressPatch } from "@/lib/learner-progress/contract";
@@ -54,6 +62,8 @@ export interface Migrated {
   course: CourseProgress | null;
   /** Did any write get through (so server-rendered pages are stale)? */
   wrote: boolean;
+  /** Did every write get through or get refused (none left to the store)? */
+  settled: boolean;
 }
 
 /**
@@ -68,6 +78,7 @@ export async function migrateGuest(
   retry: <T>(call: () => Promise<T>) => Promise<T> = (call) => withRetry(call)
 ): Promise<Migrated> {
   let wrote = false;
+  let settled = true;
   const write = async (call: () => Promise<unknown>) => {
     try {
       const result = await retry(call);
@@ -81,6 +92,7 @@ export async function migrateGuest(
       wrote = true;
       return true;
     } catch (err) {
+      settled = false;
       console.error(
         "A guest's progress didn't reach their account; the learner store saves it.",
         err
@@ -97,12 +109,14 @@ export async function migrateGuest(
     if (await write(() => writes.awardBadge(slug))) awarded.push(slug);
   }
 
-  // Comp Card: only if the account has none.
+  // Comp Card: only if the account has none, as "Only me" (the save never
+  // shares). A refused save (a text over the limit) isn't counted as saved:
+  // the card stays in the store, whose write-through saves the rest.
   let compCard = saved.compCard;
   const guestCard = guest.compCard;
   if (!compCard && guestCard?.updatedAt) {
     await write(() => writes.saveCompCard(guestCard));
-    compCard = guestCard;
+    compCard = { ...guestCard, sharing: "onlyMe", sharedAt: null, organisationName: null };
   }
 
   // Course: the guest store only holds the last-played course. Only if the
@@ -122,5 +136,61 @@ export async function migrateGuest(
     course = gc;
   }
 
-  return { badges: [...saved.badges, ...newBadges], awarded, compCard, course, wrote };
+  return { badges: [...saved.badges, ...newBadges], awarded, compCard, course, wrote, settled };
+}
+
+/** A summary of the work a guest store holds, for the prompt that offers it (spec 5.5). */
+export interface GuestWork {
+  /** The courses with progress in it, by title. */
+  courses: string[];
+  /** A Comp Card filled in. */
+  compCard: boolean;
+  /** Reflection answers written. */
+  reflections: number;
+  /** Badges earned. */
+  badges: number;
+}
+
+const answered = (text: unknown) => typeof text === "string" && text.trim() !== "";
+
+/**
+ * What of `guest` (a guest store, as storedGuestState reads it) is work
+ * worth offering: progress in its course, a Comp Card filled in, or
+ * badges. Null when there is none.
+ */
+export function guestWorkOf(guest: DemoState): GuestWork | null {
+  const course = guest.course;
+  const inCourse = !!course.courseSlug && hasCourseProgress(course);
+  const card = guest.compCard;
+  const compCard = !!card.updatedAt && COMP_CARD_FIELDS.some((f) => answered(card[f]));
+  if (!inCourse && !compCard && !(guest.badges ?? []).length) return null;
+  const reflections = inCourse
+    ? [course.reflection.p1, course.reflection.p2, course.reflection.p3].filter(answered).length +
+      Object.values(course.responses).filter(
+        (a) => a?.type === "reflection" && Object.values(a.text).some(answered)
+      ).length
+    : 0;
+  return {
+    courses: inCourse ? [course.courseTitle ?? course.courseSlug!] : [],
+    compCard,
+    reflections,
+    badges: (guest.badges ?? []).length,
+  };
+}
+
+/**
+ * What a Comp Card save sends (D80): the confidence and every text field
+ * within COMP_CARD_TEXT_MAX. A longer one is held back — the learner is told
+ * it is too long — and keeps its stored text; the others save. Never who
+ * sees it: that has its own action.
+ */
+export function cardToSave(card: CompCardData): CompCardInput {
+  // The texts first, in the card's order, as the save has always sent them.
+  const input: CompCardInput = {};
+  for (const field of COMP_CARD_FIELDS) {
+    const text = card[field];
+    if (typeof text === "string" && text.length <= COMP_CARD_TEXT_MAX) input[field] = text;
+  }
+  input.confidence = card.confidence;
+  return input;
 }

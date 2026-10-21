@@ -42,8 +42,8 @@
     "country": "Country",
     "organisation": "Organisation",
     "organisationNone": "Not linked to a partner organisation yet.",
-    "termsAccepted": "Terms of use accepted on {date} (version {version}).",
-    "ageConfirmed": "Age rule confirmed on {date}.",
+    "termsAccepted": "{versioned, select, true {Terms of use accepted on {date} (version {version}).} other {Terms of use accepted on {date}.}}",
+    "ageConfirmed": "{rule, select, invited {You confirmed on {date} that you have your parent's or guardian's permission.} other {You confirmed your age on {date}.}}",
     "changeDetails": "You can't change your name or country here. To change them, contact us (see the <privacy>privacy notice</privacy>) or ask your partner organisation to pass the request on.",
     "notes": "Notes that staff write about you are in your data download.",
     "alwaysSee": "Whatever you choose, the facilitators at {organisation} and the DIESIS and SENIC staff who run the platform always see your name and email, your progress, your last activity, the time you spend on each lesson, your quiz and video-question results and the choices you make in exercises.",
@@ -611,18 +611,13 @@
     "fieldBehaviour": "A behaviour I demonstrated",
     "fieldConfidence": "How confident I feel now (1–5)",
     "privacyLabel": "Who can see this Comp Card",
-    "privacyChoice": {
-      "self": "Only me",
-      "facilitator": "Me and my facilitator",
-      "facilitatorAndMentor": "Me, my facilitator and mentor"
-    },
     "downloadPdf": "Download as PDF",
     "printPdf": "Print Comp Card",
     "saved": "Saved",
     "saving": "Saving…",
     "placeholder": {
       "wentWell": "Even small wins count.",
-      "difficult": "Be honest — nothing here goes anywhere you don't want it to.",
+      "difficult": "What was hard, and why?",
       "improve": "One thing.",
       "behaviour": "What did you actually do that you're proud of?"
     },
@@ -648,7 +643,7 @@
       "guardianNeeded": "You can share your Comp Card once {organisation} confirms that your parent's or guardian's permission covers it.",
       "failed": "Your choice didn't save. Please try again."
     },
-    "charsLeft": "{count} characters left",
+    "charsLeft": "{count, plural, one {# character left} other {# characters left}}",
     "tooLong": "This is too long to save. Shorten it to {max} characters."
   },
   "gamification": {
@@ -1366,7 +1361,7 @@
     "whoSees": "Facilitators at {organisation} and the DIESIS and SENIC staff who run the platform will see your name and email, your progress, your last activity, the time you spend on each lesson, your quiz and video-question results and the choices you make in exercises. Your Comp Card stays private unless you share it.",
     "whoSeesNoOrganisation": "The DIESIS and SENIC staff who run the platform will see your name and email, your progress, your last activity, the time you spend on each lesson, your quiz and video-question results and the choices you make in exercises. Once your account is linked to a partner organisation, its facilitators will too. Your Comp Card stays private unless you share it.",
     "setUpBy": "Your account was set up by {organisation}.",
-    "setUpByMismatch": "{organisation} supports learners in another country. If you continue with {country}, DIESIS will check which organisation supports you; until then only DIESIS and SENIC staff see your progress.",
+    "setUpByMismatch": "{organisation} supports learners in another country. If you continue with {country, select, DE {Germany} CY {Cyprus} BE {Belgium} GR {Greece} other {another country}}, DIESIS will check which organisation supports you; until then only DIESIS and SENIC staff see your progress.",
     "age": {
       "self": "I am {minAge} or older.",
       "invited": "{organisation} invited me and has my parent's or guardian's permission.",
@@ -1392,7 +1387,7 @@
   },
   "guestWork": {
     "title": "Work saved on this browser before you signed in",
-    "summary": "{courses}. Comp Card: {compCard, select, true {yes} other {no}}.",
+    "summary": "{n, plural, =0 {No course progress} other {{courses}}}. Comp Card: {compCard, select, true {yes} other {no}}. Badges: {badges}.",
     "add": "Add it to my account",
     "remove": "Remove it from this browser",
     "added": "Added to your account.",

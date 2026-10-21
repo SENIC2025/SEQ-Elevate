@@ -11,7 +11,7 @@
  */
 
 import { cache } from "react";
-import { redirect } from "next/navigation";
+import { redirect, unstable_rethrow } from "next/navigation";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import {
@@ -20,6 +20,8 @@ import {
   isBootstrapAdmin,
 } from "@/lib/admin-bootstrap";
 import { ensureProjectRoles } from "@/lib/role-grants";
+import { isProfileComplete, profileRules } from "@/lib/profile";
+import { profileGateOn } from "@/lib/r3-switches";
 import type { Role } from "@prisma/client";
 
 /** The authenticated user record, or null. Cached per request. */
@@ -94,4 +96,43 @@ export async function requireRole(
   const ok = await hasRole(projectId, role);
   if (!ok) redirect(`/${locale}`);
   return user;
+}
+
+/**
+ * Release 3 (D78, spec 5.3): the profile step's gate. A signed-in person
+ * whose profile isn't complete (for the rules in force: a new Terms
+ * version counts) goes to /welcome; a guest or a complete profile passes.
+ * A profile that can't be read goes to /welcome too: it fails towards the
+ * profile step, never through it (the step itself shows an error then,
+ * so there is no loop).
+ *
+ * Called in exactly six places, all server code: the hub, and the learner,
+ * facilitator, analytics, admin and content layouts. Never in the proxy or
+ * the locale layout, and so never on /welcome, /legal, /account, /help, the
+ * sign-in pages or /api/**: someone who won't accept the Terms can still
+ * sign out, download their data and delete their account. It decides where
+ * a page load goes, nothing more; every action and data read keeps its own
+ * checks (scope.ts gives staff without a complete profile no one).
+ *
+ * R3_PROFILE_GATE=off switches it off (spec 15).
+ */
+const PROFILE_PROJECT = "seq-elevate";
+
+export async function requireCompleteProfile(locale: string): Promise<void> {
+  if (!profileGateOn()) return;
+  let complete = false;
+  try {
+    const user = await getCurrentUser();
+    if (!user) return;
+    const profile = await prisma.projectProfile.findUnique({
+      where: { userId_projectId: { userId: user.id, projectId: PROFILE_PROJECT } },
+      select: { country: true, termsVersion: true, ageConfirmedAt: true, consentAt: true },
+    });
+    complete = isProfileComplete(user, profile, profileRules());
+  } catch (e) {
+    // Next's own signals (render per request) go through.
+    unstable_rethrow(e);
+    console.error(`[profile] couldn't read the profile; sent to the profile step: ${e instanceof Error ? e.name : "error"}`);
+  }
+  if (!complete) redirect(`/${locale}/welcome`);
 }

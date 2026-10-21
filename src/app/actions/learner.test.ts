@@ -70,14 +70,52 @@ const prisma = {
     typeof arg === "function" ? arg(prisma) : Promise.all(arg as unknown[])
   ),
 };
+/** The signed-in person's profile, as ownProfile reads it (complete by default). */
+const projectProfile = { findUnique: vi.fn() };
+/** The Comp Card, read and written like the table: upserts merge into it. */
+let storedCard: Record<string, unknown> | null = null;
+const compCard = {
+  findUnique: vi.fn(async () => (storedCard ? { ...storedCard } : null)),
+  upsert: vi.fn(async ({ create, update }: { create: Record<string, unknown>; update: Record<string, unknown> }) => {
+    storedCard = storedCard ? { ...storedCard, ...update } : { id: "card-1", privacy: "SELF", ...create };
+    return { ...storedCard };
+  }),
+};
+const auditLog = { create: vi.fn(async () => ({})) };
+Object.assign(prisma, { projectProfile, compCard, auditLog });
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/prisma", () => ({ prisma }));
 vi.mock("@/lib/cms", () => ({ getCourse: vi.fn() }));
 
-const { ensureLearnerMembership, awardBadgeAction, saveCourseProgress, saveCourseProgressPatch, loadLearnerGlobal } =
-  await import("./learner");
+const {
+  ensureLearnerMembership,
+  awardBadgeAction,
+  saveCourseProgress,
+  saveCourseProgressPatch,
+  loadLearnerGlobal,
+  saveCompCard,
+  setCompCardSharing,
+} = await import("./learner");
+const { currentTermsVersion } = await import("@/lib/profile");
+const { SHARING_TEXT_VERSION } = await import("@/lib/comp-card-visibility");
 
-const USER = { id: "u1", email: "person@example.org" };
+const USER = { id: "u1", email: "person@example.org", name: "Ana" };
+
+/** A profile the profile step left complete, in organisation org-a. */
+const completeProfile = (over: Record<string, unknown> = {}) => ({
+  country: "DE",
+  termsVersion: currentTermsVersion(),
+  ageConfirmedAt: new Date("2026-11-20T10:00:00Z"),
+  consentAt: null,
+  organisationId: "org-a",
+  ageRule: "SELF_MIN_AGE",
+  guardianSharingConsentAt: null,
+  organisation: { name: "Org A" },
+  ...over,
+});
+beforeEach(() => {
+  projectProfile.findUnique.mockResolvedValue(completeProfile());
+});
 const roles = (...r: string[]) =>
   r.map((role) => ({ role, projectId: "seq-elevate" }));
 
@@ -697,5 +735,251 @@ describe("loadLearnerGlobal", () => {
       { slug: "rating-only", stagesCompleted: 0, completed: false, hasProgress: true },
       { slug: "nothing", stagesCompleted: 0, completed: false, hasProgress: false },
     ]);
+  });
+});
+
+/* ------------------------------------------------- Release 3 (D79, D80) --- */
+
+describe("the learner's place waits for the profile step (D79)", () => {
+  beforeEach(() => {
+    getCurrentUser.mockResolvedValue(USER);
+    getProjectMemberships.mockResolvedValue([]);
+    isBootstrapAdmin.mockReturnValue(false);
+    membership.upsert.mockResolvedValue({});
+  });
+  afterEach(() => vi.clearAllMocks());
+
+  it.each([
+    ["no profile at all", null, USER],
+    ["no country", completeProfile({ country: null }), USER],
+    ["Terms of an older version", completeProfile({ termsVersion: "1999-01-01" }), USER],
+    ["no age rule confirmed", completeProfile({ ageConfirmedAt: null }), USER],
+    ["a blank name", completeProfile(), { ...USER, name: "  " }],
+  ])("ensureLearnerMembership grants nothing and answers profile-incomplete, without throwing, for %s", async (_, profile, user) => {
+    getCurrentUser.mockResolvedValue(user);
+    projectProfile.findUnique.mockResolvedValue(profile);
+    await expect(ensureLearnerMembership()).resolves.toBe("profile-incomplete");
+    expect(wroteMembership()).toBe(false);
+  });
+
+  it("ensureLearnerMembership grants LEARNER once the profile is complete", async () => {
+    await expect(ensureLearnerMembership()).resolves.toBe(true);
+    expect(membership.upsert.mock.calls.map((c) => c[0].create)).toEqual([
+      { userId: "u1", projectId: "seq-elevate", role: "LEARNER" },
+    ]);
+  });
+
+  it("reads the signed-in person's own profile, nobody else's", async () => {
+    await ensureLearnerMembership();
+    expect(projectProfile.findUnique.mock.calls[0][0].where).toEqual({
+      userId_projectId: { userId: "u1", projectId: "seq-elevate" },
+    });
+  });
+
+  it("loadLearnerGlobal refuses (throws) an incomplete profile, before reading anything of the learner's", async () => {
+    projectProfile.findUnique.mockResolvedValue(completeProfile({ termsVersion: null }));
+    Object.assign(prisma, { compCard });
+    await expect(loadLearnerGlobal()).rejects.toThrow();
+    expect(compCard.findUnique).not.toHaveBeenCalled();
+    expect(courseEnrollment.findMany).not.toHaveBeenCalled();
+  });
+});
+
+describe("loadLearnerGlobal's Comp Card says whether it is shared (D80)", () => {
+  beforeEach(() => {
+    getCurrentUser.mockResolvedValue(USER);
+    Object.assign(prisma, { compCard });
+    userBadge.findMany.mockResolvedValue([]);
+    courseEnrollment.findMany.mockResolvedValue([]);
+  });
+  afterEach(() => {
+    storedCard = null;
+    vi.clearAllMocks();
+  });
+
+  const card = (over: Record<string, unknown>) => ({
+    id: "card-1",
+    wentWell: "Went well",
+    difficult: "",
+    improve: "",
+    behaviour: "",
+    confidence: 4,
+    privacy: "SELF",
+    sharedAt: null,
+    sharedWithOrganisationId: null,
+    updatedAt: new Date("2026-11-21T09:00:00Z"),
+    ...over,
+  });
+
+  it("shared with the learner's organisation: facilitators, since when and with whom, and 'facilitator' for older pages", async () => {
+    storedCard = card({ privacy: "FACILITATOR", sharedAt: new Date("2026-11-21T08:00:00Z"), sharedWithOrganisationId: "org-a" });
+    const { compCard: loaded } = await loadLearnerGlobal();
+    expect(loaded).toMatchObject({
+      sharing: "facilitators",
+      sharedAt: "2026-11-21T08:00:00.000Z",
+      organisationName: "Org A",
+      privacy: "facilitator",
+    });
+  });
+
+  it.each([
+    ["privacy written by an older page, never shared", { privacy: "FACILITATOR" }],
+    ["the mentor value", { privacy: "FACILITATOR_AND_MENTOR" }],
+    ["shared with an organisation the learner has left", { privacy: "FACILITATOR", sharedAt: new Date(), sharedWithOrganisationId: "org-b" }],
+  ])("%s reads as Only me", async (_, over) => {
+    storedCard = card(over);
+    const { compCard: loaded } = await loadLearnerGlobal();
+    expect(loaded).toMatchObject({ sharing: "onlyMe", sharedAt: null, organisationName: null, privacy: "self" });
+  });
+});
+
+describe("saveCompCard (D80, spec 4.3)", () => {
+  beforeEach(() => {
+    getCurrentUser.mockResolvedValue(USER);
+    Object.assign(prisma, { compCard });
+  });
+  afterEach(() => {
+    storedCard = null;
+    vi.clearAllMocks();
+  });
+
+  const written = () => compCard.upsert.mock.calls.map((c) => ({ create: c[0].create, update: c[0].update }));
+
+  it("ignores privacy: a page from before Release 3 sends 'facilitator', and nothing about sharing is written", async () => {
+    storedCard = { id: "card-1", wentWell: "", difficult: "", improve: "", behaviour: "", privacy: "SELF" };
+    const answer = await saveCompCard(
+      { wentWell: "a", difficult: "b", improve: "c", behaviour: "d", confidence: 4, privacy: "facilitator" },
+      "u1"
+    );
+    expect(answer).toEqual({ ok: true });
+    const [{ create, update }] = written();
+    for (const data of [create, update]) {
+      expect(Object.keys(data)).not.toEqual(expect.arrayContaining(["privacy"]));
+      expect(data).not.toHaveProperty("privacy");
+      expect(data).not.toHaveProperty("sharedAt");
+      expect(data).not.toHaveProperty("sharedWithOrganisationId");
+    }
+    expect(storedCard?.privacy).toBe("SELF");
+  });
+
+  it("writes only the fields sent: one left out keeps its stored text", async () => {
+    storedCard = { id: "card-1", wentWell: "kept", difficult: "kept too", improve: "", behaviour: "", privacy: "SELF" };
+    await saveCompCard({ improve: "new", confidence: 2 }, "u1");
+    expect(written()[0].update).toEqual({ improve: "new", confidence: 2 });
+    expect(storedCard).toMatchObject({ wentWell: "kept", difficult: "kept too", improve: "new", confidence: 2 });
+  });
+
+  it("refuses a text over 2,000 characters as an answer, naming the field, and writes nothing", async () => {
+    const answer = await saveCompCard({ wentWell: "ok", difficult: "x".repeat(2001) }, "u1");
+    expect(answer).toEqual({ ok: false, error: "too-long", field: "difficult" });
+    expect(compCard.upsert).not.toHaveBeenCalled();
+  });
+
+  it("saves an older text already longer than 2,000 characters unchanged (growth only)", async () => {
+    const long = "y".repeat(2400);
+    storedCard = { id: "card-1", wentWell: long, difficult: "", improve: "", behaviour: "", privacy: "SELF" };
+    await expect(saveCompCard({ wentWell: long, improve: "z" }, "u1")).resolves.toEqual({ ok: true });
+    await expect(saveCompCard({ wentWell: `${long}!` }, "u1")).resolves.toEqual({
+      ok: false,
+      error: "too-long",
+      field: "wentWell",
+    });
+  });
+
+  it.each([[0], [6], [2.5], ["4"]])("refuses the confidence %j as an answer", async (confidence) => {
+    await expect(saveCompCard({ wentWell: "a", confidence: confidence as number }, "u1")).resolves.toEqual({
+      ok: false,
+      error: "bad-input",
+    });
+    expect(compCard.upsert).not.toHaveBeenCalled();
+  });
+
+  it("answers a save meant for another account, without touching the card", async () => {
+    await expect(saveCompCard({ wentWell: "a" }, "someone-else")).resolves.toEqual({ ok: false, error: "other-account" });
+    expect(compCard.findUnique).not.toHaveBeenCalled();
+    expect(compCard.upsert).not.toHaveBeenCalled();
+  });
+
+  it("a new card starts as the schema makes it: Only me", async () => {
+    await saveCompCard({ wentWell: "first" }, "u1");
+    expect(written()[0].create).toEqual({ userId: "u1", projectId: "seq-elevate", wentWell: "first" });
+  });
+});
+
+describe("setCompCardSharing (D80, spec 4.3)", () => {
+  beforeEach(() => {
+    getCurrentUser.mockResolvedValue(USER);
+    Object.assign(prisma, { compCard });
+  });
+  afterEach(() => {
+    storedCard = null;
+    vi.clearAllMocks();
+  });
+
+  it("shares with the learner's own organisation, recording when and under which wording, and logs it by the card's id", async () => {
+    const answer = await setCompCardSharing("facilitators", "u1");
+    expect(answer).toMatchObject({ ok: true, sharing: "facilitators", organisationName: "Org A" });
+    expect(storedCard).toMatchObject({
+      privacy: "FACILITATOR",
+      sharedWithOrganisationId: "org-a",
+      sharingVersion: SHARING_TEXT_VERSION,
+    });
+    expect(storedCard?.sharedAt).toBeInstanceOf(Date);
+    expect(auditLog.create).toHaveBeenCalledTimes(1);
+    const { data } = (auditLog.create.mock.calls[0] as unknown as [{ data: Record<string, unknown> }])[0];
+    expect(data).toEqual({
+      projectId: "seq-elevate",
+      action: "compcard.sharing_changed",
+      entity: "CompCard",
+      entityId: "card-1",
+      metadata: { to: "facilitators", version: SHARING_TEXT_VERSION },
+    });
+    expect(data).not.toHaveProperty("actorId");
+  });
+
+  it("Only me takes it back at once, whatever the profile says", async () => {
+    storedCard = { id: "card-1", privacy: "FACILITATOR", sharedAt: new Date(), sharedWithOrganisationId: "org-a" };
+    projectProfile.findUnique.mockResolvedValue(completeProfile({ organisationId: null, termsVersion: null }));
+    await expect(setCompCardSharing("onlyMe", "u1")).resolves.toEqual({
+      ok: true,
+      sharing: "onlyMe",
+      sharedAt: null,
+      organisationName: null,
+    });
+    expect(storedCard).toMatchObject({ privacy: "SELF", sharedAt: null, sharedWithOrganisationId: null });
+  });
+
+  it.each([
+    ["profile-incomplete", completeProfile({ termsVersion: "1999-01-01" })],
+    ["profile-incomplete", null],
+    ["no-organisation", completeProfile({ organisationId: null, organisation: null })],
+    ["guardian-consent-needed", completeProfile({ ageRule: "INVITED_WITH_GUARDIAN_CONSENT", guardianSharingConsentAt: null })],
+  ])("refuses to share with %s, writing nothing", async (error, profile) => {
+    projectProfile.findUnique.mockResolvedValue(profile);
+    await expect(setCompCardSharing("facilitators", "u1")).resolves.toEqual({ ok: false, error });
+    expect(compCard.upsert).not.toHaveBeenCalled();
+    expect(auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it("an invited learner shares once the guardian's permission covers it", async () => {
+    projectProfile.findUnique.mockResolvedValue(
+      completeProfile({ ageRule: "INVITED_WITH_GUARDIAN_CONSENT", guardianSharingConsentAt: new Date() })
+    );
+    await expect(setCompCardSharing("facilitators", "u1")).resolves.toMatchObject({ ok: true, sharing: "facilitators" });
+  });
+
+  it.each([["everyone"], [""], [null]])("refuses the choice %j", async (choice) => {
+    await expect(setCompCardSharing(choice as never, "u1")).resolves.toEqual({ ok: false, error: "bad-input" });
+    expect(compCard.upsert).not.toHaveBeenCalled();
+  });
+
+  it("refuses a change meant for another account", async () => {
+    await expect(setCompCardSharing("facilitators", "someone-else")).resolves.toEqual({ ok: false, error: "other-account" });
+    expect(compCard.upsert).not.toHaveBeenCalled();
+  });
+
+  it("fails when no one is signed in", async () => {
+    getCurrentUser.mockResolvedValue(null);
+    await expect(setCompCardSharing("onlyMe", "u1")).rejects.toThrow();
   });
 });

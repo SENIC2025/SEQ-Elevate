@@ -342,10 +342,14 @@ export function courseAfterMigration(
  * `local` is the card in the store, which started as `blank`. If the
  * learner filled it in while the saved card loaded (updatedAt set), what
  * they entered is newer and wins, field by field: a text with more than
- * whitespace in it, a confidence or privacy changed from the blank card's.
- * A field they didn't touch keeps the saved value — they never saw it, so
- * leaving it isn't clearing it. updatedAt stays set, so the store's
- * write-through saves the merged card. Nothing entered: the saved card.
+ * whitespace in it, a confidence changed from the blank card's. A field
+ * they didn't touch keeps the saved value — they never saw it, so leaving
+ * it isn't clearing it. updatedAt stays set, so the store's write-through
+ * saves the merged card. Nothing entered: the saved card.
+ *
+ * Who sees the card is always the saved card's (D80): it changes only
+ * through its own action (setCompCardSharing), never as an edit, and a
+ * server that doesn't say (one from before Release 3) shares nothing.
  */
 export function mergeCompCardOnHydrate(
   local: CompCardData,
@@ -353,7 +357,12 @@ export function mergeCompCardOnHydrate(
   blank: CompCardData
 ): CompCardData {
   if (!saved) return local;
-  if (!local.updatedAt) return saved;
+  const sharing = {
+    sharing: saved.sharing === "facilitators" ? ("facilitators" as const) : ("onlyMe" as const),
+    sharedAt: saved.sharing === "facilitators" ? (saved.sharedAt ?? null) : null,
+    organisationName: saved.sharing === "facilitators" ? (saved.organisationName ?? null) : null,
+  };
+  if (!local.updatedAt) return { ...saved, ...sharing };
   const text = (l: string, s: string) => (answered(l) ? l : s);
   return {
     wentWell: text(local.wentWell, saved.wentWell),
@@ -362,7 +371,7 @@ export function mergeCompCardOnHydrate(
     behaviour: text(local.behaviour, saved.behaviour),
     confidence:
       local.confidence !== blank.confidence ? local.confidence : saved.confidence,
-    privacy: local.privacy !== blank.privacy ? local.privacy : saved.privacy,
+    ...sharing,
     updatedAt: local.updatedAt,
   };
 }
@@ -412,6 +421,10 @@ export function guestStateAfterHydrate(
  * reads them, leaving out what can't be (parse.ts). The server's refusals
  * aren't read back: they belong to the page that got them. Anything that
  * isn't a stored copy at all is the empty store.
+ *
+ * A guest's Comp Card is "Only me" (D80), whatever an older page stored
+ * (its privacy choice, the mentor one included, is dropped): a guest can't
+ * share, and their card moves into an account as "Only me".
  */
 export function storedGuestState(raw: unknown, blank: DemoState): DemoState {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return blank;
@@ -428,7 +441,18 @@ export function storedGuestState(raw: unknown, blank: DemoState): DemoState {
       sectionsCompleted: readIds(course.sectionsCompleted),
       responses: readItemAnswers(course.responses),
     },
-    compCard: { ...blank.compCard, ...stored.compCard },
+    compCard: guestCard(stored.compCard, blank.compCard),
     refusedKeys: blank.refusedKeys,
   };
+}
+
+/** A stored guest's Comp Card: its texts and confidence, "Only me". */
+function guestCard(stored: unknown, blank: CompCardData): CompCardData {
+  const card = stored && typeof stored === "object" && !Array.isArray(stored) ? (stored as Record<string, unknown>) : {};
+  const { privacy: _privacy, sharing: _sharing, sharedAt: _sharedAt, organisationName: _organisation, ...rest } = card;
+  void _privacy;
+  void _sharing;
+  void _sharedAt;
+  void _organisation;
+  return { ...blank, ...(rest as Partial<CompCardData>), sharing: "onlyMe", sharedAt: null, organisationName: null };
 }

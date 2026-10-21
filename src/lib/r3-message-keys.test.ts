@@ -84,7 +84,8 @@ const SPEC_ENGLISH: Record<string, string> = {
   "compCard.sharing.noOrganisation": "You can share once your account is linked to a partner organisation.",
   "compCard.sharing.guardianNeeded": "You can share your Comp Card once {organisation} confirms that your parent's or guardian's permission covers it.",
   "compCard.sharing.failed": "Your choice didn't save. Please try again.",
-  "compCard.charsLeft": "{count} characters left",
+  // A count that reads right for one (Stream B's contract commit).
+  "compCard.charsLeft": "{count, plural, one {# character left} other {# characters left}}",
   "compCard.tooLong": "This is too long to save. Shorten it to {max} characters.",
   "roles.partnerAdmin": "Partner admin",
   "roles.partnerAdminDesc": "Manages the people of one partner organisation, supports its learners, and edits and translates courses.",
@@ -110,7 +111,9 @@ const SPEC_ENGLISH: Record<string, string> = {
   "profile.whoSees": "Facilitators at {organisation} and the DIESIS and SENIC staff who run the platform will see your name and email, your progress, your last activity, the time you spend on each lesson, your quiz and video-question results and the choices you make in exercises. Your Comp Card stays private unless you share it.",
   "profile.whoSeesNoOrganisation": "The DIESIS and SENIC staff who run the platform will see your name and email, your progress, your last activity, the time you spend on each lesson, your quiz and video-question results and the choices you make in exercises. Once your account is linked to a partner organisation, its facilitators will too. Your Comp Card stays private unless you share it.",
   "profile.setUpBy": "Your account was set up by {organisation}.",
-  "profile.setUpByMismatch": "{organisation} supports learners in another country. If you continue with {country}, DIESIS will check which organisation supports you; until then only DIESIS and SENIC staff see your progress.",
+  // The country is named by its code (DE, CY, BE, GR, OTHER), each in the
+  // words the sentence needs in every language (a select, not a name put in).
+  "profile.setUpByMismatch": "{organisation} supports learners in another country. If you continue with {country, select, DE {Germany} CY {Cyprus} BE {Belgium} GR {Greece} other {another country}}, DIESIS will check which organisation supports you; until then only DIESIS and SENIC staff see your progress.",
   "profile.age.self": "I am {minAge} or older.",
   "profile.age.invited": "{organisation} invited me and has my parent's or guardian's permission.",
   "profile.age.required": "You can continue only if this is true.",
@@ -124,7 +127,10 @@ const SPEC_ENGLISH: Record<string, string> = {
   "profile.failed": "That didn't save. Please try again.",
   "profile.notSaving": "Finish your profile to save your progress. <welcome>Finish it now</welcome>",
   "guestWork.title": "Work saved on this browser before you signed in",
-  "guestWork.summary": "{courses}. Comp Card: {compCard, select, true {yes} other {no}}.",
+  // `n`: how many courses there are; a Comp Card alone (or badges) is work
+  // too, and `badges` counts them, so a store of badges alone says what it
+  // would add (Stream B's contract commit).
+  "guestWork.summary": "{n, plural, =0 {No course progress} other {{courses}}}. Comp Card: {compCard, select, true {yes} other {no}}. Badges: {badges}.",
   "guestWork.add": "Add it to my account",
   "guestWork.remove": "Remove it from this browser",
   "guestWork.added": "Added to your account.",
@@ -133,8 +139,10 @@ const SPEC_ENGLISH: Record<string, string> = {
   "guestWork.clearConfirm": "This removes your progress, answers and Comp Card from this browser. It can't be undone.",
   "account.country": "Country",
   "account.organisation": "Organisation",
-  "account.termsAccepted": "Terms of use accepted on {date} (version {version}).",
-  "account.ageConfirmed": "Age rule confirmed on {date}.",
+  // The version only where the Terms carried one; the statement confirmed
+  // in a learner's words, the invited one included (Stream B's contract commit).
+  "account.termsAccepted": "{versioned, select, true {Terms of use accepted on {date} (version {version}).} other {Terms of use accepted on {date}.}}",
+  "account.ageConfirmed": "{rule, select, invited {You confirmed on {date} that you have your parent's or guardian's permission.} other {You confirmed your age on {date}.}}",
   "account.notes": "Notes that staff write about you are in your data download.",
   "account.dataBody": "Download a copy of the data SEQ Elevate holds about you: your account, progress, answers, Comp Card, badges, activity records and the notes staff wrote about you.",
   "account.dangerBody": "Deleting your account removes your account, progress, answers, Comp Card and badges for good. A record that an account was deleted is kept, without your name or email. Backup copies are deleted on their normal schedule.",
@@ -218,6 +226,20 @@ describe("Release 3's message keys", () => {
     expect(at(en, "facilitator.compCardSubmissions")).toBe("Comp Cards shared with you");
     for (const messages of [en, de, el]) {
       expect(JSON.stringify(at(messages, "compCard.sharing"))).not.toMatch(/mentor/i);
+    }
+  });
+
+  it("name the country of setUpByMismatch by a select on its code, in every language", () => {
+    for (const messages of [en, de, el]) {
+      const text = at(messages, "profile.setUpByMismatch") as string;
+      expect(text).toMatch(/\{country, select, DE \{[^}]+\} CY \{[^}]+\} BE \{[^}]+\} GR \{[^}]+\} other \{[^}]+\}\}/);
+    }
+  });
+
+  it("no longer offer the old privacy choices, the mentor's among them (spec 4.6)", () => {
+    for (const messages of [en, de, el]) {
+      expect(at(messages, "compCard.privacyChoice")).toBeUndefined();
+      expect(at(messages, "compCard.privacyLabel")).toEqual(expect.any(String));
     }
   });
 

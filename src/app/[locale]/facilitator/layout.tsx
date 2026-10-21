@@ -1,5 +1,6 @@
 import { setRequestLocale } from "next-intl/server";
 import { AppHeader } from "@/components/AppHeader";
+import { requireCompleteProfile } from "@/lib/auth-helpers";
 
 export default async function FacilitatorLayout({
   children,
@@ -10,6 +11,8 @@ export default async function FacilitatorLayout({
 }) {
   const { locale } = await params;
   setRequestLocale(locale);
+  // Release 3 (spec 5.3): someone signed in does the profile step first.
+  await requireCompleteProfile(locale);
   return (
     <div className="flex-1 flex flex-col">
       <AppHeader />

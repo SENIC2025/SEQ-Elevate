@@ -17,9 +17,12 @@ import type { Workspace } from "@/lib/workspaces";
 export async function WorkspaceHub({
   workspaces,
   name,
+  notice,
 }: {
   workspaces: Workspace[];
   name: string;
+  /** Shown at the top of the page (the guest-work prompt, Release 3). */
+  notice?: React.ReactNode;
 }) {
   const t = await getTranslations("hub");
 
@@ -27,6 +30,7 @@ export async function WorkspaceHub({
     <div className="flex-1 flex flex-col">
       <AppHeader />
       <main id="main-content" tabIndex={-1} className="flex-1 outline-none">
+        {notice}
         <div className="mx-auto max-w-6xl px-4 py-12 sm:py-16">
           <h1 className="text-3xl sm:text-4xl font-bold tracking-tight">
             {t("title")}

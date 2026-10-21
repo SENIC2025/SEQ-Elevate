@@ -16,7 +16,8 @@ import {
   FileText,
   Loader2,
 } from "lucide-react";
-import type { Role } from "@prisma/client";
+import { Link } from "@/i18n/navigation";
+import type { AgeRule, Country, Role } from "@prisma/client";
 
 const ROLE_KEY: Record<Role, string> = {
   LEARNER: "learner",
@@ -26,6 +27,27 @@ const ROLE_KEY: Record<Role, string> = {
   PARTNER_ADMIN: "partnerAdmin",
 };
 
+/** What the profile step recorded (Release 3, spec 5.7). */
+export interface AccountProfile {
+  country: Country | null;
+  organisationName: string | null;
+  /** The version of the Terms accepted; null while the Terms carried none. */
+  termsVersion: string | null;
+  termsAcceptedAt: string | null;
+  /** Which statement was confirmed: the age, or an inviter's guardian permission. */
+  ageRule: AgeRule | null;
+  ageConfirmedAt: string | null;
+}
+
+const NO_PROFILE: AccountProfile = {
+  country: null,
+  organisationName: null,
+  termsVersion: null,
+  termsAcceptedAt: null,
+  ageRule: null,
+  ageConfirmedAt: null,
+};
+
 export function AccountView({
   email,
   name,
@@ -33,6 +55,7 @@ export function AccountView({
   roles,
   projectName,
   stats,
+  profile = NO_PROFILE,
 }: {
   email: string;
   name: string | null;
@@ -40,10 +63,14 @@ export function AccountView({
   roles: Role[];
   projectName: string;
   stats: { courses: number; badges: number; compCardStarted: boolean };
+  profile?: AccountProfile;
 }) {
   const t = useTranslations("account");
   const tRoles = useTranslations("roles");
+  const tProfile = useTranslations("profile");
   const locale = useLocale();
+  const dateOf = (iso: string) =>
+    new Date(iso).toLocaleDateString(locale, { year: "numeric", month: "long", day: "numeric" });
 
   const [confirmOpen, setConfirmOpen] = React.useState(false);
   const [confirmText, setConfirmText] = React.useState("");
@@ -79,6 +106,9 @@ export function AccountView({
   }
 
   const uniqueRoles = Array.from(new Set(roles));
+  // Staff aren't on rosters (D53): what facilitators always see of a
+  // learner isn't said to them, as on the profile step (spec 5.4).
+  const staff = roles.some((r) => r !== "LEARNER");
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-8 space-y-6">
@@ -118,6 +148,55 @@ export function AccountView({
             </div>
           </div>
 
+          {/* What the profile step recorded (spec 5.7). */}
+          <dl className="mt-5 grid gap-3 text-sm sm:grid-cols-2">
+            <div>
+              <dt className="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
+                {t("country")}
+              </dt>
+              <dd className="mt-0.5">{profile.country ? tProfile(`country.${profile.country}`) : "—"}</dd>
+            </div>
+            <div>
+              <dt className="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
+                {t("organisation")}
+              </dt>
+              <dd className="mt-0.5">{profile.organisationName ?? t("organisationNone")}</dd>
+            </div>
+          </dl>
+          {profile.termsAcceptedAt ? (
+            <p className="mt-3 text-sm">
+              {t("termsAccepted", {
+                date: dateOf(profile.termsAcceptedAt),
+                versioned: profile.termsVersion ? "true" : "false",
+                version: profile.termsVersion ?? "",
+              })}
+            </p>
+          ) : null}
+          {profile.ageConfirmedAt ? (
+            <p className="mt-1 text-sm">
+              {t("ageConfirmed", {
+                date: dateOf(profile.ageConfirmedAt),
+                rule: profile.ageRule === "INVITED_WITH_GUARDIAN_CONSENT" ? "invited" : "self",
+              })}
+            </p>
+          ) : null}
+          <p className="mt-3 text-sm text-[var(--muted-foreground)]">
+            {t.rich("changeDetails", {
+              privacy: (chunks) => (
+                <Link href="/legal/privacy" className="underline hover:text-[var(--foreground)]">
+                  {chunks}
+                </Link>
+              ),
+            })}
+          </p>
+          {!staff ? (
+            <p className="mt-3 text-sm text-[var(--muted-foreground)]">
+              {profile.organisationName
+                ? t("alwaysSee", { organisation: profile.organisationName })
+                : t("alwaysSeeNoOrganisation")}
+            </p>
+          ) : null}
+
           <div className="mt-5 grid grid-cols-3 gap-3 text-center">
             <Stat icon={BookOpen} value={stats.courses} label={t("statCourses")} />
             <Stat icon={Award} value={stats.badges} label={t("statBadges")} />
@@ -153,6 +232,7 @@ export function AccountView({
           <p className="text-sm text-[var(--muted-foreground)]">
             {t("dataBody")}
           </p>
+          <p className="mt-2 text-sm text-[var(--muted-foreground)]">{t("notes")}</p>
           <Button
             variant="outline"
             size="sm"

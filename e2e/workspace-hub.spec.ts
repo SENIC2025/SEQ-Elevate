@@ -3,6 +3,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { PrismaClient, type Role } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { createPerson } from "./fixtures/people";
+import { completeProfileStep } from "./fixtures/profile-step";
 
 /**
  * "Your workspaces" (D26): after sign-in, staff land on a hub of the
@@ -36,8 +37,8 @@ const EMAILS = [STAFF, EDITOR, LEARNER, BOOTSTRAP];
 const TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
 
 /** Create a user holding `roles` (complete profile), plus a live session; returns its token. */
-async function signedInUser(email: string, roles: Role[]) {
-  const { userId, sessionToken } = await createPerson(prisma, { email, roles });
+async function signedInUser(email: string, roles: Role[], profile: "complete" | "none" = "complete") {
+  const { userId, sessionToken } = await createPerson(prisma, { email, roles, profile });
   return { userId, sessionToken };
 }
 
@@ -63,6 +64,10 @@ describe("Workspace hub", () => {
   });
 
   test.afterAll(async () => {
+    // The profile step's audit rows (Release 3) go with the people who made them.
+    await prisma.auditLog.deleteMany({
+      where: { action: { startsWith: "profile." }, actor: { email: { in: EMAILS } } },
+    });
     await prisma.user.deleteMany({ where: { email: { in: EMAILS } } });
   });
 
@@ -155,11 +160,14 @@ describe("Workspace hub", () => {
     page,
     context,
   }) => {
-    // Signed in BEFORE being granted anything (the reported bug).
-    const { userId, sessionToken } = await signedInUser(BOOTSTRAP, []);
+    // Signed in BEFORE being granted anything (the reported bug), as a new
+    // account: Release 3 (spec 5.4) sends it to the profile step first.
+    const { userId, sessionToken } = await signedInUser(BOOTSTRAP, [], "none");
     await useSession(context, sessionToken);
 
     await page.goto("/en");
+    await completeProfileStep(page, { name: "E2E bootstrap admin" });
+    await expect(page).toHaveURL(/\/en$/);
     await expect(page.getByRole("link", { name: "Create courses" }).first()).toBeVisible();
 
     const roles = (

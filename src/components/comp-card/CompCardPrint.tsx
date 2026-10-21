@@ -163,7 +163,9 @@ export function CompCardPrint({
           <div>
             <p style={tinyLabel}>{t("privacyLabel")}</p>
             <p style={{ ...fieldVal, fontSize: "12px" }}>
-              {t(`privacyChoice.${compCard.privacy}`)}
+              {compCard.sharing === "facilitators" && compCard.organisationName
+                ? t("sharing.facilitators", { organisation: compCard.organisationName })
+                : t("sharing.onlyMe")}
             </p>
           </div>
         </div>
