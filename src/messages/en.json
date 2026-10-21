@@ -611,11 +611,6 @@
     "fieldBehaviour": "A behaviour I demonstrated",
     "fieldConfidence": "How confident I feel now (1–5)",
     "privacyLabel": "Who can see this Comp Card",
-    "privacyChoice": {
-      "self": "Only me",
-      "facilitator": "Me and my facilitator",
-      "facilitatorAndMentor": "Me, my facilitator and mentor"
-    },
     "downloadPdf": "Download as PDF",
     "printPdf": "Print Comp Card",
     "saved": "Saved",

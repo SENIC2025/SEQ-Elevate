@@ -218,6 +218,13 @@ describe("Release 3's message keys", () => {
     }
   });
 
+  it("no longer offer the old privacy choices, the mentor's among them (spec 4.6)", () => {
+    for (const messages of [en, de, el]) {
+      expect(at(messages, "compCard.privacyChoice")).toBeUndefined();
+      expect(at(messages, "compCard.privacyLabel")).toEqual(expect.any(String));
+    }
+  });
+
   it("no longer name a field as redacted: a facilitator sees only what was shared (spec 4.5)", () => {
     for (const messages of [en, de, el]) {
       expect(at(messages, "facilitator.redacted")).toBeUndefined();

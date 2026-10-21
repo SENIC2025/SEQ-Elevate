@@ -611,11 +611,6 @@
     "fieldBehaviour": "Μια συμπεριφορά που έδειξα",
     "fieldConfidence": "Πόσο σίγουρη/ος νιώθω τώρα (1–5)",
     "privacyLabel": "Ποιος μπορεί να δει αυτή την Comp Card",
-    "privacyChoice": {
-      "self": "Μόνο εγώ",
-      "facilitator": "Εγώ και ο εκπαιδευτής μου",
-      "facilitatorAndMentor": "Εγώ, ο εκπαιδευτής και ο μέντοράς μου"
-    },
     "downloadPdf": "Κατέβασμα ως PDF",
     "printPdf": "Εκτύπωση Comp Card",
     "saved": "Αποθηκεύτηκε",

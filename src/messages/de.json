@@ -611,11 +611,6 @@
     "fieldBehaviour": "Ein Verhalten, das ich gezeigt habe",
     "fieldConfidence": "Wie zuversichtlich ich mich jetzt fühle (1–5)",
     "privacyLabel": "Wer diese Comp Card sehen darf",
-    "privacyChoice": {
-      "self": "Nur ich",
-      "facilitator": "Ich und meine Trainer:in",
-      "facilitatorAndMentor": "Ich, meine Trainer:in und Mentor:in"
-    },
     "downloadPdf": "Als PDF herunterladen",
     "printPdf": "Comp Card drucken",
     "saved": "Gespeichert",
