@@ -47,6 +47,17 @@ const fieldId = (field: ProfileField) => `profile-${field}`;
 const errorId = (field: ProfileField) => `profile-${field}-error`;
 
 /**
+ * The age statement the form asks a person to tick, for the country
+ * picked: the minimum age it names (AGE_RULE may set one per country), or
+ * the invited statement, which names none. A tick holds only for the
+ * statement it was given for, so picking a country with another minimum
+ * age asks again rather than sending a statement never ticked.
+ */
+export function ageStatementOf(view: Pick<ProfileStepView, "invited" | "minAge">, country: Country | null): string {
+  return view.invited ? "invited" : `self-${view.minAge[country ?? "OTHER"]}`;
+}
+
+/**
  * Release 3 (D78, spec 5.4): the profile step's form, in the spec's order:
  * a name (whenever none is stored), the country (first time only), the age
  * statement (first time only), the Terms, the privacy notice (a link, not
@@ -57,13 +68,15 @@ const errorId = (field: ProfileField) => `profile-${field}-error`;
  * What is said about who sees the person's data depends on their profile,
  * never on the country alone: nothing for staff; the organisation the
  * profile already has (a partner admin's, released when the country maps
- * elsewhere: setUpByMismatch says so); otherwise the organisation the
- * picked country maps to.
+ * elsewhere: setUpByMismatch says so, then who sees what without an
+ * organisation); otherwise the organisation the picked country maps to.
  *
- * Errors are listed above the form, each linked to its field, and focus
- * goes to the list; each field is aria-invalid and described by its
- * message. Done, the page is loaded afresh at the hub (a full navigation:
- * the session and the learner store start again).
+ * Errors are listed above the form in an alert named by its heading, each
+ * linked to its field, and focus goes to the list; each field is
+ * aria-invalid and described by its message. The age tick counts only for
+ * the statement shown when it was ticked (ageStatementOf). Done, the page
+ * is loaded afresh at the hub (a full navigation: the session and the
+ * learner store start again).
  */
 export function ProfileStepForm({ view }: { view: ProfileStepView }) {
   const t = useTranslations("profile");
@@ -73,7 +86,8 @@ export function ProfileStepForm({ view }: { view: ProfileStepView }) {
 
   const [name, setName] = React.useState("");
   const [country, setCountry] = React.useState<Country | null>(view.country);
-  const [age, setAge] = React.useState(false);
+  // The age statement ticked (ageStatementOf), or none.
+  const [ageTicked, setAgeTicked] = React.useState<string | null>(null);
   const [terms, setTerms] = React.useState(false);
   const [consent, setConsent] = React.useState(view.consentGiven);
   const [errors, setErrors] = React.useState<Errors>({});
@@ -94,6 +108,8 @@ export function ProfileStepForm({ view }: { view: ProfileStepView }) {
 
   const organisationName = view.organisation?.name ?? tCommon("appName");
   const minAge = view.minAge[country ?? "OTHER"];
+  const ageStatement = ageStatementOf(view, country);
+  const age = ageTicked === ageStatement;
 
   const messageOf = (field: ProfileField, error: ProfileError): string => {
     switch (field) {
@@ -124,7 +140,8 @@ export function ProfileStepForm({ view }: { view: ProfileStepView }) {
     const mapped = country ? view.mapping[country] : undefined;
     if (view.organisation) {
       if (view.organisation.byPartnerAdmin && country && mapped?.id !== view.organisation.id) {
-        return t("setUpByMismatch", { organisation: view.organisation.name, country });
+        // Released until DIESIS checks: what anyone without an organisation is told.
+        return `${t("setUpByMismatch", { organisation: view.organisation.name, country })} ${t("whoSeesNoOrganisation")}`;
       }
       return t("whoSees", { organisation: view.organisation.name });
     }
@@ -182,6 +199,7 @@ export function ProfileStepForm({ view }: { view: ProfileStepView }) {
             <div
               ref={summaryRef}
               tabIndex={-1}
+              role="alert"
               aria-labelledby={`${ids}-errors`}
               className="mt-5 rounded-lg border border-[var(--danger)]/50 bg-[var(--danger)]/5 p-4 outline-none focus:ring-2 focus:ring-[var(--ring)]"
             >
@@ -273,7 +291,7 @@ export function ProfileStepForm({ view }: { view: ProfileStepView }) {
                     id={fieldId("age")}
                     type="checkbox"
                     checked={age}
-                    onChange={(e) => setAge(e.target.checked)}
+                    onChange={(e) => setAgeTicked(e.target.checked ? ageStatement : null)}
                     aria-describedby={describedBy("age", !view.invited && errors.age === "required" && `${ids}-younger`)}
                     {...invalid("age")}
                     className="mt-0.5 h-4 w-4 flex-shrink-0"

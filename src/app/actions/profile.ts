@@ -101,7 +101,13 @@ export async function completeProfile(input: unknown): Promise<CompleteProfileRe
       if (!stored || !person) throw new Error("The profile just made can't be read");
 
       const completed = stored.profileCompletedAt !== null;
-      const parsed = parseProfileInput(input, {
+      // The form shows the consent box only while no consent is stored
+      // (spec 5.4): a call without one leaves a given consent as it is,
+      // neither withdrawn nor asked for again. Only a box unticked on the
+      // form (false) withdraws it.
+      const consentSent = typeof (input as { consent?: unknown } | null)?.consent === "boolean";
+      const keepsConsent = !consentSent && stored.consentAt !== null;
+      const parsed = parseProfileInput(keepsConsent ? { ...(input as object), consent: true } : input, {
         completed,
         nameRequired: !person.name?.trim(),
         termsCurrent: stored.termsVersion === rules.termsVersion,
@@ -125,7 +131,8 @@ export async function completeProfile(input: unknown): Promise<CompleteProfileRe
       } else if (stored.termsVersion !== rules.termsVersion && value.termsAccepted) {
         Object.assign(data, { termsVersion: rules.termsVersion, termsAcceptedAt: now });
       }
-      if (value.consent === true && (stored.consentAt === null || stored.consentVersion !== CONSENT_VERSION)) {
+      // A consent kept stays under the text it was given for.
+      if (value.consent === true && !keepsConsent && (stored.consentAt === null || stored.consentVersion !== CONSENT_VERSION)) {
         Object.assign(data, { consentVersion: CONSENT_VERSION, consentAt: now });
       } else if (value.consent === false && stored.consentAt !== null) {
         // Unticked on the form, which shows a given consent ticked: withdrawn.

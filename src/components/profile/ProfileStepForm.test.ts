@@ -26,7 +26,7 @@ vi.mock("@/i18n/navigation", async () => {
 });
 vi.mock("@/app/actions/profile", () => ({ completeProfile: vi.fn() }));
 
-const { ProfileStepForm } = await import("./ProfileStepForm");
+const { ProfileStepForm, ageStatementOf } = await import("./ProfileStepForm");
 
 const MAPPING: ProfileStepView["mapping"] = {
   DE: { id: "org-a", name: "Pro Arbeit" },
@@ -126,6 +126,18 @@ describe("the profile step's form (UB5)", () => {
     expect(text(render(first({ organisation: partner, country: "DE" })))).not.toContain("supports learners in another country");
   });
 
+  it("after saying DIESIS will check, says in full who sees what until then (no partner organisation)", () => {
+    const partner = { id: "org-a", name: "Pro Arbeit", byPartnerAdmin: true };
+    const t = text(render(first({ organisation: partner, country: "CY" })));
+    const check = t.indexOf("DIESIS will check which organisation supports you");
+    const full = t.indexOf(
+      "The DIESIS and SENIC staff who run the platform will see your name and email, your progress, your last activity, the time you spend on each lesson"
+    );
+    expect(check).toBeGreaterThan(-1);
+    expect(full).toBeGreaterThan(check);
+    expect(t).toContain("Your Comp Card stays private unless you share it.");
+  });
+
   it("names the country in each language, as the sentence needs it", () => {
     const partner = { id: "org-a", name: "Pro Arbeit", byPartnerAdmin: true };
     expect(text(render(first({ organisation: partner, country: "GR" }), "de"))).toContain("Wenn du mit Griechenland weitermachst");
@@ -147,6 +159,18 @@ describe("the profile step's form (UB5)", () => {
   it("asks for the age the country needs", () => {
     const minAge = { DE: 16, CY: 14, BE: 13, GR: 15, OTHER: 16 };
     expect(text(render(first({ minAge, country: "BE" })))).toContain("I am 13 or older.");
+  });
+
+  it("ties the age tick to the statement it was given for: another country's minimum age asks again (AGE_RULE=digital-consent)", () => {
+    const digital = first({ minAge: { DE: 16, CY: 14, BE: 13, GR: 15, OTHER: 16 } });
+    expect(ageStatementOf(digital, "BE")).not.toBe(ageStatementOf(digital, "DE"));
+    expect(ageStatementOf(digital, "DE")).toBe(ageStatementOf(digital, "OTHER"));
+    // The same age everywhere (the default): a tick stays when the country changes.
+    expect(ageStatementOf(first(), "BE")).toBe(ageStatementOf(first(), "DE"));
+    expect(ageStatementOf(first(), null)).toBe(ageStatementOf(first(), "GR"));
+    // The invited statement names no age: the country never changes it.
+    const invited = { ...digital, invited: true };
+    expect(ageStatementOf(invited, "BE")).toBe(ageStatementOf(invited, "DE"));
   });
 
   it("shows the separate, unticked consent box only with PROFILE_CONSENT", () => {

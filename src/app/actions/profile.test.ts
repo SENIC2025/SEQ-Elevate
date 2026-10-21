@@ -99,6 +99,13 @@ const prisma = {
 };
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/prisma", () => ({ prisma }));
+// Consent can be asked for only once the consent text is final (a draft's
+// version starts "draft-", r3-switches.ts): the consent cases read the
+// rules as they are then. Without PROFILE_CONSENT it stays off.
+vi.mock("@/messages/en.json", async (importOriginal) => {
+  const { default: en } = await importOriginal<{ default: typeof import("@/messages/en.json") }>();
+  return { default: { ...en, profile: { ...en.profile, consent: { ...en.profile.consent, version: "2026-11-30" } } } };
+});
 
 const { completeProfile } = await import("./profile");
 const { currentTermsVersion } = await import("@/lib/profile");
@@ -326,5 +333,81 @@ describe("completeProfile: later calls (UB2)", () => {
   it("a blank stored name is asked for: without one the call is refused", async () => {
     user.name = null;
     await expect(completeProfile({ termsAccepted: true })).resolves.toEqual({ ok: false, errors: { name: "empty" } });
+  });
+});
+
+describe("completeProfile: the consent (UB2, PROFILE_CONSENT)", () => {
+  const GIVEN = new Date("2026-11-20T10:00:00Z");
+
+  beforeEach(() => {
+    user.name = "Ana";
+    getCurrentUser.mockResolvedValue({ ...user });
+    roles = ["LEARNER"];
+  });
+
+  it("stores the consent given on the first completion, with its version", async () => {
+    process.env.PROFILE_CONSENT = "required";
+    await expect(completeProfile({ ...FIRST, consent: true })).resolves.toEqual({ ok: true });
+    expect(profile).toMatchObject({ consentVersion: "2026-11-30" });
+    expect(profile?.consentAt).toBeInstanceOf(Date);
+    expect(roles).toEqual(["LEARNER"]);
+  });
+
+  it("refuses a first completion without the consent it requires", async () => {
+    process.env.PROFILE_CONSENT = "required";
+    user.name = null;
+    await expect(completeProfile(FIRST)).resolves.toEqual({ ok: false, errors: { consent: "required" } });
+  });
+
+  // A later visit (new Terms, a blank name) shows no consent box while a
+  // consent is stored (spec 5.4), so none is sent: that is no answer, and
+  // keeps the consent given — neither a withdrawal nor a refusal.
+  it.each([["required"], ["optional"]])(
+    "PROFILE_CONSENT=%s: new Terms accepted without a consent sent keep the stored consent",
+    async (setting) => {
+      process.env.PROFILE_CONSENT = setting;
+      profile = completedProfile({ termsVersion: "2026-01-01", consentVersion: "2026-11-30", consentAt: GIVEN });
+      await expect(completeProfile({ termsAccepted: true })).resolves.toEqual({ ok: true });
+      expect(profile).toMatchObject({ termsVersion: TERMS, consentVersion: "2026-11-30", consentAt: GIVEN });
+    }
+  );
+
+  it.each([["required"], ["optional"]])(
+    "PROFILE_CONSENT=%s: a blank name set later keeps the stored consent",
+    async (setting) => {
+      process.env.PROFILE_CONSENT = setting;
+      user.name = null;
+      profile = completedProfile({ consentVersion: "2026-11-30", consentAt: GIVEN });
+      await expect(completeProfile({ name: "Ana" })).resolves.toEqual({ ok: true });
+      expect(user.name).toBe("Ana");
+      expect(profile).toMatchObject({ consentVersion: "2026-11-30", consentAt: GIVEN });
+    }
+  );
+
+  it("a consent stored under an older text isn't moved to the current one unless it is given again", async () => {
+    process.env.PROFILE_CONSENT = "optional";
+    profile = completedProfile({ termsVersion: "2026-01-01", consentVersion: "2026-10-01", consentAt: GIVEN });
+    await completeProfile({ termsAccepted: true });
+    expect(profile).toMatchObject({ consentVersion: "2026-10-01", consentAt: GIVEN });
+    await completeProfile({ consent: true });
+    expect(profile?.consentVersion).toBe("2026-11-30");
+  });
+
+  it("a consent unticked on the form is withdrawn where it is optional, and refused where it is required", async () => {
+    process.env.PROFILE_CONSENT = "required";
+    profile = completedProfile({ consentVersion: "2026-11-30", consentAt: GIVEN });
+    await expect(completeProfile({ consent: false })).resolves.toEqual({ ok: false, errors: { consent: "required" } });
+    expect(profile).toMatchObject({ consentAt: GIVEN });
+    process.env.PROFILE_CONSENT = "optional";
+    await expect(completeProfile({ consent: false })).resolves.toEqual({ ok: true });
+    expect(profile).toMatchObject({ consentVersion: null, consentAt: null });
+  });
+
+  it("asks a completed profile with no consent for it once it is required", async () => {
+    process.env.PROFILE_CONSENT = "required";
+    profile = completedProfile();
+    await expect(completeProfile({})).resolves.toEqual({ ok: false, errors: { consent: "required" } });
+    await expect(completeProfile({ consent: true })).resolves.toEqual({ ok: true });
+    expect(profile?.consentAt).toBeInstanceOf(Date);
   });
 });
