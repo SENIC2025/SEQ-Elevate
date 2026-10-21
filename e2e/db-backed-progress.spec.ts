@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { ORGANISATIONS, createPerson, createSession } from "./fixtures/people";
+import { createPerson, createSession } from "./fixtures/people";
 
 /**
  * Verifies that an AUTHENTICATED learner's progress persists to Postgres:
@@ -299,6 +299,16 @@ async function sessionReadFails(
     });
   });
   return { failed: () => failed };
+}
+
+/**
+ * Says the work this browser holds from before signing in is the learner's
+ * own: "Add it to my account" (Release 3, spec 5.5). Nothing moves before.
+ */
+async function addGuestWork(page: import("@playwright/test").Page) {
+  const prompt = page.getByRole("region", { name: "Work saved on this browser before you signed in" });
+  await prompt.getByRole("button", { name: "Add it to my account" }).click({ timeout: 20_000 });
+  await expect(page.getByRole("status").filter({ hasText: "Added to your account." })).toBeVisible();
 }
 
 /** What this browser's guest store holds for the learner store, or null. */
@@ -725,9 +735,10 @@ describe("progress kept when the learner's data loads late, fails or overlaps", 
     await continueTimes(page, 2);
 
     // Signed in, straight into the other course. The guest progress moves
-    // to the account…
+    // to the account once the learner says it is theirs…
     await signIn(context, emails.guestOther);
     await page.goto("/en/learner/course/receiving-feedback");
+    await addGuestWork(page);
     await expect
       .poll(() => enrollmentFor(userId, "workplace-conflict"), {
         timeout: 15_000,
@@ -756,7 +767,7 @@ describe("progress kept when the learner's data loads late, fails or overlaps", 
     await continueTimes(page, 2);
 
     // Signed in, back in the same course, and on to the simulation while
-    // the account (and the migration) loads.
+    // the account loads.
     await signIn(context, emails.guestSame);
     const actions = await holdServerActions(page);
     await page.goto("/en/learner/course/workplace-conflict");
@@ -766,13 +777,16 @@ describe("progress kept when the learner's data loads late, fails or overlaps", 
     await expect.poll(actions.held).toBeGreaterThan(0);
     actions.release();
 
+    const played = { stages: ["CONTEXT", "CONCEPT", "BEHAVIOUR", "SIMULATION"] };
     await expect
       .poll(() => enrollmentFor(userId, "workplace-conflict"), {
         timeout: 15_000,
       })
-      .toMatchObject({
-        stages: ["CONTEXT", "CONCEPT", "BEHAVIOUR", "SIMULATION"],
-      });
+      .toMatchObject(played);
+    // The guest's two lessons, added now, don't take their place.
+    await addGuestWork(page);
+    await page.waitForTimeout(1500); // past the save debounce
+    expect(await enrollmentFor(userId, "workplace-conflict")).toMatchObject(played);
   });
 });
 
@@ -1346,6 +1360,7 @@ describe("progress kept when the session is lost, changes hands or the course ch
       2
     );
     await page.goto("/en/learner");
+    await addGuestWork(page);
     await expect.poll(lost.answered, { timeout: 30_000 }).toBe(2);
 
     await expect
@@ -1533,6 +1548,7 @@ describe("facilitator sees real learners", () => {
   const staffEmail = "e2e-staff@example.com";
   const learnerEmail = "e2e-cohort-learner@example.com";
   let staffSession: string;
+  let learnerSession: string;
 
   test.beforeAll(async () => {
     await prisma.user.deleteMany({
@@ -1567,19 +1583,17 @@ describe("facilitator sees real learners", () => {
         completedAt: new Date(),
       },
     });
-    // Shared with the learner's organisation (A), as the learner chose
-    // (Release 3: shared only with sharedAt and the organisation, D80).
+    // Filled in, and "Only me" until the learner shares it on their own
+    // Comp Card screen (Release 3, D80).
     await prisma.compCard.create({
       data: {
         userId: learner.id,
         projectId: "seq-elevate",
         wentWell: "I stayed calm",
         difficult: "Speaking up",
-        privacy: "FACILITATOR",
-        sharedAt: new Date(),
-        sharedWithOrganisationId: ORGANISATIONS.A,
       },
     });
+    learnerSession = await createSession(prisma, learner.id);
 
     // Staff member (FACILITATOR) with a session, in the learner's organisation
     staffSession = (
@@ -1596,27 +1610,61 @@ describe("facilitator sees real learners", () => {
   test("facilitator workspace lists the real learner + their progress", async ({
     page,
     context,
+    browser,
   }) => {
-    await context.addCookies([
-      {
-        name: "authjs.session-token",
-        value: staffSession,
-        domain: "localhost",
-        path: "/",
-        httpOnly: true,
-        sameSite: "Lax",
-      },
-    ]);
-    await page.goto("/en/facilitator");
-    // Real learner appears in the cohort list (scope to their row — other
-    // parallel tests may add learners to the shared DB)
-    const row = page.locator("li", { hasText: learnerEmail }).first();
-    await expect(row).toBeVisible();
-    // Open their record → Comp Card with the consented field visible
-    await row.getByRole("button", { name: /open learner/i }).click();
+    const cookie = (value: string) => ({
+      name: "authjs.session-token",
+      value,
+      domain: "localhost",
+      path: "/",
+      httpOnly: true,
+      sameSite: "Lax" as const,
+    });
+    await context.addCookies([cookie(staffSession)]);
+    const openRecord = async () => {
+      await page.goto("/en/facilitator");
+      // Real learner appears in the cohort list (scope to their row — other
+      // parallel tests may add learners to the shared DB)
+      const row = page.locator("li", { hasText: learnerEmail }).first();
+      await expect(row).toBeVisible();
+      await row.getByRole("button", { name: /open learner/i }).click();
+    };
+
+    // Not shared yet: the facilitator gets none of the card (D80).
+    await openRecord();
+    await expect(page.getByText("Nothing shared with you.")).toBeVisible();
+    await expect(page.getByText("I stayed calm")).toHaveCount(0);
+
+    // The learner shares it with their organisation's facilitators.
+    const learnerContext = await browser.newContext();
+    await learnerContext.addCookies([cookie(learnerSession)]);
+    const learnerPage = await learnerContext.newPage();
+    await learnerPage.goto("/en/learner/comp-card");
+    const onlyMe = learnerPage.getByRole("main").getByRole("button", { name: "Only me" });
+    await expect(onlyMe).toHaveAttribute("aria-pressed", "true");
+    await expect(onlyMe).not.toHaveAttribute("aria-disabled", "true");
+    await learnerPage.getByRole("main").getByRole("button", { name: /^Me and the facilitators at / }).click();
+    await learnerPage.getByRole("button", { name: "Share", exact: true }).click();
+    await expect(learnerPage.getByText(/^Shared since /)).toBeVisible();
+    const sharedNow = async () =>
+      !!(await prisma.compCard.findFirst({ where: { user: { email: learnerEmail } }, select: { sharedAt: true } }))
+        ?.sharedAt;
+    await expect.poll(sharedNow).toBe(true);
+
+    // Shared: every field on it reaches the facilitator, none held back.
+    await openRecord();
     await expect(page.getByText("I stayed calm")).toBeVisible();
-    // The "difficult" field is FACILITATOR-visible (not redacted)
     await expect(page.getByText("Speaking up")).toBeVisible();
+
+    // "Only me" takes it back.
+    await onlyMe.click();
+    await expect(onlyMe).toHaveAttribute("aria-pressed", "true");
+    await expect(learnerPage.getByText(/^Shared since /)).toHaveCount(0);
+    await expect.poll(sharedNow).toBe(false);
+    await learnerContext.close();
+    await openRecord();
+    await expect(page.getByText("Nothing shared with you.")).toBeVisible();
+    await expect(page.getByText("I stayed calm")).toHaveCount(0);
   });
 });
 
@@ -1668,22 +1716,52 @@ describe("guest progress migrates to the DB on sign-in", () => {
     await page.goto("/en/learner");
     await expect(page.getByText(email)).toBeVisible();
 
-    // 3) The one-time migration runs client-side — let its writes flush.
-    await page.waitForTimeout(2500);
+    // 3) Nothing has moved yet: it moves when the learner says it is theirs
+    //    (Release 3, spec 5.5), client-side.
+    expect(
+      await prisma.courseEnrollment.findFirst({ where: { userId, courseId: course!.id } }),
+      "nothing moved before the learner's choice"
+    ).toBeNull();
+    await addGuestWork(page);
 
     // ---- the guest's progress is now persisted to Postgres ----
-    const enrollment = await prisma.courseEnrollment.findFirst({
-      where: { userId, courseId: course!.id },
-    });
-    expect(enrollment, "guest enrollment migrated").toBeTruthy();
-    expect(enrollment?.completedAt, "completion migrated").toBeTruthy();
-    expect(enrollment?.scenarioRoot, "scenario choice migrated").toBe("private");
+    // Waited for in the database, not for a fixed time: the move's writes
+    // are tried again until they get through.
+    await expect
+      .poll(
+        async () => {
+          const enrollment = await prisma.courseEnrollment.findFirst({
+            where: { userId, courseId: course!.id },
+          });
+          return {
+            completed: !!enrollment?.completedAt,
+            scenarioRoot: enrollment?.scenarioRoot ?? null,
+          };
+        },
+        { timeout: 15_000 }
+      )
+      .toEqual({ completed: true, scenarioRoot: "private" });
+    await expect
+      .poll(
+        async () =>
+          (
+            await prisma.userBadge.findMany({
+              where: { userId },
+              include: { badge: true },
+            })
+          ).map((b) => b.badge.slug),
+        { timeout: 15_000 }
+      )
+      .toEqual(["voice-without-edges"]);
 
-    const badge = await prisma.userBadge.findFirst({
-      where: { userId },
-      include: { badge: true },
-    });
-    expect(badge?.badge.slug, "guest badge migrated").toBe("voice-without-edges");
+    // The completion holds once the course is played again: the account's
+    // saved progress is read back and merged, never replaced by less.
+    await page.goto("/en/learner/course/workplace-conflict");
+    await page.waitForTimeout(1500); // past the save debounce
+    expect(
+      (await prisma.courseEnrollment.findFirst({ where: { userId, courseId: course!.id } }))?.completedAt,
+      "completion kept"
+    ).toBeTruthy();
   });
 });
 
