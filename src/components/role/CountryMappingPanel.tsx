@@ -166,7 +166,8 @@ export function CountryMappingPanel({
                     onChange={(e) => setDraft(c, { place: e.target.checked })}
                     className="h-4 w-4 accent-[var(--accent)]"
                   />
-                  Also place learners from {COUNTRY_NAMES[c]} who have no organisation yet
+                  Also place its learners who have no organisation yet
+                  <span className="sr-only"> ({COUNTRY_NAMES[c]})</span>
                 </label>
                 <Button
                   size="sm"

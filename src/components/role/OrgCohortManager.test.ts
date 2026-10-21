@@ -83,6 +83,6 @@ describe("CountryMappingPanel", () => {
     expect(cy).toMatch(/<option value="" selected="">— not mapped —<\/option>/);
     expect(cy).not.toMatch(/value="org-[ab]" selected=""/);
     expect(cy).toMatch(/<input type="checkbox"[^>]*checked=""/);
-    expect(cy).toContain("Also place learners from Cyprus who have no organisation yet");
+    expect(cy).toMatch(/Also place its learners who have no organisation yet\s*<span class="sr-only"> \(Cyprus\)<\/span>/);
   });
 });

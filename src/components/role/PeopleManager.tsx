@@ -354,9 +354,24 @@ export function PeopleManager({
     report(await setMemberRoles(m.id, next));
   }
 
+  // A sharing tick shows what was picked at once, until the list the
+  // change returns says it (or it failed, and goes back).
+  const [sharingPicked, setSharingPicked] = React.useState<Record<string, boolean>>({});
   async function onGuardianSharing(m: AdminMember, on: boolean) {
     setPending(`gs-${m.id}`);
-    report(await setGuardianSharing(m.id, on));
+    setSharingPicked((p) => ({ ...p, [m.id]: on }));
+    let res: Awaited<ReturnType<typeof setGuardianSharing>>;
+    try {
+      res = await setGuardianSharing(m.id, on);
+    } catch {
+      res = { ok: false as const, error: "no-answer" };
+    }
+    setSharingPicked((p) => {
+      const next = { ...p };
+      delete next[m.id];
+      return next;
+    });
+    report(res);
   }
 
   /** The bin asks first; on your own row it says why it can't. */
@@ -511,10 +526,10 @@ export function PeopleManager({
               <label className="mt-1 flex max-w-60 items-start gap-1.5 text-[11px]">
                 <input
                   type="checkbox"
-                  checked={m.guardianSharing}
+                  checked={sharingPicked[m.id] ?? m.guardianSharing}
                   disabled={pending === `gs-${m.id}`}
                   onChange={(e) => onGuardianSharing(m, e.target.checked)}
-                  className="mt-0.5 h-3.5 w-3.5 accent-[var(--accent)]"
+                  className="mt-0.5 h-4 w-4 flex-shrink-0 accent-[var(--accent)]"
                 />
                 It also covers sharing their Comp Card with our facilitators
               </label>
@@ -535,8 +550,10 @@ export function PeopleManager({
           </td>
           <td className="px-3 py-2.5">
             {/* py-1: at least 24px high (WCAG 2.5.8), as the
-                chips wrap onto two lines in a narrow column. */}
-            <div className="flex flex-wrap gap-1">
+                chips wrap onto two lines in a narrow column; and 12px
+                between the lines, so a chip half under the sticky header
+                still has room around it. */}
+            <div className="flex flex-wrap gap-x-1 gap-y-3">
               {ROLES.filter((r) => grantable.includes(r.value) || m.roles.includes(r.value)).map((r) => {
                 // Held through another role (Admin includes
                 // Editor): shown as on, but not separately
@@ -595,7 +612,7 @@ export function PeopleManager({
               }}
               disabled={pending === `cohort-${m.id}` || !changeable || !m.organisationId}
               aria-label={`Cohort for ${m.email}`}
-              className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs"
+              className="max-w-44 rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs"
             >
               <option value="">{m.organisationId ? "— none —" : "— no organisation —"}</option>
               {own.map((c) => (
@@ -662,8 +679,8 @@ export function PeopleManager({
                 aria-describedby={self ? selfHintId : undefined}
                 className={
                   self
-                    ? "rounded-md p-1 text-[var(--muted-foreground)] opacity-50 cursor-not-allowed"
-                    : "rounded-md p-1 text-[var(--muted-foreground)] hover:text-[var(--danger)]"
+                    ? "ml-1 rounded-md p-1 text-[var(--muted-foreground)] opacity-50 cursor-not-allowed"
+                    : "ml-1 rounded-md p-1 text-[var(--muted-foreground)] hover:text-[var(--danger)]"
                 }
               >
                 <Trash2 className="h-4 w-4" aria-hidden />
@@ -782,7 +799,7 @@ export function PeopleManager({
                 className={`${inputCls} w-44`}
               />
             </label>
-            <label className="text-xs text-[var(--muted-foreground)]">
+            <label className="max-w-full text-xs text-[var(--muted-foreground)]">
               <span className="block mb-1">Role</span>
               {/* Explicit aria-label: a wrapping <label> would fold the
                   selected option text into the accessible name. */}
@@ -791,7 +808,7 @@ export function PeopleManager({
                 onChange={(e) => setRole(e.target.value as Role)}
                 aria-label="Role"
                 aria-describedby={selectedIncludes.length ? roleHintId : undefined}
-                className={inputCls}
+                className={`${inputCls} max-w-full`}
               >
                 {offered.map((r) => {
                   const extra = includedLabels(r.value);
@@ -806,13 +823,13 @@ export function PeopleManager({
               </select>
             </label>
             {admin ? (
-              <label className="text-xs text-[var(--muted-foreground)]">
+              <label className="max-w-full text-xs text-[var(--muted-foreground)]">
                 <span className="block mb-1">Organisation</span>
                 <select
                   value={organisationId}
                   onChange={(e) => setOrganisationId(e.target.value)}
                   aria-label="Organisation"
-                  className={inputCls}
+                  className={`${inputCls} max-w-full`}
                 >
                   <option value="">— none (DIESIS or SENIC staff) —</option>
                   {organisations.map((o) => (
@@ -922,14 +939,14 @@ export function PeopleManager({
       </Card>
 
       {admin ? (
-        <label className="inline-flex items-center gap-2 text-sm">
+        <label className="flex max-w-full flex-wrap items-center gap-2 text-sm">
           <span>Show</span>
           {/* Explicit aria-label, as the Role select's. */}
           <select
             value={filter}
             onChange={(e) => setFilter(e.target.value as Filter)}
             aria-label="Show"
-            className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-sm"
+            className="max-w-full rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-sm"
           >
             {FILTERS.map((f) => (
               <option key={f.value} value={f.value}>

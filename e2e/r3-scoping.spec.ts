@@ -218,10 +218,11 @@ describe("Release 3 scoping: who sees and writes whose data", () => {
         .locator("p", { hasText: new RegExp(`^${label}$`) })
         .locator("xpath=following-sibling::p")
         .filter({ visible: true });
-    // LA1 and LA2; the world's cohort of A; A itself.
-    await expect(stat("Learners")).toHaveText("2");
-    await expect(stat("Cohorts")).toHaveText("1");
-    await expect(stat("Organisations")).toHaveText("1");
+    // LA1 and LA2; the world's cohort of A. The labels say whose (spec
+    // 6.3), and there is no count of organisations: a partner admin has one.
+    await expect(stat("Learners at your organisation")).toHaveText("2");
+    await expect(stat("Your organisation's cohorts")).toHaveText("1");
+    await expect(page.locator("p", { hasText: /^Organisations$/ })).toHaveCount(0);
   });
 
   test("FD-E9 (SC5, guard): a partner admin's people list holds their organisation's people only, never an ADMIN", async ({
