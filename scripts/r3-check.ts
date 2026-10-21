@@ -5,15 +5,20 @@
  *   DATABASE_URL=<the rehearsal branch, or production right after the deploy> npx tsx scripts/r3-check.ts
  *
  * Run after migrate-deploy.mjs. It checks, and fails on:
- *   - migration B has finished, and everyone with a membership made before
- *     it finished has a profile;
+ *   - migrations B and C have finished, and everyone with a membership made
+ *     before B started has a profile. A membership made while B ran may
+ *     have none: Release 2 keeps writing while the build migrates, and a
+ *     membership that waited for B's lock commits after B with the time the
+ *     app gave it before the wait. So only memberships from more than a
+ *     minute before B started (the app's clock, and a write queued in its
+ *     pool) are judged; the others are counted;
  *   - every current staff membership has a staff-history row;
  *   - both triggers exist, and a smoke test in a transaction that is rolled
  *     back shows them working: a staff membership writes a history row, and
  *     an organisation change unshares a Comp Card;
  *   - the Role enum has PARTNER_ADMIN.
  * And prints, without judging (they may legitimately move): memberships made
- * since, profiles with an organisation and complete, staff history by
+ * while B ran and since, profiles with an organisation and complete, staff history by
  * source, Comp Cards by privacy and shared, the country mapping, partner
  * admin memberships (must be 0 before any rollback to Release 2), partner
  * staff with an organisation, and demo sessions.
@@ -28,6 +33,7 @@ import { PrismaPg } from "@prisma/adapter-pg";
 
 const PROJECT = "seq-elevate";
 const MIGRATION_B = "20261120090100_r3_people_privacy_content";
+const MIGRATION_C = "20261120090200_r3_course_project_columns";
 const TAG = "[r3-check]";
 
 type Count = { n: number };
@@ -53,25 +59,30 @@ async function main(): Promise<number> {
   };
   const info = (line: string) => console.log(`${TAG}      ${line}`);
   try {
-    // Migration B and when it finished.
-    const finished = await prisma.$queryRaw<{ finished_at: Date | null }[]>`
-      SELECT finished_at FROM "_prisma_migrations"
-      WHERE migration_name = ${MIGRATION_B} AND finished_at IS NOT NULL AND rolled_back_at IS NULL`;
-    const finishedAt = finished[0]?.finished_at ?? null;
-    check(finishedAt !== null, `migration ${MIGRATION_B} applied`);
-    if (!finishedAt) return 1;
+    // Migrations B and C, and when B ran.
+    const applied = await prisma.$queryRaw<{ migration_name: string; started_at: Date; finished_at: Date }[]>`
+      SELECT migration_name, started_at, finished_at FROM "_prisma_migrations"
+      WHERE migration_name IN (${MIGRATION_B}, ${MIGRATION_C}) AND finished_at IS NOT NULL AND rolled_back_at IS NULL`;
+    const b = applied.find((m) => m.migration_name === MIGRATION_B);
+    check(!!b, `migration ${MIGRATION_B} applied`);
+    check(applied.some((m) => m.migration_name === MIGRATION_C), `migration ${MIGRATION_C} applied`);
+    if (!b) return 1;
+    // Judged from a minute before B started: see the header.
+    const judgedBefore = new Date(b.started_at.getTime() - 60_000);
 
     // Profiles.
-    const [before] = await prisma.$queryRaw<Count[]>`
-      SELECT count(DISTINCT m."userId")::int AS n FROM "Membership" m
-      WHERE m."projectId" = ${PROJECT} AND m."createdAt" <= ${finishedAt}
+    const [profileless] = await prisma.$queryRaw<{ before: number; during: number; since: number }[]>`
+      SELECT count(DISTINCT m."userId") FILTER (WHERE m."createdAt" < ${judgedBefore})::int AS before,
+             count(DISTINCT m."userId") FILTER (WHERE m."createdAt" >= ${judgedBefore} AND m."createdAt" <= ${b.finished_at})::int AS during,
+             count(DISTINCT m."userId") FILTER (WHERE m."createdAt" > ${b.finished_at})::int AS since
+      FROM "Membership" m
+      WHERE m."projectId" = ${PROJECT}
         AND NOT EXISTS (SELECT 1 FROM "ProjectProfile" p WHERE p."userId" = m."userId" AND p."projectId" = m."projectId")`;
-    check(before.n === 0, `people with a membership from before the migration and no profile: ${before.n}`);
-    const [since] = await prisma.$queryRaw<Count[]>`
-      SELECT count(DISTINCT m."userId")::int AS n FROM "Membership" m
-      WHERE m."projectId" = ${PROJECT} AND m."createdAt" > ${finishedAt}
-        AND NOT EXISTS (SELECT 1 FROM "ProjectProfile" p WHERE p."userId" = m."userId" AND p."projectId" = m."projectId")`;
-    info(`people with a membership made since the migration and no profile yet: ${since.n}`);
+    check(profileless.before === 0, `people with a membership from before the migration and no profile: ${profileless.before}`);
+    info(
+      `people with a membership made while the migration ran and no profile yet: ${profileless.during} (a write that waited for it; from a minute before it started)`
+    );
+    info(`people with a membership made since the migration and no profile yet: ${profileless.since}`);
     const [profiles] = await prisma.$queryRaw<{ total: number; organisation: number; complete: number; test: number }[]>`
       SELECT count(*)::int AS total,
              count("organisationId")::int AS organisation,
