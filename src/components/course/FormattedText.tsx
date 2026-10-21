@@ -1,4 +1,5 @@
 import { RichTextView } from "@/components/rich-text/RichTextView";
+import { useContentLang } from "./CourseText";
 
 /**
  * Authored plain text, shown with the structure the author typed: paragraphs
@@ -10,8 +11,10 @@ import { RichTextView } from "@/components/rich-text/RichTextView";
  * Rendered by the same renderer as rich lesson text (RichTextView, D36), so
  * plain and formatted text look alike — and exactly as they did before rich
  * text existed (legacy-parity.test.ts). Text is only ever rendered as React
- * text nodes — never as HTML. Pure, so server and client render the same
- * markup. Renders nothing for empty text.
+ * text nodes — never as HTML. Renders nothing for empty text.
+ *
+ * It is course text, so it carries the course's language when that isn't
+ * the page's (ContentLangContext, Release 3).
  */
 export function FormattedText({
   text,
@@ -22,5 +25,6 @@ export function FormattedText({
   className?: string;
   compact?: boolean;
 }) {
-  return <RichTextView text={text} className={className} compact={compact} />;
+  const lang = useContentLang();
+  return <RichTextView text={text} className={className} compact={compact} lang={lang} />;
 }

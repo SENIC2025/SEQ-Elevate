@@ -15,7 +15,8 @@
 
 import { Prisma } from "@prisma/client";
 import { getCurrentUser, getProjectMemberships } from "@/lib/auth-helpers";
-import { canEditContent } from "@/lib/permissions";
+import { canEditContent, canSignOffLanguage } from "@/lib/permissions";
+import { COURSE_DEFS } from "@/data/course";
 import { prisma } from "@/lib/prisma";
 import { getBaseCourseCopy, listCourses } from "@/lib/cms";
 import {
@@ -33,7 +34,8 @@ import {
 } from "@/lib/cms/ensure-course-badge";
 import { slugify } from "@/lib/slug";
 import type { Locale } from "@/lib/cms/types";
-import { LEGACY_ORDER, type PublishRefused } from "@/lib/cms/sections/contract";
+import { LEGACY_ORDER, mainKindOf, type PublishRefused } from "@/lib/cms/sections/contract";
+import { englishGaps } from "@/lib/cms/course-derive";
 import { newOnlyReasons } from "@/lib/cms/sections/guard";
 import { resolveOutline, toStoredOutline } from "@/lib/cms/sections/outline";
 import { publishBlockers } from "@/lib/cms/sections/publish-blockers";
@@ -81,9 +83,15 @@ const FULL_TEMPLATE = toStoredOutline({
   materialised: true,
 }) as unknown as Prisma.InputJsonValue;
 
-/** Thrown in setCourseStatus's transaction to refuse publishing (G1): nothing is written. */
+/**
+ * A first publish refused because some of the course isn't in English
+ * (D90): `gaps` says what (englishGaps).
+ */
+export type EnglishRefused = { ok: false; error: "english-incomplete"; gaps: { copy: boolean; lessons: number } };
+
+/** Thrown in setCourseStatus's transaction to refuse publishing (G1, D90): nothing is written. */
 class GuardRefused extends Error {
-  constructor(readonly refused: PublishRefused) {
+  constructor(readonly refused: PublishRefused | EnglishRefused) {
     super(refused.error);
     this.name = "GuardRefused";
   }
@@ -188,6 +196,12 @@ export async function createCourse(input: {
  * gives learners Release 1's view again) Release 1's whole rule (D57,
  * newOnlyReasons) is back, refused as "needs-release-2" as then.
  *
+ * Release 3 (D90): English is the source language, so a created course
+ * that was never published is refused as "english-incomplete" while its
+ * English title, or a listed lesson's English, is missing (englishGaps,
+ * the course page's english-incomplete blocker). A course published before
+ * (publishedAt) isn't checked again: the page only warns.
+ *
  * Runs first in the publishing transaction, under the Course row lock, so
  * a lesson-list change (which takes the same lock) can't slip in between
  * the check and the publish. Throws GuardRefused, which rolls back.
@@ -196,7 +210,7 @@ async function guardPublish(tx: Prisma.TransactionClient, courseId: string, slug
   await tx.$queryRaw`SELECT id FROM "Course" WHERE "id" = ${courseId} FOR UPDATE`;
   const course = await tx.course.findUnique({
     where: { id: courseId },
-    select: { meta: true, outline: true },
+    select: { meta: true, outline: true, publishedAt: true },
   });
   if (!course?.meta) return;
   const rows = await tx.lesson.findMany({
@@ -225,10 +239,21 @@ async function guardPublish(tx: Prisma.TransactionClient, courseId: string, slug
   if (publishGuardOn()) {
     const reasons = newOnlyReasons("cms", resolveOutline("cms", course.outline ?? null, lessons), lessons);
     if (reasons.length) throw new GuardRefused({ ok: false, error: "needs-release-2", reasons });
-    return;
+  } else {
+    const reasons = publishBlockers("cms", course.outline ?? null, lessons);
+    if (reasons.length) throw new GuardRefused({ ok: false, error: "cannot-publish", reasons });
   }
-  const reasons = publishBlockers("cms", course.outline ?? null, lessons);
-  if (reasons.length) throw new GuardRefused({ ok: false, error: "cannot-publish", reasons });
+  if (course.publishedAt) return;
+  const rowOf = new Map(lessons.map((l) => [l.stageKey, l]));
+  const gaps = englishGaps(
+    course.meta,
+    resolveOutline("cms", course.outline ?? null, lessons).sections.map((s) => ({
+      mainKind: mainKindOf(s),
+      narrative: rowOf.get(s.id)?.narrative,
+      structure: rowOf.get(s.id)?.structure,
+    }))
+  );
+  if (gaps.copy || gaps.lessons) throw new GuardRefused({ ok: false, error: "english-incomplete", gaps });
 }
 
 /**
@@ -244,8 +269,9 @@ async function guardPublish(tx: Prisma.TransactionClient, courseId: string, slug
  * Publishing a created course is refused with "cannot-publish" and the
  * reasons when its lessons can't be read or learners would see none (G1,
  * guardPublish; "needs-release-2" under a kill switch) — also from
- * published or archived to published. Nothing is written then, and the
- * refusal is audited.
+ * published or archived to published — and, the first time, with
+ * "english-incomplete" while some of it isn't in English (D90). Nothing is
+ * written then, and the refusal is audited.
  */
 export async function setCourseStatus(slug: string, status: CourseStatus) {
   const editor = await requireEditor();
@@ -285,11 +311,14 @@ export async function setCourseStatus(slug: string, status: CourseStatus) {
       });
     } catch (error) {
       if (!(error instanceof GuardRefused)) throw error;
+      const refused = error.refused;
       await audit(editor.id, "course.publish_refused", slug, {
-        error: error.refused.error,
-        reasons: error.refused.reasons as unknown as Prisma.InputJsonValue,
+        error: refused.error,
+        ...("reasons" in refused
+          ? { reasons: refused.reasons as unknown as Prisma.InputJsonValue }
+          : { gaps: refused.gaps }),
       });
-      return error.refused;
+      return refused;
     }
   } else {
     await prisma.course.create({
@@ -480,5 +509,71 @@ export async function updateCourseMeta(
       tagline: result.copy.tagline,
       clusterLabel: result.copy.clusterLabel,
     },
+  };
+}
+
+export type LanguageReadyResult =
+  | { ok: true; readyLocales: Locale[] }
+  | { ok: false; error: "forbidden" | "bad-input" | "unknown-course" | "built-in" };
+
+const SIGN_OFF_LOCALES: readonly Locale[] = ["de", "el"];
+// Slugs are [a-z0-9-] (src/lib/slug.ts); anything else can't be a course.
+const SLUG = /^[a-z0-9][a-z0-9-]{0,79}$/;
+
+/**
+ * Switch a created course's German or Greek on or off for learners (D90,
+ * spec 9.4): until a language is on, learners using it get the whole
+ * course in English (language-ready.ts). Signed off by a partner admin or
+ * an ADMIN (canSignOffLanguage); until partner admins are invited, an
+ * ADMIN switches at the partner's written request, and this row records
+ * who did. German is signed off by Pro Arbeit, Greek by a Greek-speaking
+ * partner: a rule of the process, since a course has no owner here.
+ *
+ * Built-in courses are refused: they ship complete in every language and
+ * are always on. The array changes in the database, in one statement under
+ * the Course row lock this file's other changes take, so two languages
+ * switched at the same moment never drop each other. A change is audited
+ * (course.language_ready / course.language_unready); a switch to what is
+ * already set changes and logs nothing.
+ */
+export async function setCourseLanguageReady(
+  slug: string,
+  locale: "de" | "el",
+  ready: boolean
+): Promise<LanguageReadyResult> {
+  const user = await getCurrentUser();
+  if (!user) return { ok: false, error: "forbidden" };
+  const roles = (await getProjectMemberships(PROJECT)).map((m) => m.role);
+  if (!canSignOffLanguage(roles)) return { ok: false, error: "forbidden" };
+  if (
+    typeof slug !== "string" ||
+    !SLUG.test(slug) ||
+    !SIGN_OFF_LOCALES.includes(locale) ||
+    typeof ready !== "boolean"
+  ) {
+    return { ok: false, error: "bad-input" };
+  }
+  if (Object.prototype.hasOwnProperty.call(COURSE_DEFS, slug)) return { ok: false, error: "built-in" };
+
+  const result = await prisma.$transaction(async (tx) => {
+    const [row] = await tx.$queryRaw<{ id: string; builtin: boolean; readyLocales: string[] | null }[]>`
+      SELECT "id", "meta" IS NULL AS "builtin", "readyLocales" FROM "Course"
+       WHERE "projectId" = ${PROJECT} AND "slug" = ${slug} FOR UPDATE`;
+    if (!row) return { kind: "unknown-course" as const };
+    if (row.builtin) return { kind: "built-in" as const };
+    const [updated] = ready
+      ? await tx.$queryRaw<{ readyLocales: string[] | null }[]>`UPDATE "Course" SET "readyLocales" = array_append(array_remove(COALESCE("readyLocales", ARRAY[]::TEXT[]), ${locale}), ${locale}) WHERE "id" = ${row.id} RETURNING "readyLocales"`
+      : await tx.$queryRaw<{ readyLocales: string[] | null }[]>`UPDATE "Course" SET "readyLocales" = array_remove(COALESCE("readyLocales", ARRAY[]::TEXT[]), ${locale}) WHERE "id" = ${row.id} RETURNING "readyLocales"`;
+    const before = (row.readyLocales ?? []).includes(locale);
+    return { kind: "ok" as const, readyLocales: updated?.readyLocales ?? [], changed: before !== ready };
+  });
+  if (result.kind !== "ok") return { ok: false, error: result.kind };
+
+  if (result.changed) {
+    await audit(user.id, ready ? "course.language_ready" : "course.language_unready", slug, { locale });
+  }
+  return {
+    ok: true,
+    readyLocales: result.readyLocales.filter((l): l is Locale => SIGN_OFF_LOCALES.includes(l as Locale)),
   };
 }

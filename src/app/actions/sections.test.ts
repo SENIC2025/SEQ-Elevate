@@ -513,6 +513,57 @@ describe("deleteSection", () => {
     });
   });
 
+  // Release 3 (D92, spec 10.4): the lesson's files go to the queue in the
+  // delete's own transaction, and the audit row names every one of them.
+  it("queues the lesson's video, poster, captions and documents, and names them all in the log", async () => {
+    vi.stubEnv("BLOB_PUBLIC_HOST", "store1.public.blob.vercel-storage.com");
+    try {
+      const f = (n: string) => `https://store1.public.blob.vercel-storage.com/${n}`;
+      db.lessons = [
+        row("behaviour", {
+          narrative: { en: { title: "B" } },
+          video: { provider: "file", src: f("v.mp4"), poster: f("p.jpg"), captions: [{ src: f("en.vtt") }] },
+          documents: [
+            { id: "d1", url: f("a.pdf") },
+            { id: "d2", url: "/demo/sample.pdf" },
+          ],
+        }),
+      ];
+      expect(await deleteSection(SLUG, "behaviour", base(), contentBase("behaviour"))).toMatchObject({ ok: true });
+      expect(db.pending.map((p) => [p.url, p.reason])).toEqual([
+        [f("v.mp4"), "section.deleted"],
+        [f("p.jpg"), "section.deleted"],
+        [f("en.vtt"), "section.deleted"],
+        [f("a.pdf"), "section.deleted"],
+      ]);
+      expect(db.queuedOutside).toEqual([]);
+      expect(db.audit[0]).toMatchObject({
+        action: "section.deleted",
+        metadata: {
+          documentUrls: [f("a.pdf"), "/demo/sample.pdf"],
+          videoSrc: f("v.mp4"),
+          posterUrl: f("p.jpg"),
+          captionUrls: [f("en.vtt")],
+        },
+      });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("queues nothing when the delete is refused", async () => {
+    vi.stubEnv("BLOB_PUBLIC_HOST", "store1.public.blob.vercel-storage.com");
+    try {
+      db.lessons = [
+        row("behaviour", { video: { provider: "file", src: "https://store1.public.blob.vercel-storage.com/v.mp4" } }),
+      ];
+      expect(await deleteSection(SLUG, "behaviour", base(), "stale-version")).toMatchObject({ ok: false });
+      expect(db.pending).toEqual([]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("refuses any lesson of a published course with learners, own lessons included (D66)", async () => {
     db.course!.status = "published";
     db.enrolled = 2;

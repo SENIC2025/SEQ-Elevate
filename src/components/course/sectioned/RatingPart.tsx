@@ -4,6 +4,7 @@ import { useId } from "react";
 import { useTranslations } from "next-intl";
 import { cn } from "@/lib/utils";
 import type { PartProps } from "./part-props";
+import { CourseTextIn, useContentLang } from "../CourseText";
 
 const SCALE = [1, 2, 3, 4, 5] as const;
 type Value = (typeof SCALE)[number];
@@ -21,6 +22,8 @@ export function RatingPart({ part, answer, onAnswer }: PartProps<"rating">) {
   const uid = useId();
   const scaleId = `${uid}-scale`;
   const values = answer?.type === "rating" ? answer.values : {};
+  // Course text carries the course's language when it isn't the page's.
+  const lang = useContentLang();
 
   const rate = (statementId: string, value: Value) =>
     onAnswer({ type: "rating", values: { ...values, [statementId]: value } });
@@ -28,10 +31,15 @@ export function RatingPart({ part, answer, onAnswer }: PartProps<"rating">) {
   return (
     <div>
       {part.intro ? (
-        <p className="text-sm text-[var(--muted-foreground)] mb-3">{part.intro}</p>
+        <p lang={lang} className="text-sm text-[var(--muted-foreground)] mb-3">
+          {part.intro}
+        </p>
       ) : null}
       <p id={scaleId} className="text-sm font-medium">
-        {t("ratingScale", { min: part.minLabel, max: part.maxLabel })}
+        <CourseTextIn
+          format={(v) => t("ratingScale", v)}
+          values={{ min: part.minLabel, max: part.maxLabel }}
+        />
       </p>
       <div className="mt-3 space-y-4">
         {part.statements.map((s, i) => (
@@ -40,7 +48,9 @@ export function RatingPart({ part, answer, onAnswer }: PartProps<"rating">) {
             aria-describedby={scaleId}
             className="min-w-0 rounded-lg border border-[var(--border)] p-3"
           >
-            <legend className="px-1 text-sm sm:text-base font-medium">{s.text}</legend>
+            <legend lang={lang} className="px-1 text-sm sm:text-base font-medium">
+              {s.text}
+            </legend>
             <div className="mt-1 flex flex-wrap gap-2">
               {SCALE.map((n) => {
                 const checked = values[s.id] === n;

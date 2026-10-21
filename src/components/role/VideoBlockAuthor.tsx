@@ -22,7 +22,12 @@ import {
   checkFile,
   formatSize,
 } from "@/lib/uploads";
-import { isStorableMediaUrl, mediaUrlMessage } from "@/lib/media-url";
+import {
+  hostProblemMessage,
+  isStorableMediaUrl,
+  mediaUrlMessage,
+  previewMediaIsOurs,
+} from "@/lib/media-url";
 import { lessonListRefusal, saveFailureMessage } from "@/lib/author-feedback";
 import {
   fetchStorageStatus,
@@ -466,6 +471,17 @@ function VideoEditor({
       }
     : null;
 
+  // A pasted link to a file that can't be ours (D91): the save would be
+  // refused, so the preview shows it as learners get such a link, never
+  // loaded in the page. An upload playing from this browser (blob:) is
+  // the author's own.
+  const otherHost =
+    !!src &&
+    provider === "file" &&
+    !src.startsWith("blob:") &&
+    typeof window !== "undefined" &&
+    !previewMediaIsOurs(src, window.location.origin);
+
   // A preview playing from this browser (blob:) isn't a video learners can
   // load, and neither are captions that haven't been stored yet.
   const localOnly = src.startsWith("blob:");
@@ -495,8 +511,13 @@ function VideoEditor({
         onSaved?.(draft);
         return;
       }
-      if (res.error === "unstorable-media") {
-        // Names what learners couldn't load, e.g. a file still in this browser.
+      if (
+        res.error === "unstorable-media" ||
+        res.error === "host-refused" ||
+        res.error === "host-unconfigured"
+      ) {
+        // Names what learners couldn't load: a file still in this browser,
+        // or one that isn't on our own store (D91).
         setSaveError(res.message);
       } else {
         setSaveError(await refusalMessage(res.error));
@@ -511,8 +532,8 @@ function VideoEditor({
   async function handleRemove() {
     if (!stored) return;
     const question = builtInVideo
-      ? "Remove this video? Learners will see the built-in video for this lesson again."
-      : "Remove this video? Learners will no longer see it on this lesson.";
+      ? "Remove this video? Learners will see the built-in video for this lesson again. An uploaded file is deleted for good about a week later."
+      : "Remove this video? Learners will no longer see it on this lesson. An uploaded file is deleted for good about a week later.";
     if (!window.confirm(question)) return;
     // "Remove video" goes away once it's done: keep focus in this editor.
     headingRef.current?.focus();
@@ -724,6 +745,7 @@ function VideoEditor({
                 type="url"
                 value={fromUpload ? "" : src}
                 onChange={(e) => onUrl(e.target.value)}
+                aria-describedby={`${urlInputId}-hint`}
                 placeholder="https://… or https://youtu.be/…"
                 className={inputCls}
               />
@@ -733,6 +755,16 @@ function VideoEditor({
                     {provider === "youtube" ? "YouTube" : "Direct file"}
                   </Badge>
                   detected
+                </p>
+              ) : null}
+              <p id={`${urlInputId}-hint`} className="mt-2 text-xs text-[var(--muted-foreground)]">
+                YouTube videos play only after the learner clicks. Uploaded,
+                subtitled videos are preferred.
+              </p>
+              {otherHost ? (
+                <p className="mt-1.5 text-xs text-[var(--muted-foreground)] flex items-start gap-1.5">
+                  <AlertTriangle className="h-3.5 w-3.5 text-[var(--warning)] flex-shrink-0 mt-0.5" />
+                  {hostProblemMessage("host-refused")}
                 </p>
               ) : null}
             </div>
@@ -956,7 +988,7 @@ function VideoEditor({
             </p>
           ) : null}
           {draft ? (
-            <InteractiveVideoPlayer video={draft} />
+            <InteractiveVideoPlayer video={otherHost ? { ...draft, external: true } : draft} />
           ) : (
             <div className="rounded-xl border border-dashed border-[var(--border)] bg-[var(--surface-muted)] px-4 py-10 text-center text-sm text-[var(--muted-foreground)]">
               Add a video above to preview it here.

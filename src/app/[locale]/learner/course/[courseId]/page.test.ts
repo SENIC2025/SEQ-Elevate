@@ -19,6 +19,11 @@ const getViewerRoles = vi.fn();
 const getLearnerCourse = vi.fn();
 const getCurrentUser = vi.fn();
 const findFirst = vi.fn();
+// The language learners get the course in (D90): as asked unless set.
+const learnerLocale = vi.hoisted(() => ({ value: null as string | null }));
+vi.mock("@/lib/cms/language-ready", () => ({
+  learnerContentLocale: async (_p: string, _s: string, requested: string) => learnerLocale.value ?? requested,
+}));
 vi.mock("@/lib/cms", () => ({ getCourse }));
 vi.mock("@/lib/cms/course-overlay", () => ({ getCourseStatus }));
 vi.mock("@/lib/server-queries", () => ({ getViewerRoles }));
@@ -36,7 +41,7 @@ vi.mock("@/store/demo-state", () => ({
   PreviewStateProvider: ({ children }: { children: unknown }) => children,
 }));
 
-const { default: Page } = await import("./page");
+const { default: Page, generateMetadata } = await import("./page");
 const { CoursePlayer } = await import("@/components/course/CoursePlayer");
 const { PreviewStateProvider } = await import("@/store/demo-state");
 
@@ -199,5 +204,98 @@ describe("course route", () => {
     setup({ status: "draft", editor: false });
     await expect(visit()).rejects.toThrow("NEXT_NOT_FOUND");
     expect(getLearnerCourse).not.toHaveBeenCalled();
+  });
+});
+
+/*
+ * Release 3 (D91, spec 10.3): a video or document stored on another host
+ * before Release 3 reaches the player marked `external`, so it is shown as
+ * a link out and never loaded in the page. Release 2 played it as it was.
+ */
+describe("media from another host", () => {
+  afterEach(() => vi.clearAllMocks());
+
+  it("is marked for the player; our own files and YouTube are not", async () => {
+    setup({ status: "published", editor: false });
+    const doc = (url: string) => ({ id: url, name: "d", url, mimeType: "application/pdf", sizeBytes: 1, published: true });
+    getLearnerCourse.mockResolvedValue({
+      ...flexible,
+      lessons: [
+        {
+          kind: "stage",
+          id: "context",
+          label: "Context",
+          stage: {
+            key: "context",
+            video: { provider: "file", src: "https://cdn.example.org/v.mp4" },
+            documents: [doc("/demo/sample.pdf"), doc("https://cdn.example.org/b.pdf")],
+          },
+        },
+        {
+          kind: "section",
+          id: "s-abcd1234",
+          label: "Warm-up",
+          section: { key: "s-abcd1234", parts: [], video: { provider: "youtube", src: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" } },
+        },
+      ],
+    });
+    const el = await visit();
+    const lessons = (el.props.course as LearnerCourse).lessons as unknown as {
+      stage?: { video: object; documents: object[] };
+      section?: { video: object };
+    }[];
+    expect(lessons[0].stage?.video).toMatchObject({ external: true });
+    expect(lessons[0].stage?.documents[0]).not.toHaveProperty("external");
+    expect(lessons[0].stage?.documents[1]).toMatchObject({ external: true });
+    expect(lessons[1].section?.video).not.toHaveProperty("external");
+  });
+});
+
+/*
+ * Release 3 (D90, spec 9.3, UE1): a learner using German or Greek gets a
+ * created course whose language isn't switched on yet whole in English —
+ * the course, its lessons and its title — while an editor's preview shows
+ * the language asked for, with a banner. Release 2 gave learners the
+ * German field by field, English wherever German was missing.
+ */
+describe("which language the course is shown in", () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+    learnerLocale.value = null;
+  });
+
+  it("gives a learner on /de the English course, lessons built in English too", async () => {
+    setup({ status: "published", editor: false });
+    learnerLocale.value = "en";
+    const el = await visit({ locale: "de" });
+    expect(getCourse).toHaveBeenCalledWith("seq-elevate", "speak-up", "en");
+    expect(getLearnerCourse).toHaveBeenCalledWith("seq-elevate", "speak-up", "en", base, { editor: false });
+    expect(el.props.languageNotLive).toBeUndefined();
+  });
+
+  it("shows an editor's preview in German, saying learners get English until German is switched on", async () => {
+    setup({ status: "draft", editor: true });
+    learnerLocale.value = "en";
+    const el = player(await visit({ locale: "de" }));
+    expect(getCourse).toHaveBeenCalledWith("seq-elevate", "speak-up", "de");
+    expect(getLearnerCourse).toHaveBeenCalledWith("seq-elevate", "speak-up", "de", base, { editor: true });
+    expect(el.props.languageNotLive).toBe("de");
+  });
+
+  it("says nothing in a preview of a language learners get", async () => {
+    setup({ status: "published", editor: true });
+    const el = player(await visit({ locale: "de", preview: "1" }));
+    expect(el.props.languageNotLive).toBeUndefined();
+  });
+
+  it("titles the tab in the language shown", async () => {
+    setup({ status: "published", editor: false });
+    learnerLocale.value = "en";
+    getCourse.mockImplementation(async (_p: string, _s: string, locale: string) => ({ ...base, title: `Speak up (${locale})` }));
+    const meta = await generateMetadata({
+      params: Promise.resolve({ locale: "de", courseId: "speak-up" }),
+      searchParams: Promise.resolve({}),
+    });
+    expect(meta.title).toBe("Speak up (en)");
   });
 });

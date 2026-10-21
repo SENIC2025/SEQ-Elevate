@@ -78,6 +78,8 @@ function outline(lessons: LessonOutline[], over: Partial<CourseOutline> = {}): C
     lessons,
     readiness: [],
     sections: meta("base-1"),
+    ready: { en: true, de: false, el: false },
+    canSignOffLanguage: false,
     ...over,
   };
 }

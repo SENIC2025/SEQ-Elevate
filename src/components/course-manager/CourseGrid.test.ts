@@ -11,6 +11,7 @@ const translator = (namespace: string) =>
   createTranslator({ locale: "en", messages: en, namespace: namespace as never });
 vi.mock("next-intl/server", () => ({
   getTranslations: async (namespace: string) => translator(namespace),
+  getLocale: async () => "en",
 }));
 vi.mock("next-intl", async (importOriginal) => ({
   ...(await importOriginal<typeof import("next-intl")>()),
@@ -70,6 +71,7 @@ const BUILT_IN: CourseGridEntry = {
     de: { state: "partial", covered: 3, total: 7 },
     el: { state: "missing", covered: 0, total: 7 },
   },
+  ready: { en: true, de: true, el: true },
   lastEdited: new Date(Date.now() - 3 * DAY - 60_000).toISOString(),
 };
 
@@ -88,6 +90,7 @@ const CREATED: CourseGridEntry = {
     de: { state: "missing", covered: 0, total: 4 },
     el: { state: "missing", covered: 0, total: 4 },
   },
+  ready: { en: true, de: false, el: false },
   lastEdited: null,
 };
 
@@ -218,5 +221,33 @@ describe("CourseGrid", () => {
     const c = card(await render([{ ...CREATED, sections: undefined }]), CREATED.slug);
     expect(c).toContain('aria-label="Edit lesson 2: Skill concept"');
     expect(c).toContain("4 lessons");
+  });
+});
+
+/*
+ * Release 3 (D90, spec 9.4): a created course's chips say whether German
+ * and Greek are live for learners, in words and by a mark, never colour
+ * alone. A built-in course is live in every language and says nothing new.
+ */
+describe("CourseGrid: languages live for learners", () => {
+  it("says for a created course whether each language is live", async () => {
+    const html = await render([{ ...CREATED, ready: { en: true, de: true, el: false } }]);
+    expect(html).toContain("Live: learners using German get this course in German.");
+    expect(html).toContain("Not live: learners using Greek get this course in English.");
+    expect(html).toContain("lucide-radio");
+  });
+
+  it("names a live language in a word on its chip, seen, not only by its mark", async () => {
+    const c = card(await render([{ ...CREATED, ready: { en: true, de: true, el: false } }]), CREATED.slug);
+    const chips = [...c.matchAll(/<li class="inline-flex[^"]*"[^>]*>(.*?)<\/li>/g)].map((m) => m[1]);
+    const seen = (chip: string) => chip.replace(/<span class="sr-only">.*?<\/span>/g, "").replace(/<[^>]+>/g, "");
+    expect(chips.map(seen)).toEqual(["EN1/4", "DE" + en.courseManager.languageReady.liveMark, "EL"]);
+    expect(en.courseManager.languageReady.liveMark).toBe("live");
+  });
+
+  it("says nothing new for a built-in course", async () => {
+    const html = await render([BUILT_IN]);
+    expect(html).not.toContain("learners using");
+    expect(html).not.toContain("lucide-radio");
   });
 });

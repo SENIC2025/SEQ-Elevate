@@ -123,6 +123,13 @@ export interface FacilitatorLearner {
   videoCorrect: number;
   /** Where the learner is right now. */
   currentCourse: string | null;
+  /**
+   * The language of currentCourse when it isn't the page's (a created
+   * course with no title in the page's language reads in English, or the
+   * first language written), for its lang attribute (WCAG 3.1.2). Absent
+   * otherwise.
+   */
+  currentCourseLang?: Locale;
   currentStage: string | null; // lesson id, or "complete"; null: none (no enrolment, or a course with no lessons left)
   /**
    * The current lesson's step name (D58) in a course created in the CMS;
@@ -385,12 +392,14 @@ async function loadLearners(
     let currentStageLabel: string | null = null;
     let currentStageLabelLang: Locale | undefined;
     let currentCourse: string | null = null;
+    let currentCourseLang: Locale | undefined;
     let currentCluster: SkillCluster | null = null;
     let lastActiveAt: string | null = null;
     if (recent) {
       lastActiveAt = recent.updatedAt.toISOString();
       currentCourse =
         contentBySlug.get(recent.course.slug)?.title ?? recent.course.slug;
+      currentCourseLang = titleLang(recent.course.meta, locale);
       currentCluster = skillClusterOfCourse(recent.course);
       const next = nextStage(
         stageKeysOf(recent.course.slug),
@@ -445,6 +454,7 @@ async function loadLearners(
       videoAnswered: video.answered,
       videoCorrect: video.correct,
       currentCourse,
+      ...(currentCourseLang ? { currentCourseLang } : {}),
       currentStage,
       currentStageLabel,
       ...(currentStageLabelLang ? { currentStageLabelLang } : {}),
@@ -490,6 +500,20 @@ function textLang(text: unknown, locale: Locale): { lang?: Locale } {
   return lang && lang !== locale && (["en", "de", "el"] as const).includes(lang as Locale)
     ? { lang: lang as Locale }
     : {};
+}
+
+/**
+ * The language a created course's title reads in for `locale` (pickMeta:
+ * `locale`, English, then the others as written) when it isn't `locale`'s;
+ * undefined for a bundled course (no meta), whose title is in every
+ * language.
+ */
+function titleLang(meta: unknown, locale: Locale): Locale | undefined {
+  if (!isRecord(meta)) return undefined;
+  const titles = Object.fromEntries(
+    Object.entries(meta).map(([k, entry]) => [k, isRecord(entry) ? entry.title : undefined])
+  );
+  return textLang(titles, locale).lang;
 }
 
 /**

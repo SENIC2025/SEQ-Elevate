@@ -8,6 +8,11 @@ const store = vi.hoisted(() => ({
   reflection: { p1: "", p2: "", p3: "" },
   refused: {} as Record<string, string>,
 }));
+// The reflection's help line links /help with the locale-aware Link.
+vi.mock("@/i18n/navigation", async () => {
+  const { createElement: h } = await import("react");
+  return { Link: ({ href, ...rest }: { href: string }) => h("a", { href: `/en${href}`, ...rest }) };
+});
 vi.mock("@/store/demo-state", async () => {
   const { fakeCourse } = await import("./press.test-helpers");
   return {
@@ -120,5 +125,24 @@ describe("ReflectionStage", () => {
     // The note and the store agree on where the limit is.
     expect(answerLengthState(latest.reflection.p2)).toEqual({ kind: "tooLong", max: 5_000 });
     expect(answerLengthState("x".repeat(5_000))).toEqual({ kind: "left", left: 0 });
+  });
+});
+
+/*
+ * Release 3 (D93, spec 11.3; R3-D1): nobody reads course reflections, so
+ * one line after the intro says so and links the help page. Release 2
+ * had nothing there.
+ */
+describe("ReflectionStage: the help line", () => {
+  it("follows the intro, before the first question, linking /help", () => {
+    const html = render();
+    const text = textOf(html);
+    const intro = text.indexOf("Think about the last time you needed help.");
+    const hint = text.indexOf("Facilitators don't read what you write here.");
+    expect(intro).toBeGreaterThan(-1);
+    expect(hint).toBeGreaterThan(intro);
+    expect(hint).toBeLessThan(text.indexOf("What went well?"));
+    expect(html).toContain('href="/en/help"');
+    expect(textOf(render(undefined, "de"))).toContain("Die Trainer:innen lesen nicht, was du hier schreibst.");
   });
 });

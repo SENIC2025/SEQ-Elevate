@@ -240,6 +240,8 @@ function Workspace({
         usualOrder={
           sections ? usualOrder(sections.resolved.sections.map((s) => s.id)).map(nameById) : undefined
         }
+        ready={outline.ready}
+        canSignOffLanguage={outline.canSignOffLanguage}
         onLangChange={switchLang}
         onStatusChange={(next) => {
           dispatch({ type: "statusChanged", status: next });

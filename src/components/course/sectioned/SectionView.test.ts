@@ -7,6 +7,11 @@ const store = vi.hoisted(() => ({
   refused: {} as Record<string, string>,
   dispatched: [] as unknown[],
 }));
+// The reflection's help line links /help with the locale-aware Link.
+vi.mock("@/i18n/navigation", async () => {
+  const { createElement: h } = await import("react");
+  return { Link: ({ href, ...rest }: { href: string }) => h("a", { href: `/en${href}`, ...rest }) };
+});
 vi.mock("@/store/demo-state", async () => {
   const { fakeCourse } = await import("../press.test-helpers");
   return {

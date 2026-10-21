@@ -3,13 +3,14 @@ import { createElement, type FC, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { NextIntlClientProvider } from "next-intl";
 import en from "@/messages/en.json";
+import el from "@/messages/el.json";
 import type { ReadinessIssue } from "@/lib/cms/course-admin-types";
 import type { CourseStatus } from "@/lib/cms/course-status";
 
 // The action runs on the server; these tests only render.
-vi.mock("@/app/actions/course", () => ({ setCourseStatus: vi.fn() }));
+vi.mock("@/app/actions/course", () => ({ setCourseStatus: vi.fn(), setCourseLanguageReady: vi.fn() }));
 
-const { PublishControls } = await import("./PublishControls");
+const { PublishControls, LanguagePanel } = await import("./PublishControls");
 
 const IntlProvider = NextIntlClientProvider as FC<{
   locale: string;
@@ -153,5 +154,86 @@ describe("PublishControls", () => {
   it("a built-in course is named as before (standard names)", () => {
     const html = render([{ level: "warning", code: "lesson-empty", stage: "concept" }], "draft", null);
     expect(html).toContain("The “Skill concept” lesson has no content yet.");
+  });
+});
+
+/*
+ * Release 3 (D90, spec 9.4): English is the source language — a created
+ * course whose English is incomplete is blocked until its first publish —
+ * and German and Greek are switched on for learners on the course page.
+ */
+describe("PublishControls: English first", () => {
+  it("lists English missing as a blocker before the first publish, and keeps Publish described by it", () => {
+    const html = render([{ level: "blocker", code: "english-incomplete" }, { level: "warning", code: "copy-missing", locale: "en" }]);
+    expect(html).toContain(esc(en.lessonList.publish.blockedTitle));
+    expect(html).toContain(`<span>${esc(en.courseManager.languageReady.englishRequired)}</span>`);
+    expect(publishButton(html)).toContain('aria-disabled="true"');
+    expect(html).toContain("No English title and subtitle yet.");
+  });
+
+  it("names the language issues of the list in words", () => {
+    const html = render([
+      { level: "warning", code: "language-live-incomplete", locale: "de" },
+      { level: "info", code: "language-not-live", locale: "el" },
+    ]);
+    expect(html).toContain(esc("German is live, but some text is missing in it now"));
+    expect(html).toContain("Learners using Greek get English until Greek is switched on.");
+  });
+});
+
+describe("LanguagePanel", () => {
+  const coverage = (state: "complete" | "partial" | "missing") => ({ state, covered: 2, total: 4 });
+  function panel(
+    o: { canSignOff: boolean; ready?: Record<"en" | "de" | "el", boolean>; locale?: "en" | "el"; readiness?: ReadinessIssue[] }
+  ) {
+    return renderToStaticMarkup(
+      createElement(
+        IntlProvider,
+        { locale: o.locale ?? "en", messages: (o.locale === "el" ? el : en) as typeof en, timeZone: "UTC" },
+        createElement(LanguagePanel, {
+          slug: "asking-for-help",
+          ready: o.ready ?? { en: true, de: true, el: false },
+          languages: { en: coverage("complete"), de: coverage("partial"), el: coverage("missing") },
+          readiness: o.readiness ?? [],
+          canSignOff: o.canSignOff,
+        })
+      )
+    ).replaceAll("<!-- -->", "");
+  }
+
+  it("gives a partner admin or an ADMIN one switch per language, its state in words and its coverage beside it", () => {
+    const html = panel({ canSignOff: true });
+    const switches = [...html.matchAll(/<button[^>]*role="switch"[^>]*>/g)].map((m) => m[0]);
+    expect(switches).toHaveLength(2);
+    expect(switches[0]).toContain('aria-checked="true"');
+    expect(switches[1]).toContain('aria-checked="false"');
+    expect(html).toContain("German for learners");
+    expect(html).toContain("Live: learners using German get this course in German.");
+    expect(html).toContain("Not live: learners using Greek get this course in English.");
+    expect(html).toContain("German: 2 of 4 lessons");
+    // Live, but not complete: said, not switched off.
+    expect(html).toContain("German is live, but some text is missing in it now");
+    // What coverage doesn't check, said plainly.
+    expect(html).toContain(esc(en.courseManager.languageReady.notChecked));
+    expect(html).not.toContain(esc(en.courseManager.languageReady.readOnly));
+  });
+
+  it("shows the state read-only to everyone else", () => {
+    const html = panel({ canSignOff: false });
+    expect(html).not.toContain('role="switch"');
+    expect(html).toContain(esc(en.courseManager.languageReady.readOnly));
+    expect(html).toContain("Live: learners using German get this course in German.");
+  });
+
+  it("writes Greek language names in lower case inside a sentence", () => {
+    const html = panel({ canSignOff: true, locale: "el" });
+    expect(html).toContain("Γερμανικά για εκπαιδευόμενους");
+    expect(html).toContain("βλέπουν αυτό το μάθημα στα γερμανικά");
+    expect(html).not.toContain("στα Γερμανικά");
+  });
+
+  it("says English is missing on a published course", () => {
+    const html = panel({ canSignOff: true, readiness: [{ level: "warning", code: "english-incomplete" }] });
+    expect(html).toContain(esc(en.courseManager.languageReady.englishMissing));
   });
 });

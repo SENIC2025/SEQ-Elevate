@@ -21,7 +21,7 @@ vi.mock("@/lib/auth-helpers", () => ({ getCurrentUser, getProjectMemberships }))
 vi.mock("@/lib/prisma", () => ({ prisma }));
 vi.mock("@/lib/cms", () => ({ listCourses, getBaseCourseCopy }));
 
-const { createCourse, setCourseStatus, updateCourseMeta } = await import("./course");
+const { createCourse, setCourseStatus, updateCourseMeta, setCourseLanguageReady } = await import("./course");
 
 const EDITOR = { id: "editor-1", email: "ed@example.org" };
 
@@ -512,5 +512,187 @@ describe("createCourse: arguments and layout", () => {
         (id) => ({ id, template: id })
       ),
     });
+  });
+});
+
+/*
+ * Release 3 (D90, spec 9.4): a created course's German or Greek is
+ * switched on for learners by a partner admin or an ADMIN, atomically and
+ * audited. Release 2 had no such switch: every language a course had any
+ * text in went to learners, half-translated or not.
+ */
+describe("setCourseLanguageReady", () => {
+  afterEach(() => vi.clearAllMocks());
+
+  /** The course row as it is locked, and the arrays the UPDATE leaves. */
+  function course(row: { id: string; builtin: boolean } | null, before: string[] = [], after: string[] = before) {
+    getCurrentUser.mockResolvedValue(EDITOR);
+    prisma.$transaction.mockImplementation(async (arg: unknown) =>
+      typeof arg === "function" ? arg(prisma) : Promise.all(arg as unknown[])
+    );
+    prisma.auditLog.create.mockResolvedValue({});
+    prisma.$queryRaw.mockImplementation(async (strings: TemplateStringsArray) => {
+      const sql = strings.join("?");
+      if (sql.includes("FOR UPDATE")) return row ? [{ ...row, readyLocales: before }] : [];
+      if (sql.startsWith("UPDATE")) return [{ readyLocales: after }];
+      return [];
+    });
+  }
+  const as = (...roles: string[]) =>
+    getProjectMemberships.mockResolvedValue(roles.map((role) => ({ role, projectId: "seq-elevate" })));
+  const sqlOf = () => prisma.$queryRaw.mock.calls.map((c) => (c[0] as TemplateStringsArray).join("?"));
+
+  it.each([["CONTENT_EDITOR"], ["FACILITATOR"], ["LEARNER"]])("refuses a %s: nothing is read or written", async (role) => {
+    course({ id: "course-1", builtin: false });
+    as(role);
+    expect(await setCourseLanguageReady("speaking-up", "de", true)).toEqual({ ok: false, error: "forbidden" });
+    expect(prisma.$queryRaw).not.toHaveBeenCalled();
+    expect(prisma.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it("refuses someone signed out", async () => {
+    course({ id: "course-1", builtin: false });
+    getCurrentUser.mockResolvedValue(null);
+    expect(await setCourseLanguageReady("speaking-up", "de", true)).toEqual({ ok: false, error: "forbidden" });
+  });
+
+  it.each([["PARTNER_ADMIN"], ["ADMIN"]])("lets a %s switch German on, in one statement under the course's lock, audited", async (role) => {
+    course({ id: "course-1", builtin: false }, ["el"], ["el", "de"]);
+    as(role);
+    expect(await setCourseLanguageReady("speaking-up", "de", true)).toEqual({ ok: true, readyLocales: ["el", "de"] });
+    const [lock, update] = sqlOf();
+    expect(lock).toContain('FROM "Course"');
+    expect(lock).toContain("FOR UPDATE");
+    // The array changes in the database, so two languages switched at once
+    // never drop each other.
+    expect(update).toMatch(/^UPDATE "Course" SET "readyLocales" = array_append\(array_remove\(/);
+    expect(prisma.$queryRaw.mock.calls[1].slice(1)).toEqual(["de", "de", "course-1"]);
+    expect(prisma.auditLog.create).toHaveBeenCalledTimes(1);
+    expect(prisma.auditLog.create.mock.calls[0][0].data).toMatchObject({
+      action: "course.language_ready",
+      entity: "Course",
+      entityId: "speaking-up",
+      metadata: { locale: "de" },
+      actorId: "editor-1",
+    });
+  });
+
+  it("switches Greek off with array_remove alone, audited as such", async () => {
+    course({ id: "course-1", builtin: false }, ["de", "el"], ["de"]);
+    as("ADMIN");
+    expect(await setCourseLanguageReady("speaking-up", "el", false)).toEqual({ ok: true, readyLocales: ["de"] });
+    expect(sqlOf()[1]).toMatch(/^UPDATE "Course" SET "readyLocales" = array_remove\(/);
+    expect(prisma.auditLog.create.mock.calls[0][0].data).toMatchObject({
+      action: "course.language_unready",
+      metadata: { locale: "el" },
+    });
+  });
+
+  it("writes no audit row when nothing changed", async () => {
+    course({ id: "course-1", builtin: false }, ["de"], ["de"]);
+    as("ADMIN");
+    expect(await setCourseLanguageReady("speaking-up", "de", true)).toEqual({ ok: true, readyLocales: ["de"] });
+    expect(prisma.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it("refuses a built-in course, an unknown one, English and arguments no form sends", async () => {
+    as("ADMIN");
+    course({ id: "course-1", builtin: true });
+    expect(await setCourseLanguageReady("speaking-up", "de", true)).toEqual({ ok: false, error: "built-in" });
+    // A course the platform ships is never even looked up.
+    course({ id: "course-1", builtin: false });
+    prisma.$queryRaw.mockClear();
+    expect(await setCourseLanguageReady("receiving-feedback", "de", true)).toEqual({ ok: false, error: "built-in" });
+    expect(prisma.$queryRaw).not.toHaveBeenCalled();
+    course(null);
+    expect(await setCourseLanguageReady("no-such-course", "de", true)).toEqual({ ok: false, error: "unknown-course" });
+    for (const args of [
+      ["speaking-up", "en", true],
+      ["speaking-up", "fr", true],
+      ["speaking-up", "de", "yes"],
+      [42, "de", true],
+      ["../x", "de", true],
+    ]) {
+      expect(await (setCourseLanguageReady as (...a: unknown[]) => Promise<unknown>)(...args)).toEqual({
+        ok: false,
+        error: "bad-input",
+      });
+    }
+    expect(prisma.auditLog.create).not.toHaveBeenCalled();
+  });
+});
+
+/*
+ * Release 3 (D90, spec 9.4): English is a created course's source
+ * language, so its first publish needs all of it in English. The server
+ * checks under the same lock as the other publish rules, so the course
+ * page isn't the only check. Release 2 published a course written only in
+ * German, whose German then reached Greek learners labelled as English.
+ */
+describe("setCourseStatus: English before the first publish", () => {
+  afterEach(() => vi.clearAllMocks());
+
+  const TEXT = (locale: string) => ({ [locale]: { title: "T", blocks: [{ kind: "paragraph", text: "x" }] } });
+
+  function createdCourse(meta: unknown, lessons: unknown[], publishedAt: Date | null = null) {
+    signedInEditor();
+    listCourses.mockResolvedValue([
+      { slug: "speaking-up", cluster: "communicationEi", durationMinutes: 15, status: "draft" },
+    ]);
+    prisma.$queryRaw.mockResolvedValue([]);
+    prisma.course.findFirst.mockResolvedValue({ id: "course-1", publishedAt });
+    prisma.course.findUnique.mockResolvedValue({
+      id: "course-1",
+      projectId: "seq-elevate",
+      slug: "speaking-up",
+      meta,
+      outline: null,
+      publishedAt,
+      badgeId: "badge-1",
+    });
+    prisma.course.update.mockResolvedValue({});
+    prisma.lesson.findMany.mockResolvedValue(lessons);
+  }
+
+  it("refuses a course whose English title is missing: nothing written, audited", async () => {
+    createdCourse({ de: { title: "Sprich", tagline: "", clusterLabel: "K" } }, [
+      { stageKey: "concept", narrative: TEXT("de"), documents: [] },
+    ]);
+    expect(await setCourseStatus("speaking-up", "published")).toEqual({
+      ok: false,
+      error: "english-incomplete",
+      gaps: { copy: true, lessons: 1 },
+    });
+    expect(prisma.course.update).not.toHaveBeenCalled();
+    expect(prisma.auditLog.create.mock.calls[0][0].data).toMatchObject({
+      action: "course.publish_refused",
+      metadata: { error: "english-incomplete", gaps: { copy: true, lessons: 1 } },
+    });
+  });
+
+  it("refuses a lesson written in German only, and an exercise without English", async () => {
+    const META = { en: { title: "Speak up", tagline: "t", clusterLabel: "C" } };
+    createdCourse(META, [{ stageKey: "concept", narrative: TEXT("de"), documents: [] }]);
+    expect(await setCourseStatus("speaking-up", "published")).toMatchObject({
+      error: "english-incomplete",
+      gaps: { copy: false, lessons: 1 },
+    });
+    createdCourse(META, [
+      {
+        stageKey: "assessment",
+        structure: { kind: "assessment", title: { de: "Q" }, intro: {}, questions: [] },
+        documents: [],
+      },
+    ]);
+    expect(await setCourseStatus("speaking-up", "published")).toMatchObject({ error: "english-incomplete" });
+  });
+
+  it("publishes once English is complete, and never refuses a course published before", async () => {
+    const META = { en: { title: "Speak up", tagline: "t", clusterLabel: "C" } };
+    createdCourse(META, [{ stageKey: "concept", narrative: { ...TEXT("en"), ...TEXT("de") }, documents: [] }]);
+    expect(await setCourseStatus("speaking-up", "published")).toEqual({ ok: true, status: "published" });
+    // Published once already (then archived): the gap is a warning on the page, not a refusal.
+    createdCourse(META, [{ stageKey: "concept", narrative: TEXT("de"), documents: [] }], new Date("2026-11-01"));
+    expect(await setCourseStatus("speaking-up", "published")).toEqual({ ok: true, status: "published" });
   });
 });

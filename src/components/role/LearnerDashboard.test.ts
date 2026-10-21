@@ -30,10 +30,12 @@ const guest = {
   sectionsCompleted: [] as string[],
   completedAt: null as string | null,
 };
+// The badges the learner has, as the store holds them.
+const earned = { badges: [] as string[] };
 vi.mock("@/store/demo-state", () => ({
   useDemoState: () => ({
     state: {
-      badges: [],
+      badges: earned.badges,
       course: {
         courseTitle: null,
         simulation: null,
@@ -127,6 +129,7 @@ function hero(html: string): string | undefined {
 }
 
 beforeEach(() => {
+  earned.badges = [];
   guest.courseSlug = null;
   guest.stagesCompleted = [];
   guest.sectionsCompleted = [];
@@ -382,5 +385,58 @@ describe("LearnerDashboard, Release 2: the hero is the course the learner is in 
     expect(hero(render([BUILT_IN, FLEXIBLE], null))).toBe("Speaking up");
     guest.completedAt = "2026-10-01T10:00:00.000Z";
     expect(hero(render([BUILT_IN, FLEXIBLE], null))).toBe("Handling a small workplace conflict");
+  });
+});
+
+/*
+ * Release 3 (D90, spec 9.3, UE1): a created course shown in English under
+ * another language (its language isn't switched on yet) is marked with
+ * its language on its card and in the hero, and its card says "In
+ * English". Release 2 showed the card in the menu language, English
+ * wherever a field had no translation, unmarked.
+ */
+describe("LearnerDashboard: a course shown in English", () => {
+  it("marks its title, subtitle and skill area with lang=\"en\" and says In English in the badge row", () => {
+    const html = render([{ ...CREATED, contentLocale: "en" }], null);
+    expect(html).toMatch(/<h2 lang="en"[^>]*>Asking for help<\/h2>/);
+    expect(html).toMatch(/<p lang="en"[^>]*>Communication · Short and real<\/p>/);
+    expect(html).toMatch(/<p lang="en"[^>]*>Asking for help<\/p>/);
+    expect(html).toContain('<span lang="en">Communication</span>');
+    expect(html).toContain(">In English</");
+  });
+
+  it("marks the hero's step names in “Your journey”, keeping a step name in another language as it is", () => {
+    const html = render(
+      [{ ...FLEXIBLE, contentLocale: "en", stageLabelLangs: { concept: "de" } }],
+      [{ slug: FLEXIBLE.slug, stages: ["context"], stagesCompleted: 1, completed: false }]
+    );
+    const items = checklistItems(html);
+    expect(items[0]).toContain('<span lang="en">Warm-up</span>');
+    expect(items[1]).toContain('<span lang="en">Your own story</span>');
+    expect(items[2]).toContain('<span lang="de">Skill concept</span>');
+    // ", done" is the page's own word.
+    expect(items[0]).toMatch(/<span class="sr-only">, done<\/span>/);
+    expect(items[0]).not.toMatch(/<span lang="en">[^<]*, done/);
+  });
+
+  it("marks the name and meaning of its badge", () => {
+    earned.badges = ["asking-for-help-complete"];
+    const html = render(
+      [{ ...CREATED, contentLocale: "en", badgeSlug: "asking-for-help-complete", badgeName: "Help seeker", badgeMeaning: "Asks early" }],
+      null
+    );
+    expect(html).toMatch(/<p lang="en"[^>]*>Help seeker<\/p>/);
+    expect(html).toMatch(/<p lang="en"[^>]*>Asks early<\/p>/);
+  });
+
+  it("changes nothing for a course in the menu language", () => {
+    earned.badges = ["asking-for-help-complete"];
+    const html = render(
+      [{ ...CREATED, badgeSlug: "asking-for-help-complete", badgeName: "Help seeker", badgeMeaning: "Asks early" }],
+      [{ slug: CREATED.slug, stages: ["context"], stagesCompleted: 1, completed: false }]
+    );
+    expect(html).toContain("Help seeker");
+    expect(html).not.toContain(' lang="');
+    expect(html).not.toContain("In English");
   });
 });

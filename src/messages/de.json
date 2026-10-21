@@ -847,7 +847,12 @@
       "notChecked": "Die Abdeckung zählt nur den Haupttext und die Übungen. Prüfe zusätzliche Inhalte, Schrittnamen, Videofragen und Dokumente selbst.",
       "readOnly": "Nur Partner-Admins oder Admins können eine Sprache für Lernende ein- oder ausschalten.",
       "liveIncomplete": "{language} ist freigeschaltet, aber jetzt fehlt dort etwas Text (meist, weil sich das Englische geändert hat). Lernende sehen dort Englisch.",
-      "notLive": "Lernende mit {language} bekommen Englisch, bis {language} freigeschaltet ist."
+      "notLive": "Lernende mit {language} bekommen Englisch, bis {language} freigeschaltet ist.",
+      "title": "Sprachen für Lernende",
+      "confirm": "{language} freischalten",
+      "englishRequired": "Englisch ist die Ausgangssprache dieses Kurses: Schreib ihn vollständig auf Englisch, bevor du ihn zum ersten Mal veröffentlichst.",
+      "englishMissing": "Einem Teil dieses Kurses fehlt der englische Text. Lernende, deren Sprache nicht freigeschaltet ist, sehen dort eine andere Sprache.",
+      "liveMark": "freigeschaltet"
     }
   },
   "lessonList": {

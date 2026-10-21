@@ -35,6 +35,7 @@ import { Prisma } from "@prisma/client";
 import { getCurrentUser, getProjectMemberships, hasRole } from "@/lib/auth-helpers";
 import { canEditContent } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
+import { queueFileDeletion, videoFileUrls } from "@/lib/blob-files";
 import { getCourseOutline } from "@/lib/cms/course-admin";
 import { isContentLocale } from "@/lib/cms/course-admin-types";
 import type { CourseOutline } from "@/lib/cms/course-admin-types";
@@ -382,8 +383,10 @@ export async function renameSection(
  * Delete a lesson in every language: out of the list (a standard text
  * lesson is remembered as deleted, or learners would get it back empty) and
  * its row with everything in it — text, exercise, draft, extra content,
- * video and documents (LessonDocument rows cascade). Uploaded files are kept,
- * as removeLessonDocument keeps them; their addresses go in the audit row.
+ * video and documents (LessonDocument rows cascade). Its uploaded files go
+ * to the queue in the same transaction (D92, blob-files.ts), for the admin
+ * run to delete a week later unless a lesson uses them again; every one of
+ * their addresses (video, poster, captions, documents) goes in the audit row.
  *
  * The delete rules of spec 7.2 (D66), with the learners counted under the
  * Course lock: refused (has-learners) on a published course with learners,
@@ -454,11 +457,17 @@ export async function deleteSection(
 
       await writeOutline(tx, state, r.outline);
       await tx.lesson.deleteMany({ where: { projectId: PROJECT, courseSlug: slug, stageKey: id } });
-      const video = lesson?.video as { src?: unknown } | null | undefined;
+      const video = lesson?.video as { src?: unknown; poster?: unknown; captions?: unknown } | null | undefined;
+      const documentUrls = lesson?.documents.map((d) => d.url) ?? [];
+      // Its files go to the queue with it (D92): the admin run deletes them
+      // a week later, unless a lesson uses them again by then.
+      await queueFileDeletion(tx, [...videoFileUrls(video), ...documentUrls], "section.deleted");
       return {
         template: section.template,
-        documentUrls: lesson?.documents.map((d) => d.url) ?? [],
+        documentUrls,
         videoSrc: typeof video?.src === "string" ? video.src : null,
+        posterUrl: typeof video?.poster === "string" && video.poster ? video.poster : null,
+        captionUrls: videoFileUrls({ captions: video?.captions }),
       };
     })
   );

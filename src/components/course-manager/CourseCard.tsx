@@ -129,7 +129,7 @@ export async function CourseCard({
             {t("grid.facts.languages")}
           </dt>
           <dd className="mt-1">
-            <LanguageChips languages={entry.languages} />
+            <LanguageChips languages={entry.languages} ready={entry.kind === "cms" ? entry.ready : undefined} />
           </dd>
         </div>
       </dl>

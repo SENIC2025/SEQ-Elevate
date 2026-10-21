@@ -8,14 +8,18 @@ import { Button } from "@/components/ui/button";
 import { Link } from "@/i18n/navigation";
 import { useDemoState } from "@/store/demo-state";
 import type { CourseContent } from "@/lib/cms/types";
+import { useContentLang } from "./CourseText";
 import { Award, Trophy, FileText, Home, Sparkles } from "lucide-react";
 
 /**
  * Completion + badge unlock. Badge + completion copy come from the authored
- * course, so any course celebrates with its own badge.
+ * course, so any course celebrates with its own badge. They are the
+ * course's text: in the course's language when that isn't the page's
+ * (WCAG 3.1.2, ContentLangContext); the screen's own words are the page's.
  */
 export function CompletionStage({ course }: { course: CourseContent }) {
   const t = useTranslations("coursePlayer");
+  const lang = useContentLang();
   const { state, dispatch } = useDemoState();
 
   // The course is completed, and its badge awarded, once: when the learner
@@ -74,6 +78,7 @@ export function CompletionStage({ course }: { course: CourseContent }) {
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.2 }}
+          lang={lang}
           className="mt-6 text-3xl font-bold tracking-tight"
         >
           {course.completion.title}
@@ -82,6 +87,7 @@ export function CompletionStage({ course }: { course: CourseContent }) {
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.3 }}
+          lang={lang}
           className="mt-3 max-w-lg mx-auto text-[var(--muted-foreground)]"
         >
           {course.completion.body}
@@ -98,8 +104,8 @@ export function CompletionStage({ course }: { course: CourseContent }) {
             <p className="text-[10px] uppercase tracking-wider text-[var(--accent)] font-semibold">
               {t("badgeUnlocked")}
             </p>
-            <p className="text-base font-bold">{course.badge.name}</p>
-            <p className="text-xs text-[var(--muted-foreground)]">
+            <p lang={lang} className="text-base font-bold">{course.badge.name}</p>
+            <p lang={lang} className="text-xs text-[var(--muted-foreground)]">
               {course.badge.meaning}
             </p>
           </div>

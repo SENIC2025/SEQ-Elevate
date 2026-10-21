@@ -45,6 +45,7 @@ export function RichTextView({
   className,
   compact = false,
   inertLinks = false,
+  lang,
 }: {
   /** A block's stored rich text, unchecked. */
   rich?: unknown;
@@ -60,6 +61,11 @@ export function RichTextView({
    * editor instead of opening it.
    */
   inertLinks?: boolean;
+  /**
+   * The text's language, when it isn't the page's (WCAG 3.1.2): a course
+   * shown in English on a German page. Absent, nothing is added.
+   */
+  lang?: string;
 }) {
   const value = rich == null ? null : sanitizeRichText(rich).value;
   // Plain text is converted, not sanitized: existing lessons must render
@@ -70,6 +76,7 @@ export function RichTextView({
 
   return (
     <div
+      lang={lang}
       className={cn(
         "seq-prose",
         compact && "seq-prose-compact",

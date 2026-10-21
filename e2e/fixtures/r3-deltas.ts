@@ -22,15 +22,16 @@ import type { Captured } from "./r2-deltas";
  * the YouTube gate: the walked videos are files), or needs a state the walk
  * never has (spec 18.4).
  *
- * A difference applies once the change that makes it is in: the commit
- * that places the hint (Stream E) adds "R3-D1" to LIVE. Until then the walk
- * expects exactly what Release 2 recorded.
+ * A difference applies once the change that makes it is in. The hint is
+ * placed (Stream E: ReflectionStage, sectioned/ReflectionPart), so R3-D1 is
+ * in LIVE: the walk expects Release 2's recording with the hint, and
+ * nothing else.
  */
 
 export type R3Delta = "R3-D1";
 
 /** The differences the code in this tree makes. */
-export const LIVE: ReadonlySet<R3Delta> = new Set<R3Delta>([]);
+export const LIVE: ReadonlySet<R3Delta> = new Set<R3Delta>(["R3-D1"]);
 
 type Locale = "en" | "de";
 

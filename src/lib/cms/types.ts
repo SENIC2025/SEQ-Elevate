@@ -99,6 +99,12 @@ export interface VideoContent {
   captions?: VideoCaptionTrack[];
   /** In-video questions, in any order (sorted by time at render). */
   cues?: VideoCue[];
+  /**
+   * Set on a learner's page only (markExternalMedia, D91): a file on
+   * another host, stored before Release 3. The player shows it as a link
+   * out and never loads it in the page.
+   */
+  external?: boolean;
 }
 
 /** The narrative stages (context / concept / behaviour) carry free-form blocks. */
@@ -127,6 +133,12 @@ export interface LessonDocumentRef {
   sizeBytes: number;
   /** Visible to learners. Editor sees drafts too; the player only gets published. */
   published: boolean;
+  /**
+   * Set on a learner's page only (markExternalMedia, D91): a document on
+   * another host, stored before Release 3, offered as a link and never
+   * shown inside the page.
+   */
+  external?: boolean;
 }
 
 export interface CourseStage {
@@ -231,6 +243,13 @@ export interface CourseSummary {
    * its lang attribute (WCAG 3.1.2). Absent when every name is.
    */
   stageLabelLangs?: Record<string, Locale>;
+  /**
+   * Release 3 (D90): set by the learners' catalogue (learner-catalogue.ts)
+   * when a created course is shown in English under another menu language,
+   * because its language isn't switched on yet: the summary is then the
+   * English one, and the dashboard marks it (lang, "In English").
+   */
+  contentLocale?: Locale;
 }
 
 /** A Comp Card template (fields the learner fills). Configurable per project. */

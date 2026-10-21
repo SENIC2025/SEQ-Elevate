@@ -5,8 +5,9 @@ import type { Captured } from "./r2-deltas";
 
 /**
  * Release 3 (spec 18.4): the closed list of differences the recorded walk
- * allows. Until the commit that places the reflection hint adds R3-D1 to
- * LIVE, the walk expects exactly what Release 2 recorded.
+ * allows. The reflection hint is placed (Stream E), so R3-D1 is live: the
+ * walk expects Release 2's recording with the hint after each reflection's
+ * intro, and nothing else.
  */
 
 const r1 = JSON.parse(readFileSync(new URL("./r1-learner-baseline.json", import.meta.url), "utf8")) as Record<
@@ -21,10 +22,10 @@ const ALL = new Set(["R3-D1"] as const);
 const added = (before: string, after: string) => after.split("\n").length - before.split("\n").length;
 
 describe("applyR3Deltas", () => {
-  it("changes nothing while no difference is live", () => {
-    expect([...LIVE]).toEqual([]);
+  it("has R3-D1 live (the reflection hint is placed), and changes nothing without a live difference", () => {
+    expect([...LIVE]).toEqual(["R3-D1"]);
     for (const [key, captured] of [...Object.entries(r1), ...Object.entries(r2)]) {
-      expect(applyR3Deltas(key, captured)).toEqual(captured);
+      expect(applyR3Deltas(key, captured, new Set())).toEqual(captured);
     }
   });
 

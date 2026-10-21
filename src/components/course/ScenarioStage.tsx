@@ -12,6 +12,7 @@ import { answersOf } from "@/lib/learner-progress/answers";
 import { ArrowRight, RotateCcw, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { FormattedText } from "./FormattedText";
+import { useContentLang } from "./CourseText";
 import { scenarioContinueHint } from "./continue-hint";
 import { mainPartOf } from "./continue-gate";
 import { ContinueNote, FLAGGED_CLASS, useContinue } from "./useContinue";
@@ -66,6 +67,8 @@ export function ScenarioStage({
     focusFollowupOutcome.current = false;
     document.getElementById(followupOutcomeId)?.focus();
   }, [savedFollowup, followupOutcomeId]);
+  // Course text carries the course's language when it isn't the page's.
+  const lang = useContentLang();
 
   const sc = stage.scenario;
   if (!sc) return null;
@@ -108,6 +111,7 @@ export function ScenarioStage({
           tabIndex={-1}
           aria-describedby={cont.describedBy(headingId)}
           className="text-2xl font-bold tracking-tight outline-none"
+          lang={lang}
         >
           {stage.title}
         </h2>
@@ -122,7 +126,7 @@ export function ScenarioStage({
 
           {/* Root choices */}
           <div className="mt-6">
-            <p className="font-medium mb-3">{sc.question}</p>
+            <p lang={lang} className="font-medium mb-3">{sc.question}</p>
             <div className="space-y-2">
               {sc.choices.map((c) => {
                 const isPicked = rootId === c.id;
@@ -139,6 +143,7 @@ export function ScenarioStage({
                       isPicked && "border-[var(--accent)] bg-[var(--accent)]/5",
                       rootId !== null && !isPicked && "opacity-40"
                     )}
+                    lang={lang}
                   >
                     {c.text}
                   </button>
@@ -160,6 +165,7 @@ export function ScenarioStage({
                 tabIndex={-1}
                 aria-describedby={cont.describedBy(followupQuestionId)}
                 className="font-medium mb-3 outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] rounded-sm"
+                lang={lang}
               >
                 {sc.followupQuestion}
               </p>
@@ -170,6 +176,7 @@ export function ScenarioStage({
                     type="button"
                     onClick={() => pickFollowup(c)}
                     className="w-full text-left rounded-lg border border-[var(--border)] p-4 hover:bg-[var(--surface-muted)] hover:border-[var(--accent)]/40 transition-colors text-sm sm:text-base"
+                    lang={lang}
                   >
                     {c.text}
                   </button>

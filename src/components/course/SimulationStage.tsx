@@ -12,6 +12,7 @@ import { CheckCircle2, XCircle, ArrowRight, RotateCcw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { LinkedText } from "@/components/rich-text/RichTextView";
 import { FormattedText } from "./FormattedText";
+import { useContentLang } from "./CourseText";
 import { mainPartOf } from "./continue-gate";
 import { ContinueNote, FLAGGED_CLASS, useContinue } from "./useContinue";
 import { focusThen } from "./sectioned/focus";
@@ -52,6 +53,8 @@ export function SimulationStage({
     retrying: retrying ? RETRYING : undefined,
     onContinue,
   });
+  // Course text carries the course's language when it isn't the page's.
+  const lang = useContentLang();
 
   const sim = stage.simulation;
   if (!sim) return null;
@@ -83,6 +86,7 @@ export function SimulationStage({
           tabIndex={-1}
           aria-describedby={cont.describedBy(headingId)}
           className="text-2xl font-bold tracking-tight outline-none"
+          lang={lang}
         >
           {stage.title}
         </h2>
@@ -96,7 +100,7 @@ export function SimulationStage({
           />
           {/* Addresses in the instruction are links, as the course page's
               read view shows them to editors (quick links). */}
-          <p className="mt-2 text-sm text-[var(--muted-foreground)]">
+          <p lang={lang} className="mt-2 text-sm text-[var(--muted-foreground)]">
             <LinkedText text={sim.instruction} />
           </p>
 
@@ -132,7 +136,7 @@ export function SimulationStage({
                     ) : (
                       <span className="mt-0.5 h-5 w-5 rounded-full border border-[var(--border)] flex-shrink-0" />
                     )}
-                    <span className="text-sm sm:text-base leading-relaxed">
+                    <span lang={lang} className="text-sm sm:text-base leading-relaxed">
                       {opt.text}
                     </span>
                   </div>
@@ -153,7 +157,7 @@ export function SimulationStage({
                 : "border-l-[var(--warning)] bg-[var(--warning)]/5"
             )}
           >
-            <p className="text-sm leading-relaxed">{selectedOpt.feedback}</p>
+            <p lang={lang} className="text-sm leading-relaxed">{selectedOpt.feedback}</p>
           </div>
         ) : null}
 

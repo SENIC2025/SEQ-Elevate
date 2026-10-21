@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { SKILL_CLUSTERS } from "@/data/course";
-import type { CourseSummary } from "@/lib/cms/types";
+import type { CourseSummary, Locale } from "@/lib/cms/types";
 import {
   courseProgress,
   courseStageKeys,
@@ -72,6 +72,23 @@ export function LearnerDashboard({
   const { state } = useDemoState();
 
   const published = courses.filter((c) => !c.comingSoon);
+  /** The card's state: coming soon, completed or in progress (else none). */
+  const statusBadge = (c: CourseSummary, status: ReturnType<typeof courseStatus> | null) =>
+    c.comingSoon ? (
+      <Badge variant="muted" className="text-[10px]">
+        <Lock className="h-3 w-3" />
+        {t("comingSoon")}
+      </Badge>
+    ) : status?.completed ? (
+      <Badge variant="success" className="text-[10px]">
+        <CheckCircle2 className="h-3 w-3" />
+        {t("completed")}
+      </Badge>
+    ) : status?.inProgress ? (
+      <Badge variant="accent" className="text-[10px]">
+        {t("inProgress")}
+      </Badge>
+    ) : null;
   const current = currentCourseSlug(enrollments, state.course, published);
   const hero = published.find((c) => c.slug === current) ?? published[0];
   const activeClusters = new Set(published.map((c) => c.cluster));
@@ -135,13 +152,15 @@ export function LearnerDashboard({
   const overallPct = overallProgress(publishedStatus).pct;
   const coursesDone = publishedStatus.filter((s) => s.completed).length;
 
-  // Badge slug → display info, from the course list.
-  const badgeInfo = new Map<string, { name: string; meaning: string }>();
+  // Badge slug → display info, from the course list (with the course's
+  // language when it is shown in English under another, D90).
+  const badgeInfo = new Map<string, { name: string; meaning: string; lang?: Locale }>();
   for (const c of courses) {
     if (c.badgeSlug && c.badgeName) {
       badgeInfo.set(c.badgeSlug, {
         name: c.badgeName,
         meaning: c.badgeMeaning ?? "",
+        lang: c.contentLocale,
       });
     }
   }
@@ -182,10 +201,12 @@ export function LearnerDashboard({
                 <Badge variant="primary" className="mb-3">
                   {t("currentMission")}
                 </Badge>
-                <h2 className="text-xl sm:text-2xl font-bold leading-snug">
+                {/* A course shown in English under another language (its
+                    language isn't switched on yet, D90) is marked as such. */}
+                <h2 lang={hero.contentLocale} className="text-xl sm:text-2xl font-bold leading-snug">
                   {hero.title}
                 </h2>
-                <p className="mt-1 text-sm text-[var(--muted-foreground)]">
+                <p lang={hero.contentLocale} className="mt-1 text-sm text-[var(--muted-foreground)]">
                   {hero.clusterLabel} · {hero.tagline}
                 </p>
 
@@ -259,27 +280,25 @@ export function LearnerDashboard({
                   <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[var(--accent)]/10 text-[var(--accent)]">
                     <Icon className="h-4 w-4" />
                   </div>
-                  {c.comingSoon ? (
-                    <Badge variant="muted" className="text-[10px]">
-                      <Lock className="h-3 w-3" />
-                      {t("comingSoon")}
-                    </Badge>
-                  ) : status?.completed ? (
-                    <Badge variant="success" className="text-[10px]">
-                      <CheckCircle2 className="h-3 w-3" />
-                      {t("completed")}
-                    </Badge>
-                  ) : status?.inProgress ? (
-                    <Badge variant="accent" className="text-[10px]">
-                      {t("inProgress")}
-                    </Badge>
-                  ) : null}
+                  {/* A course shown in English under another language (its
+                      language isn't switched on yet, D90) says so here. */}
+                  {c.contentLocale ? (
+                    <div className="flex flex-wrap justify-end gap-1">
+                      <Badge variant="muted" className="text-[10px]">
+                        {t("inEnglish")}
+                      </Badge>
+                      {statusBadge(c, status)}
+                    </div>
+                  ) : (
+                    statusBadge(c, status)
+                  )}
                 </div>
-                <p className="mt-3 text-sm font-semibold leading-tight">
+                <p lang={c.contentLocale} className="mt-3 text-sm font-semibold leading-tight">
                   {c.title}
                 </p>
                 <p className="mt-1 text-xs text-[var(--muted-foreground)] flex-1">
-                  {c.clusterLabel} · {c.durationMinutes} min
+                  {c.contentLocale ? <span lang={c.contentLocale}>{c.clusterLabel}</span> : c.clusterLabel} ·{" "}
+                  {c.durationMinutes} min
                 </p>
                 {!c.comingSoon ? (
                   <span className="mt-2 inline-flex items-center gap-1 text-xs text-[var(--accent)] font-medium">
@@ -377,11 +396,11 @@ export function LearnerDashboard({
                         >
                           <Award className="h-5 w-5 text-[var(--accent)]" />
                           <div>
-                            <p className="text-xs font-semibold">
+                            <p lang={info?.lang} className="text-xs font-semibold">
                               {info?.name ?? slug}
                             </p>
                             {info?.meaning ? (
-                              <p className="text-[10px] text-[var(--muted-foreground)]">
+                              <p lang={info.lang} className="text-[10px] text-[var(--muted-foreground)]">
                                 {info.meaning}
                               </p>
                             ) : null}
@@ -424,6 +443,7 @@ export function LearnerDashboard({
                             stage={stage}
                             labels={hero?.stageLabels}
                             langs={hero?.stageLabelLangs}
+                            contentLocale={hero?.contentLocale}
                           />
                           {done ? (
                             <span className="sr-only">{tPlayer("stepDone")}</span>
@@ -451,20 +471,23 @@ export function LearnerDashboard({
 /**
  * A lesson's step name, as the player shows it (D58): a created course's
  * own (CourseSummary.stageLabels), else the standard name. One written
- * only in another language says which (WCAG 3.1.2).
+ * only in another language says which (WCAG 3.1.2), and so does one of a
+ * course shown in English under another language (`contentLocale`, D90).
  */
 function StageLabel({
   stage,
   labels,
   langs,
+  contentLocale,
 }: {
   stage: string;
   labels?: Record<string, string>;
   langs?: Record<string, string>;
+  contentLocale?: Locale;
 }) {
   const t = useTranslations("course.stageLabel");
   const own = labels?.[stage];
-  const lang = own !== undefined ? langs?.[stage] : undefined;
+  const lang = own !== undefined ? (langs?.[stage] ?? contentLocale) : undefined;
   return lang ? <span lang={lang}>{own}</span> : <>{own ?? t(stage)}</>;
 }
 

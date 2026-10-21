@@ -134,7 +134,7 @@ const ORG_A: Scope = { kind: "organisation", viewerId: "fac-a", organisationId: 
 const NONE: Scope = { kind: "none" };
 
 /** The roster as a facilitator of organisation A reads it (most tests). */
-const getProjectLearners = (locale: "en" | "de") => learnersFor(ORG_A, locale);
+const getProjectLearners = (locale: "en" | "de" | "el") => learnersFor(ORG_A, locale);
 
 describe("getProjectLearners", () => {
   it("counts each course against its own lessons", async () => {
@@ -743,5 +743,39 @@ describe("getProjectLearners: the scenario choice, in the language it is written
     const [learner] = (await getProjectLearners("de")) ?? [];
     expect(learner.scenario).toBeNull();
     expect(lessonFindMany).not.toHaveBeenCalled();
+  });
+});
+
+describe("getProjectLearners: the current course's title, in the language it is written in (WCAG 3.1.2)", () => {
+  // A created course's title falls back to English (or the first language
+  // written) when the page's language has none, so "In: {course}" on a
+  // German or Greek page names it in English, and its element says so. A
+  // bundled course's title is in every language.
+  const on = (slug: string, meta?: unknown) =>
+    ({ ...flexible(["CONTEXT"], null), course: { slug, cluster: "resilience", meta } }) as unknown as Enrolment;
+
+  it("names English when the course has no title in the page's language", async () => {
+    learnerEnrolments.mockImplementation(() => [on("saying-no", { en: { title: "Saying no" }, de: { title: "  " } })]);
+    const [learner] = (await getProjectLearners("de")) ?? [];
+    expect(learner.currentCourse).toBe("saying-no");
+    expect(learner.currentCourseLang).toBe("en");
+  });
+
+  it("names the first language written when there is no English either", async () => {
+    learnerEnrolments.mockImplementation(() => [on("saying-no", { el: { title: "Λέγοντας όχι" } })]);
+    const [learner] = (await getProjectLearners("en")) ?? [];
+    expect(learner.currentCourseLang).toBe("el");
+  });
+
+  it("names nothing when the title is in the page's language", async () => {
+    learnerEnrolments.mockImplementation(() => [on("saying-no", { en: { title: "Saying no" }, el: { title: "Λέγοντας όχι" } })]);
+    const [learner] = (await getProjectLearners("el")) ?? [];
+    expect(learner).not.toHaveProperty("currentCourseLang");
+  });
+
+  it("names nothing for a bundled course, whose title is in every language", async () => {
+    learnerEnrolments.mockImplementation(() => [on("workplace-conflict", null)]);
+    const [learner] = (await getProjectLearners("de")) ?? [];
+    expect(learner).not.toHaveProperty("currentCourseLang");
   });
 });

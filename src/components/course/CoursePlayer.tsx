@@ -10,7 +10,7 @@ import {
   type MouseEvent,
   type ReactNode,
 } from "react";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { useSession } from "next-auth/react";
 import { Link } from "@/i18n/navigation";
 import { recordVideoCueAnswer } from "@/app/actions/video";
@@ -41,7 +41,9 @@ import { afterContinue, backFrom, type Position } from "./player-nav";
 import { initialPosition, useResume } from "./useResume";
 import { useStageTimer } from "./useStageTimer";
 import { openStepAtTop } from "./step-focus";
-import { ChevronLeft, Pencil } from "lucide-react";
+import { ContentLangContext } from "./CourseText";
+import { nameInSentence, sentenceStart } from "@/lib/cms/language-name";
+import { ChevronLeft, Languages, Pencil } from "lucide-react";
 
 export interface CoursePlayerProps {
   course: LearnerCourse;
@@ -64,6 +66,11 @@ export interface CoursePlayerProps {
    * enrolment (spec 5.5): where they open, with no flash of lesson 1.
    */
   serverResume?: SectionId | "complete" | null;
+  /**
+   * An editor's preview in a language learners don't get yet (D90): the
+   * preview shows it, and says learners get English until it is switched on.
+   */
+  languageNotLive?: Locale;
 }
 
 /**
@@ -97,6 +104,13 @@ export interface CoursePlayerProps {
  * player in PreviewStateProvider, so progress stays in memory, and the
  * telemetry below is switched off. Preview may start at any lesson
  * (`initialLesson`) and lets the editor jump to any step.
+ *
+ * Release 3 (D90, spec 9.3): a course shown in English under another menu
+ * language (its language isn't switched on yet) says so above the step
+ * bar, and its text is marked with its language element by element
+ * (ContentLangContext, CourseText): the lesson area as a whole isn't,
+ * since its parts hold the page's own words too. "Edit this lesson" opens
+ * the page's language, the one asked for.
  */
 export function CoursePlayer(props: CoursePlayerProps) {
   return (
@@ -114,16 +128,24 @@ function Player({
   initialLesson,
   editLocale,
   serverResume,
+  languageNotLive,
 }: CoursePlayerProps) {
   const tPlayer = useTranslations("coursePlayer");
   const tHint = useTranslations("continueHint");
+  const tCourses = useTranslations("courseManager");
   const announce = useAnnounce();
+  // The language asked for (the page's); the course's own when it isn't
+  // switched on for it: then its text carries its language.
+  const asked = useLocale() as Locale;
+  const contentLang = course.locale && course.locale !== asked ? course.locale : undefined;
 
   const lessons = course.lessons;
   const ids = useMemo(() => lessons.map((l) => l.id), [lessons]);
   const byId = useMemo(() => new Map<string, LearnerLesson>(lessons.map((l) => [l.id, l])), [lessons]);
   const labelOf = useCallback((id: string) => byId.get(id)?.label ?? "", [byId]);
-  const langOf = useCallback((id: string) => byId.get(id)?.lang, [byId]);
+  // A step name in another language than the course's (PlanLesson.lang),
+  // else the course's own when that isn't the page's.
+  const langOf = useCallback((id: string) => byId.get(id)?.lang ?? contentLang, [byId, contentLang]);
   /** A lesson's step name, marked with its language when it isn't the page's. */
   const nameOf = (id: string): ReactNode => {
     const lang = langOf(id);
@@ -270,8 +292,9 @@ function Player({
   const isNew =
     !preview && lesson !== undefined && !done.has(lesson.id) && ids.slice(currentIndex + 1).some((id) => done.has(id));
 
-  // This lesson on the course page, in the language being played.
-  const editHref = `/content/courses/${course.slug}?${isLesson ? `lesson=${current}&` : ""}lang=${course.locale}`;
+  // This lesson on the course page, in the language asked for (not the
+  // English a learner may be shown instead).
+  const editHref = `/content/courses/${course.slug}?${isLesson ? `lesson=${current}&` : ""}lang=${asked}`;
 
   // Opened from the course page in a new tab: that page is still open, so go
   // back to it instead of starting a second copy (whose saves could then
@@ -305,6 +328,16 @@ function Player({
               b: (chunks) => <strong>{chunks}</strong>,
             })}
           </p>
+          {languageNotLive ? (
+            <p className="basis-full">
+              {sentenceStart(
+                tPlayer("languageNotLive", {
+                  language: nameInSentence(tCourses(`languageName.${languageNotLive}`), asked),
+                }),
+                asked
+              )}
+            </p>
+          ) : null}
           {canEdit ? (
             <Link
               href={editHref}
@@ -343,12 +376,24 @@ function Player({
           ) : null}
         </div>
         <div className="min-w-0 text-right">
-          <p className="text-xs text-[var(--muted-foreground)] uppercase tracking-wider">
+          <p lang={contentLang} className="text-xs text-[var(--muted-foreground)] uppercase tracking-wider">
             {course.clusterLabel}
           </p>
-          <h1 className="text-sm sm:text-base font-semibold">{course.title}</h1>
+          <h1 lang={contentLang} className="text-sm sm:text-base font-semibold">
+            {course.title}
+          </h1>
         </div>
       </div>
+
+      {contentLang ? (
+        <p
+          role="note"
+          className="mb-3 flex items-start gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] px-3 py-2 text-sm"
+        >
+          <Languages className="mt-0.5 h-4 w-4 flex-shrink-0 text-[var(--accent)]" aria-hidden />
+          {tPlayer("languageFallback")}
+        </p>
+      ) : null}
 
       {current === "empty" ? (
         <Card>
@@ -377,31 +422,33 @@ function Player({
           {/* Current lesson. Focus moves here on lesson change so SR users
               hear the new content; in-lesson feedback uses its own live
               regions, and the player's own messages its one region. */}
-          <div key={current} ref={stageRef} tabIndex={-1} className="outline-none space-y-4">
-            {lesson && stillToDo === lesson.id ? (
-              <LessonNote kind="stillToDo" name={lesson.label} lang={lesson.lang} />
-            ) : isNew ? (
-              <LessonNote kind="new" />
-            ) : null}
-            {current === "complete" ? (
-              <CompletionStage course={completionCourse(course)} />
-            ) : lesson?.kind === "section" ? (
-              <SectionView
-                stage={lesson.section}
-                stageNumber={currentIndex + 1}
-                onContinue={goNext}
-                onCueAnswered={onCueAnswered}
-                replacedPrompts={lesson.replacedPrompts}
-              />
-            ) : lesson?.kind === "stage" ? (
-              <StageLesson
-                lesson={lesson}
-                stageNumber={currentIndex + 1}
-                onContinue={goNext}
-                onCueAnswered={onCueAnswered}
-              />
-            ) : null}
-          </div>
+          <ContentLangContext.Provider value={contentLang}>
+            <div key={current} ref={stageRef} tabIndex={-1} className="outline-none space-y-4">
+              {lesson && stillToDo === lesson.id ? (
+                <LessonNote kind="stillToDo" name={lesson.label} lang={langOf(lesson.id)} />
+              ) : isNew ? (
+                <LessonNote kind="new" />
+              ) : null}
+              {current === "complete" ? (
+                <CompletionStage course={completionCourse(course)} />
+              ) : lesson?.kind === "section" ? (
+                <SectionView
+                  stage={lesson.section}
+                  stageNumber={currentIndex + 1}
+                  onContinue={goNext}
+                  onCueAnswered={onCueAnswered}
+                  replacedPrompts={lesson.replacedPrompts}
+                />
+              ) : lesson?.kind === "stage" ? (
+                <StageLesson
+                  lesson={lesson}
+                  stageNumber={currentIndex + 1}
+                  onContinue={goNext}
+                  onCueAnswered={onCueAnswered}
+                />
+              ) : null}
+            </div>
+          </ContentLangContext.Provider>
 
           {/* Nav */}
           {isLesson ? (

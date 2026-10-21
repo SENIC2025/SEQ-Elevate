@@ -56,19 +56,26 @@ export const rows: Row[] = [
     "editors only rename a course"
   ),
 
-  /* -------------------------------------------------------- lesson.ts --- */
   {
     kind: "call",
-    file: LESSON,
-    name: "setLessonDocumentPublished",
+    file: COURSE,
+    name: "setCourseLanguageReady",
     page: coursePage,
-    args: (c) => [c.world.course.documentId, false],
-    refuse: ["LA1", "anonymous"],
+    // German is on for the world's course: a call that slipped through would switch it off.
+    args: (c) => [c.world.course.slug, "de", false],
+    refuse: ["FA", "FB", "FN", "FI", "EA", "LA1", "anonymous"],
     outcome: forbidden,
     tables: COURSE_TABLES,
-    pending: { personas: ["FA", "FB", "FN", "FI"], by: "Stream E: editors only publish documents (SP33, D76)" },
-    why: "a document is published or withdrawn by its course's editors only",
+    why: "only a partner admin or an ADMIN switches a language on or off for learners (D90), never an editor or a facilitator",
   },
+
+  /* -------------------------------------------------------- lesson.ts --- */
+  refused(
+    LESSON,
+    "setLessonDocumentPublished",
+    (c) => [c.world.course.documentId, false],
+    "a document is published or withdrawn by its course's editors only (SP33, D76), never a facilitator"
+  ),
   refused(
     LESSON,
     "saveLessonVideo",

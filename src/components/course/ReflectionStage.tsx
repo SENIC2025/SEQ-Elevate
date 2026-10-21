@@ -11,6 +11,8 @@ import { ArrowRight, NotebookPen } from "lucide-react";
 import { ReflectionIntro } from "./ReflectionIntro";
 import { AnswerLengthNote, answerLengthState } from "./answer-length";
 import { RefusedNote } from "./refused-note";
+import { useContentLang } from "./CourseText";
+import { SafeguardingHint } from "@/components/safeguarding/SafeguardingHint";
 
 /**
  * Reflection stage. Renders authored prompts; answers are private to the
@@ -24,6 +26,9 @@ import { RefusedNote } from "./refused-note";
  * the browser cutting pasted text short (no maxLength). Held back or
  * refused as too long, that note is all it needs; any other refusal of
  * the answers (D62.d) is said under the boxes (RefusedNote).
+ *
+ * Release 3 (D93): after the intro, one line says facilitators don't read
+ * what is written here and links the help page (SafeguardingHint).
  */
 export function ReflectionStage({
   stage,
@@ -38,6 +43,8 @@ export function ReflectionStage({
   const { state, dispatch } = useDemoState();
   const r = state.course.reflection;
   const refused = state.refusedKeys?.["reflection/main"];
+  // Course text carries the course's language when it isn't the page's.
+  const lang = useContentLang();
 
   const ref = stage.reflection;
   if (!ref) return null;
@@ -53,11 +60,14 @@ export function ReflectionStage({
           <NotebookPen className="h-3.5 w-3.5" />
           {t("justForYou")}
         </div>
-        <h2 className="text-2xl font-bold tracking-tight">{stage.title}</h2>
+        <h2 lang={lang} className="text-2xl font-bold tracking-tight">{stage.title}</h2>
         {/* The intro can be the author's own paragraph (see db-course.ts), so
             it keeps their formatting, line breaks and lists like narrative
             text does. */}
         <ReflectionIntro reflection={ref} className="mt-2" />
+        {/* Nobody reads reflections, so a disclosure here would reach no
+            one: one line says so and where to get help (D93). */}
+        <SafeguardingHint variant="reflection" />
 
         <div className="mt-6 space-y-5">
           {ref.prompts.slice(0, 3).map((prompt, i) => {
@@ -66,7 +76,7 @@ export function ReflectionStage({
             const length = answerLengthState(r[key]);
             return (
               <div key={i}>
-                <label htmlFor={id} className="block text-sm font-medium mb-1.5">
+                <label htmlFor={id} lang={lang} className="block text-sm font-medium mb-1.5">
                   {prompt.label}
                 </label>
                 <Textarea

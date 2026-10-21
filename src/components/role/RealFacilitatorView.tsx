@@ -20,6 +20,7 @@ import { FACILITATOR_TEXT_MAX } from "@/lib/facilitator-access";
 import { Link } from "@/i18n/navigation";
 import { SKILL_CLUSTERS, STAGES, type SkillCluster } from "@/data/course";
 import { isLegacySectionId } from "@/lib/cms/sections/contract";
+import { Named } from "@/components/course-manager/lesson-list/Named";
 import {
   Users,
   CheckCircle2,
@@ -291,12 +292,7 @@ export function RealFacilitatorView({
                     id={`${ids}-skill-hint`}
                     className="mt-1 text-xs text-[var(--muted-foreground)]"
                   >
-                    {selected.currentCluster
-                      ? t("skillAreaFromCourse", {
-                          course: selected.currentCourse ?? "",
-                        })
-                      : t("skillAreaNone")}{" "}
-                    {t("skillAreaFixed")}
+                    <SkillAreaHint learner={selected} />
                   </p>
                   {/* Saving again after a validation was saved adds a
                       second one; it doesn't correct the first. */}
@@ -535,6 +531,28 @@ const CARD_FIELDS: readonly [CompCardField, `field${Capitalize<CompCardField>}`]
  * in the Activity panel (D82).
  * (Exported for its tests.)
  */
+/**
+ * Where the validation's skill area starts: the learner's current course,
+ * named in the language its title is written in (WCAG 3.1.2), or none.
+ */
+export function SkillAreaHint({ learner }: { learner: FacilitatorLearner }) {
+  const t = useTranslations("facilitator");
+  return (
+    <>
+      {learner.currentCluster ? (
+        <Named
+          format={(course) => t("skillAreaFromCourse", { course })}
+          name={learner.currentCourse ?? ""}
+          lang={learner.currentCourseLang}
+        />
+      ) : (
+        t("skillAreaNone")
+      )}{" "}
+      {t("skillAreaFixed")}
+    </>
+  );
+}
+
 export function CompCardPanel({ card }: { card: FacilitatorLearner["compCard"] }) {
   const t = useTranslations("facilitator");
   const tCard = useTranslations("compCard");
@@ -665,7 +683,11 @@ export function ActivityPanel({ learner }: { learner: FacilitatorLearner }) {
 
       {learner.currentCourse ? (
         <p className="mt-2 text-xs text-[var(--muted-foreground)]">
-          {t("inCourse", { course: learner.currentCourse })}
+          <Named
+            format={(course) => t("inCourse", { course })}
+            name={learner.currentCourse}
+            lang={learner.currentCourseLang}
+          />
         </p>
       ) : null}
 

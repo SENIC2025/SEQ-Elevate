@@ -277,10 +277,25 @@ export function release1BlockerIssues(reasons: readonly NewOnlyReason[]): Readin
  * Step names are never mentioned: learners get them (D58). Without the
  * lesson list (`sections` absent or null: a built-in course, or a loader
  * before Release 1) the issues are exactly Release 0's.
+ *
+ * Release 3 (D90): English is the source language, so a copy-missing or
+ * lesson-untranslated in English is also
+ * - english-incomplete:  a blocker until the course is first published
+ *                        (`publishedAt` null; guardPublish refuses it the
+ *                        same way, from englishGaps), a warning after that
+ *                        (nothing is unpublished). Without it, learners of a
+ *                        language that isn't switched on would get another
+ *                        language's text labelled as English;
+ * and, with `ready` and `languages`:
+ * - language-live-incomplete: German or Greek is live for learners but no
+ *                        longer complete (usually: the English changed);
+ *                        it isn't switched off;
+ * - language-not-live:   German or Greek is partly written but not
+ *                        switched on: its learners get English.
  */
 export function publishReadiness(
   outline: Pick<CourseOutline, "kind" | "copy" | "lessons"> &
-    Partial<Pick<CourseOutline, "sections">>,
+    Partial<Pick<CourseOutline, "sections" | "publishedAt" | "ready" | "languages">>,
   blockers: readonly ReadinessIssue[] = []
 ): ReadinessIssue[] {
   if (outline.kind !== "cms") return [];
@@ -354,5 +369,62 @@ export function publishReadiness(
   if (!present.some((l) => l.body === "interactive" && l.structure)) {
     issues.push({ level: "info", code: "no-interactive" });
   }
+
+  // English is the source language (D90): before the first publish a
+  // blocker, listed with the others; after it a warning.
+  const englishMissing = issues.some(
+    (i) => (i.code === "copy-missing" || i.code === "lesson-untranslated") && i.locale === "en"
+  );
+  if (englishMissing) {
+    if (outline.publishedAt) issues.push({ level: "warning", code: "english-incomplete" });
+    else issues.splice(blockers.length, 0, { level: "blocker", code: "english-incomplete" });
+  }
+  if (outline.ready && outline.languages) {
+    for (const locale of ["de", "el"] as const) {
+      const state = outline.languages[locale]?.state;
+      if (outline.ready[locale] && state !== "complete") {
+        issues.push({ level: "warning", code: "language-live-incomplete", locale });
+      } else if (!outline.ready[locale] && state !== undefined && state !== "missing") {
+        issues.push({ level: "info", code: "language-not-live", locale });
+      }
+    }
+  }
   return issues;
+}
+
+/** A listed lesson as englishGaps reads it from its row. */
+export interface EnglishFacts {
+  mainKind: MainKind;
+  narrative?: unknown;
+  structure?: unknown;
+}
+
+/**
+ * What of a created course isn't written in English (D90), from the stored
+ * rows: guardPublish's form of publishReadiness's copy-missing and
+ * lesson-untranslated for English. `copy`: no English title or subtitle.
+ * `lessons`: listed lessons written in another language but not English —
+ * an exercise whose saved structure lacks English, a text or reflection
+ * lesson written only in other languages (a text lesson only once it has
+ * a block with text: before that it is lesson-empty, not untranslated).
+ */
+export function englishGaps(meta: unknown, lessons: readonly EnglishFacts[]): { copy: boolean; lessons: number } {
+  const copy = !metaHasText(asRecord(meta)?.en);
+  let missing = 0;
+  for (const l of lessons) {
+    if (l.mainKind !== "narrative" && l.mainKind !== "reflection") {
+      const s = asRecord(l.structure);
+      if (s && !structureHasLocale(s as unknown as StoredStructure, "en")) missing += 1;
+      continue;
+    }
+    const narrative = asRecord(l.narrative);
+    const written = LOCALES.filter((loc) => narrativeHasText(narrative?.[loc]));
+    if (!written.length || written.includes("en")) continue;
+    const hasBlocks = LOCALES.some((loc) => {
+      const blocks = asRecord(narrative?.[loc])?.blocks;
+      return Array.isArray(blocks) && blocks.some(blockHasText);
+    });
+    if (l.mainKind === "reflection" || hasBlocks) missing += 1;
+  }
+  return { copy, lessons: missing };
 }

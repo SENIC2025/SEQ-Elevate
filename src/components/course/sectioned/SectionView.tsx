@@ -26,6 +26,7 @@ import { QuizPart } from "./QuizPart";
 import { ReflectionPart } from "./ReflectionPart";
 import { RatingPart } from "./RatingPart";
 import type { PartTargets } from "./part-props";
+import { useContentLang } from "../CourseText";
 
 /**
  * One lesson drawn piece by piece (D63, spec 5.3): a lesson of the course's
@@ -78,6 +79,8 @@ export function SectionView({
   // Pieces of content tried again on this visit: shown fresh, saved as they were.
   const [retrying, setRetrying] = useState<ReadonlySet<PartKey>>(() => new Set());
   const cont = useContinue({ lessonId: stage.key, parts: stage.parts, answers, retrying, onContinue });
+  // Course text carries the course's language when it isn't the page's.
+  const lang = useContentLang();
 
   const setRetry = (key: PartKey, on: boolean) =>
     setRetrying((prev) => {
@@ -127,11 +130,13 @@ export function SectionView({
       <Card>
         <CardContent className="p-6 sm:p-8">
           {stage.subtitle ? (
-            <p className="text-xs uppercase tracking-wider text-[var(--accent)] font-semibold mb-1">
+            <p lang={lang} className="text-xs uppercase tracking-wider text-[var(--accent)] font-semibold mb-1">
               {stage.subtitle}
             </p>
           ) : null}
-          <h2 className="text-2xl font-bold tracking-tight">{stage.title}</h2>
+          <h2 lang={lang} className="text-2xl font-bold tracking-tight">
+            {stage.title}
+          </h2>
 
           <div className="mt-4 space-y-8">
             {stage.parts.map((part, i) => {
@@ -258,6 +263,8 @@ function PartHeading({
   describedBy?: string;
 }) {
   const t = useTranslations("sectionPreview.partHeading");
+  // An author's title is course text; the kind's own name is the page's.
+  const lang = useContentLang();
   const title = part.type === "text" ? undefined : part.title;
   return (
     <>
@@ -270,6 +277,7 @@ function PartHeading({
         id={id}
         tabIndex={-1}
         aria-describedby={describedBy}
+        lang={title ? lang : undefined}
         className={cn(
           "text-lg font-semibold tracking-tight outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] rounded-sm",
           part.type === "text" ? "sr-only" : "mb-3"

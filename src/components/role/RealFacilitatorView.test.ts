@@ -27,7 +27,7 @@ vi.mock("@/app/actions/facilitator", () => ({
   recordValidation: vi.fn(),
 }));
 
-const { RealFacilitatorView, ActivityPanel } = await import("./RealFacilitatorView");
+const { RealFacilitatorView, ActivityPanel, SkillAreaHint } = await import("./RealFacilitatorView");
 
 const NOW = Date.UTC(2026, 9, 20, 12);
 const hoursAgo = (h: number) => new Date(NOW - h * 3_600_000).toISOString();
@@ -190,6 +190,37 @@ describe("RealFacilitatorView: where a learner is, by the course's step names (s
 
   it("never shows a lesson's id when its name is missing", () => {
     expect(currentlyOn(panel({ currentStage: "s-ownstory" }))).toBe("—");
+  });
+});
+
+describe("RealFacilitatorView: the current course's title, in its own language (WCAG 3.1.2)", () => {
+  // A created course with no title in the page's language reads in
+  // English; "In: {course}" and the skill area's hint say so for the title
+  // alone, the sentence around it staying in the page's language.
+  const hint = (l: Partial<FacilitatorLearner>) =>
+    renderToStaticMarkup(createElement(SkillAreaHint, { learner: learner(l) }));
+
+  it("marks the title under “Currently on”", () => {
+    const html = panel({ currentCourse: "Saying no", currentCourseLang: "de" });
+    expect(html).toContain('In: <span lang="de">Saying no</span>');
+  });
+
+  it("marks the title in the skill area's hint", () => {
+    const html = hint({ currentCourse: "Saying no", currentCourseLang: "de", currentCluster: "resilience" });
+    expect(html).toContain('Starts on the skill area of their current course, <span lang="de">Saying no</span>.');
+    expect(html.replace(/&#x27;/g, "'")).toContain(en.facilitator.skillAreaFixed);
+  });
+
+  it("marks nothing when the title is in the page's language", () => {
+    expect(panel({ currentCourse: "Saying no" })).toContain("In: Saying no");
+    expect(panel({ currentCourse: "Saying no" })).not.toContain("<span lang=");
+    expect(hint({ currentCourse: "Saying no", currentCluster: "resilience" })).not.toContain("lang=");
+  });
+
+  it("names no course when the course names no skill area", () => {
+    const html = hint({ currentCourse: "Saying no", currentCourseLang: "de" });
+    expect(html).toContain(en.facilitator.skillAreaNone);
+    expect(html).not.toContain("Saying no");
   });
 });
 
