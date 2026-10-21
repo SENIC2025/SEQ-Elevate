@@ -226,3 +226,32 @@ export function parseLegalMarkdown(source: string): Block[] {
 export function linkAddresses(source: string): string[] {
   return [...source.matchAll(/\[(?:\\.|[^\]\\[])+\]\(([^\s()]+)\)/g)].map((m) => m[1]);
 }
+
+/** Words that mark a draft or a placeholder: never in a text that is shown (spec 12.5). */
+export const PLACEHOLDER_WORDS: readonly RegExp[] = [
+  /\bFor DIESIS\b/i,
+  /\bSENIC to confirm\b/i,
+  /\bUntil 20 November\b/i,
+  /\bFrom 20 November\b/i,
+  /\bTo be completed\b/i,
+  /\bTODO\b/,
+  /\bTBD\b/,
+];
+
+/**
+ * What in a text reads as a placeholder (spec 12.5): a `[` that doesn't
+ * start a Markdown link `[…](…)`, or a draft's words (PLACEHOLDER_WORDS).
+ * Each finding is a short excerpt; none means the text is clean.
+ */
+export function legalPlaceholders(source: string): string[] {
+  const found: string[] = [];
+  const excerpt = (at: number) => source.slice(Math.max(0, at - 20), at + 40).replace(/\s+/g, " ").trim();
+  for (let i = source.indexOf("["); i !== -1; i = source.indexOf("[", i + 1)) {
+    if (!readLink(source, i)) found.push(`a "[" that starts no link: …${excerpt(i)}…`);
+  }
+  for (const word of PLACEHOLDER_WORDS) {
+    const m = word.exec(source);
+    if (m) found.push(`"${m[0]}": …${excerpt(m.index)}…`);
+  }
+  return found;
+}
