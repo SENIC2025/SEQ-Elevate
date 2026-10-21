@@ -137,6 +137,8 @@ function errorText(error?: string): string {
       return "That isn't on your list any more. Reload the page.";
     case "rate-limited":
       return "Too many addresses couldn't be added in the last hour. Try again later.";
+    case "changed":
+      return "Someone changed this person meanwhile. Reload the page and try again.";
     case "no-answer":
       return "There was no answer from the server. Reload the page to see whether it was done.";
     default:

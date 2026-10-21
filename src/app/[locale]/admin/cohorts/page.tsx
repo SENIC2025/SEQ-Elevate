@@ -36,7 +36,7 @@ export default async function Page({
         <h1 className="text-xl font-bold">{manager ? "Nothing to show yet" : "Admins only"}</h1>
         <p className="mt-2 text-sm text-[var(--muted-foreground)]">
           {manager
-            ? "Your account isn't linked to an organisation yet, so no cohorts are shown. Ask DIESIS to link it."
+            ? "Your profile isn't complete, or your account isn't linked to an organisation yet, so no cohorts are shown. Ask DIESIS if this doesn't change."
             : "Sign in with an admin account to manage organisations and cohorts."}
         </p>
       </div>

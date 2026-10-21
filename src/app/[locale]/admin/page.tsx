@@ -18,10 +18,20 @@ export default async function Page({
   // The overview is for people managers (an ADMIN: the project; a partner
   // admin: their organisation) with a scope — decide before counting anything.
   const viewer = await getViewer();
-  if (!canManagePeople(viewer.roles) || viewer.scope.kind === "none") {
+  if (!canManagePeople(viewer.roles)) {
     return (
       <AccessNotice title="Admins only">
         Sign in with an admin account to see the project overview.
+      </AccessNotice>
+    );
+  }
+  // A people manager with no scope: their own profile isn't complete, or
+  // (a partner admin) no organisation, or partner access isn't on yet.
+  if (viewer.scope.kind === "none") {
+    return (
+      <AccessNotice title="Nothing to show yet">
+        Your profile isn&apos;t complete, or your account isn&apos;t linked to
+        an organisation yet. Ask DIESIS if this doesn&apos;t change.
       </AccessNotice>
     );
   }

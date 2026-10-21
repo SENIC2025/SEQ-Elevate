@@ -132,6 +132,13 @@ async function organisationInScope(scope: InScope, id: unknown): Promise<boolean
   return count > 0;
 }
 
+/**
+ * Thrown inside a transaction when what was checked before it no longer
+ * holds (someone changed the person meanwhile): the transaction rolls back
+ * and the caller answers instead.
+ */
+class ChangedMeanwhile extends Error {}
+
 /** A name by the profile step's rule: 1–50 characters, no line breaks or hidden characters. */
 function cleanName(raw: unknown): string | null {
   const parsed = parseProfileInput(
@@ -544,49 +551,67 @@ export async function addMember(
   }
 
   const source: OrganisationSource = m.admin ? "admin" : "partner-admin";
-  const userId = await prisma.$transaction(async (tx) => {
-    const id = existing
-      ? existing.id
-      : (await tx.user.create({ data: { email: clean, name: newName }, select: { id: true } })).id;
-    // A name typed here replaces one only while the person has never
-    // completed the profile step (after it, it is theirs, and changed only
-    // with "Change details").
-    if (existing && newName !== null && !profile?.profileCompletedAt) {
-      await tx.user.update({ where: { id }, data: { name: newName } });
-    }
-    await tx.membership.upsert({
-      where: { userId_projectId_role: { userId: id, projectId: PROJECT, role } },
-      create: { userId: id, projectId: PROJECT, role },
-      update: {},
+  let userId: string;
+  try {
+    userId = await prisma.$transaction(async (tx) => {
+      if (existing) {
+        // What was checked above still holds: their organisation, and whether
+        // they have done the profile step (the row is locked from here on).
+        await tx.$queryRaw`SELECT 1 FROM "ProjectProfile" WHERE "userId" = ${existing.id} AND "projectId" = ${PROJECT} FOR UPDATE`;
+        const now = await tx.projectProfile.findUnique({
+          where: { userId_projectId: { userId: existing.id, projectId: PROJECT } },
+          select: { organisationId: true, profileCompletedAt: true },
+        });
+        if ((now?.organisationId ?? null) !== currentOrganisation || !!now?.profileCompletedAt !== !!profile?.profileCompletedAt) {
+          throw new ChangedMeanwhile();
+        }
+      }
+      const id = existing
+        ? existing.id
+        : (await tx.user.create({ data: { email: clean, name: newName }, select: { id: true } })).id;
+      // A name typed here replaces one only while the person has never
+      // completed the profile step (after it, it is theirs, and changed only
+      // with "Change details").
+      if (existing && newName !== null && !profile?.profileCompletedAt) {
+        await tx.user.update({ where: { id }, data: { name: newName } });
+      }
+      await tx.membership.upsert({
+        where: { userId_projectId_role: { userId: id, projectId: PROJECT, role } },
+        create: { userId: id, projectId: PROJECT, role },
+        update: {},
+      });
+      // An organisation only for someone who has none yet (D101).
+      if (organisationId !== null && currentOrganisation === null) {
+        await setPersonOrganisation(tx, id, organisationId, {
+          actorId: m.user.id,
+          source,
+          scope: scopeLabel(m.scope),
+        });
+      }
+      if (guardian) {
+        const now = new Date();
+        const recorded = await tx.projectProfile.upsert({
+          where: { userId_projectId: { userId: id, projectId: PROJECT } },
+          create: {
+            userId: id,
+            projectId: PROJECT,
+            guardianConsentRecordedAt: now,
+            guardianSharingConsentAt: guardianSharing ? now : null,
+          },
+          update: { guardianConsentRecordedAt: now, guardianSharingConsentAt: guardianSharing ? now : null },
+          select: { id: true },
+        });
+        await audit(tx, m.user.id, "member.guardian_consent_recorded", "ProjectProfile", recorded.id, m.scope, {
+          sharing: guardianSharing,
+        });
+      }
+      await audit(tx, m.user.id, "member.added", "User", id, m.scope);
+      return id;
     });
-    // An organisation only for someone who has none yet (D101).
-    if (organisationId !== null && currentOrganisation === null) {
-      await setPersonOrganisation(tx, id, organisationId, {
-        actorId: m.user.id,
-        source,
-        scope: scopeLabel(m.scope),
-      });
-    }
-    if (guardian) {
-      const now = new Date();
-      const recorded = await tx.projectProfile.upsert({
-        where: { userId_projectId: { userId: id, projectId: PROJECT } },
-        create: {
-          userId: id,
-          projectId: PROJECT,
-          guardianConsentRecordedAt: now,
-          guardianSharingConsentAt: guardianSharing ? now : null,
-        },
-        update: { guardianConsentRecordedAt: now, guardianSharingConsentAt: guardianSharing ? now : null },
-        select: { id: true },
-      });
-      await audit(tx, m.user.id, "member.guardian_consent_recorded", "ProjectProfile", recorded.id, m.scope, {
-        sharing: guardianSharing,
-      });
-    }
-    await audit(tx, m.user.id, "member.added", "User", id, m.scope);
-    return id;
-  });
+  } catch (e) {
+    if (e instanceof ChangedMeanwhile) return { ok: false as const, error: "changed" as const };
+    throw e;
+  }
 
   const user = await prisma.user.findUniqueOrThrow({
     where: { id: userId },
@@ -638,23 +663,30 @@ export async function setMemberRoles(userId: string, roles: Role[]) {
     return { ok: false as const, error: "own-admin" };
   }
 
-  await prisma.$transaction(async (tx) => {
-    const existing = await tx.membership.findMany({
-      where: { userId, projectId: PROJECT },
-      select: { id: true, role: true, cohortId: true },
-    });
-    const keep = new Set(wanted);
-    const cohortId = existing.find((r) => r.cohortId)?.cohortId ?? null;
-    for (const row of existing) {
-      if (!keep.has(row.role)) await tx.membership.delete({ where: { id: row.id } });
-    }
-    for (const role of wanted) {
-      if (!existing.some((row) => row.role === role)) {
-        await tx.membership.create({ data: { userId, projectId: PROJECT, role, cohortId } });
+  try {
+    await prisma.$transaction(async (tx) => {
+      const existing = await tx.membership.findMany({
+        where: { userId, projectId: PROJECT },
+        select: { id: true, role: true, cohortId: true },
+      });
+      // Given a role meanwhile that this manager may not change: left as is.
+      if (!existing.every((r) => m.grantable.includes(r.role))) throw new ChangedMeanwhile();
+      const keep = new Set(wanted);
+      const cohortId = existing.find((r) => r.cohortId)?.cohortId ?? null;
+      for (const row of existing) {
+        if (!keep.has(row.role)) await tx.membership.delete({ where: { id: row.id } });
       }
-    }
-    await audit(tx, m.user.id, "member.roles_changed", "User", userId, m.scope);
-  });
+      for (const role of wanted) {
+        if (!existing.some((row) => row.role === role)) {
+          await tx.membership.create({ data: { userId, projectId: PROJECT, role, cohortId } });
+        }
+      }
+      await audit(tx, m.user.id, "member.roles_changed", "User", userId, m.scope);
+    });
+  } catch (e) {
+    if (e instanceof ChangedMeanwhile) return { ok: false as const, error: "not-grantable" as const };
+    throw e;
+  }
   return { ok: true as const, members: await getAdminMembers(m.scope) };
 }
 
@@ -700,8 +732,10 @@ export async function removeMember(userId: string) {
   if (userId === m.user.id) return { ok: false as const, error: "self" };
   const target = await manageable(m, userId);
   if (!target.ok) return { ok: false as const, error: target.error };
+  // A partner admin's removal takes only the roles it may grant, even one
+  // given meanwhile.
   await prisma.membership.deleteMany({
-    where: { userId, projectId: PROJECT },
+    where: { userId, projectId: PROJECT, ...(m.admin ? {} : { role: { in: [...m.grantable] } }) },
   });
   await audit(prisma, m.user.id, "member.removed", "User", userId, m.scope);
   return { ok: true as const, members: await getAdminMembers(m.scope) };

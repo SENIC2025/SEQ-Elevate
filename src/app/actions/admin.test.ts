@@ -47,6 +47,7 @@ const db = {
   auditLog: { create: fn(), count: fn() },
   compCard: { updateMany: fn() },
   $transaction: vi.fn(),
+  $queryRaw: vi.fn(),
 };
 
 vi.mock("@/lib/auth-helpers", () => ({ getCurrentUser }));
@@ -818,5 +819,49 @@ describe("the list an action returns (SP24)", () => {
     await expect(removeMember("learner-1")).resolves.toEqual({ ok: false, error: "forbidden" });
     expect(changedAnything()).toBe(false);
     expect(getAdminMembers).not.toHaveBeenCalled();
+  });
+});
+
+/*
+ * What is checked before a change is checked again inside its transaction,
+ * so a change made meanwhile (an ADMIN granting a role, the person
+ * finishing the profile step) never lets a partner admin do what it may
+ * not.
+ */
+describe("checks that hold inside the transaction", () => {
+  it("setMemberRoles: someone given a role meanwhile that the partner admin can't grant is left as they are", async () => {
+    asPartnerAdmin();
+    db.membership.findMany
+      .mockResolvedValueOnce([{ id: "m-0", role: "LEARNER" }]) // the check
+      .mockResolvedValueOnce([
+        { id: "m-0", role: "LEARNER", cohortId: null },
+        { id: "m-1", role: "PARTNER_ADMIN", cohortId: null },
+      ]); // inside the transaction
+    await expect(setMemberRoles("learner-a", ["LEARNER"])).resolves.toEqual({ ok: false, error: "not-grantable" });
+    expect(db.membership.delete).not.toHaveBeenCalled();
+    expect(auditedActions()).toEqual([]);
+  });
+
+  it("removeMember: a partner admin removes only the roles it may grant", async () => {
+    asPartnerAdmin();
+    holds(["LEARNER"]);
+    await removeMember("learner-a");
+    expect(db.membership.deleteMany).toHaveBeenCalledWith({
+      where: { userId: "learner-a", projectId: PROJECT, role: { in: ["LEARNER", "FACILITATOR"] } },
+    });
+  });
+
+  it("addMember: someone who got an organisation meanwhile keeps it", async () => {
+    asPartnerAdmin();
+    db.user.findFirst.mockResolvedValue({ id: "user-x", email: "x@example.org" });
+    inScope.mockResolvedValue(false);
+    db.user.count.mockResolvedValue(1); // claimable when checked
+    holds([]);
+    db.projectProfile.findUnique
+      .mockResolvedValueOnce(null) // the check
+      .mockResolvedValueOnce({ organisationId: "org-b", profileCompletedAt: new Date() }); // inside the transaction
+    await expect(addMember("x@example.org", "LEARNER", "Kim")).resolves.toEqual({ ok: false, error: "changed" });
+    expect(setPersonOrganisation).not.toHaveBeenCalled();
+    expect(db.$queryRaw).toHaveBeenCalled();
   });
 });
