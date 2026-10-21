@@ -62,9 +62,23 @@ describe("the Account page's profile (spec 5.7)", () => {
     expect(text).toContain("Country Germany");
     expect(text).toContain("Organisation Pro Arbeit");
     expect(text).toContain("Terms of use accepted on November 21, 2026 (version 2026-11-20).");
-    expect(text).toContain("Age rule confirmed on November 21, 2026.");
+    expect(text).toContain("You confirmed your age on November 21, 2026.");
   });
 
+  it("names no version while the Terms accepted carried none", () => {
+    const { text } = render({ ...PROFILE, termsVersion: null });
+    expect(text).toContain("Terms of use accepted on November 21, 2026.");
+    expect(text).not.toMatch(/version/i);
+    for (const lang of ["de", "el"] as const) expect(render({ ...PROFILE, termsVersion: null }, lang).text).not.toMatch(/Version|έκδοση/);
+  });
+
+  it("says in plain words what an invited learner confirmed", () => {
+    expect(render({ ...PROFILE, ageRule: "INVITED_WITH_GUARDIAN_CONSENT" }).text).toContain(
+      "You confirmed on November 21, 2026 that you have your parent's or guardian's permission."
+    );
+    expect(render(PROFILE, "de").text).toContain("Du hast am 21. November 2026 dein Alter bestätigt.");
+    expect(render(PROFILE, "el").text).toContain("Επιβεβαίωσες την ηλικία σου στις 21 Νοεμβρίου 2026.");
+  });
 
   it("says name and country are changed by asking, linking the privacy notice", () => {
     const { html, text } = render(PROFILE);

@@ -42,8 +42,8 @@
     "country": "Country",
     "organisation": "Organisation",
     "organisationNone": "Not linked to a partner organisation yet.",
-    "termsAccepted": "Terms of use accepted on {date} (version {version}).",
-    "ageConfirmed": "Age rule confirmed on {date}.",
+    "termsAccepted": "{versioned, select, true {Terms of use accepted on {date} (version {version}).} other {Terms of use accepted on {date}.}}",
+    "ageConfirmed": "{rule, select, invited {You confirmed on {date} that you have your parent's or guardian's permission.} other {You confirmed your age on {date}.}}",
     "changeDetails": "You can't change your name or country here. To change them, contact us (see the <privacy>privacy notice</privacy>) or ask your partner organisation to pass the request on.",
     "notes": "Notes that staff write about you are in your data download.",
     "alwaysSee": "Whatever you choose, the facilitators at {organisation} and the DIESIS and SENIC staff who run the platform always see your name and email, your progress, your last activity, the time you spend on each lesson, your quiz and video-question results and the choices you make in exercises.",
@@ -643,7 +643,7 @@
       "guardianNeeded": "You can share your Comp Card once {organisation} confirms that your parent's or guardian's permission covers it.",
       "failed": "Your choice didn't save. Please try again."
     },
-    "charsLeft": "{count} characters left",
+    "charsLeft": "{count, plural, one {# character left} other {# characters left}}",
     "tooLong": "This is too long to save. Shorten it to {max} characters."
   },
   "gamification": {
@@ -1382,7 +1382,7 @@
   },
   "guestWork": {
     "title": "Work saved on this browser before you signed in",
-    "summary": "{n, plural, =0 {No course progress} other {{courses}}}. Comp Card: {compCard, select, true {yes} other {no}}.",
+    "summary": "{n, plural, =0 {No course progress} other {{courses}}}. Comp Card: {compCard, select, true {yes} other {no}}. Badges: {badges}.",
     "add": "Add it to my account",
     "remove": "Remove it from this browser",
     "added": "Added to your account.",

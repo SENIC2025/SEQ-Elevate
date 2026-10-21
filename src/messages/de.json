@@ -42,8 +42,8 @@
     "country": "Land",
     "organisation": "Organisation",
     "organisationNone": "Noch keiner Partnerorganisation zugeordnet.",
-    "termsAccepted": "Nutzungsbedingungen akzeptiert am {date} (Version {version}).",
-    "ageConfirmed": "Altersregel bestätigt am {date}.",
+    "termsAccepted": "{versioned, select, true {Nutzungsbedingungen akzeptiert am {date} (Version {version}).} other {Nutzungsbedingungen akzeptiert am {date}.}}",
+    "ageConfirmed": "{rule, select, invited {Du hast am {date} bestätigt, dass du die Erlaubnis deiner Eltern oder deines Vormunds hast.} other {Du hast am {date} dein Alter bestätigt.}}",
     "changeDetails": "Deinen Namen und dein Land kannst du hier nicht ändern. Wenn du sie ändern möchtest, kontaktiere uns (siehe die <privacy>Datenschutzhinweise</privacy>) oder bitte deine Partnerorganisation, die Anfrage weiterzugeben.",
     "notes": "Notizen, die Mitarbeitende über dich schreiben, sind in deinem Daten-Download.",
     "alwaysSee": "Egal, was du wählst: Die Trainer:innen bei {organisation} und die Mitarbeitenden von DIESIS und SENIC, die die Plattform betreiben, sehen immer deinen Namen und deine E-Mail-Adresse, deinen Fortschritt, deine letzte Aktivität, wie lange du an jeder Lektion arbeitest, deine Ergebnisse in Quiz und Videofragen und deine Entscheidungen in den Übungen.",
@@ -643,7 +643,7 @@
       "guardianNeeded": "Du kannst deine Comp Card teilen, sobald {organisation} bestätigt, dass die Erlaubnis deiner Eltern oder deines Vormunds das abdeckt.",
       "failed": "Deine Auswahl wurde nicht gespeichert. Bitte versuch es noch einmal."
     },
-    "charsLeft": "Noch {count} Zeichen",
+    "charsLeft": "Noch {count, plural, one {# Zeichen} other {# Zeichen}}",
     "tooLong": "Das ist zu lang zum Speichern. Kürze es auf {max} Zeichen."
   },
   "gamification": {
@@ -1382,7 +1382,7 @@
   },
   "guestWork": {
     "title": "Arbeit, die vor deiner Anmeldung in diesem Browser gespeichert wurde",
-    "summary": "{n, plural, =0 {Kein Kursfortschritt} other {{courses}}}. Comp Card: {compCard, select, true {ja} other {nein}}.",
+    "summary": "{n, plural, =0 {Kein Kursfortschritt} other {{courses}}}. Comp Card: {compCard, select, true {ja} other {nein}}. Abzeichen: {badges}.",
     "add": "Zu meinem Konto hinzufügen",
     "remove": "Aus diesem Browser entfernen",
     "added": "Zu deinem Konto hinzugefügt.",
