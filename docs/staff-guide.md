@@ -1,6 +1,6 @@
 # Staff guide — people, learners and statistics
 
-This guide is for staff of DIESIS, Pro Arbeit, Synthesis and University of Macedonia. It describes the staff areas as they work on 20 October 2026 and their current limits. It also says what changes on 20 November, before the pilot starts on 1 December. How to build courses is in the *Lesson editor partner guide*.
+This guide is for staff of DIESIS, Pro Arbeit, Synthesis and University of Macedonia. It describes the staff areas as they work on 20 October 2026 and their current limits. It also says what changes with Release 2, planned for deploy on Tue 10 November 2026, and on 20 November, before the pilot starts on 1 December. Where Release 2 changes what a screen shows, the text says **From 10 November**; those changes apply from the Release 2 deploy. How to build courses is in the *Lesson editor partner guide*.
 
 ## Sign in
 
@@ -110,7 +110,7 @@ Today every facilitator and admin sees **all learners of all partners**. This ch
 ### The figures at the top
 
 - **Cohort completion**: the average progress of all learners in the list, and how many finished every course they started. Learners who haven't started count as 0%.
-- **Active in the last 24h**: learners whose **Last active** is within the 24 hours before you opened the page. A learner who opened a course but saved nothing new isn't counted; Statistics, which also counts opening a course, can show them as seen more recently.
+- **Active in the last 24h**: until 10 November, despite its name, this counts learners who have made any progress at any time. To see recent activity, use **Last active** or Statistics. **From 10 November**: learners whose **Last active** is within the 24 hours before you opened the page. A learner who opened a course but saved nothing new isn't counted; Statistics, which also counts opening a course, can show them as seen more recently.
 - **Comp Cards submitted**: learners who have saved a Comp Card. The card saves as they type, so unfinished cards count too.
 - **Needs attention**: learners who have started, are below 50% and haven't finished. It doesn't look at when they were last active.
 
@@ -120,6 +120,7 @@ Press **Open learner** on a row to see details.
 
 - Name, email, and progress across the courses they started.
 - **Activity & performance**: **Currently on** (the next lesson in their latest course), **Time on task**, **Last active**, and time per lesson.
+  - **From 10 November**, **Currently on** shows the name the course gives that step, following the course's own order and its own lessons, and "—" when there is no lesson to name. Time per lesson lists the seven standard lessons, plus **Other lessons** for time spent in lessons a course added of its own, so the rows add up to the time on task.
 - Results as right/total: **Assessment** (quick checks), **Practice** (guided practice) and **Video** (questions inside videos).
 - Their **Comp Card**, as below. You don't see their answers to reflection questions in courses.
 
@@ -164,6 +165,8 @@ This means "Only me" doesn't hide the whole card yet. Read only what you need. T
 
 The charts use the standard lesson names. "Simulation" is guided practice, and "Assessment" is the quick check.
 
+**From 10 November**, a learner who is on one of a course's own lessons is counted in an extra **Other lessons** bar of the funnel and shows as "Other lesson" under **Currently on**; time in such lessons is an **Other lessons** column in **Time per lesson**. The funnel still counts them on the standard lessons they finished. Figures for each lesson of a course's own come later.
+
 - **Course progress funnel**: how many learners reached each of the seven standard lessons, and how many finished. "biggest drop-off" marks the step where the number falls most from the step before.
 - **Where they get stuck**: that drop-off, the slowest lesson, and how many learners are part-way through a course and haven't been active for 3 days or more.
 - **Time per lesson**: average active time per lesson. Time when the browser tab is hidden doesn't count.
@@ -176,6 +179,16 @@ The charts use the standard lesson names. "Simulation" is guided practice, and "
 Every staff member has **My learning**, with courses, badges and a Comp Card saved to your account. Since 13 October, your progress doesn't appear in Support learners or Statistics, and nobody can write notes about you. If all your staff roles are removed, you become a learner and your progress counts.
 
 **Your account** (the person icon in the top bar) has **Download my data** and **Delete my account**. If you delete a staff account, the notes you wrote are deleted too.
+
+## What changes on 10 November (Release 2)
+
+These apply from the Release 2 deploy, planned for Tue 10 November 2026.
+
+- **Courses as built:** learners get a created course as its editors built it: its own lessons and step names, its order, the content added to lessons. Hidden lessons are left out. **Preview as learner** shows exactly this.
+- **Progress** counts each course's lessons as learners get them. A finished lesson that is later hidden still counts, so hiding never lowers anyone's progress. A finished course stays at 100%.
+- **Learners carry on where they stopped:** a signed-in learner opens a course at the first lesson they haven't done, with their practice and scenario answers kept.
+- **Support learners and Statistics:** the new meaning of **Active in the last 24h**, step names under **Currently on**, and **Other lessons** for the lessons a course added of its own, as described above.
+- **Courses with learners:** an editor confirms changes to a course people are taking, and from 1 December its lessons and content can no longer be added, moved or removed. The *Lesson editor partner guide* has the details.
 
 ## What changes on 20 November
 
