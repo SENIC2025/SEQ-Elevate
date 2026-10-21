@@ -281,16 +281,22 @@ describe("RealFacilitatorView: the Comp Card, as shared with the viewer (UC1)", 
 
 describe("RealFacilitatorView: the scenario choice is in the Activity panel (D82)", () => {
   it("shows the choice the learner made, with the quiz and practice results", () => {
-    const html = panel({ scenario: "Speak to Sam in private → Tell Sam it's fine" });
+    const html = panel({ scenario: [{ text: "Speak to Sam in private" }, { text: "Tell Sam it's fine" }] });
     const quiz = html.indexOf(`${en.facilitator.quizPractice}:`);
     const scenario = html.indexOf(en.course.stageLabel.scenario);
     expect(scenario).toBeGreaterThan(-1);
     expect(quiz).toBeGreaterThan(-1);
-    expect(html.replace(/&#x27;/g, "'")).toContain("Speak to Sam in private → Tell Sam it's fine");
+    expect(html.replace(/<!-- -->/g, "").replace(/<[^>]*>/g, "").replace(/&#x27;/g, "'")).toContain(
+      "Speak to Sam in private → Tell Sam it's fine"
+    );
   });
 
-  it("shows a dash before the learner has made one", () => {
-    expect(panel({ scenario: null })).toMatch(new RegExp(`${en.course.stageLabel.scenario}:?</span>\\s*(<!-- -->)?\\s*—`));
+  it("marks a part of the choice written in another language than the page's (WCAG 3.1.2)", () => {
+    // Review R3: a created course's choice not translated yet reads in
+    // English on a German page.
+    const html = panel({ scenario: [{ text: "Sam unter vier Augen ansprechen" }, { text: "Tell Sam it's fine", lang: "en" }] });
+    expect(html.replace(/&#x27;/g, "'")).toContain('<span lang="en">Tell Sam it\'s fine</span>');
+    expect(html).toMatch(/<span>Sam unter vier Augen ansprechen<\/span>/);
   });
 });
 

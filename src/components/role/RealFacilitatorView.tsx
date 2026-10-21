@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState } from "react";
+import { Fragment, useId, useState } from "react";
 import { useTranslations, useLocale } from "next-intl";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -684,10 +684,18 @@ export function ActivityPanel({ learner }: { learner: FacilitatorLearner }) {
       </div>
 
       {/* The choice made in the applied scenario: progress, which the
-          learner's organisation always sees (D82), not Comp Card text. */}
+          learner's organisation always sees (D82), not Comp Card text. Each
+          part in the language it is written in (WCAG 3.1.2). */}
       <p className="mt-3 text-xs text-[var(--muted-foreground)]">
         <span className="font-medium text-[var(--foreground)]">{tStage("scenario")}:</span>{" "}
-        {learner.scenario ?? "—"}
+        {learner.scenario
+          ? learner.scenario.map((part, i) => (
+              <Fragment key={i}>
+                {i ? " → " : null}
+                <span lang={part.lang}>{part.text}</span>
+              </Fragment>
+            ))
+          : "—"}
       </p>
     </div>
   );

@@ -63,6 +63,8 @@ const organisationFindFirst = vi.fn(async (): Promise<unknown> => ({ name: "Pro 
 const courseCount = vi.fn(async () => 0);
 // The Comp Card template (Project.compCardTemplate): nothing hidden by default.
 const projectFindUnique = vi.fn(async (): Promise<unknown> => ({ compCardTemplate: null }));
+// The stored exercise of a created course's applied scenario (Lesson.structure): none by default.
+const lessonFindMany = vi.fn(async (): Promise<unknown[]> => []);
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     membership: { findMany: membershipFindMany, count: membershipCount },
@@ -72,6 +74,7 @@ vi.mock("@/lib/prisma", () => ({
     organisation: { count: organisationCount, findFirst: organisationFindFirst },
     course: { count: courseCount },
     project: { findUnique: projectFindUnique },
+    lesson: { findMany: lessonFindMany },
   },
 }));
 const currentUser = vi.fn(async (): Promise<{ id: string } | null> => null);
@@ -90,6 +93,9 @@ vi.mock("@/lib/cms/lesson-plans", () => ({
 
 afterEach(() => {
   learnerEnrolments.mockImplementation(() => enrollments);
+  getCourse.mockImplementation(narrativeCourse);
+  lessonFindMany.mockClear();
+  lessonFindMany.mockImplementation(async () => []);
   viewerRoles.mockImplementation(async () => [{ role: "FACILITATOR" }]);
   projectFindUnique.mockImplementation(async () => ({ compCardTemplate: null }));
   auditFindMany.mockImplementation(async () => []);
@@ -99,13 +105,15 @@ afterEach(() => {
 });
 
 const NARRATIVE: StageKey[] = ["context", "concept", "behaviour", "reflection"];
+const narrativeCourse = async (_project: string, slug: string) =>
+  ({
+    slug,
+    title: slug,
+    stages: NARRATIVE.map((key) => ({ key, title: key })),
+  }) as unknown as CourseContent;
+const getCourse = vi.fn(narrativeCourse);
 vi.mock("@/lib/cms", () => ({
-  getCourse: async (_project: string, slug: string) =>
-    ({
-      slug,
-      title: slug,
-      stages: NARRATIVE.map((key) => ({ key, title: key })),
-    }) as unknown as CourseContent,
+  getCourse: (project: string, slug: string) => getCourse(project, slug),
 }));
 
 const { getProjectLearners: learnersFor, getAdminCounts, getLearnerEnrollments, scopeOrganisationName } = await import(
@@ -623,5 +631,117 @@ describe("scopeOrganisationName (SP1: the facilitator page's empty organisation)
     await expect(scopeOrganisationName(ORG_A)).resolves.toBeNull();
     organisationFindFirst.mockImplementation(async () => null);
     await expect(scopeOrganisationName(ORG_A)).resolves.toBeNull();
+  });
+});
+
+describe("getProjectLearners: the scenario choice, in the language it is written in (WCAG 3.1.2)", () => {
+  // Review R3: a created course's choices fall back field by field to
+  // English (or the first language written), so on a German page a choice
+  // not translated yet is English, and its element says so. A bundled
+  // course's choices are in every language.
+  const chose = (slug: string) =>
+    ({
+      ...flexible(["CONTEXT"], null),
+      course: { slug, cluster: "resilience" },
+      scenarioRoot: "private",
+      scenarioFollowup: "boundary",
+    }) as unknown as Enrolment;
+  /** The course as getCourse resolves it in German: the follow-up has no German, so it reads in English. */
+  const resolved = async (_project: string, slug: string) =>
+    ({
+      slug,
+      title: slug,
+      stages: [
+        ...NARRATIVE.map((key) => ({ key, title: key })),
+        {
+          key: "scenario",
+          title: "Anwendung",
+          scenario: {
+            choices: [
+              {
+                id: "private",
+                text: "Unter vier Augen",
+                followups: [{ id: "boundary", text: "Set a boundary" }],
+              },
+            ],
+          },
+        },
+      ],
+    }) as unknown as CourseContent;
+  /** The exercise as stored: the follow-up written in English only (its German typed, then cleared). */
+  const stored = {
+    courseSlug: "saying-no",
+    structure: {
+      kind: "scenario",
+      choices: [
+        {
+          id: "private",
+          text: { en: "In private", de: "Unter vier Augen" },
+          followups: [{ id: "boundary", text: { en: "Set a boundary", de: "  " } }],
+        },
+      ],
+    },
+  };
+
+  it("marks a part of the choice that isn't in the page's language", async () => {
+    getCourse.mockImplementation(resolved);
+    lessonFindMany.mockImplementation(async () => [stored]);
+    learnerEnrolments.mockImplementation(() => [chose("saying-no")]);
+    const [learner] = (await getProjectLearners("de")) ?? [];
+    expect(learner.scenario).toEqual([{ text: "Unter vier Augen" }, { text: "Set a boundary", lang: "en" }]);
+    expect(lessonFindMany).toHaveBeenCalledWith({
+      where: { projectId: "seq-elevate", courseSlug: { in: ["saying-no"] }, stageKey: "scenario" },
+      select: { courseSlug: true, structure: true },
+    });
+  });
+
+  it("marks nothing when every part is in the page's language", async () => {
+    getCourse.mockImplementation(resolved);
+    lessonFindMany.mockImplementation(async () => [stored]);
+    learnerEnrolments.mockImplementation(() => [chose("saying-no")]);
+    const [learner] = (await getProjectLearners("en")) ?? [];
+    expect(learner.scenario).toEqual([{ text: "Unter vier Augen" }, { text: "Set a boundary" }]);
+  });
+
+  it("names the first language written when there is no English either", async () => {
+    getCourse.mockImplementation(resolved);
+    lessonFindMany.mockImplementation(async () => [
+      {
+        ...stored,
+        structure: {
+          kind: "scenario",
+          choices: [{ id: "private", text: { el: "Ιδιαιτέρως", de: "Unter vier Augen" } }],
+        },
+      },
+    ]);
+    learnerEnrolments.mockImplementation(() => [{ ...chose("saying-no"), scenarioFollowup: null }]);
+    const [learner] = (await getProjectLearners("en")) ?? [];
+    expect(learner.scenario).toEqual([{ text: "Unter vier Augen", lang: "el" }]);
+  });
+
+  it("asks nothing for a bundled course, whose text is in every language", async () => {
+    getCourse.mockImplementation(resolved);
+    learnerEnrolments.mockImplementation(() => [chose("workplace-conflict")]);
+    const [learner] = (await getProjectLearners("de")) ?? [];
+    expect(learner.scenario).toEqual([{ text: "Unter vier Augen" }, { text: "Set a boundary" }]);
+    expect(lessonFindMany).not.toHaveBeenCalled();
+  });
+
+  it("still lists the learner, unmarked, when the stored texts can't be read", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    getCourse.mockImplementation(resolved);
+    lessonFindMany.mockImplementation(async () => {
+      throw new TypeError("down");
+    });
+    learnerEnrolments.mockImplementation(() => [chose("saying-no")]);
+    const [learner] = (await getProjectLearners("de")) ?? [];
+    expect(learner.scenario).toEqual([{ text: "Unter vier Augen" }, { text: "Set a boundary" }]);
+    expect(console.error).toHaveBeenCalledWith("[facilitator] couldn't read the scenario texts' languages: TypeError");
+  });
+
+  it("has no choice before the learner made one", async () => {
+    const [learner] = (await getProjectLearners("de")) ?? [];
+    expect(learner.scenario).toBeNull();
+    expect(lessonFindMany).not.toHaveBeenCalled();
   });
 });
