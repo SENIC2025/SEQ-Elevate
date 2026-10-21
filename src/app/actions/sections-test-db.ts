@@ -23,6 +23,9 @@ export type Row = {
   documents: { id: string; url: string; published?: boolean }[];
 };
 
+/** A queued course file (PendingFileDeletion, D92). */
+export type Pending = { url: string; reason: string; queuedAt: Date };
+
 export const db: {
   roles: string[];
   admin: boolean;
@@ -35,6 +38,12 @@ export const db: {
   /** Learners with any trace of a lesson, by lesson id (learnersWithData). */
   withData: Record<string, number>;
   audit: { action: string; entity: string; entityId: string; metadata?: unknown }[];
+  /** Course files queued for the admin run (blob-files.ts), by URL. */
+  pending: Pending[];
+  /** URLs queued outside any transaction (the queue must share the editor's). */
+  queuedOutside: string[];
+  /** Open transactions. */
+  txDepth: number;
   /** Locks and lesson-row touches, in call order. */
   log: string[];
 } = {
@@ -47,6 +56,9 @@ export const db: {
   finished: 0,
   withData: {},
   audit: [],
+  pending: [],
+  queuedOutside: [],
+  txDepth: 0,
   log: [],
 };
 
@@ -168,6 +180,52 @@ export const prisma = {
       r?.documents.push({ id, url: data.url });
       return { id };
     }),
+    findUnique: vi.fn(async ({ where }: { where: { id: string } }) => {
+      for (const l of db.lessons) {
+        const d = l.documents.find((x) => x.id === where.id);
+        if (d) return { ...d, lesson: { courseSlug: "my-course", stageKey: l.stageKey } };
+      }
+      return null;
+    }),
+    updateMany: vi.fn(async ({ where, data }: { where: { id: string }; data: { published?: boolean } }) => {
+      let count = 0;
+      for (const l of db.lessons) {
+        for (const d of l.documents) {
+          if (d.id !== where.id) continue;
+          Object.assign(d, data);
+          count += 1;
+        }
+      }
+      return { count };
+    }),
+    deleteMany: vi.fn(async ({ where }: { where: { id: string } }) => {
+      let count = 0;
+      for (const l of db.lessons) {
+        const before = l.documents.length;
+        l.documents = l.documents.filter((d) => d.id !== where.id);
+        count += before - l.documents.length;
+      }
+      return { count };
+    }),
+  },
+  pendingFileDeletion: {
+    upsert: vi.fn(
+      async ({
+        where,
+        create,
+        update,
+      }: {
+        where: { url: string };
+        create: Omit<Pending, "queuedAt"> & { queuedAt?: Date };
+        update: Partial<Pending>;
+      }) => {
+        if (db.txDepth === 0) db.queuedOutside.push(where.url);
+        const found = db.pending.find((p) => p.url === where.url);
+        if (found) Object.assign(found, update);
+        else db.pending.push({ queuedAt: new Date(), ...create });
+        return {};
+      }
+    ),
   },
   courseEnrollment: {
     count: vi.fn(async (args?: { where?: { completedAt?: unknown } }) => {
@@ -186,13 +244,17 @@ export const prisma = {
   },
   // A failed transaction leaves no trace, as in Postgres.
   $transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => {
-    const before = structuredClone({ course: db.course, lessons: db.lessons });
+    const before = structuredClone({ course: db.course, lessons: db.lessons, pending: db.pending });
+    db.txDepth += 1;
     try {
       return await fn(prisma);
     } catch (error) {
       db.course = before.course;
       db.lessons = before.lessons;
+      db.pending = before.pending;
       throw error;
+    } finally {
+      db.txDepth -= 1;
     }
   }),
 };
@@ -213,6 +275,9 @@ export function reset() {
   db.finished = 0;
   db.withData = {};
   db.audit = [];
+  db.pending = [];
+  db.queuedOutside = [];
+  db.txDepth = 0;
   db.log = [];
   vi.clearAllMocks();
 }

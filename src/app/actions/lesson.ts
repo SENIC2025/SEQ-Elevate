@@ -2,8 +2,8 @@
 
 /**
  * Lesson authoring — attach an interactive video and/or upload documents to a
- * (course, stage) lesson. RBAC-gated: only ADMIN / CONTENT_EDITOR of the
- * project may write. Read at render time by the lesson overlay (see
+ * (course, stage) lesson. RBAC-gated: only the project's editors (ADMIN,
+ * CONTENT_EDITOR, PARTNER_ADMIN: canEditContent) may write. Read at render time by the lesson overlay (see
  * src/lib/cms/lesson-overlay.ts). The course player is dynamic, so changes
  * show on the next load — no revalidation needed.
  */
@@ -42,27 +42,49 @@ async function requireEditor() {
   return canEditContent(roles) ? user : null;
 }
 
-// Publishing is a lighter "release" control teachers run for their cohort, so
-// facilitators may toggle it too (not just content authors).
-async function requirePublisher() {
-  const user = await getCurrentUser();
-  if (!user) return null;
-  const roles = (await getProjectMemberships(PROJECT)).map((m) => m.role);
-  return canEditContent(roles) || roles.includes("FACILITATOR") ? user : null;
-}
-
-/** Publish or unpublish a document (controls learner visibility). */
+/**
+ * Publish or withdraw a document (whether learners see it). Editors only
+ * (D76, spec 3.4 SP33): a document is part of the course every partner's
+ * learners take, so a facilitator of one organisation can't withdraw it
+ * for all the others. Each change is audited.
+ */
 export async function setLessonDocumentPublished(
   documentId: string,
   published: boolean
 ) {
-  const publisher = await requirePublisher();
-  if (!publisher) return { ok: false as const, error: "forbidden" };
-  await prisma.lessonDocument.updateMany({
+  const editor = await requireEditor();
+  if (!editor) return { ok: false as const, error: "forbidden" };
+  if (typeof documentId !== "string" || typeof published !== "boolean") {
+    return { ok: false as const, error: "bad-input" };
+  }
+  const { count } = await prisma.lessonDocument.updateMany({
     where: { id: documentId },
     data: { published },
   });
+  if (count > 0) {
+    await auditDocument(editor.id, published ? "document.published" : "document.unpublished", documentId);
+  }
   return { ok: true as const };
+}
+
+/** A document added, removed, published or withdrawn (spec 10.4): who, and which one. */
+async function auditDocument(
+  actorId: string,
+  action: "document.added" | "document.removed" | "document.published" | "document.unpublished",
+  documentId: string,
+  metadata: Prisma.InputJsonValue = {},
+  client: Pick<Prisma.TransactionClient, "auditLog"> = prisma
+) {
+  await client.auditLog.create({
+    data: {
+      projectId: PROJECT,
+      actorId,
+      action,
+      entity: "LessonDocument",
+      entityId: documentId,
+      metadata,
+    },
+  });
 }
 
 function lessonKey(courseSlug: string, stageKey: string) {

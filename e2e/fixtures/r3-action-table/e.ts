@@ -57,18 +57,12 @@ export const rows: Row[] = [
   ),
 
   /* -------------------------------------------------------- lesson.ts --- */
-  {
-    kind: "call",
-    file: LESSON,
-    name: "setLessonDocumentPublished",
-    page: coursePage,
-    args: (c) => [c.world.course.documentId, false],
-    refuse: ["LA1", "anonymous"],
-    outcome: forbidden,
-    tables: COURSE_TABLES,
-    pending: { personas: ["FA", "FB", "FN", "FI"], by: "Stream E: editors only publish documents (SP33, D76)" },
-    why: "a document is published or withdrawn by its course's editors only",
-  },
+  refused(
+    LESSON,
+    "setLessonDocumentPublished",
+    (c) => [c.world.course.documentId, false],
+    "a document is published or withdrawn by its course's editors only (SP33, D76), never a facilitator"
+  ),
   refused(
     LESSON,
     "saveLessonVideo",

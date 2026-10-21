@@ -25,6 +25,7 @@ const {
   clearLessonVideo,
   addLessonDocument,
   getLessonMedia,
+  setLessonDocumentPublished,
 } = await import("./lesson");
 
 const SLUG = "my-course";
@@ -131,5 +132,49 @@ describe("the media actions", () => {
     db.course!.outline = null;
     expect(await getLessonMedia(SLUG, OWN)).toEqual({ video: null, documents: [] });
     expect(await getLessonMedia("../x", "context")).toEqual({ video: null, documents: [] });
+  });
+});
+
+/*
+ * Release 3 (SP33, D76): a lesson document is published or withdrawn by
+ * the course's editors only (editors, partner admins, ADMINs). Before,
+ * a facilitator of any organisation could withdraw a document every
+ * organisation's learners use. Each change is audited.
+ */
+describe("setLessonDocumentPublished", () => {
+  const withDocument = () => {
+    db.lessons = [row("context", { documents: [{ id: "doc-1", url: "https://blob.example/a.pdf", published: true }] })];
+  };
+  const published = () => db.lessons[0].documents[0].published;
+
+  it.each([["FACILITATOR"], ["LEARNER"]])("refuses a %s: nothing changes, nothing is logged", async (role) => {
+    withDocument();
+    db.roles = [role];
+    expect(await setLessonDocumentPublished("doc-1", false)).toEqual({ ok: false, error: "forbidden" });
+    expect(published()).toBe(true);
+    expect(db.audit).toEqual([]);
+  });
+
+  it.each([["CONTENT_EDITOR"], ["PARTNER_ADMIN"], ["ADMIN"]])("lets a %s withdraw and publish it, each audited", async (role) => {
+    withDocument();
+    db.roles = [role];
+    expect(await setLessonDocumentPublished("doc-1", false)).toEqual({ ok: true });
+    expect(published()).toBe(false);
+    expect(await setLessonDocumentPublished("doc-1", true)).toEqual({ ok: true });
+    expect(published()).toBe(true);
+    expect(db.audit.map((a) => [a.action, a.entity, a.entityId])).toEqual([
+      ["document.unpublished", "LessonDocument", "doc-1"],
+      ["document.published", "LessonDocument", "doc-1"],
+    ]);
+  });
+
+  it("refuses what no form sends, and logs nothing for a document that isn't there", async () => {
+    withDocument();
+    expect(await setLessonDocumentPublished("doc-1", "no" as unknown as boolean)).toEqual({
+      ok: false,
+      error: "bad-input",
+    });
+    expect(await setLessonDocumentPublished("doc-9", false)).toEqual({ ok: true });
+    expect(db.audit).toEqual([]);
   });
 });
