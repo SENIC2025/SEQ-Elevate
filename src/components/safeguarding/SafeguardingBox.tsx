@@ -11,7 +11,9 @@ import { LifeBuoy } from "lucide-react";
  *
  * The Foundation's stub: 112, the fallback line and a link to every
  * country's contacts on /help. Stream F adds the contacts an ADMIN saves
- * (Project.safeguarding), the learner's own country first.
+ * (Project.safeguarding), the learner's own country first. Until /help is
+ * in this tree the link isn't prefetched: the not-found answer to a
+ * prefetch never completes, and the page never settles.
  */
 export function SafeguardingBox() {
   const t = useTranslations("safeguarding");
@@ -29,7 +31,7 @@ export function SafeguardingBox() {
         <p className="mt-2">{t("emergency")}</p>
         <p className="mt-1 text-[var(--muted-foreground)]">{t("fallback")}</p>
         <p className="mt-2">
-          <Link href="/help" className="inline-flex min-h-6 items-center underline">
+          <Link href="/help" prefetch={false} className="inline-flex min-h-6 items-center underline">
             {t("allContacts")}
           </Link>
         </p>
