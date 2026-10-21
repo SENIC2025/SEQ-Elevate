@@ -110,6 +110,17 @@ const LEARNER_CALLABLE = [
 ];
 /** Release 3's own learner actions, named by the spec before their code exists. */
 const RELEASE_3_LEARNER_ACTIONS = ["profile.completed", "compcard.sharing_changed"];
+/**
+ * Release 3's learner actions that migration B's list doesn't name: no row
+ * of them can exist when its backfill runs (it runs before any Release 3
+ * code), so leaving them out of the list changes nothing. Each with why it
+ * is learner-caused.
+ */
+const AFTER_MIGRATION_B: Record<string, string> = {
+  // completeProfile, when the country a learner picks doesn't match a
+  // partner admin's organisation (spec 5.4 (c)).
+  "profile.organisation_released": "the learner's own profile step",
+};
 
 function learnerActionLiterals(): Set<string> {
   const found = new Set<string>();
@@ -269,6 +280,10 @@ describe("the Release 3 migrations", () => {
     const list = /"action" NOT IN \(([^)]*)\)/.exec(audit ?? "")?.[1] ?? "";
     const inMigration = new Set([...list.matchAll(/'([^']+)'/g)].map((m) => m[1]));
     const inCode = new Set([...learnerActionLiterals(), ...RELEASE_3_LEARNER_ACTIONS]);
+    for (const action of Object.keys(AFTER_MIGRATION_B)) {
+      expect(inMigration.has(action), `${action} is in the migration's list`).toBe(false);
+      inCode.delete(action);
+    }
     expect([...inMigration].sort()).toEqual([...inCode].sort());
     // The files were found and read: today's learner actions are among them.
     for (const action of ["course.opened", "stage.time", "video.cue_answered", "account.exported", "account.deleted"]) {
