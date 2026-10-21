@@ -370,7 +370,14 @@ describe("Release 3: German and Greek, switched on per course (D90)", () => {
 
   test("E-E3: switching a language is asked, logged and refused to anyone who may not", async ({ page, context, request }) => {
     await setReady(prisma, LANG.slug, []);
-    const started = new Date(Date.now() - 1000);
+    // The course's switches logged before this test (E-E1 switches German
+    // on moments earlier): only rows written after these count.
+    const earlier = (
+      await prisma.auditLog.findMany({
+        where: { projectId: PROJECT, entityId: LANG.slug, action: { startsWith: "course.language_" } },
+        select: { id: true },
+      })
+    ).map((row) => row.id);
     await signIn(context, paa.sessionToken);
 
     // Greek has no lessons written: switching it on asks first.
@@ -398,7 +405,7 @@ describe("Release 3: German and Greek, switched on per course (D90)", () => {
         projectId: PROJECT,
         entityId: LANG.slug,
         action: { startsWith: "course.language_" },
-        createdAt: { gte: started },
+        id: { notIn: earlier },
       },
       select: { action: true, actorId: true, metadata: true },
     });
