@@ -9,6 +9,7 @@ import {
   profileRules,
   type ProfileContext,
 } from "./profile";
+import { getLegal } from "@/data/legal";
 
 // Consent can be asked for only once the consent text is final (a draft's
 // version starts "draft-", r3-switches.ts): these tests read the rules as
@@ -189,7 +190,10 @@ describe("isProfileComplete", () => {
 
 describe("profileRules and the Terms version", () => {
   it("measures against the current English Terms version and PROFILE_CONSENT", () => {
-    expect(currentTermsVersion()).toBe(UNVERSIONED_TERMS);
+    // The English Terms text's own version (spec 12.2): "pre-counsel" until
+    // counsel's text arrives, then counsel's, with no change here.
+    expect(currentTermsVersion()).toBe(getLegal("terms", "en")?.version);
+    expect(currentTermsVersion()).not.toBe(UNVERSIONED_TERMS);
     expect(profileRules({})).toEqual({ termsVersion: currentTermsVersion(), consent: "off" });
     expect(profileRules({ PROFILE_CONSENT: "required" }).consent).toBe("required");
   });

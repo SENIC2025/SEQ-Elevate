@@ -1,16 +1,24 @@
 import { Link } from "@/i18n/navigation";
 import type { Locale } from "@/lib/cms/types";
-import type { LegalDocId } from "@/data/legal";
+import { LEGAL_DOCS, type LegalDocId } from "@/data/legal";
+import en from "@/messages/en.json";
+import de from "@/messages/de.json";
+import el from "@/messages/el.json";
+import { LifeBuoy } from "lucide-react";
 
 /**
- * Global footer with the legal links (acceptance item O7). Server component;
- * link labels are localised inline so a DE/EL page doesn't show English nav
- * even while the legal bodies await their official translation — the
- * links' landmark name too.
+ * Global footer (acceptance item O7): the "Need help?" link to every
+ * country's safeguarding contacts (D93, spec 11.3), first and in the same
+ * place on every page (WCAG 3.2.6), then the legal links. Server component
+ * that reads no database: it renders on prerendered pages too. The legal
+ * links are those of the documents that have a text (LEGAL_DOCS: the legal
+ * notice once its English text is in), labelled inline so a German or Greek
+ * page never shows English navigation, the links' landmark name included;
+ * the line naming who made the platform is in the page's language too.
  *
  * Each link is at least 24 px tall (WCAG 2.5.8 target size): on a phone,
- * in German, the four wrap onto two rows, and 16 px rows 4 px apart failed
- * axe on the player page at 320 px (spec 5.12).
+ * in German, the links wrap onto several rows, and 16 px rows 4 px apart
+ * failed axe on the player page at 320 px (spec 5.12).
  */
 
 const LABELS: Record<LegalDocId, Record<Locale, string>> = {
@@ -22,42 +30,69 @@ const LABELS: Record<LegalDocId, Record<Locale, string>> = {
     de: "Barrierefreiheit",
     el: "Προσβασιμότητα",
   },
+  // Greek to be confirmed by the partners (spec 12.3).
+  notice: { en: "Legal notice", de: "Impressum", el: "Νομική σημείωση" },
 };
-const ORDER: LegalDocId[] = ["privacy", "terms", "cookies", "accessibility"];
+const ORDER: LegalDocId[] = ["privacy", "terms", "cookies", "accessibility", "notice"];
 const NAV_LABEL: Record<Locale, string> = {
   en: "Legal and policies",
   de: "Rechtliches und Richtlinien",
   el: "Νομικά και πολιτικές",
 };
+/** safeguarding.footerLink, in each language. */
+const HELP: Record<Locale, string> = {
+  en: en.safeguarding.footerLink,
+  de: de.safeguarding.footerLink,
+  el: el.safeguarding.footerLink,
+};
+/** legal.poweredBy, in each language: the words before SENIC, whose name links to its site. */
+const MADE_BY: Record<Locale, string> = {
+  en: en.legal.poweredBy,
+  de: de.legal.poweredBy,
+  el: el.legal.poweredBy,
+};
+const SENIC = "SENIC";
+/** The words around SENIC's name in `loc`'s line (after the line if a wording leaves the name out). */
+function madeBy(loc: Locale): [string, string] {
+  const line = MADE_BY[loc];
+  const at = line.lastIndexOf(SENIC);
+  return at < 0 ? [`${line} `, ""] : [line.slice(0, at), line.slice(at + SENIC.length)];
+}
+
+const LINK = "inline-flex min-h-6 items-center text-xs text-[var(--muted-foreground)] hover:text-[var(--foreground)]";
 
 export function SiteFooter({ locale }: { locale: string }) {
   const loc = (["en", "de", "el"].includes(locale) ? locale : "en") as Locale;
+  const [beforeSenic, afterSenic] = madeBy(loc);
   return (
     <footer className="mt-auto border-t border-[var(--border)] bg-[var(--surface-muted)]">
       <div className="mx-auto max-w-6xl px-4 py-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <nav
-          aria-label={NAV_LABEL[loc]}
-          className="flex flex-wrap gap-x-4 gap-y-1"
-        >
-          {ORDER.map((doc) => (
-            <Link
-              key={doc}
-              href={`/legal/${doc}`}
-              className="inline-flex min-h-6 items-center text-xs text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
-            >
-              {LABELS[doc][loc]}
-            </Link>
-          ))}
-        </nav>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-6">
+          <Link
+            href="/help"
+            className="inline-flex min-h-6 items-center gap-1.5 text-xs font-medium text-[var(--foreground)] underline-offset-2 hover:underline"
+          >
+            <LifeBuoy className="h-3.5 w-3.5 text-[var(--accent)]" aria-hidden="true" />
+            {HELP[loc]}
+          </Link>
+          <nav aria-label={NAV_LABEL[loc]} className="flex flex-wrap gap-x-4 gap-y-1">
+            {ORDER.filter((doc) => LEGAL_DOCS.includes(doc)).map((doc) => (
+              <Link key={doc} href={`/legal/${doc}`} className={LINK}>
+                {LABELS[doc][loc]}
+              </Link>
+            ))}
+          </nav>
+        </div>
         <p className="text-xs text-[var(--muted-foreground)]">
-          SEQ Elevate · Created and powered by{" "}
+          {beforeSenic}
           <a
             href="https://senic.world"
             className="underline hover:text-[var(--foreground)]"
             rel="noopener noreferrer"
           >
-            SENIC
+            {SENIC}
           </a>
+          {afterSenic}
         </p>
       </div>
     </footer>

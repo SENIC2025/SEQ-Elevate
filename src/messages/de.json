@@ -1398,7 +1398,7 @@
   "safeguarding": {
     "title": "Brauchst du jemanden zum Reden?",
     "emergency": "Im Notfall: Ruf 112 an.",
-    "contactFor": "Ansprechstelle für {country}:",
+    "contactFor": "Ansprechstelle für {country, select, DE {Deutschland} CY {Zypern} BE {Belgien} GR {Griechenland} other {andere Länder}}:",
     "helpline": "Hilfetelefon:",
     "allContacts": "Ansprechstellen in allen Ländern",
     "fallback": "Sprich mit einer Person deines Vertrauens bei deiner Partnerorganisation.",
@@ -1412,6 +1412,7 @@
     "translationPending": "Die offizielle Übersetzung dieser Seite wird gerade fertiggestellt; bis dahin wird die englische Fassung angezeigt.",
     "toBeCompleted": "Vor dem Start zu ergänzen —",
     "version": "Version {version} · zuletzt aktualisiert am {date}",
+    "versionInterim": "Vorläufige Fassung · zuletzt aktualisiert am {date}",
     "poweredBy": "SEQ Elevate · Entwickelt und betrieben von SENIC"
   }
 }

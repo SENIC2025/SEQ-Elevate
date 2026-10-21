@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+import { getLegal, LEGAL_DOCS } from "../src/data/legal";
 
 /**
  * Automated WCAG 2.2 AA checks (axe-core) on key surfaces. Asserts no
@@ -43,19 +44,51 @@ test("Comp Card has no serious a11y violations", async ({ page }) => {
   expect(v, JSON.stringify(v.map((x) => x.id), null, 2)).toEqual([]);
 });
 
-test("legal pages render and have no serious a11y violations", async ({
+/*
+ * Release 3 (D94, spec 12.3; F-E4): every legal page that has a text, in
+ * English, German and Greek (English shown under German or Greek until the
+ * translation is in), and the German footer at 320 px with its six links.
+ */
+test("legal pages render and have no serious a11y violations, in en, de and el", async ({
   page,
 }) => {
-  for (const [doc, marker] of [
-    ["privacy", /who is responsible for your data/i],
-    ["terms", /using the platform/i],
-    ["cookies", /essential cookies only/i],
-    ["accessibility", /conformance/i],
-  ] as const) {
-    await page.goto(`/en/legal/${doc}`);
-    await expect(page.getByRole("heading", { name: marker }).first()).toBeVisible();
-    const v = await scan(page);
-    expect(v, `${doc}: ${JSON.stringify(v.map((x) => x.id))}`).toEqual([]);
+  test.setTimeout(120_000);
+  for (const locale of ["en", "de", "el"] as const) {
+    for (const doc of LEGAL_DOCS) {
+      await page.goto(`/${locale}/legal/${doc}`);
+      await expect(
+        page.getByRole("main").getByRole("heading", { level: 1, name: getLegal(doc, locale)!.title })
+      ).toBeVisible();
+      const v = await scan(page);
+      expect(v, `${locale}/${doc}: ${JSON.stringify(v.map((x) => x.id))}`).toEqual([]);
+    }
+  }
+});
+
+test("the German footer reflows at 320 px: no sideways scroll, each link at least 24 px tall", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 320, height: 640 });
+  for (const path of ["/de", "/de/legal/privacy"]) {
+    await page.goto(path);
+    const footer = page.getByRole("contentinfo");
+    await footer.scrollIntoViewIfNeeded();
+    const overflow = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth
+    );
+    expect(overflow, `${path}: no sideways scrolling`).toBeLessThanOrEqual(0);
+    const links = footer.getByRole("link");
+    // The help link, every legal document's, and SENIC's.
+    await expect(links).toHaveCount(LEGAL_DOCS.length + 2);
+    for (const link of await links.all()) {
+      const box = (await link.boundingBox())!;
+      const name = await link.textContent();
+      if (name?.trim() === "SENIC") continue; // a link inside a sentence (WCAG 2.5.8's inline exception)
+      expect(box.height, `${path}: "${name}"`).toBeGreaterThanOrEqual(24);
+      expect(box.x + box.width, `${path}: "${name}" stays on the screen`).toBeLessThanOrEqual(320);
+    }
+    const results = await new AxeBuilder({ page }).include("footer").withTags(TAGS).analyze();
+    expect(results.violations.map((x) => x.id), path).toEqual([]);
   }
 });
 
