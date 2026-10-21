@@ -66,7 +66,8 @@ export async function findPeople(query: string) {
   const admin = await requireDataAdmin();
   if (!admin) return forbidden;
   const q = typeof query === "string" ? query.trim() : "";
-  if (q.length < FIND_MIN || q.length > 254) return { ok: false as const, error: "too-short" as const };
+  if (q.length < FIND_MIN) return { ok: false as const, error: "too-short" as const };
+  if (q.length > 254) return badInput;
   const people = await prisma.user.findMany({
     where: { email: { contains: q, mode: "insensitive" } },
     orderBy: { email: "asc" },

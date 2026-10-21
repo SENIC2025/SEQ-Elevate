@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import AxeBuilder from "@axe-core/playwright";
 import { createHmac } from "node:crypto";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
@@ -378,6 +379,11 @@ describe("D-E3 (SC17): the admin export", () => {
     const found = main.getByRole("list", { name: "People found" }).getByRole("listitem");
     await expect(found).toHaveCount(1);
     await found.getByRole("button", { name: "Export data" }).click();
+    await expect(found.getByLabel("Request reference (REQ-YYYY-NNN)"), "the reference takes focus").toBeFocused();
+    // The page, with a person found and the export open, has no serious accessibility violation.
+    const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]).analyze();
+    const serious = results.violations.filter((v) => v.impact === "serious" || v.impact === "critical");
+    expect(serious, JSON.stringify(serious.map((v) => v.id))).toEqual([]);
     await found.getByLabel("Request reference (REQ-YYYY-NNN)").fill("REQ-2026-906");
     const download = page.waitForEvent("download");
     await found.getByRole("button", { name: "Download their data" }).click();

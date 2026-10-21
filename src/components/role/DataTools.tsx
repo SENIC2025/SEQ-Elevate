@@ -268,6 +268,14 @@ function Chip({ children }: { children: React.ReactNode }) {
 function PersonActions({ person: p, onChanged }: { person: FoundPerson; onChanged: (n: Notice) => Promise<void> }) {
   const ids = React.useId();
   const [open, setOpen] = React.useState<"export" | "reset" | "erase" | null>(null);
+  // What opens takes focus: the reference to type, or the question to read
+  // (the reset's InlineConfirm focuses its own heading).
+  const refInput = React.useRef<HTMLInputElement>(null);
+  const eraseHeading = React.useRef<HTMLHeadingElement>(null);
+  React.useEffect(() => {
+    if (open === "export") refInput.current?.focus();
+    if (open === "erase") eraseHeading.current?.focus();
+  }, [open]);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [confirmEmail, setConfirmEmail] = React.useState("");
@@ -377,7 +385,14 @@ function PersonActions({ person: p, onChanged }: { person: FoundPerson; onChange
         >
           <label className="text-xs text-[var(--muted-foreground)]">
             <span className="block mb-1">Request reference (REQ-YYYY-NNN)</span>
-            <input name="requestRef" required pattern={REF_PATTERN} placeholder="REQ-2026-001" className={`${inputCls} w-44`} />
+            <input
+              ref={refInput}
+              name="requestRef"
+              required
+              pattern={REF_PATTERN}
+              placeholder="REQ-2026-001"
+              className={`${inputCls} w-44`}
+            />
           </label>
           <Button type="submit" size="sm">
             <Download className="h-4 w-4" aria-hidden />
@@ -419,7 +434,7 @@ function PersonActions({ person: p, onChanged }: { person: FoundPerson; onChange
             if (e.key === "Escape" && !busy) close();
           }}
         >
-          <h3 id={`${ids}-erase`} className="text-sm font-semibold">
+          <h3 id={`${ids}-erase`} ref={eraseHeading} tabIndex={-1} className="text-sm font-semibold outline-none">
             Erase {p.email} for good?
           </h3>
           <p className="text-xs">
