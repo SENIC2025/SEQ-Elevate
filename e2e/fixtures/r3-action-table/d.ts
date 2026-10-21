@@ -105,6 +105,18 @@ export const rows: Row[] = [
   {
     kind: "call",
     file: ADMIN_DATA,
+    name: "readDataTools",
+    page: DATA,
+    args: () => [],
+    refuse: NOT_PEOPLE_MANAGERS,
+    partnerAdmin: "role",
+    outcome: forbidden,
+    tables: ["AuditLog"],
+    why: "only an ADMIN with project scope reads /admin/data's review lists and log (SP31)",
+  },
+  {
+    kind: "call",
+    file: ADMIN_DATA,
     name: "runCleanup",
     page: DATA,
     args: () => [{ confirm: "ERASE 0 TEST ACCOUNTS" }],

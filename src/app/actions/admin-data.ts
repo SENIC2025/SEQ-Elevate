@@ -19,6 +19,9 @@
  *   account.
  * - previewCleanup / runCleanup: the go-live clean-up's dry run, and the
  *   run, confirmed by typing "ERASE <n> TEST ACCOUNTS".
+ * - readDataTools: the page's review lists and log, read again after a
+ *   change (the page shows a change from this answer, never from a router
+ *   refresh, which can be lost).
  * Reset and erase are refused for the admin's own account, the last ADMIN
  * and ADMIN_EMAILS addresses. The internals are src/lib/account-data.ts.
  */
@@ -29,6 +32,7 @@ import {
   adminRefusal,
   cleanupRunId,
   eraseAccount,
+  getDataTools,
   isRequestRef,
   planCleanup,
   resetAccount,
@@ -199,6 +203,13 @@ export async function eraseAccountByAdmin(
     eraseAccount(tx, userId, { by: "admin", adminId: admin.id, requestRef: ref || null })
   );
   return done ? { ok: true as const } : { ok: false as const, error: "not-found" as const };
+}
+
+/** The page's review lists and log as they are now (spec 14 items 2 and 5); nothing changes. */
+export async function readDataTools() {
+  const tools = await getDataTools();
+  if (!tools) return forbidden;
+  return { ok: true as const, review: tools.review, log: tools.log };
 }
 
 /** The clean-up's dry run (spec 14 item 3): counts of what a run would delete; nothing changes. */

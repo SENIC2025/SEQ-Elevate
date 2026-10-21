@@ -34,9 +34,17 @@ const prisma = {
 
 vi.mock("@/lib/scope", () => ({ requireAdminProject }));
 vi.mock("@/lib/prisma", () => ({ prisma }));
+// getDataTools reads nothing for anyone but an ADMIN with project scope
+// (account-data.test.ts); here it answers as it would.
+const getDataTools = vi.fn(async () =>
+  (await requireAdminProject())?.user
+    ? { adminId: "admin-1", review: { showcase: [] }, log: [{ id: "l1", action: "account.reset" }] }
+    : null
+);
 vi.mock("@/lib/account-data", async () => {
   const actual = await vi.importActual<typeof import("@/lib/account-data")>("@/lib/account-data");
   return {
+    getDataTools,
     isRequestRef: actual.isRequestRef,
     cleanupRunId: () => "run12345abc",
     adminRefusal,
@@ -50,7 +58,8 @@ vi.mock("server-only", () => ({}));
 vi.mock("@vercel/blob", () => ({ del: vi.fn() }));
 
 const actions = await import("./admin-data");
-const { findPeople, markTestAccount, resetTestAccount, eraseAccountByAdmin, previewCleanup, runCleanup } = actions;
+const { findPeople, markTestAccount, resetTestAccount, eraseAccountByAdmin, previewCleanup, readDataTools, runCleanup } =
+  actions;
 
 const TARGET = { id: "user-2", email: "Test@Example.org" };
 const marked = (on: boolean) => ({ ...TARGET, profiles: on ? [{ id: "profile-2", testAccountAt: new Date() }] : [] });
@@ -98,6 +107,7 @@ describe("who may use the data tools", () => {
     ["resetTestAccount", () => resetTestAccount(TARGET.id)],
     ["eraseAccountByAdmin", () => eraseAccountByAdmin(TARGET.id, { confirmEmail: TARGET.email, requestRef: "REQ-2026-001" })],
     ["previewCleanup", () => previewCleanup()],
+    ["readDataTools", () => readDataTools()],
     ["runCleanup", () => runCleanup({ confirm: "ERASE 2 TEST ACCOUNTS" })],
   ])("%s: only an ADMIN with project scope; anyone else is refused and nothing is read or changed", async (_, call) => {
     requireAdminProject.mockResolvedValue(null);
@@ -108,10 +118,29 @@ describe("who may use the data tools", () => {
     expect(planCleanup).not.toHaveBeenCalled();
   });
 
-  it("the file exports exactly the six actions", () => {
+  it("the file exports exactly the seven actions", () => {
     expect(Object.keys(actions).sort()).toEqual(
-      ["eraseAccountByAdmin", "findPeople", "markTestAccount", "previewCleanup", "resetTestAccount", "runCleanup"].sort()
+      [
+        "eraseAccountByAdmin",
+        "findPeople",
+        "markTestAccount",
+        "previewCleanup",
+        "readDataTools",
+        "resetTestAccount",
+        "runCleanup",
+      ].sort()
     );
+  });
+});
+
+describe("readDataTools", () => {
+  it("answers an ADMIN with the page's review lists and log, and nothing more", async () => {
+    await expect(readDataTools()).resolves.toEqual({
+      ok: true,
+      review: { showcase: [] },
+      log: [{ id: "l1", action: "account.reset" }],
+    });
+    expect(touched()).toBe(0);
   });
 });
 

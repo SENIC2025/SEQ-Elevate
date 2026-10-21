@@ -404,6 +404,44 @@ describe("D-E3 (SC17): the admin export", () => {
       "the export is in the log at once"
     ).toContainText(world.people.AD.email);
   });
+
+  test("after a change the page reads its lists and log again itself, not through a reload of the page", async ({
+    page,
+    context,
+  }) => {
+    // A router refresh of the page can be lost (Next's router drops one
+    // now and then around the server action that runs next to it), and the
+    // log then keeps showing what came before the change. Here every reload
+    // of the page answers with the log as it was before the export (the
+    // reference of the new row changed to one nobody used), so only the
+    // page's own reading can show the export.
+    await page.route(/\/en\/admin\/data\?_rsc=/, async (route) => {
+      const response = await route.fetch();
+      const body = (await response.text()).replaceAll("REQ-2026-907", "REQ-2026-000");
+      const headers = { ...response.headers() };
+      delete headers["content-encoding"];
+      delete headers["content-length"];
+      await route.fulfill({ status: response.status(), headers, body });
+    });
+    const ld1 = world.people.LD1;
+    await signIn(context, world.people.AD.sessionToken);
+    await page.goto("/en/admin/data");
+    const main = page.getByRole("main");
+    await main.getByLabel("Email address (or part of it)").fill(ld1.email);
+    await main.getByRole("button", { name: "Find" }).click();
+    const found = main.getByRole("list", { name: "People found" }).getByRole("listitem");
+    await expect(found).toHaveCount(1);
+    await found.getByRole("button", { name: "Export data" }).click();
+    await found.getByLabel("Request reference (REQ-YYYY-NNN)").fill("REQ-2026-907");
+    const download = page.waitForEvent("download");
+    await found.getByRole("button", { name: "Download their data" }).click();
+    await download;
+    await expect.poll(() => exportsOf(ld1.userId)).toBe(1);
+    await expect(
+      main.getByRole("table").getByRole("row").filter({ hasText: "REQ-2026-907" }),
+      "the export is in the log without a reload of the page"
+    ).toContainText(world.people.AD.email);
+  });
 });
 
 describe("D-E3: /admin/data by keyboard, at 320 px, and when an export is refused", () => {

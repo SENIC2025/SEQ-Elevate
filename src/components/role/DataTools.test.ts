@@ -24,6 +24,7 @@ vi.mock("@/app/actions/admin-data", () => ({
   findPeople: vi.fn(),
   markTestAccount: vi.fn(),
   previewCleanup: vi.fn(),
+  readDataTools: vi.fn(),
   resetTestAccount: vi.fn(),
   runCleanup: vi.fn(),
 }));

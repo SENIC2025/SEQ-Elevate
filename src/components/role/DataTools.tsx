@@ -1,7 +1,6 @@
 "use client";
 
 import * as React from "react";
-import { useRouter } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { InlineConfirm } from "@/components/ui/inline-confirm";
@@ -10,6 +9,7 @@ import {
   findPeople,
   markTestAccount,
   previewCleanup,
+  readDataTools,
   resetTestAccount,
   runCleanup,
 } from "@/app/actions/admin-data";
@@ -163,9 +163,22 @@ export function DataTools({
   /** The statistics start (YYYY-MM-DD), or null with no date. */
   statsFrom: string | null;
 }) {
-  const router = useRouter();
   const [notice, setNotice] = React.useState<Notice | null>(null);
   const say = (n: Notice | null) => setNotice(n);
+  // The review lists and log: the server's copy, until a change here reads
+  // them again. They are read with a server action (readDataTools) rather
+  // than a router refresh, which Next's router can drop when it lands next
+  // to the server action of the change; the page would then go on showing
+  // the lists and log from before it. New props (a navigation) replace
+  // what was read before them.
+  const [read, setRead] = React.useState<{ props: LogRow[]; review: Record<ReviewKey, ReviewPerson[]>; log: LogRow[] } | null>(
+    null
+  );
+  const shown = read && read.props === log ? read : { review, log };
+  const reload = React.useCallback(async () => {
+    const res = await attempt(() => readDataTools());
+    if (res.ok) setRead({ props: log, review: res.review, log: res.log });
+  }, [log]);
 
   return (
     <div className="space-y-8">
@@ -174,10 +187,10 @@ export function DataTools({
         {notice ? <NoticeLine notice={notice} /> : null}
       </div>
 
-      <FindPerson say={say} refresh={() => router.refresh()} />
-      <ReviewLists review={review} statsFrom={statsFrom} say={say} refresh={() => router.refresh()} />
-      <Cleanup say={say} refresh={() => router.refresh()} />
-      <LogViewer log={log} />
+      <FindPerson say={say} refresh={reload} />
+      <ReviewLists review={shown.review} statsFrom={statsFrom} say={say} refresh={reload} />
+      <Cleanup say={say} refresh={reload} />
+      <LogViewer log={shown.log} />
     </div>
   );
 }
@@ -214,7 +227,7 @@ async function attempt<T>(call: () => Promise<T>): Promise<T | { ok: false; erro
 
 type Changed = (n: Notice, after?: { gone?: boolean }) => Promise<void>;
 
-function FindPerson({ say, refresh }: { say: (n: Notice | null) => void; refresh: () => void }) {
+function FindPerson({ say, refresh }: { say: (n: Notice | null) => void; refresh: () => Promise<void> }) {
   const ids = React.useId();
   const [query, setQuery] = React.useState("");
   const [people, setPeople] = React.useState<FoundPerson[] | null>(null);
@@ -244,8 +257,7 @@ function FindPerson({ say, refresh }: { say: (n: Notice | null) => void; refresh
   const changed: Changed = async (n, after) => {
     say(n);
     if (after?.gone) field.current?.focus();
-    refresh();
-    if (last.current) await search(last.current);
+    await Promise.all([refresh(), last.current ? search(last.current) : null]);
   };
 
   return (
@@ -618,7 +630,7 @@ function ReviewLists({
   review: Record<ReviewKey, ReviewPerson[]>;
   statsFrom: string | null;
   say: (n: Notice | null) => void;
-  refresh: () => void;
+  refresh: () => Promise<void>;
 }) {
   const ids = React.useId();
   return (
@@ -657,7 +669,7 @@ function ReviewList({
   desc: string;
   people: ReviewPerson[];
   say: (n: Notice | null) => void;
-  refresh: () => void;
+  refresh: () => Promise<void>;
 }) {
   const ids = React.useId();
   const heading = React.useRef<HTMLHeadingElement>(null);
@@ -684,7 +696,7 @@ function ReviewList({
         : { kind: "ok", text: `Marked ${done} account${done === 1 ? "" : "s"} as test accounts.` }
     );
     heading.current?.focus();
-    refresh();
+    void refresh();
   }
 
   return (
@@ -816,7 +828,7 @@ function AccountLine({ account: a }: { account: CleanupAccount }) {
   );
 }
 
-function Cleanup({ say, refresh }: { say: (n: Notice | null) => void; refresh: () => void }) {
+function Cleanup({ say, refresh }: { say: (n: Notice | null) => void; refresh: () => Promise<void> }) {
   const ids = React.useId();
   const [plan, setPlan] = React.useState<CleanupPlan | null>(null);
   const [result, setResult] = React.useState<{ result: CleanupResult; kept: CleanupPlan["kept"] } | null>(null);
@@ -850,7 +862,7 @@ function Cleanup({ say, refresh }: { say: (n: Notice | null) => void; refresh: (
     setPlan(null);
     setConfirm("");
     say({ kind: "ok", text: `The clean-up ran (run ${res.result.runId}) and is in the log.` });
-    refresh();
+    void refresh();
     requestAnimationFrame(() => resultRef.current?.focus());
   }
 
