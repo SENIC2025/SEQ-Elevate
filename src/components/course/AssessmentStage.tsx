@@ -19,6 +19,7 @@ import { cn } from "@/lib/utils";
 import { LinkedText } from "@/components/rich-text/RichTextView";
 import { mainPartOf } from "./continue-gate";
 import { ContinueNote, FLAGGED_CLASS, useContinue } from "./useContinue";
+import { CourseText, useContentLang } from "./CourseText";
 
 /**
  * Micro-assessment. Renders authored questions; answers keyed by question
@@ -57,6 +58,8 @@ export function AssessmentStage({
     onContinue,
   });
   const hintId = cont.hintId;
+  // Course text carries the course's language when it isn't the page's.
+  const lang = useContentLang();
 
   const a = stage.assessment;
   if (!a) return null;
@@ -92,13 +95,14 @@ export function AssessmentStage({
           tabIndex={-1}
           id={cont.ids.heading("main")}
           className="text-2xl font-bold tracking-tight outline-none"
+          lang={lang}
         >
           {stage.title}
         </h2>
         <ContinueNote api={cont} partId="main" />
         {/* Addresses in the intro are links, as the course page's read
             view shows them to editors (quick links). */}
-        <p className="mt-2 text-sm text-[var(--muted-foreground)]">
+        <p lang={lang} className="mt-2 text-sm text-[var(--muted-foreground)]">
           <LinkedText text={a.intro} />
         </p>
 
@@ -117,7 +121,7 @@ export function AssessmentStage({
                   <span className="text-[var(--muted-foreground)] mr-2">
                     {idx + 1}.
                   </span>
-                  {q.question}
+                  <CourseText>{q.question}</CourseText>
                 </p>
                 <div className="space-y-1.5">
                   {q.options.map((opt, i) => {
@@ -184,7 +188,7 @@ export function AssessmentStage({
                             {String.fromCharCode(65 + i)}
                           </span>
                         )}
-                        <span>{opt.text}</span>
+                        <span lang={lang}>{opt.text}</span>
                       </button>
                   );
                 })}

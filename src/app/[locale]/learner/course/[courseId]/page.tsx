@@ -10,6 +10,7 @@ import { getCurrentUser } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
 import type { Locale } from "@/lib/cms/types";
 import { getLearnerCourse } from "@/lib/cms/learner-course";
+import { learnerContentLocale } from "@/lib/cms/language-ready";
 import { nextLesson } from "@/lib/cms/sections/learner-nav";
 import { isSectionId, type SectionId } from "@/lib/cms/sections/contract";
 import { completedLessonIds } from "@/lib/learner-progress/enrolment-read";
@@ -21,23 +22,39 @@ import { isFirstPartyMediaUrl, markExternalMedia, serverAppOrigin } from "@/lib/
 const PROJECT = "seq-elevate";
 
 /**
- * The course, whether it's a draft, and whether the viewer may edit content —
- * once per request, shared by the page and its metadata. Roles are read for
- * every course, not only drafts: they decide the draft gate, preview mode and
- * the "Edit this lesson" link. getViewerRoles uses the per-request cached
- * memberships (the header loads them anyway) and fails to [] — a DB error
- * hides drafts rather than showing them.
+ * Whether the viewer may edit content — once per request, shared by the
+ * page and its metadata. Read for every course, not only drafts: it
+ * decides the draft gate, preview mode and the "Edit this lesson" link.
+ * getViewerRoles uses the per-request cached memberships (the header loads
+ * them anyway) and fails to [] — a DB error hides drafts rather than
+ * showing them.
  */
-const loadCourse = cache(async (courseId: string, loc: Locale) => {
-  const course = await getCourse(PROJECT, courseId, loc);
-  if (!course) return null;
-  const [status, roles] = await Promise.all([
+const viewerCanEdit = cache(async () => canEditContent(await getViewerRoles()));
+
+/**
+ * The course as this viewer reads it, once per request: whether it's a
+ * draft, whether this is an editor's preview, and the language it is shown
+ * in (D90, spec 9.3). Learners get the language learnerContentLocale gives:
+ * a created course whose German or Greek isn't switched on yet comes whole
+ * in English. An editor's preview shows the requested language, so a
+ * translator sees their German before signing it off; `learnerLocale` says
+ * what learners get meanwhile, for the preview's banner.
+ */
+const loadCourse = cache(async (courseId: string, requested: Locale, previewAsked: boolean) => {
+  const [canEdit, status, learnerLocale] = await Promise.all([
+    viewerCanEdit(),
     getCourseStatus(PROJECT, courseId),
-    getViewerRoles(),
+    learnerContentLocale(PROJECT, courseId, requested),
   ]);
   // No DB row yet → treat as published (a bundled course that predates seeding).
   const isDraft = status !== null && status !== "published";
-  return { course, isDraft, canEdit: canEditContent(roles) };
+  // An editor on a draft is always previewing: their clicks must never
+  // enrol them in a course learners can't see yet.
+  const preview = canEdit && (isDraft || previewAsked);
+  const contentLocale = preview ? requested : learnerLocale;
+  const course = await getCourse(PROJECT, courseId, contentLocale);
+  if (!course) return null;
+  return { course, isDraft, canEdit, preview, contentLocale, learnerLocale };
 });
 
 /**
@@ -78,11 +95,14 @@ function one(value: string | string[] | undefined): string | undefined {
 
 export async function generateMetadata({
   params,
+  searchParams,
 }: {
   params: Promise<{ locale: string; courseId: string }>;
+  searchParams: Promise<{ preview?: string | string[] }>;
 }): Promise<Metadata> {
   const { locale, courseId } = await params;
-  const loaded = await loadCourse(courseId, asLocale(locale));
+  const sp = await searchParams;
+  const loaded = await loadCourse(courseId, asLocale(locale), one(sp.preview) === "1");
   // A draft's title is for editors only — not even the tab title leaks it.
   if (!loaded || (loaded.isDraft && !loaded.canEdit)) return { title: "Course" };
   return { title: loaded.course.title };
@@ -107,6 +127,11 @@ export async function generateMetadata({
  * the step-by-step order (Q4) and open where they left off (spec 5.5). A
  * preview opened from the course page also says which menu language the
  * editor works in (`?ui=`), so its links back to editing use that one.
+ *
+ * Release 3 (D90): a learner using German or Greek gets a created course
+ * whole in English until that language is switched on for it; the player
+ * then says so. An editor's preview shows the requested language, with a
+ * banner saying learners get English until it is switched on.
  */
 export default async function Page({
   params,
@@ -122,15 +147,13 @@ export default async function Page({
   const { locale, courseId } = await params;
   setRequestLocale(locale);
 
-  const loaded = await loadCourse(courseId, asLocale(locale));
+  const sp = await searchParams;
+  const requested = asLocale(locale);
+  const loaded = await loadCourse(courseId, requested, one(sp.preview) === "1");
   if (!loaded) notFound();
-  const { course, isDraft, canEdit } = loaded;
+  const { course, isDraft, canEdit, preview, contentLocale, learnerLocale } = loaded;
   if (isDraft && !canEdit) notFound();
 
-  const sp = await searchParams;
-  // An editor on a draft is always previewing: their clicks must never
-  // enrol them in a course learners can't see yet.
-  const preview = canEdit && (isDraft || one(sp.preview) === "1");
   const ui = one(sp.ui);
   const editLocale =
     preview && (routing.locales as readonly string[]).includes(ui ?? "")
@@ -140,8 +163,10 @@ export default async function Page({
   // A video or document stored on another host before Release 3 is shown
   // as a link out, never loaded in the page (D91).
   const origin = serverAppOrigin();
+  // The lessons in the language of the course itself (`base`), so the fail
+  // open of getLearnerCourse shows the same language.
   const learner = markExternalMedia(
-    await getLearnerCourse(PROJECT, courseId, asLocale(locale), course, { editor: preview }),
+    await getLearnerCourse(PROJECT, courseId, contentLocale, course, { editor: preview }),
     (url) => isFirstPartyMediaUrl(url, origin)
   );
   const ids = learner.lessons.map((l) => l.id);
@@ -160,6 +185,8 @@ export default async function Page({
       initialLesson={initialLesson}
       editLocale={editLocale}
       serverResume={serverResume}
+      // A preview in a language learners don't get yet says so (D90).
+      languageNotLive={preview && learnerLocale !== requested ? requested : undefined}
     />
   );
   return preview ? <PreviewStateProvider>{player}</PreviewStateProvider> : player;

@@ -8,6 +8,7 @@ import { LinkedText } from "@/components/rich-text/RichTextView";
 import { FormattedText } from "../FormattedText";
 import type { PartProps } from "./part-props";
 import { focusThen } from "./focus";
+import { useContentLang } from "../CourseText";
 
 /**
  * A practice question (choose a response), as the learner player's guided
@@ -19,6 +20,8 @@ import { focusThen } from "./focus";
  */
 export function PracticePart({ part, answer, onAnswer, headingId }: PartProps<"practice">) {
   const t = useTranslations("coursePlayer");
+  // Course text carries the course's language when it isn't the page's.
+  const lang = useContentLang();
   const sim = part.simulation;
   const selected =
     answer?.type === "practice" && sim.options.some((o) => o.id === answer.optionId)
@@ -31,7 +34,7 @@ export function PracticePart({ part, answer, onAnswer, headingId }: PartProps<"p
   return (
     <div>
       <FormattedText text={sim.prompt} className="text-base leading-relaxed" />
-      <p className="mt-2 text-sm text-[var(--muted-foreground)]">
+      <p lang={lang} className="mt-2 text-sm text-[var(--muted-foreground)]">
         <LinkedText text={sim.instruction} />
       </p>
 
@@ -66,7 +69,9 @@ export function PracticePart({ part, answer, onAnswer, headingId }: PartProps<"p
                 ) : (
                   <span aria-hidden className="mt-0.5 h-5 w-5 rounded-full border border-[var(--border)] flex-shrink-0" />
                 )}
-                <span className="text-sm sm:text-base leading-relaxed">{opt.text}</span>
+                <span lang={lang} className="text-sm sm:text-base leading-relaxed">
+                  {opt.text}
+                </span>
               </span>
             </button>
           );
@@ -84,7 +89,9 @@ export function PracticePart({ part, answer, onAnswer, headingId }: PartProps<"p
               : "border-l-[var(--warning)] bg-[var(--warning)]/5"
           )}
         >
-          <p className="text-sm leading-relaxed">{selectedOpt.feedback}</p>
+          <p lang={lang} className="text-sm leading-relaxed">
+            {selectedOpt.feedback}
+          </p>
         </div>
       ) : null}
 

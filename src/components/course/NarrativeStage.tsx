@@ -7,6 +7,7 @@ import type { CourseStage, NarrativeBlock } from "@/lib/cms/types";
 import { ArrowRight, Quote } from "lucide-react";
 import { LinkedText, RichTextView } from "@/components/rich-text/RichTextView";
 import { FormattedText } from "./FormattedText";
+import { useContentLang } from "./CourseText";
 
 /**
  * Renders a narrative stage (context / concept / behaviour) from authored
@@ -26,17 +27,18 @@ export function NarrativeStage({
   onContinue: () => void;
 }) {
   const tCommon = useTranslations("common");
+  const lang = useContentLang();
   const blocks = stage.blocks ?? [];
 
   return (
     <Card>
       <CardContent className="p-6 sm:p-8">
         {stage.subtitle ? (
-          <p className="text-xs uppercase tracking-wider text-[var(--accent)] font-semibold mb-1">
+          <p lang={lang} className="text-xs uppercase tracking-wider text-[var(--accent)] font-semibold mb-1">
             {stage.subtitle}
           </p>
         ) : null}
-        <h2 className="text-2xl font-bold tracking-tight">{stage.title}</h2>
+        <h2 lang={lang} className="text-2xl font-bold tracking-tight">{stage.title}</h2>
 
         <NarrativeBlocks blocks={blocks} />
 
@@ -76,6 +78,8 @@ export const NARRATIVE_TEXT_CLASS = {
 } as const;
 
 function Block({ block }: { block: NarrativeBlock }) {
+  // Course text: marked with the course's language when it isn't the page's.
+  const lang = useContentLang();
   switch (block.kind) {
     case "paragraph":
       return (
@@ -83,6 +87,7 @@ function Block({ block }: { block: NarrativeBlock }) {
           rich={block.rich}
           text={block.text}
           className={NARRATIVE_TEXT_CLASS.paragraph}
+          lang={lang}
         />
       );
 
@@ -95,11 +100,11 @@ function Block({ block }: { block: NarrativeBlock }) {
       // Numbered unless the author chose bullets: lists saved before
       // authors could choose have no listStyle, and were always numbered.
       return block.listStyle === "bullet" ? (
-        <ul className="space-y-2 list-disc pl-5 marker:text-[var(--accent)]">
+        <ul lang={lang} className="space-y-2 list-disc pl-5 marker:text-[var(--accent)]">
           {items}
         </ul>
       ) : (
-        <ol className="space-y-2 list-decimal pl-5 marker:text-[var(--accent)] marker:font-semibold">
+        <ol lang={lang} className="space-y-2 list-decimal pl-5 marker:text-[var(--accent)] marker:font-semibold">
           {items}
         </ol>
       );
@@ -112,6 +117,7 @@ function Block({ block }: { block: NarrativeBlock }) {
           text={block.text}
           compact
           className={NARRATIVE_TEXT_CLASS.callout}
+          lang={lang}
         />
       );
 
@@ -131,6 +137,7 @@ function Block({ block }: { block: NarrativeBlock }) {
                 }}
               >
                 <p
+                  lang={lang}
                   className="text-xs uppercase tracking-wider font-semibold mb-1.5 flex items-center gap-1"
                   style={{ color }}
                 >

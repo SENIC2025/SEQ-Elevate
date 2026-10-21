@@ -72,6 +72,23 @@ export function LearnerDashboard({
   const { state } = useDemoState();
 
   const published = courses.filter((c) => !c.comingSoon);
+  /** The card's state: coming soon, completed or in progress (else none). */
+  const statusBadge = (c: CourseSummary, status: ReturnType<typeof courseStatus> | null) =>
+    c.comingSoon ? (
+      <Badge variant="muted" className="text-[10px]">
+        <Lock className="h-3 w-3" />
+        {t("comingSoon")}
+      </Badge>
+    ) : status?.completed ? (
+      <Badge variant="success" className="text-[10px]">
+        <CheckCircle2 className="h-3 w-3" />
+        {t("completed")}
+      </Badge>
+    ) : status?.inProgress ? (
+      <Badge variant="accent" className="text-[10px]">
+        {t("inProgress")}
+      </Badge>
+    ) : null;
   const current = currentCourseSlug(enrollments, state.course, published);
   const hero = published.find((c) => c.slug === current) ?? published[0];
   const activeClusters = new Set(published.map((c) => c.cluster));
@@ -182,10 +199,12 @@ export function LearnerDashboard({
                 <Badge variant="primary" className="mb-3">
                   {t("currentMission")}
                 </Badge>
-                <h2 className="text-xl sm:text-2xl font-bold leading-snug">
+                {/* A course shown in English under another language (its
+                    language isn't switched on yet, D90) is marked as such. */}
+                <h2 lang={hero.contentLocale} className="text-xl sm:text-2xl font-bold leading-snug">
                   {hero.title}
                 </h2>
-                <p className="mt-1 text-sm text-[var(--muted-foreground)]">
+                <p lang={hero.contentLocale} className="mt-1 text-sm text-[var(--muted-foreground)]">
                   {hero.clusterLabel} · {hero.tagline}
                 </p>
 
@@ -259,27 +278,25 @@ export function LearnerDashboard({
                   <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[var(--accent)]/10 text-[var(--accent)]">
                     <Icon className="h-4 w-4" />
                   </div>
-                  {c.comingSoon ? (
-                    <Badge variant="muted" className="text-[10px]">
-                      <Lock className="h-3 w-3" />
-                      {t("comingSoon")}
-                    </Badge>
-                  ) : status?.completed ? (
-                    <Badge variant="success" className="text-[10px]">
-                      <CheckCircle2 className="h-3 w-3" />
-                      {t("completed")}
-                    </Badge>
-                  ) : status?.inProgress ? (
-                    <Badge variant="accent" className="text-[10px]">
-                      {t("inProgress")}
-                    </Badge>
-                  ) : null}
+                  {/* A course shown in English under another language (its
+                      language isn't switched on yet, D90) says so here. */}
+                  {c.contentLocale ? (
+                    <div className="flex flex-wrap justify-end gap-1">
+                      <Badge variant="muted" className="text-[10px]">
+                        {t("inEnglish")}
+                      </Badge>
+                      {statusBadge(c, status)}
+                    </div>
+                  ) : (
+                    statusBadge(c, status)
+                  )}
                 </div>
-                <p className="mt-3 text-sm font-semibold leading-tight">
+                <p lang={c.contentLocale} className="mt-3 text-sm font-semibold leading-tight">
                   {c.title}
                 </p>
                 <p className="mt-1 text-xs text-[var(--muted-foreground)] flex-1">
-                  {c.clusterLabel} · {c.durationMinutes} min
+                  {c.contentLocale ? <span lang={c.contentLocale}>{c.clusterLabel}</span> : c.clusterLabel} ·{" "}
+                  {c.durationMinutes} min
                 </p>
                 {!c.comingSoon ? (
                   <span className="mt-2 inline-flex items-center gap-1 text-xs text-[var(--accent)] font-medium">

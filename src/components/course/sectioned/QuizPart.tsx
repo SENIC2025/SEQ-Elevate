@@ -9,6 +9,7 @@ import { answerQuestion, checkedQuiz } from "@/lib/assessment-progress";
 import { LinkedText } from "@/components/rich-text/RichTextView";
 import type { PartProps } from "./part-props";
 import { focusThen } from "./focus";
+import { CourseText, useContentLang } from "../CourseText";
 
 /**
  * A quick check, as the learner player shows one: choose an answer per
@@ -30,6 +31,9 @@ export function QuizPart({ part, answer, onAnswer, headingId, targets }: PartPro
   const t = useTranslations("coursePlayer");
   const tResult = useTranslations("sectionPreview.quizResult");
   const groupId = useId();
+  // Course text carries the course's language when it isn't the page's;
+  // the results read out with it stay in the page's.
+  const lang = useContentLang();
   const a = part.assessment;
   const questions = a.questions;
   const progress =
@@ -60,7 +64,7 @@ export function QuizPart({ part, answer, onAnswer, headingId, targets }: PartPro
   return (
     <div>
       {a.intro ? (
-        <p className="text-sm text-[var(--muted-foreground)]">
+        <p lang={lang} className="text-sm text-[var(--muted-foreground)]">
           <LinkedText text={a.intro} />
         </p>
       ) : null}
@@ -83,7 +87,7 @@ export function QuizPart({ part, answer, onAnswer, headingId, targets }: PartPro
               >
                 <p id={qId} className="font-medium mb-3">
                   <span className="text-[var(--muted-foreground)] mr-2">{idx + 1}.</span>
-                  {q.question}
+                  <CourseText>{q.question}</CourseText>
                 </p>
                 <div className="space-y-1.5">
                   {q.options.map((opt, i) => {
@@ -135,7 +139,7 @@ export function QuizPart({ part, answer, onAnswer, headingId, targets }: PartPro
                           </span>
                         )}
                         <span>
-                          {opt.text}
+                          <CourseText>{opt.text}</CourseText>
                           {result ? <span className="sr-only"> {result}</span> : null}
                         </span>
                       </button>

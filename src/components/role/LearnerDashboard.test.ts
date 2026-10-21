@@ -384,3 +384,27 @@ describe("LearnerDashboard, Release 2: the hero is the course the learner is in 
     expect(hero(render([BUILT_IN, FLEXIBLE], null))).toBe("Handling a small workplace conflict");
   });
 });
+
+/*
+ * Release 3 (D90, spec 9.3, UE1): a created course shown in English under
+ * another language (its language isn't switched on yet) is marked with
+ * its language on its card and in the hero, and its card says "In
+ * English". Release 2 showed the card in the menu language, English
+ * wherever a field had no translation, unmarked.
+ */
+describe("LearnerDashboard: a course shown in English", () => {
+  it("marks its title, subtitle and skill area with lang=\"en\" and says In English in the badge row", () => {
+    const html = render([{ ...CREATED, contentLocale: "en" }], null);
+    expect(html).toMatch(/<h2 lang="en"[^>]*>Asking for help<\/h2>/);
+    expect(html).toMatch(/<p lang="en"[^>]*>Communication · Short and real<\/p>/);
+    expect(html).toMatch(/<p lang="en"[^>]*>Asking for help<\/p>/);
+    expect(html).toContain('<span lang="en">Communication</span>');
+    expect(html).toContain(">In English</");
+  });
+
+  it("changes nothing for a course in the menu language", () => {
+    const html = render([CREATED], null);
+    expect(html).not.toContain(' lang="');
+    expect(html).not.toContain("In English");
+  });
+});

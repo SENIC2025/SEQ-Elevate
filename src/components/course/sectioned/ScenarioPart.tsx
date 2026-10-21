@@ -10,6 +10,7 @@ import type { OutcomeQuality, ScenarioChoice } from "@/lib/cms/types";
 import { FormattedText } from "../FormattedText";
 import type { PartProps } from "./part-props";
 import { focusThen } from "./focus";
+import { useContentLang } from "../CourseText";
 
 /**
  * A branching scenario, as the learner player's applied scenario shows it:
@@ -27,6 +28,8 @@ import { focusThen } from "./focus";
  */
 export function ScenarioPart({ part, answer, onAnswer, headingId, targets }: PartProps<"scenario">) {
   const t = useTranslations("coursePlayer");
+  // Course text carries the course's language when it isn't the page's.
+  const lang = useContentLang();
   const sc = part.scenario;
   const picked = answer?.type === "scenario" ? answer : undefined;
   const rootChoice = sc.choices.find((c) => c.id === picked?.rootId);
@@ -53,7 +56,9 @@ export function ScenarioPart({ part, answer, onAnswer, headingId, targets }: Par
       <FormattedText text={sc.setup} className="text-base leading-relaxed" />
 
       <div className="mt-4">
-        <p className="font-medium mb-3">{sc.question}</p>
+        <p lang={lang} className="font-medium mb-3">
+          {sc.question}
+        </p>
         <div className="space-y-2">
           {sc.choices.map((c) => {
             const isPicked = rootChoice?.id === c.id;
@@ -73,6 +78,7 @@ export function ScenarioPart({ part, answer, onAnswer, headingId, targets }: Par
                   isPicked && "border-[var(--accent)] bg-[var(--accent)]/5",
                   !!rootChoice && !isPicked && "opacity-40"
                 )}
+                lang={lang}
               >
                 {c.text}
               </button>
@@ -91,6 +97,7 @@ export function ScenarioPart({ part, answer, onAnswer, headingId, targets }: Par
             tabIndex={targets?.followup ? -1 : undefined}
             aria-describedby={targets?.followup ? targets.describedBy?.(targets.followup) : undefined}
             className="font-medium mb-3 outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] rounded-sm"
+            lang={lang}
           >
             {sc.followupQuestion}
           </p>
@@ -101,6 +108,7 @@ export function ScenarioPart({ part, answer, onAnswer, headingId, targets }: Par
                 type="button"
                 onClick={() => pickFollowup(c)}
                 className="w-full text-left rounded-lg border border-[var(--border)] p-4 hover:bg-[var(--surface-muted)] hover:border-[var(--accent)]/40 transition-colors text-sm sm:text-base"
+                lang={lang}
               >
                 {c.text}
               </button>

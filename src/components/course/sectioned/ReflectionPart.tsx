@@ -5,6 +5,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { ReflectionIntro } from "../ReflectionIntro";
 import { AnswerLengthNote, answerLengthState } from "../answer-length";
 import type { PartProps } from "./part-props";
+import { useContentLang } from "../CourseText";
 
 /**
  * Reflection questions: the intro when there is one, then one labelled box
@@ -15,6 +16,8 @@ import type { PartProps } from "./part-props";
  */
 export function ReflectionPart({ part, answer, onAnswer }: PartProps<"reflection">) {
   const uid = useId();
+  // Course text carries the course's language when it isn't the page's.
+  const lang = useContentLang();
   const text = answer?.type === "reflection" ? answer.text : {};
   const hasIntro = !!(part.intro || part.introRich);
 
@@ -30,7 +33,7 @@ export function ReflectionPart({ part, answer, onAnswer }: PartProps<"reflection
             const length = answerLengthState(text[prompt.id]);
             return (
               <div key={prompt.id}>
-                <label htmlFor={id} className="block text-sm font-medium mb-1.5">
+                <label htmlFor={id} lang={lang} className="block text-sm font-medium mb-1.5">
                   {prompt.label}
                 </label>
                 <Textarea

@@ -243,6 +243,13 @@ export interface CourseSummary {
    * its lang attribute (WCAG 3.1.2). Absent when every name is.
    */
   stageLabelLangs?: Record<string, Locale>;
+  /**
+   * Release 3 (D90): set by the learners' catalogue (learner-catalogue.ts)
+   * when a created course is shown in English under another menu language,
+   * because its language isn't switched on yet: the summary is then the
+   * English one, and the dashboard marks it (lang, "In English").
+   */
+  contentLocale?: Locale;
 }
 
 /** A Comp Card template (fields the learner fills). Configurable per project. */
