@@ -29,6 +29,15 @@ describe("roleIncludes", () => {
     expect(roleIncludes("CONTENT_EDITOR", "ADMIN")).toBe(false);
   });
 
+  it("gives a role this code doesn't know nothing extra, and doesn't throw", () => {
+    const unknown = "MENTOR" as Role;
+    expect(roleIncludes(unknown, "FACILITATOR")).toBe(false);
+    expect(canSupportLearners([unknown])).toBe(false);
+    expect(canManagePeople([unknown])).toBe(false);
+    expect(canEditContent([unknown])).toBe(false);
+    expect(grantableRoles([unknown])).toEqual([]);
+  });
+
   it("gives facilitators and learners nothing extra", () => {
     expect(roleIncludes("FACILITATOR", "CONTENT_EDITOR")).toBe(false);
     expect(roleIncludes("LEARNER", "CONTENT_EDITOR")).toBe(false);

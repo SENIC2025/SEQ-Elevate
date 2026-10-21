@@ -29,9 +29,12 @@ const IMPLIED_ROLES: Readonly<Record<Role, readonly Role[]>> = {
   PARTNER_ADMIN: ["CONTENT_EDITOR", "FACILITATOR"],
 };
 
-/** Does holding `role` give the rights of `included`? (A role includes itself.) */
+/**
+ * Does holding `role` give the rights of `included`? (A role includes
+ * itself.) A role this code doesn't know includes nothing else.
+ */
 export function roleIncludes(role: Role, included: Role): boolean {
-  return role === included || IMPLIED_ROLES[role].includes(included);
+  return role === included || (IMPLIED_ROLES[role] ?? []).includes(included);
 }
 
 /** Every role whose holders may author content: Editor, and Admin through it. */
