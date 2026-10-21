@@ -677,8 +677,6 @@
     "skillAreaNone": "Choose the skill area you saw in practice.",
     "skillAreaFixed": "Check it before you save: a saved validation can't be changed here.",
     "skillAreaAgain": "Saving again adds another validation. The one already saved, for {saved}, stays.",
-    "redacted": "Redacted by learner",
-    "redactedHint": "The learner chose not to share this field with you.",
     "videoCheckins": "Video check-ins: {answered} answered · {correct} correct",
     "activityTitle": "Activity & performance",
     "currentlyOn": "Currently on",
@@ -697,7 +695,9 @@
     "noOrganisation": "Your account isn't linked to an organisation yet, so no learners are shown. Ask DIESIS to link it.",
     "emptyOrganisation": "No learners at {organisation} yet.",
     "testAccount": "Test account",
-    "formerStaff": "Former staff"
+    "formerStaff": "Former staff",
+    "sharedEmpty": "Shared with you. Nothing is filled in yet.",
+    "scenarioChoice": "Choice in the applied scenario"
   },
   "admin": {
     "title": "Admin dashboard",

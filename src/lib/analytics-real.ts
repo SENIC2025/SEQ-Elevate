@@ -15,15 +15,25 @@ import "server-only";
  *     course's own lessons is in the total, as secondsOther),
  *   - `course.opened` AuditLog events (activity over time + when-they-open),
  *   - UserBadge (badges earned).
- * Returns null when no learner has started yet, so the page can fall back to
- * the representative sample for the showcase. Same AnalyticsData shape as the
- * sample, so the dashboard renders either identically.
+ * Everything counts from `from` (STATS_FROM, stats-from.ts, spec 7.3): only
+ * learners who started a course since then, only their enrolments made since
+ * then, and only the events and badges recorded since then, so trials before
+ * launch don't count. A learner's position, progress and last activity come
+ * from what is counted. (A running total, stage.time or video.cue_answered,
+ * keeps its first event's time: one started before `from` is left out whole.)
+ * Returns null when no learner has started yet (and for no scope), so the
+ * page can fall back to the representative sample for the showcase, and
+ * "unreadable" when the read fails, which is logged without learner data:
+ * the page then says so, rather than that no one has started (spec 7.3).
+ * Same AnalyticsData shape as the sample, so the dashboard renders either
+ * identically.
  */
 
 import { prisma } from "@/lib/prisma";
 import { getCourse } from "@/lib/cms";
 import { readAssessment, scoreAssessment } from "@/lib/assessment-progress";
 import { statisticsMembershipsInScope, type Scope } from "@/lib/scope";
+import { statsFrom } from "@/lib/stats-from";
 import { STAGES } from "@/data/course";
 import { courseProgress, nextStage } from "@/lib/course-progress";
 import { getLessonPlans } from "@/lib/cms/lesson-plans";
@@ -41,12 +51,14 @@ const PROJECT = "seq-elevate";
 
 export async function buildRealAnalytics(
   scope: Scope,
-  locale: Locale
-): Promise<AnalyticsData | null> {
+  locale: Locale,
+  /** The moment the statistics count from; null counts everything (STATS_FROM=off). */
+  from: Date | null = statsFrom()
+): Promise<AnalyticsData | null | "unreadable"> {
   if (scope.kind === "none") return null;
   try {
     const memberships = await prisma.membership.findMany({
-      where: statisticsMembershipsInScope(scope, null),
+      where: statisticsMembershipsInScope(scope, from),
       select: {
         user: {
           select: {
@@ -54,6 +66,7 @@ export async function buildRealAnalytics(
             name: true,
             email: true,
             enrollments: {
+              ...(from ? { where: { enrolledAt: { gte: from } } } : {}),
               select: {
                 course: { select: { slug: true } },
                 stagesCompleted: true,
@@ -81,10 +94,13 @@ export async function buildRealAnalytics(
           projectId: PROJECT,
           actorId: { in: ids },
           action: { in: ["stage.time", "video.cue_answered", "course.opened"] },
+          ...(from ? { createdAt: { gte: from } } : {}),
         },
         select: { actorId: true, action: true, metadata: true, createdAt: true },
       }),
-      prisma.userBadge.count({ where: { userId: { in: ids } } }),
+      prisma.userBadge.count({
+        where: { userId: { in: ids }, ...(from ? { awardedAt: { gte: from } } : {}) },
+      }),
     ]);
 
     // Resolve CMS content once per slug (for assessment scoring).
@@ -315,7 +331,10 @@ export async function buildRealAnalytics(
         .filter((l) => l.status === "stuck")
         .sort((a, b) => b.lastActiveHoursAgo - a.lastActiveHoursAgo),
     };
-  } catch {
-    return null;
+  } catch (e) {
+    // Said in the log and on the page, so a broken filter doesn't pass for
+    // "no statistics yet"; how it failed, never a learner's data.
+    console.error(`[statistics] failed: ${e instanceof Error ? e.name : "error"}`);
+    return "unreadable";
   }
 }

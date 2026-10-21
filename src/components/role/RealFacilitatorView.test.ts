@@ -223,3 +223,174 @@ describe("RealFacilitatorView: time per lesson (spec 6)", () => {
     ]);
   });
 });
+
+/*
+ * UC1 (spec 4.5, 7.4, D80–D82): the server sends a learner's Comp Card only
+ * as far as it is shared with the viewer's organisation (compCard null
+ * otherwise), so the screen shows the shared fields and confidence, or
+ * "Nothing shared with you." — never a field "redacted" on screen. The
+ * scenario choice is progress, not the card: it is in the Activity panel.
+ * The roster counts the cards shared with the viewer, and labels test
+ * accounts and former staff.
+ *
+ * Which of these reproduce what r3@9be590e did: the labels, the scenario in
+ * the Activity panel, the fields shown by name only when they reached the
+ * screen, "Nothing shared with you." and the card without the scenario
+ * (the base listed all four fields, "—" for each missing one, the scenario
+ * among them, and a bare "—" for an unshared card). "Shows the fields
+ * shared and the confidence", "never shows a field as redacted on screen"
+ * and the shared count are regression tests: the base did those already,
+ * once the Foundation filtered the payload.
+ */
+const SHARED = {
+  fields: { wentWell: "I stayed calm", improve: "Ask earlier" },
+  confidence: 4 as const,
+  sharedAt: "2026-11-25T10:00:00.000Z",
+};
+
+const { CompCardPanel, LearnerLabels } = await import("./RealFacilitatorView");
+const cardPanel = (card: FacilitatorLearner["compCard"]) =>
+  renderToStaticMarkup(createElement(CompCardPanel, { card })).replace(/&#x27;/g, "'");
+
+describe("RealFacilitatorView: the Comp Card, as shared with the viewer (UC1)", () => {
+  it("shows the fields shared and the confidence", () => {
+    const html = cardPanel(SHARED);
+    expect(html).toContain("I stayed calm");
+    expect(html).toContain("Ask earlier");
+    expect(html).toContain(`4/5 — ${en.compCard.confidenceLabels["4"]}`);
+    expect(html).not.toContain(en.facilitator.notShared);
+  });
+
+  it("names only the fields that reached it: a field hidden or left empty isn't a row", () => {
+    const html = cardPanel(SHARED);
+    expect(html).toContain(en.compCard.fieldWentWell);
+    expect(html).toContain(en.compCard.fieldImprove);
+    expect(html).not.toContain(en.compCard.fieldDifficult);
+    expect(html).not.toContain(en.compCard.fieldBehaviour);
+    // A confidence hidden by the template reaches it as null.
+    expect(cardPanel({ ...SHARED, confidence: null })).not.toContain(en.compCard.fieldConfidence);
+  });
+
+  it("says “Nothing shared with you.” when nothing is", () => {
+    const html = cardPanel(null);
+    expect(html).toContain("Nothing shared with you.");
+    expect(html).not.toContain(en.compCard.fieldWentWell);
+  });
+
+  it("says a card shared with nothing filled in is shared, in words rather than a dash", () => {
+    // Review R5: it counts under "Comp Cards shared with you", and a lone
+    // "—" reads as "dash", or as nothing, to a screen reader.
+    const html = cardPanel({ fields: {}, confidence: null, sharedAt: SHARED.sharedAt });
+    expect(html).toContain("Shared with you. Nothing is filled in yet.");
+    expect(html).not.toContain("—");
+    expect(html).not.toContain(en.facilitator.notShared);
+  });
+
+  it("never shows a field as redacted on screen", () => {
+    for (const html of [cardPanel(SHARED), cardPanel(null)]) {
+      expect(html).not.toMatch(/redacted|chose not to share/i);
+    }
+  });
+
+  it("doesn't hold the scenario choice: that is progress, in the Activity panel", () => {
+    expect(cardPanel(SHARED)).not.toContain(en.compCard.fieldScenario);
+  });
+});
+
+describe("RealFacilitatorView: the scenario choice is in the Activity panel (D82)", () => {
+  it("shows the choice the learner made, with the quiz and practice results", () => {
+    const html = panel({ scenario: [{ text: "Speak to Sam in private" }, { text: "Tell Sam it's fine" }] });
+    const quiz = html.indexOf(`${en.facilitator.quizPractice}:`);
+    const scenario = html.indexOf(`${en.facilitator.scenarioChoice}:`);
+    expect(quiz).toBeGreaterThan(-1);
+    // After the quiz and practice results, with them (D82).
+    expect(scenario).toBeGreaterThan(quiz);
+    expect(html.replace(/<!-- -->/g, "").replace(/<[^>]*>/g, "").replace(/&#x27;/g, "'")).toContain(
+      "Speak to Sam in private → Tell Sam it's fine"
+    );
+  });
+
+  it("labels it as the learner's choice, not by the step's name", () => {
+    // Review R7: "Anwendung:" / "Εφαρμογή:" name the step in German and
+    // Greek, not what the learner chose in it.
+    const html = panel({ scenario: [{ text: "Speak to Sam in private" }] });
+    expect(html).toContain(`>${en.facilitator.scenarioChoice}:</span>`);
+    expect(html).not.toContain(`>${en.course.stageLabel.scenario}:</span>`);
+    expect(de.facilitator.scenarioChoice).not.toBe(de.course.stageLabel.scenario);
+    expect(el.facilitator.scenarioChoice).not.toBe(el.course.stageLabel.scenario);
+  });
+
+  it("has no scenario row before the learner has made a choice", () => {
+    // Review R5: a dash on every course without an applied scenario, and on
+    // every learner who hasn't reached it.
+    const html = panel({ scenario: null });
+    expect(html).not.toContain(en.facilitator.scenarioChoice);
+    expect(html).not.toContain(`${en.course.stageLabel.scenario}:`);
+  });
+
+  it("marks a part of the choice written in another language than the page's (WCAG 3.1.2)", () => {
+    // Review R3: a created course's choice not translated yet reads in
+    // English on a German page.
+    const html = panel({ scenario: [{ text: "Sam unter vier Augen ansprechen" }, { text: "Tell Sam it's fine", lang: "en" }] });
+    expect(html.replace(/&#x27;/g, "'")).toContain('<span lang="en">Tell Sam it\'s fine</span>');
+    expect(html).toMatch(/<span>Sam unter vier Augen ansprechen<\/span>/);
+  });
+});
+
+describe("RealFacilitatorView: the roster (spec 4.5, 7.4)", () => {
+  const roster = (learners: FacilitatorLearner[]) =>
+    renderToStaticMarkup(createElement(RealFacilitatorView, { learners, now: NOW }));
+  /** A learner's row in the list. */
+  const row = (html: string, name: string) => {
+    const start = html.indexOf(`>${name}</p>`);
+    return start < 0 ? "" : html.slice(start, html.indexOf("</li>", start));
+  };
+
+  it("counts the Comp Cards shared with the viewer", () => {
+    const html = roster([
+      learner({ id: "a", name: "Ana", compCard: SHARED }),
+      learner({ id: "b", name: "Ben" }),
+      learner({ id: "c", name: "Cleo" }),
+    ]);
+    expect(stat(html, "Comp Cards shared with you")).toBe("1/3");
+  });
+
+  it("labels a test account and a former staff member, and nobody else", () => {
+    const html = roster([
+      learner({ id: "t", name: "Tess", testAccount: true }),
+      learner({ id: "f", name: "Finn", formerStaff: true }),
+      learner({ id: "b", name: "Both", testAccount: true, formerStaff: true }),
+      learner({ id: "r", name: "Rosa" }),
+    ]);
+    expect(row(html, "Tess")).toContain("Test account");
+    expect(row(html, "Tess")).not.toContain("Former staff");
+    expect(row(html, "Finn")).toContain("Former staff");
+    expect(row(html, "Finn")).not.toContain("Test account");
+    expect(row(html, "Both")).toContain("Test account");
+    expect(row(html, "Both")).toContain("Former staff");
+    expect(row(html, "Rosa")).not.toMatch(/Test account|Former staff/);
+  });
+
+  it("labels one person, not a group, in German and Greek", () => {
+    // Review R7: "Ehemaliges Personal" and "Πρώην προσωπικό" mean "former
+    // personnel".
+    expect(de.facilitator.formerStaff).toBe("Früher im Team");
+    expect(el.facilitator.formerStaff).toBe("Πρώην μέλος προσωπικού");
+  });
+
+  it("gives the labels in the page's language", () => {
+    const labels = renderToStaticMarkup(
+      createElement(LearnerLabels, { learner: learner({ testAccount: true, formerStaff: true }) })
+    );
+    expect(labels).toContain(en.facilitator.testAccount);
+    expect(labels).toContain(en.facilitator.formerStaff);
+    expect(renderToStaticMarkup(createElement(LearnerLabels, { learner: learner({}) }))).toBe("");
+  });
+});
+
+describe("RealFacilitatorView: no field is hidden on screen any more (spec 4.6)", () => {
+  it.each(Object.entries({ en, de, el }))("so %s has no words for one", (_, messages) => {
+    expect(messages.facilitator).not.toHaveProperty("redacted");
+    expect(messages.facilitator).not.toHaveProperty("redactedHint");
+  });
+});

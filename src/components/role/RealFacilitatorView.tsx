@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState } from "react";
+import { Fragment, useEffect, useId, useRef, useState } from "react";
 import { useTranslations, useLocale } from "next-intl";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 import type { FacilitatorLearner } from "@/lib/server-queries";
+import type { CompCardField } from "@/lib/comp-card-visibility";
 import { saveObservation, recordValidation } from "@/app/actions/facilitator";
 import {
   NOTHING_SAVED,
@@ -23,7 +24,6 @@ import {
   Users,
   CheckCircle2,
   AlertCircle,
-  EyeOff,
   MessageSquare,
   ArrowLeft,
   MapPin,
@@ -110,7 +110,25 @@ export function RealFacilitatorView({
   const [done, setDone] = useState<FacilitatorSaved>(NOTHING_SAVED);
   const [failure, setFailure] = useState<FacilitatorSaveFailure>(null);
 
+  // The keyboard focus follows the view (WCAG 2.4.3): the button pressed
+  // goes with the view it was in, so opening a learner moves the focus to
+  // the detail's heading, and Back returns it to that learner's "Open
+  // learner" (`backTo`), rather than leaving it on the page's body.
+  const heading = useRef<HTMLHeadingElement>(null);
+  const openButtons = useRef(new Map<string, HTMLButtonElement>());
+  const backTo = useRef<string | null>(null);
+  useEffect(() => {
+    if (selectedId) {
+      heading.current?.focus();
+    } else if (backTo.current) {
+      openButtons.current.get(backTo.current)?.focus();
+      backTo.current = null;
+    }
+  }, [selectedId]);
+
   const active = activeInLastDay(learners, now);
+  // The Comp Cards shared with this viewer's organisation: the server sends
+  // no other (compCard is null for the rest).
   const cards = learners.filter((l) => l.compCard).length;
   const attention = learners.filter((l) => l.needsAttention).length;
   const completedCount = learners.filter((l) => l.completed).length;
@@ -156,14 +174,12 @@ export function RealFacilitatorView({
 
   // ---- Detail view ----
   if (selected) {
-    // Only what the learner shared with this viewer's organisation reaches
-    // the page (the server filters it: compCardForViewer); null otherwise.
-    const c = selected.compCard;
     return (
       <div className="mx-auto max-w-3xl px-4 py-8">
         <button
           type="button"
           onClick={() => {
+            backTo.current = selected.id;
             setSelectedId(null);
             setObservation("");
             setValidated(false);
@@ -188,10 +204,13 @@ export function RealFacilitatorView({
                 <p className="text-xs uppercase tracking-wider text-[var(--muted-foreground)] font-semibold">
                   {t("viewLearner")}
                 </p>
-                <h2 className="text-2xl font-bold wrap-anywhere">{selected.name}</h2>
+                <h2 ref={heading} tabIndex={-1} className="text-2xl font-bold wrap-anywhere">
+                  {selected.name}
+                </h2>
                 <p className="text-sm text-[var(--muted-foreground)] mt-0.5 wrap-anywhere">
                   {selected.email}
                 </p>
+                <LearnerLabels learner={selected} className="mt-1.5" />
               </div>
               <Badge variant="primary">{selected.progressPct}%</Badge>
             </div>
@@ -202,22 +221,7 @@ export function RealFacilitatorView({
 
             <h3 className="text-sm font-semibold mb-3">{tCard("title")}</h3>
 
-            {c ? (
-              <div className="space-y-3">
-                <Row label={tCard("fieldScenario")}>{selected.scenario ?? "—"}</Row>
-                <Row label={tCard("fieldWentWell")}>{c.fields.wentWell || "—"}</Row>
-                <Row label={tCard("fieldDifficult")}>{c.fields.difficult || "—"}</Row>
-                <Row label={tCard("fieldImprove")}>{c.fields.improve || "—"}</Row>
-                <Row label={tCard("fieldBehaviour")}>{c.fields.behaviour || "—"}</Row>
-                <Row label={tCard("fieldConfidence")}>
-                  {c.confidence
-                    ? `${c.confidence}/5 — ${tCard(`confidenceLabels.${c.confidence}`)}`
-                    : "—"}
-                </Row>
-              </div>
-            ) : (
-              <p className="text-sm text-[var(--muted-foreground)]">—</p>
-            )}
+            <CompCardPanel card={selected.compCard} />
 
             {/* Observation */}
             <div className="mt-6 rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] p-4">
@@ -425,6 +429,7 @@ export function RealFacilitatorView({
                   </div>
                   <div className="flex-1 basis-40 min-w-0">
                     <p className="font-medium text-sm truncate">{l.name}</p>
+                    <LearnerLabels learner={l} className="mt-1" />
                     <div className="mt-1 flex items-center gap-3">
                       <Progress value={l.progressPct} className="max-w-xs" />
                       <span className="text-xs text-[var(--muted-foreground)] whitespace-nowrap">
@@ -444,6 +449,10 @@ export function RealFacilitatorView({
                     </Badge>
                   ) : null}
                   <Button
+                    ref={(button) => {
+                      if (button) openButtons.current.set(l.id, button);
+                      else openButtons.current.delete(l.id);
+                    }}
                     size="sm"
                     variant="outline"
                     onClick={() => {
@@ -498,36 +507,95 @@ function StatCard({
   );
 }
 
-function Row({
-  label,
-  redacted = false,
-  children,
-}: {
-  label: string;
-  redacted?: boolean;
-  children: React.ReactNode;
-}) {
-  const t = useTranslations("facilitator");
+function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="rounded-lg border border-[var(--border)] p-3">
       <p className="text-xs uppercase tracking-wider text-[var(--muted-foreground)] font-semibold mb-1">
         {label}
       </p>
-      {redacted ? (
-        <div className="rounded bg-[var(--surface-muted)] border border-dashed border-[var(--border)] px-2.5 py-1.5 text-sm text-[var(--muted-foreground)] flex items-center gap-1.5 italic">
-          <EyeOff className="h-3.5 w-3.5" />
-          {t("redacted")} — {t("redactedHint")}
-        </div>
-      ) : (
-        <p className="text-sm whitespace-pre-wrap">{children}</p>
-      )}
+      <p className="text-sm whitespace-pre-wrap">{children}</p>
+    </div>
+  );
+}
+
+/** The Comp Card's text fields, in the card's order, with their labels' keys. */
+const CARD_FIELDS: readonly [CompCardField, `field${Capitalize<CompCardField>}`][] = [
+  ["wentWell", "fieldWentWell"],
+  ["difficult", "fieldDifficult"],
+  ["improve", "fieldImprove"],
+  ["behaviour", "fieldBehaviour"],
+];
+
+/**
+ * A learner's Comp Card as it reached this viewer: only what the learner
+ * shared with the viewer's organisation leaves the server
+ * (compCardForViewer, D80, D81), without the empty fields and those the
+ * card's template hides; null when nothing is shared with the viewer. A
+ * shared card with nothing on it says so. The scenario choice is progress,
+ * in the Activity panel (D82).
+ * (Exported for its tests.)
+ */
+export function CompCardPanel({ card }: { card: FacilitatorLearner["compCard"] }) {
+  const t = useTranslations("facilitator");
+  const tCard = useTranslations("compCard");
+  if (!card) {
+    return <p className="text-sm text-[var(--muted-foreground)]">{t("notShared")}</p>;
+  }
+  const fields = CARD_FIELDS.filter(([field]) => card.fields[field]);
+  // Shared, and counted as shared, with nothing on it yet: said in words.
+  if (!fields.length && !card.confidence) {
+    return <p className="text-sm text-[var(--muted-foreground)]">{t("sharedEmpty")}</p>;
+  }
+  return (
+    <div className="space-y-3">
+      {fields.map(([field, label]) => (
+        <Row key={field} label={tCard(label)}>
+          {card.fields[field]}
+        </Row>
+      ))}
+      {card.confidence ? (
+        <Row label={tCard("fieldConfidence")}>
+          {`${card.confidence}/5 — ${tCard(`confidenceLabels.${card.confidence}`)}`}
+        </Row>
+      ) : null}
     </div>
   );
 }
 
 /**
- * Where the learner is, how long they've spent, and how their quizzes went.
- * (Exported for its tests.)
+ * "Test account" and "Former staff" (spec 7.4): the roster lists everyone
+ * who is a learner now, and says which of them the statistics leave out.
+ * Nothing for anyone else. (Exported for its tests.)
+ */
+export function LearnerLabels({
+  learner,
+  className = "",
+}: {
+  learner: Pick<FacilitatorLearner, "testAccount" | "formerStaff">;
+  className?: string;
+}) {
+  const t = useTranslations("facilitator");
+  if (!learner.testAccount && !learner.formerStaff) return null;
+  return (
+    <div className={`flex flex-wrap gap-1.5 ${className}`}>
+      {learner.testAccount ? (
+        <Badge variant="muted" className="text-[10px]">
+          {t("testAccount")}
+        </Badge>
+      ) : null}
+      {learner.formerStaff ? (
+        <Badge variant="muted" className="text-[10px]">
+          {t("formerStaff")}
+        </Badge>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Where the learner is, how long they've spent, how their quizzes went, and
+ * the choice they made in the applied scenario, once they have. (Exported
+ * for its tests.)
  */
 export function ActivityPanel({ learner }: { learner: FacilitatorLearner }) {
   const t = useTranslations("facilitator");
@@ -640,6 +708,22 @@ export function ActivityPanel({ learner }: { learner: FacilitatorLearner }) {
           total={learner.videoAnswered}
         />
       </div>
+
+      {/* The choice made in the applied scenario: progress, which the
+          learner's organisation always sees (D82), not Comp Card text. Each
+          part in the language it is written in (WCAG 3.1.2). Only once a
+          choice is made: many courses have no applied scenario. */}
+      {learner.scenario ? (
+        <p className="mt-3 text-xs text-[var(--muted-foreground)]">
+          <span className="font-medium text-[var(--foreground)]">{t("scenarioChoice")}:</span>{" "}
+          {learner.scenario.map((part, i) => (
+            <Fragment key={i}>
+              {i ? " → " : null}
+              <span lang={part.lang}>{part.text}</span>
+            </Fragment>
+          ))}
+        </p>
+      ) : null}
     </div>
   );
 }

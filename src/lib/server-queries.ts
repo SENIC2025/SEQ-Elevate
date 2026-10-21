@@ -14,7 +14,7 @@ import { getCurrentUser, getProjectMemberships } from "@/lib/auth-helpers";
 import { getCourse } from "@/lib/cms";
 import { readAssessment, scoreAssessment } from "@/lib/assessment-progress";
 import { skillClusterOfCourse } from "@/lib/facilitator-access";
-import type { SkillCluster } from "@/data/course";
+import { COURSE_DEFS, type SkillCluster } from "@/data/course";
 import {
   courseProgress,
   nextStage,
@@ -24,6 +24,7 @@ import { getLessonPlans } from "@/lib/cms/lesson-plans";
 import type { LessonPlan } from "@/lib/cms/sections/learner-path";
 import { completedLessonIds } from "@/lib/learner-progress/enrolment-read";
 import type { Locale, CourseContent } from "@/lib/cms/types";
+import { fallbackOrder, hasText } from "@/lib/cms/text-fallback";
 import { canSupportLearners } from "@/lib/permissions";
 import {
   cohortsInScope,
@@ -83,6 +84,15 @@ export async function getViewerRoles(): Promise<Role[]> {
   }
 }
 
+/**
+ * A course's text on a staff screen, with the language it is written in
+ * when that isn't the page's, for its lang attribute (WCAG 3.1.2).
+ */
+export interface CourseTextPart {
+  text: string;
+  lang?: Locale;
+}
+
 export interface FacilitatorLearner {
   id: string;
   name: string;
@@ -90,7 +100,14 @@ export interface FacilitatorLearner {
   progressPct: number;
   completed: boolean;
   needsAttention: boolean;
-  scenario: string | null;
+  /**
+   * The choice the learner made in the applied scenario, then the
+   * follow-up choice if they made one, in the course's words; null before
+   * a choice. A course created in the CMS reads each choice in the page's
+   * language, else English, else the first language written (pickText), so
+   * a part's `lang` says when it isn't the page's.
+   */
+  scenario: CourseTextPart[] | null;
   /**
    * The learner's Comp Card as far as it is shared with this viewer's
    * organisation (compCardForViewer); null when nothing is: no card, an
@@ -291,19 +308,34 @@ async function loadLearners(
     if (c) contentBySlug.set(slug, c);
   }
 
+  // The stored choices of the applied scenarios learners answered in
+  // courses created in the CMS, for the language each is written in (a
+  // bundled course's are in every language).
+  const storedChoices = await storedScenarioChoices(
+    memberships.flatMap((m) => {
+      const ev = m.user.enrollments.find((e) => e.scenarioRoot);
+      return ev && !isBundled(ev.course.slug) ? [ev.course.slug] : [];
+    })
+  );
+
   const labelFor = (
     courseSlug: string,
     root: string | null,
     followup: string | null
-  ): string | null => {
+  ): CourseTextPart[] | null => {
     if (!root) return null;
     const scenario = contentBySlug
       .get(courseSlug)
       ?.stages.find((s) => s.key === "scenario")?.scenario;
     const r = scenario?.choices.find((c) => c.id === root);
     if (!r) return null;
+    const storedRoot = choiceById(storedChoices.get(courseSlug), root);
+    const parts: CourseTextPart[] = [{ text: r.text, ...textLang(storedRoot?.text, locale) }];
     const f = r.followups?.find((x) => x.id === followup);
-    return f ? `${r.text} → ${f.text}` : r.text;
+    if (f) {
+      parts.push({ text: f.text, ...textLang(choiceById(storedRoot?.followups, f.id)?.text, locale) });
+    }
+    return parts;
   };
 
   // Each course's own lessons, as learners get them (D64): a course created
@@ -426,6 +458,63 @@ async function loadLearners(
       simulationTotal,
     };
   });
+}
+
+/** Is `slug` a course the platform ships (getCourse reads it from the provider, in every language)? */
+const isBundled = (slug: string) => Object.prototype.hasOwnProperty.call(COURSE_DEFS, slug);
+
+const isRecord = (v: unknown): v is Record<string, unknown> =>
+  !!v && typeof v === "object" && !Array.isArray(v);
+
+/** A stored scenario choice, as far as the language of its text goes. */
+interface StoredChoice {
+  id?: unknown;
+  text?: unknown;
+  followups?: unknown;
+}
+
+/** The stored choice with `id` among `choices`, if `choices` is a list that has it. */
+function choiceById(choices: unknown, id: string): StoredChoice | undefined {
+  if (!Array.isArray(choices)) return undefined;
+  return choices.find((c): c is StoredChoice => isRecord(c) && c.id === id);
+}
+
+/**
+ * `{ lang }` when the text pickText reads for `locale` (the first language
+ * with text: `locale`, English, then the others as written) is in another
+ * language; nothing when it is `locale`'s, or the stored text can't say.
+ */
+function textLang(text: unknown, locale: Locale): { lang?: Locale } {
+  if (!isRecord(text)) return {};
+  const lang = fallbackOrder(text, locale).find((k) => hasText(text[k]));
+  return lang && lang !== locale && (["en", "de", "el"] as const).includes(lang as Locale)
+    ? { lang: lang as Locale }
+    : {};
+}
+
+/**
+ * The stored choices of the applied scenario of each of `slugs` (courses
+ * created in the CMS: Lesson.structure, which db-course.ts resolves), by
+ * slug. When they can't be read, none: the choices are then shown without
+ * their language, rather than no learner shown.
+ */
+async function storedScenarioChoices(slugs: string[]): Promise<Map<string, unknown>> {
+  const unique = [...new Set(slugs)];
+  if (!unique.length) return new Map();
+  try {
+    const rows = await prisma.lesson.findMany({
+      where: { projectId: PROJECT, courseSlug: { in: unique }, stageKey: "scenario" },
+      select: { courseSlug: true, structure: true },
+    });
+    return new Map(
+      rows.flatMap((r) =>
+        isRecord(r.structure) && r.structure.kind === "scenario" ? [[r.courseSlug, r.structure.choices] as const] : []
+      )
+    );
+  } catch (e) {
+    console.error(`[facilitator] couldn't read the scenario texts' languages: ${e instanceof Error ? e.name : "error"}`);
+    return new Map();
+  }
 }
 
 /**

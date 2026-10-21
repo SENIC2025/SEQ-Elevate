@@ -177,3 +177,45 @@ describe("AnalyticsDashboard: language", () => {
     }
   });
 });
+
+/*
+ * Spec 7.5 (D83): one line under the title says what the live figures
+ * count — from when, without whom, and for partner staff, of which
+ * organisation. The sample counts nothing, so it says nothing of the kind.
+ */
+describe("AnalyticsDashboard: what the figures count (spec 7.5)", () => {
+  const LINE = "Counting from 1 December 2026. Staff, former staff and test accounts are left out.";
+  const live = (counting: { from: string | null; organisation: string | null }) =>
+    renderToStaticMarkup(
+      createElement(AnalyticsDashboard, { data: buildSampleAnalytics(), isSample: false, counting })
+    ).replace(/&#x27;/g, "'");
+
+  it("says the date the figures count from and who is left out, under the title", () => {
+    const html = live({ from: "1 December 2026", organisation: null });
+    expect(html).toContain(`>${LINE}</p>`);
+    expect(html.indexOf(LINE)).toBeGreaterThan(html.indexOf("Learner statistics"));
+    expect(html.indexOf(LINE)).toBeLessThan(html.indexOf("Live data computed"));
+  });
+
+  it("names the organisation for partner staff", () => {
+    expect(live({ from: "1 December 2026", organisation: "Pro Arbeit" })).toContain(`>${LINE} Pro Arbeit only.</p>`);
+  });
+
+  it("says who is left out, and no date, when there is none", () => {
+    const html = live({ from: null, organisation: null });
+    expect(html).toContain(">Staff, former staff and test accounts are left out.</p>");
+    expect(html).not.toContain("Counting from");
+  });
+
+  it("says nothing of the kind over sample data", () => {
+    const html = renderToStaticMarkup(
+      createElement(AnalyticsDashboard, {
+        data: buildSampleAnalytics(),
+        isSample: true,
+        counting: { from: "1 December 2026", organisation: "Pro Arbeit" },
+      })
+    );
+    expect(html).not.toContain("Counting from");
+    expect(html).not.toContain("left out");
+  });
+});

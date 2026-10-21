@@ -17,16 +17,20 @@ vi.mock("@/lib/auth-helpers", () => ({
 }));
 
 const now = new Date();
+/** When the fixtures' learners started: long before any date the tests count from. */
+const LONG_AGO = new Date("2020-01-01T00:00:00Z");
 const enrolment = (
   stagesCompleted: string[],
   completedAt: Date | null,
-  sectionsCompleted: string[] | null = null
+  sectionsCompleted: string[] | null = null,
+  dates: { enrolledAt?: Date; updatedAt?: Date } = {}
 ) => ({
   course: { slug: "asking-for-help" },
   stagesCompleted,
   sectionsCompleted,
   completedAt,
-  updatedAt: now,
+  enrolledAt: dates.enrolledAt ?? LONG_AGO,
+  updatedAt: dates.updatedAt ?? now,
   assessment: null,
 });
 
@@ -50,15 +54,42 @@ const learnersOf = vi.fn(() => [
     },
   },
 ]);
+/** A date filter as the queries write it ({ gte }), or none. */
+type Since = { gte?: Date } | undefined;
+const since = (at: Date, filter: Since) => !filter?.gte || at >= filter.gte;
+
+/*
+ * The database, stood in for: each read answers the fixtures, by the date
+ * filters the query asks for (enrolments, events, badges), as Postgres would.
+ */
 const membershipFindMany = vi.fn();
-const auditFindMany = vi.fn(async (): Promise<unknown[]> => []);
+type MembershipQuery = {
+  select: { user: { select: { enrollments: { where?: { enrolledAt?: Since } } } } };
+};
+const auditEvents = vi.fn(
+  (): { actorId: string; action: string; metadata: unknown; createdAt: Date }[] => []
+);
+const auditFindMany = vi.fn(async (query: { where: { createdAt?: Since } }): Promise<unknown[]> =>
+  auditEvents().filter((ev) => since(ev.createdAt, query.where.createdAt))
+);
+const badgesAwarded = vi.fn((): Date[] => [LONG_AGO]);
+const badgeCount = vi.fn(
+  async (query: { where: { awardedAt?: Since } }) =>
+    badgesAwarded().filter((at) => since(at, query.where.awardedAt)).length
+);
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     membership: {
-      findMany: membershipFindMany.mockImplementation(async () => learnersOf()),
+      findMany: membershipFindMany.mockImplementation(async (query: MembershipQuery) => {
+        const from = query.select.user.select.enrollments.where?.enrolledAt;
+        return learnersOf().map((m) => ({
+          ...m,
+          user: { ...m.user, enrollments: m.user.enrollments.filter((e) => since(e.enrolledAt, from)) },
+        }));
+      }),
     },
     auditLog: { findMany: auditFindMany },
-    userBadge: { count: async () => 1 },
+    userBadge: { count: badgeCount },
   },
 }));
 
@@ -72,9 +103,11 @@ vi.mock("@/lib/cms/lesson-plans", () => ({
 const defaultLearners = learnersOf.getMockImplementation()!;
 afterEach(() => {
   learnersOf.mockImplementation(defaultLearners);
-  auditFindMany.mockImplementation(async () => []);
+  auditEvents.mockImplementation(() => []);
+  badgesAwarded.mockImplementation(() => [LONG_AGO]);
   lessonPlans.mockImplementation(async () => new Map());
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
 });
 
 const NARRATIVE: StageKey[] = ["context", "concept", "behaviour", "reflection"];
@@ -87,15 +120,21 @@ vi.mock("@/lib/cms", () => ({
     }) as unknown as CourseContent,
 }));
 
-const { buildRealAnalytics: analyticsFor } = await import("./analytics-real");
+const { buildRealAnalytics: readAnalytics } = await import("./analytics-real");
+/** The figures, or null when there are none; a read that failed fails the test. */
+const analyticsFor = async (...args: Parameters<typeof readAnalytics>) => {
+  const data = await readAnalytics(...args);
+  if (data === "unreadable") throw new Error("the statistics read failed");
+  return data;
+};
 const { statisticsMembershipsInScope } = await import("./scope");
 
 /** An ADMIN's scope: the whole project. */
 const PROJECT_SCOPE: Scope = { kind: "project", viewerId: "admin", viewerOrganisationId: null };
 const ORG_A: Scope = { kind: "organisation", viewerId: "fac-a", organisationId: "org-a" };
 const NONE: Scope = { kind: "none" };
-/** The statistics as an ADMIN reads them (most tests). */
-const buildRealAnalytics = (locale: "en") => analyticsFor(PROJECT_SCOPE, locale);
+/** The statistics as an ADMIN reads them with no start date (STATS_FROM=off): most tests. */
+const buildRealAnalytics = (locale: "en") => analyticsFor(PROJECT_SCOPE, locale, null);
 
 describe("buildRealAnalytics", () => {
   it("counts completion against the course's own lessons", async () => {
@@ -214,7 +253,7 @@ describe("buildRealAnalytics, for a course with lessons of its own", () => {
   });
 
   it("adds time in lessons of the course's own to the total, as secondsOther", async () => {
-    auditFindMany.mockImplementation(async () => [
+    auditEvents.mockImplementation(() => [
       { actorId: "halfway", action: "stage.time", metadata: { stage: "context", seconds: 60 }, createdAt: now },
       { actorId: "halfway", action: "stage.time", metadata: { stage: OWN, seconds: 90 }, createdAt: now },
     ]);
@@ -287,7 +326,7 @@ describe("whose data the statistics use", () => {
   });
 
   it("reads only the viewer's organisation for partner staff", async () => {
-    await analyticsFor(ORG_A, "en");
+    await analyticsFor(ORG_A, "en", null);
     expect(lastQuery().where).toEqual(statisticsMembershipsInScope(ORG_A, null));
     expect(JSON.stringify(lastQuery().where)).toContain('"organisationId":"org-a"');
   });
@@ -295,6 +334,7 @@ describe("whose data the statistics use", () => {
   it("answers null for no scope, without asking the database", async () => {
     membershipFindMany.mockClear();
     auditFindMany.mockClear();
+    expect(await analyticsFor(NONE, "en", null)).toBeNull();
     expect(await analyticsFor(NONE, "en")).toBeNull();
     expect(membershipFindMany).not.toHaveBeenCalled();
     expect(auditFindMany).not.toHaveBeenCalled();
@@ -311,5 +351,119 @@ describe("whose data the statistics use", () => {
     // Nothing of the user beyond who they are and their enrolments.
     const user = (query.select as { user: { select: Record<string, unknown> } }).user.select;
     expect(Object.keys(user).sort()).toEqual(["email", "enrollments", "id", "name"]);
+  });
+});
+
+/*
+ * UC2 (D83, spec 7.3): the statistics count from STATS_FROM (stats-from.ts):
+ * only enrolments made since then, and only the time, video answers, course
+ * opens and badges recorded since then. A learner's position, progress and
+ * last activity come from what is counted. A failure is logged, without
+ * learner data, so a broken filter doesn't pass for "no statistics yet".
+ */
+describe("the statistics' start date", () => {
+  const FROM = new Date("2026-12-01T00:00:00+01:00");
+  const before = (ms: number) => new Date(FROM.getTime() - ms);
+  const after = (ms: number) => new Date(FROM.getTime() + ms);
+  const lastMembershipQuery = () => lastQuery() as unknown as MembershipQuery & { where: unknown };
+  /** One learner, who started on the date, and was last in the course a second later. */
+  const startedOnTheDate = () =>
+    learnersOf.mockImplementation(() => [
+      one("since", [enrolment(["CONTEXT"], null, null, { enrolledAt: FROM, updatedAt: after(1000) })]),
+    ]);
+
+  it("asks for the learners, enrolments, events and badges since STATS_FROM", async () => {
+    vi.stubEnv("STATS_FROM", "2026-11-02T08:00:00Z");
+    const at = new Date("2026-11-02T08:00:00Z");
+    startedOnTheDate();
+    auditFindMany.mockClear();
+    badgeCount.mockClear();
+    expect(await analyticsFor(PROJECT_SCOPE, "en")).not.toBeNull();
+    expect(lastMembershipQuery().where).toEqual(statisticsMembershipsInScope(PROJECT_SCOPE, at));
+    expect(lastMembershipQuery().select.user.select.enrollments.where).toEqual({ enrolledAt: { gte: at } });
+    expect(auditFindMany.mock.calls.at(-1)?.[0].where.createdAt).toEqual({ gte: at });
+    expect(badgeCount.mock.calls.at(-1)?.[0].where.awardedAt).toEqual({ gte: at });
+  });
+
+  it("counts from 1 December 2026 when STATS_FROM is unset", async () => {
+    vi.stubEnv("STATS_FROM", "");
+    await analyticsFor(PROJECT_SCOPE, "en");
+    expect(lastMembershipQuery().where).toEqual(statisticsMembershipsInScope(PROJECT_SCOPE, FROM));
+  });
+
+  it("counts everything with STATS_FROM=off, as before", async () => {
+    vi.stubEnv("STATS_FROM", "off");
+    auditFindMany.mockClear();
+    badgeCount.mockClear();
+    expect(await analyticsFor(PROJECT_SCOPE, "en")).not.toBeNull();
+    expect(lastMembershipQuery().where).toEqual(statisticsMembershipsInScope(PROJECT_SCOPE, null));
+    expect(lastMembershipQuery().select.user.select.enrollments).not.toHaveProperty("where");
+    expect(auditFindMany.mock.calls.at(-1)?.[0].where).not.toHaveProperty("createdAt");
+    expect(badgeCount.mock.calls.at(-1)?.[0].where).not.toHaveProperty("awardedAt");
+  });
+
+  it("takes the date it is given over the setting (the page shows the date it counts from)", async () => {
+    vi.stubEnv("STATS_FROM", "off");
+    await analyticsFor(PROJECT_SCOPE, "en", FROM);
+    expect(lastMembershipQuery().where).toEqual(statisticsMembershipsInScope(PROJECT_SCOPE, FROM));
+  });
+
+  it("leaves out an enrolment made before the date, and picks the latest among those since", async () => {
+    learnersOf.mockImplementation(() => [
+      one("both", [
+        // Finished before the date, and touched last.
+        enrolment(["CONTEXT", "CONCEPT", "BEHAVIOUR", "REFLECTION"], before(86_400_000), null, {
+          enrolledAt: before(2 * 86_400_000),
+          updatedAt: after(2 * 86_400_000),
+        }),
+        // Started since, halfway.
+        enrolment(["CONTEXT", "CONCEPT"], null, null, { enrolledAt: after(1000), updatedAt: after(1000) }),
+      ]),
+    ]);
+    const data = await analyticsFor(PROJECT_SCOPE, "en", FROM);
+    expect(data?.learners).toHaveLength(1);
+    expect(data?.learners[0].completed).toBe(false);
+    expect(data?.learners[0].progressPct).toBe(50);
+    expect(data?.kpis.completed).toBe(0);
+  });
+
+  it("has nothing to show when every enrolment was made before the date", async () => {
+    learnersOf.mockImplementation(() => [
+      one("early", [enrolment(["CONTEXT"], null, null, { enrolledAt: before(1), updatedAt: after(1000) })]),
+    ]);
+    expect(await analyticsFor(PROJECT_SCOPE, "en", FROM)).toBeNull();
+  });
+
+  it("counts only the time and course opens recorded since the date", async () => {
+    learnersOf.mockImplementation(() => [
+      one("timed", [enrolment(["CONTEXT"], null, null, { enrolledAt: after(1000), updatedAt: after(1000) })]),
+    ]);
+    auditEvents.mockImplementation(() => [
+      { actorId: "timed", action: "stage.time", metadata: { stage: "context", seconds: 600 }, createdAt: before(1) },
+      { actorId: "timed", action: "stage.time", metadata: { stage: "context", seconds: 60 }, createdAt: after(5000) },
+      { actorId: "timed", action: "course.opened", metadata: null, createdAt: before(1) },
+    ]);
+    const data = await analyticsFor(PROJECT_SCOPE, "en", FROM);
+    expect(data?.learners[0].secondsByStage[0]).toBe(60);
+    expect(data?.learners[0].secondsTotal).toBe(60);
+    expect(data?.heatmap.flat().reduce((a, b) => a + b, 0)).toBe(0);
+  });
+
+  it("counts only the badges awarded since the date", async () => {
+    startedOnTheDate();
+    badgesAwarded.mockImplementation(() => [before(1), FROM, after(1)]);
+    expect((await analyticsFor(PROJECT_SCOPE, "en", FROM))?.kpis.badges).toBe(2);
+    expect((await analyticsFor(PROJECT_SCOPE, "en", null))?.kpis.badges).toBe(3);
+  });
+
+  it("logs a failure without learner data, and answers that the read failed, not that no one started", async () => {
+    // Review R2: a null here read as "no learner has started" on the page.
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    membershipFindMany.mockImplementationOnce(async () => {
+      throw new TypeError("lena@example.com: column missing");
+    });
+    expect(await readAnalytics(PROJECT_SCOPE, "en", FROM)).toBe("unreadable");
+    expect(error).toHaveBeenCalledTimes(1);
+    expect(error.mock.calls[0]).toEqual(["[statistics] failed: TypeError"]);
   });
 });
