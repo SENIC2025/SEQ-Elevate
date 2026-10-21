@@ -847,7 +847,11 @@
       "notChecked": "Coverage counts the main text and exercises only. Check extra content, step names, video questions and documents yourself.",
       "readOnly": "Only a partner admin or an admin can switch a language on or off for learners.",
       "liveIncomplete": "{language} is live, but some text is missing in it now (usually because the English changed). Learners see English there.",
-      "notLive": "Learners using {language} get English until {language} is switched on."
+      "notLive": "Learners using {language} get English until {language} is switched on.",
+      "title": "Languages for learners",
+      "confirm": "Switch {language} on",
+      "englishRequired": "English is this course's source language: write all of it in English before you publish it for the first time.",
+      "englishMissing": "Some of this course has no English text. Learners whose language isn't switched on get another language there."
     }
   },
   "lessonList": {

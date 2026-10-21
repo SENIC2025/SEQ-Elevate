@@ -48,6 +48,10 @@ const KEYS = [
   ...[
     "label", "on", "off", "confirmTitle", "confirmBody", "notChecked", "readOnly",
     "liveIncomplete", "notLive",
+    // Stream E's contract commit: the panel's heading, its confirm button,
+    // and English as the source language (D90) before and after the first
+    // publish.
+    "title", "confirm", "englishRequired", "englishMissing",
   ].map((k) => `courseManager.languageReady.${k}`),
   ...["body", "play", "privacyLink", "watchOn", "loading", "failed"].map((k) => `video.youtubeGate.${k}`),
   ...["body", "open"].map((k) => `video.external.${k}`),
