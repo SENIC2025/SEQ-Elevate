@@ -223,3 +223,117 @@ describe("RealFacilitatorView: time per lesson (spec 6)", () => {
     ]);
   });
 });
+
+/*
+ * UC1 (spec 4.5, 7.4, D80–D82): the server sends a learner's Comp Card only
+ * as far as it is shared with the viewer's organisation (compCard null
+ * otherwise), so the screen shows the shared fields and confidence, or
+ * "Nothing shared with you." — never a field "redacted" on screen. The
+ * scenario choice is progress, not the card: it is in the Activity panel.
+ * The roster counts the cards shared with the viewer, and labels test
+ * accounts and former staff.
+ */
+const SHARED = {
+  fields: { wentWell: "I stayed calm", improve: "Ask earlier" },
+  confidence: 4 as const,
+  sharedAt: "2026-11-25T10:00:00.000Z",
+};
+
+const { CompCardPanel, LearnerLabels } = await import("./RealFacilitatorView");
+const cardPanel = (card: FacilitatorLearner["compCard"]) =>
+  renderToStaticMarkup(createElement(CompCardPanel, { card })).replace(/&#x27;/g, "'");
+
+describe("RealFacilitatorView: the Comp Card, as shared with the viewer (UC1)", () => {
+  it("shows the fields shared and the confidence", () => {
+    const html = cardPanel(SHARED);
+    expect(html).toContain("I stayed calm");
+    expect(html).toContain("Ask earlier");
+    expect(html).toContain(`4/5 — ${en.compCard.confidenceLabels["4"]}`);
+    expect(html).not.toContain(en.facilitator.notShared);
+  });
+
+  it("names only the fields that reached it: a field hidden or left empty isn't a row", () => {
+    const html = cardPanel(SHARED);
+    expect(html).toContain(en.compCard.fieldWentWell);
+    expect(html).toContain(en.compCard.fieldImprove);
+    expect(html).not.toContain(en.compCard.fieldDifficult);
+    expect(html).not.toContain(en.compCard.fieldBehaviour);
+    // A confidence hidden by the template reaches it as null.
+    expect(cardPanel({ ...SHARED, confidence: null })).not.toContain(en.compCard.fieldConfidence);
+  });
+
+  it("says “Nothing shared with you.” when nothing is", () => {
+    const html = cardPanel(null);
+    expect(html).toContain("Nothing shared with you.");
+    expect(html).not.toContain(en.compCard.fieldWentWell);
+  });
+
+  it("never shows a field as redacted on screen", () => {
+    for (const html of [cardPanel(SHARED), cardPanel(null)]) {
+      expect(html).not.toMatch(/redacted|chose not to share/i);
+    }
+  });
+
+  it("doesn't hold the scenario choice: that is progress, in the Activity panel", () => {
+    expect(cardPanel(SHARED)).not.toContain(en.compCard.fieldScenario);
+  });
+});
+
+describe("RealFacilitatorView: the scenario choice is in the Activity panel (D82)", () => {
+  it("shows the choice the learner made, with the quiz and practice results", () => {
+    const html = panel({ scenario: "Speak to Sam in private → Tell Sam it's fine" });
+    const quiz = html.indexOf(`${en.facilitator.quizPractice}:`);
+    const scenario = html.indexOf(en.course.stageLabel.scenario);
+    expect(scenario).toBeGreaterThan(-1);
+    expect(quiz).toBeGreaterThan(-1);
+    expect(html.replace(/&#x27;/g, "'")).toContain("Speak to Sam in private → Tell Sam it's fine");
+  });
+
+  it("shows a dash before the learner has made one", () => {
+    expect(panel({ scenario: null })).toMatch(new RegExp(`${en.course.stageLabel.scenario}:?</span>\\s*(<!-- -->)?\\s*—`));
+  });
+});
+
+describe("RealFacilitatorView: the roster (spec 4.5, 7.4)", () => {
+  const roster = (learners: FacilitatorLearner[]) =>
+    renderToStaticMarkup(createElement(RealFacilitatorView, { learners, now: NOW }));
+  /** A learner's row in the list. */
+  const row = (html: string, name: string) => {
+    const start = html.indexOf(`>${name}</p>`);
+    return start < 0 ? "" : html.slice(start, html.indexOf("</li>", start));
+  };
+
+  it("counts the Comp Cards shared with the viewer", () => {
+    const html = roster([
+      learner({ id: "a", name: "Ana", compCard: SHARED }),
+      learner({ id: "b", name: "Ben" }),
+      learner({ id: "c", name: "Cleo" }),
+    ]);
+    expect(stat(html, "Comp Cards shared with you")).toBe("1/3");
+  });
+
+  it("labels a test account and a former staff member, and nobody else", () => {
+    const html = roster([
+      learner({ id: "t", name: "Tess", testAccount: true }),
+      learner({ id: "f", name: "Finn", formerStaff: true }),
+      learner({ id: "b", name: "Both", testAccount: true, formerStaff: true }),
+      learner({ id: "r", name: "Rosa" }),
+    ]);
+    expect(row(html, "Tess")).toContain("Test account");
+    expect(row(html, "Tess")).not.toContain("Former staff");
+    expect(row(html, "Finn")).toContain("Former staff");
+    expect(row(html, "Finn")).not.toContain("Test account");
+    expect(row(html, "Both")).toContain("Test account");
+    expect(row(html, "Both")).toContain("Former staff");
+    expect(row(html, "Rosa")).not.toMatch(/Test account|Former staff/);
+  });
+
+  it("gives the labels in the page's language", () => {
+    const labels = renderToStaticMarkup(
+      createElement(LearnerLabels, { learner: learner({ testAccount: true, formerStaff: true }) })
+    );
+    expect(labels).toContain(en.facilitator.testAccount);
+    expect(labels).toContain(en.facilitator.formerStaff);
+    expect(renderToStaticMarkup(createElement(LearnerLabels, { learner: learner({}) }))).toBe("");
+  });
+});
