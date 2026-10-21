@@ -337,3 +337,10 @@ describe("RealFacilitatorView: the roster (spec 4.5, 7.4)", () => {
     expect(renderToStaticMarkup(createElement(LearnerLabels, { learner: learner({}) }))).toBe("");
   });
 });
+
+describe("RealFacilitatorView: no field is hidden on screen any more (spec 4.6)", () => {
+  it.each(Object.entries({ en, de, el }))("so %s has no words for one", (_, messages) => {
+    expect(messages.facilitator).not.toHaveProperty("redacted");
+    expect(messages.facilitator).not.toHaveProperty("redactedHint");
+  });
+});
