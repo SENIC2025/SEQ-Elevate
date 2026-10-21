@@ -13,7 +13,8 @@ import { LifeBuoy } from "lucide-react";
  * that reads no database: it renders on prerendered pages too. The legal
  * links are those of the documents that have a text (LEGAL_DOCS: the legal
  * notice once its English text is in), labelled inline so a German or Greek
- * page never shows English navigation, the links' landmark name included.
+ * page never shows English navigation, the links' landmark name included;
+ * the line naming who made the platform is in the page's language too.
  *
  * Each link is at least 24 px tall (WCAG 2.5.8 target size): on a phone,
  * in German, the links wrap onto several rows, and 16 px rows 4 px apart
@@ -44,11 +45,25 @@ const HELP: Record<Locale, string> = {
   de: de.safeguarding.footerLink,
   el: el.safeguarding.footerLink,
 };
+/** legal.poweredBy, in each language: the words before SENIC, whose name links to its site. */
+const MADE_BY: Record<Locale, string> = {
+  en: en.legal.poweredBy,
+  de: de.legal.poweredBy,
+  el: el.legal.poweredBy,
+};
+const SENIC = "SENIC";
+/** The words around SENIC's name in `loc`'s line (after the line if a wording leaves the name out). */
+function madeBy(loc: Locale): [string, string] {
+  const line = MADE_BY[loc];
+  const at = line.lastIndexOf(SENIC);
+  return at < 0 ? [`${line} `, ""] : [line.slice(0, at), line.slice(at + SENIC.length)];
+}
 
 const LINK = "inline-flex min-h-6 items-center text-xs text-[var(--muted-foreground)] hover:text-[var(--foreground)]";
 
 export function SiteFooter({ locale }: { locale: string }) {
   const loc = (["en", "de", "el"].includes(locale) ? locale : "en") as Locale;
+  const [beforeSenic, afterSenic] = madeBy(loc);
   return (
     <footer className="mt-auto border-t border-[var(--border)] bg-[var(--surface-muted)]">
       <div className="mx-auto max-w-6xl px-4 py-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -69,14 +84,15 @@ export function SiteFooter({ locale }: { locale: string }) {
           </nav>
         </div>
         <p className="text-xs text-[var(--muted-foreground)]">
-          SEQ Elevate · Created and powered by{" "}
+          {beforeSenic}
           <a
             href="https://senic.world"
             className="underline hover:text-[var(--foreground)]"
             rel="noopener noreferrer"
           >
-            SENIC
+            {SENIC}
           </a>
+          {afterSenic}
         </p>
       </div>
     </footer>

@@ -82,4 +82,18 @@ describe("SiteFooter", () => {
       expect(html.slice(html.indexOf("<nav"), html.indexOf("</nav>"))).not.toContain("/help");
     }
   });
+
+  it("says who made the platform in the page's language (legal.poweredBy), SENIC linked (WCAG 3.1.2)", () => {
+    for (const [locale, words] of [
+      ["en", "SEQ Elevate · Created and powered by "],
+      ["de", "SEQ Elevate · Entwickelt und betrieben von "],
+      ["el", "SEQ Elevate · Δημιουργήθηκε και λειτουργεί από τη "],
+      ["fr", "SEQ Elevate · Created and powered by "],
+    ] as const) {
+      const html = render(locale);
+      expect(html, locale).toContain(`>${words}<a href="https://senic.world"`);
+      expect(html, locale).toMatch(/<a href="https:\/\/senic.world"[^>]*>SENIC<\/a><\/p>/);
+      if (locale === "de" || locale === "el") expect(html, locale).not.toContain("Created and powered by");
+    }
+  });
 });
