@@ -57,6 +57,15 @@ describe("AdminDashboard", () => {
     }
   });
 
+  it("says who handles a data request that doesn't come from the person's own account page", () => {
+    const admin = render({ counts, organisationName: null });
+    expect(admin).not.toContain("no admin step");
+    expect(admin).toContain("A request that reaches DIESIS another way is handled on the Data page.");
+    const partner = render({ counts, organisationName: "Pro Arbeit" });
+    expect(partner).not.toContain("no admin step");
+    expect(partner).toContain("Pass a request that reaches you another way to DIESIS.");
+  });
+
   it.each([
     ["de", de, "Lernende deiner Organisation"],
     ["el", el, "Εκπαιδευόμενοι του φορέα σου"],

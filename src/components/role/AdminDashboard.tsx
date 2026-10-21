@@ -114,7 +114,8 @@ export function AdminDashboard({
         ) : null}
       </div>
 
-      {/* GDPR self-service — the account page handles both requests */}
+      {/* GDPR self-service: the account page handles both requests; DIESIS
+          handles any that come another way, on the Data page (spec 13). */}
       <Card className="mt-8">
         <CardContent className="p-6">
           <h2 className="text-lg font-semibold flex items-center gap-2">
@@ -122,8 +123,10 @@ export function AdminDashboard({
             {t("gdpr")}
           </h2>
           <p className="text-sm text-[var(--muted-foreground)] mt-1 mb-4">
-            Everyone handles these requests themselves from their account page
-            — no admin step is needed.
+            Everyone can do both themselves from their account page.{" "}
+            {admin
+              ? "A request that reaches DIESIS another way is handled on the Data page."
+              : "Pass a request that reaches you another way to DIESIS."}
           </p>
           <ul className="grid sm:grid-cols-2 gap-2 text-sm">
             <li className="flex items-center gap-3 rounded-lg border border-[var(--border)] px-3 py-2">
