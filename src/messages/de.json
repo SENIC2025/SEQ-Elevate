@@ -851,7 +851,8 @@
       "title": "Sprachen für Lernende",
       "confirm": "{language} freischalten",
       "englishRequired": "Englisch ist die Ausgangssprache dieses Kurses: Schreib ihn vollständig auf Englisch, bevor du ihn zum ersten Mal veröffentlichst.",
-      "englishMissing": "Einem Teil dieses Kurses fehlt der englische Text. Lernende, deren Sprache nicht freigeschaltet ist, sehen dort eine andere Sprache."
+      "englishMissing": "Einem Teil dieses Kurses fehlt der englische Text. Lernende, deren Sprache nicht freigeschaltet ist, sehen dort eine andere Sprache.",
+      "liveMark": "freigeschaltet"
     }
   },
   "lessonList": {

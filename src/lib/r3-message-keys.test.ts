@@ -52,6 +52,9 @@ const KEYS = [
     // and English as the source language (D90) before and after the first
     // publish.
     "title", "confirm", "englishRequired", "englishMissing",
+    // Stream E's second contract commit: the word Manage courses shows on
+    // a live language's chip, beside its mark.
+    "liveMark",
   ].map((k) => `courseManager.languageReady.${k}`),
   ...["body", "play", "privacyLink", "watchOn", "loading", "failed"].map((k) => `video.youtubeGate.${k}`),
   ...["body", "open"].map((k) => `video.external.${k}`),

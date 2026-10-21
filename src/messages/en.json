@@ -851,7 +851,8 @@
       "title": "Languages for learners",
       "confirm": "Switch {language} on",
       "englishRequired": "English is this course's source language: write all of it in English before you publish it for the first time.",
-      "englishMissing": "Some of this course has no English text. Learners whose language isn't switched on get another language there."
+      "englishMissing": "Some of this course has no English text. Learners whose language isn't switched on get another language there.",
+      "liveMark": "live"
     }
   },
   "lessonList": {
