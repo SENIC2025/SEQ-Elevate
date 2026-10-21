@@ -10,8 +10,11 @@
  * The policy names every host the browser may load from, and no other:
  * - our own origin;
  * - the Blob store our uploads are served from: BLOB_PUBLIC_HOST, the exact
- *   host; unset (or unreadable), every Vercel Blob store
- *   (*.public.blob.vercel-storage.com), with one warning in the build log;
+ *   host. Unset outside production (previews, local builds), every Vercel
+ *   Blob store (*.public.blob.vercel-storage.com); unset on production, or
+ *   set to anything but one host name (a URL, a path), none: no upload can
+ *   be saved then either (spec 10.3), and the wildcard would admit every
+ *   Vercel customer's store. Each with one warning in the build log;
  * - YouTube's player API script (www.youtube.com) and its player frame
  *   (www.youtube-nocookie.com): the player loads them only after the viewer
  *   presses play (spec 10.2), so nothing of YouTube loads before that;
@@ -39,7 +42,7 @@ export interface Header {
 export const YOUTUBE_API_ORIGIN = "https://www.youtube.com";
 /** The player frame YouTube's API opens for us: the reduced-cookie domain. */
 export const YOUTUBE_PLAYER_ORIGIN = "https://www.youtube-nocookie.com";
-/** Every Vercel Blob store's public host, used while BLOB_PUBLIC_HOST is unset. */
+/** Every Vercel Blob store's public host, used while BLOB_PUBLIC_HOST is unset outside production. */
 export const BLOB_WILDCARD_HOST = "*.public.blob.vercel-storage.com";
 /** Where @vercel/blob's browser uploads go. */
 export const BLOB_UPLOAD_ORIGIN = "https://vercel.com";
@@ -59,19 +62,37 @@ function warnOnce(key: string, line: string, warn: Warn) {
 
 const setting = (value: string | undefined) => value?.trim() ?? "";
 
+const isProduction = (env: Env) => setting(env.VERCEL_ENV) === "production";
+
 /**
- * The host our uploads are served from: BLOB_PUBLIC_HOST when it is one
- * host name, else every Vercel Blob store's (with a warning: the wildcard
- * admits every Vercel customer's store).
+ * The host our uploads are served from, or null for none: BLOB_PUBLIC_HOST
+ * when it is one host name; while it is unset, every Vercel Blob store's
+ * outside production and none on production; when it is set to anything
+ * else, none (it matches no upload's host). Each but the first with a
+ * warning that never prints the value.
  */
-export function blobHost(env: Env = process.env, warn: Warn = console.warn): string {
+export function blobHost(env: Env = process.env, warn: Warn = console.warn): string | null {
   const value = setting(env.BLOB_PUBLIC_HOST).toLowerCase();
   if (HOST.test(value)) return value;
+  if (value) {
+    warnOnce(
+      "blob:unreadable",
+      "[security-headers] BLOB_PUBLIC_HOST is not one host name (write it without https:// or a path); the content security policy admits no Blob store, so uploads don't show.",
+      warn
+    );
+    return null;
+  }
+  if (isProduction(env)) {
+    warnOnce(
+      "blob:production",
+      "[security-headers] BLOB_PUBLIC_HOST is not set on production; the content security policy admits no Blob store, so uploads don't show.",
+      warn
+    );
+    return null;
+  }
   warnOnce(
-    value ? "blob:unreadable" : "blob:unset",
-    value
-      ? `[security-headers] BLOB_PUBLIC_HOST is not one host name; the content security policy admits every Vercel Blob store (${BLOB_WILDCARD_HOST}).`
-      : `[security-headers] BLOB_PUBLIC_HOST is not set; the content security policy admits every Vercel Blob store (${BLOB_WILDCARD_HOST}).`,
+    "blob:unset",
+    `[security-headers] BLOB_PUBLIC_HOST is not set; the content security policy admits every Vercel Blob store (${BLOB_WILDCARD_HOST}).`,
     warn
   );
   return BLOB_WILDCARD_HOST;
@@ -132,7 +153,8 @@ const isDev = (env: Env) => env.NODE_ENV === "development";
 export function contentSecurityPolicy(env: Env = process.env, options: PolicyOptions = {}): string {
   const warn = options.warn ?? console.warn;
   const dev = options.dev ?? isDev(env);
-  const blob = `https://${blobHost(env, warn)}`;
+  const host = blobHost(env, warn);
+  const blob = host ? `https://${host}` : null;
   const plausible = plausibleOrigin(env, warn);
   const sentry = sentryOrigin(env, warn);
   const optional = (...origins: (string | null)[]) => origins.filter((o): o is string => o !== null);
@@ -140,11 +162,11 @@ export function contentSecurityPolicy(env: Env = process.env, options: PolicyOpt
     ["default-src", "'self'"],
     ["script-src", "'self'", "'unsafe-inline'", YOUTUBE_API_ORIGIN, ...optional(plausible), ...(dev ? ["'unsafe-eval'"] : [])],
     ["style-src", "'self'", "'unsafe-inline'"],
-    ["img-src", "'self'", "data:", "blob:", blob],
-    ["media-src", "'self'", "blob:", blob],
+    ["img-src", "'self'", "data:", "blob:", ...optional(blob)],
+    ["media-src", "'self'", "blob:", ...optional(blob)],
     ["font-src", "'self'"],
     ["connect-src", "'self'", BLOB_UPLOAD_ORIGIN, ...optional(plausible, sentry)],
-    ["frame-src", blob, YOUTUBE_PLAYER_ORIGIN],
+    ["frame-src", ...optional(blob), YOUTUBE_PLAYER_ORIGIN],
     ["manifest-src", "'self'"],
     ["object-src", "'none'"],
     ["base-uri", "'self'"],

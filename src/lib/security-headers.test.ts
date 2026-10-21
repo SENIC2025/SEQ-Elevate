@@ -69,22 +69,55 @@ describe("contentSecurityPolicy", () => {
     expect(csp).not.toMatch(/ytimg|googlevideo/);
   });
 
-  it("names the exact Blob host when it is set, and every Blob store, with a warning, when it is not", () => {
+  it("names the exact Blob host when it is set, on production too, and nothing else of Blob", () => {
     const warn = vi.fn();
-    const exact = contentSecurityPolicy({ BLOB_PUBLIC_HOST: ` ${BLOB.toUpperCase()} ` }, { warn });
-    expect(directive(exact, "img-src")).toContain(`https://${BLOB}`);
-    expect(exact).not.toContain(BLOB_WILDCARD_HOST);
+    for (const env of [{}, { VERCEL_ENV: "production" }, { VERCEL_ENV: "preview" }]) {
+      const exact = contentSecurityPolicy({ ...env, BLOB_PUBLIC_HOST: ` ${BLOB.toUpperCase()} ` }, { warn });
+      for (const name of ["img-src", "media-src", "frame-src"]) expect(directive(exact, name)).toContain(`https://${BLOB}`);
+      expect(exact).not.toContain(BLOB_WILDCARD_HOST);
+    }
     expect(warn).not.toHaveBeenCalled();
+  });
 
-    for (const value of [undefined, ""]) {
-      const csp = policy({ BLOB_PUBLIC_HOST: value });
+  it("admits every Blob store while BLOB_PUBLIC_HOST is unset outside production (previews, local builds)", () => {
+    for (const env of [{}, { BLOB_PUBLIC_HOST: "" }, { VERCEL_ENV: "preview" }, { VERCEL_ENV: "development", BLOB_PUBLIC_HOST: " " }]) {
+      const csp = policy(env);
       for (const name of ["img-src", "media-src", "frame-src"]) {
-        expect(directive(csp, name)).toContain("https://*.public.blob.vercel-storage.com");
+        expect(directive(csp, name), JSON.stringify(env)).toContain("https://*.public.blob.vercel-storage.com");
       }
     }
   });
 
-  it("says once in the build log that every Blob store is admitted, without the value it couldn't read", async () => {
+  it("admits no Blob store on production while BLOB_PUBLIC_HOST is unset: no upload can be saved there either (spec 10.3)", () => {
+    for (const value of [undefined, "", "  "]) {
+      const csp = policy({ VERCEL_ENV: "production", BLOB_PUBLIC_HOST: value });
+      expect(csp, String(value)).not.toContain("blob.vercel-storage.com");
+      expect(directive(csp, "img-src")).toEqual(["'self'", "data:", "blob:"]);
+      expect(directive(csp, "media-src")).toEqual(["'self'", "blob:"]);
+      expect(directive(csp, "frame-src")).toEqual(["https://www.youtube-nocookie.com"]);
+      expect(csp.split(";")).toHaveLength(14);
+    }
+  });
+
+  it("admits no Blob store when BLOB_PUBLIC_HOST names no single host, in any environment: no upload matches it", () => {
+    // The media check (media-url.ts, spec 10.3) compares an upload's host
+    // with the setting as written, so a URL or a path there matches no
+    // upload; the policy admits none either, rather than every store.
+    for (const value of [
+      "https://abc123xyz.public.blob.vercel-storage.com",
+      "abc123xyz.public.blob.vercel-storage.com/",
+      "abc123xyz.public.blob.vercel-storage.com:443",
+      "*.public.blob.vercel-storage.com",
+    ]) {
+      for (const env of [{}, { VERCEL_ENV: "preview" }, { VERCEL_ENV: "production" }]) {
+        const csp = policy({ ...env, BLOB_PUBLIC_HOST: value });
+        expect(csp, `${value} ${JSON.stringify(env)}`).not.toContain("blob.vercel-storage.com");
+        expect(directive(csp, "frame-src")).toEqual(["https://www.youtube-nocookie.com"]);
+      }
+    }
+  });
+
+  it("says once in the build log what it admits, without the value it couldn't read", async () => {
     vi.resetModules();
     const fresh = await import("./security-headers");
     const logged = vi.fn();
@@ -94,7 +127,11 @@ describe("contentSecurityPolicy", () => {
     expect(logged.mock.calls[0][0]).toMatch(/BLOB_PUBLIC_HOST is not set.*every Vercel Blob store/);
     fresh.blobHost({ BLOB_PUBLIC_HOST: "not a host" }, logged);
     expect(logged).toHaveBeenCalledTimes(2);
+    expect(logged.mock.calls[1][0]).toMatch(/not one host name.*no Blob store/);
     expect(logged.mock.calls[1][0]).not.toContain("not a host");
+    fresh.blobHost({ VERCEL_ENV: "production" }, logged);
+    expect(logged).toHaveBeenCalledTimes(3);
+    expect(logged.mock.calls[2][0]).toMatch(/BLOB_PUBLIC_HOST is not set on production.*no Blob store/);
   });
 
   it("never lets a setting add a directive or a source of its own", () => {
@@ -107,7 +144,7 @@ describe("contentSecurityPolicy", () => {
       "localhost",
     ]) {
       const csp = policy({ BLOB_PUBLIC_HOST: value });
-      expect(directive(csp, "img-src"), value).toEqual(["'self'", "data:", "blob:", `https://${BLOB_WILDCARD_HOST}`]);
+      expect(directive(csp, "img-src"), value).toEqual(["'self'", "data:", "blob:"]);
       expect(csp.split(";")).toHaveLength(14);
     }
     // Only an https origin is taken from a script address or a DSN.
