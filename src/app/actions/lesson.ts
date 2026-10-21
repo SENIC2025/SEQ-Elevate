@@ -197,7 +197,7 @@ export async function addLessonDocument(
   if (bad) return { ok: false as const, error: bad };
   // Our own files only (D91): an upload, or a bundled sample.
   const host = mediaHostProblem(doc?.url, serverAppOrigin());
-  if (host) return { ok: false as const, error: host, message: hostProblemMessage(host) };
+  if (host) return { ok: false as const, error: host, message: hostProblemMessage(host, "document") };
   const lesson = await prisma.lesson.upsert({
     where: lessonKey(courseSlug, stageKey),
     create: { projectId: PROJECT, courseSlug, stageKey },

@@ -217,9 +217,21 @@ export function serverAppOrigin(env: Env = process.env): string {
   return "https://app.invalid";
 }
 
-/** What to tell the author about a link that isn't ours (the editor screens are in English). */
-export function hostProblemMessage(problem: HostProblem): string {
-  return problem === "host-unconfigured" ? en.video.hostUnconfigured : en.video.hostRefused;
+/**
+ * A document is only ever uploaded: one the server refuses landed outside
+ * our own store (BLOB_PUBLIC_HOST names another), which only SENIC can put
+ * right. Editor wording, English as the editor screens are.
+ */
+const DOCUMENT_HOST_REFUSED = "This file can't be attached: it isn't in the site's storage. Tell SENIC.";
+
+/**
+ * What to tell the author about a file that isn't ours (the editor screens
+ * are in English): for a video, to upload it or paste a YouTube link; for
+ * a document, which can't be a link, to tell SENIC.
+ */
+export function hostProblemMessage(problem: HostProblem, media: "video" | "document" = "video"): string {
+  if (problem === "host-unconfigured") return en.video.hostUnconfigured;
+  return media === "document" ? DOCUMENT_HOST_REFUSED : en.video.hostRefused;
 }
 
 export type VideoCheck =

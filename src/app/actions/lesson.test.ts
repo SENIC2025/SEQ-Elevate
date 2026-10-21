@@ -213,8 +213,23 @@ describe("the media actions: our own files and YouTube only", () => {
         captions: [{ src: "https://cdn.example.org/a.vtt", label: "English", lang: "en" }],
       })
     ).toEqual(refused);
-    expect(await addLessonDocument(SLUG, "context", { ...DOC, url: "https://cdn.example.org/a.pdf" })).toEqual(refused);
-    expect(await addLessonDocument(SLUG, "context", { ...DOC, url: "//cdn.example.org/a.pdf" })).toEqual(refused);
+    // A document is only ever uploaded: its own words, never the video's.
+    const documentRefused = {
+      ok: false,
+      error: "host-refused",
+      message: "This file can't be attached: it isn't in the site's storage. Tell SENIC.",
+    };
+    expect(await addLessonDocument(SLUG, "context", { ...DOC, url: "https://cdn.example.org/a.pdf" })).toEqual(documentRefused);
+    expect(await addLessonDocument(SLUG, "context", { ...DOC, url: "//cdn.example.org/a.pdf" })).toEqual(documentRefused);
+    expect(db.lessons).toEqual([]);
+  });
+
+  it("answers an upload that landed in another Blob store as a document, not as a video", async () => {
+    // BLOB_PUBLIC_HOST set to another store than the uploads go to (a deploy setting gone wrong).
+    const res = await addLessonDocument(SLUG, "context", { ...DOC, url: "https://store2.public.blob.vercel-storage.com/a.pdf" });
+    expect(res).toMatchObject({ ok: false, error: "host-refused" });
+    expect((res as { message: string }).message).not.toMatch(/YouTube|link/);
+    expect((res as { message: string }).message).toMatch(/Tell SENIC/);
     expect(db.lessons).toEqual([]);
   });
 

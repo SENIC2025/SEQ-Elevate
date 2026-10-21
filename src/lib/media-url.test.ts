@@ -244,6 +244,16 @@ describe("mediaHostProblem: our own files only", () => {
       "Uploads can't be attached until the site's storage address is set. Tell SENIC."
     );
   });
+
+  it("says of a document what fits a document: it is only ever uploaded", () => {
+    expect(hostProblemMessage("host-refused", "document")).toBe(
+      "This file can't be attached: it isn't in the site's storage. Tell SENIC."
+    );
+    expect(hostProblemMessage("host-unconfigured", "document")).toBe(
+      "Uploads can't be attached until the site's storage address is set. Tell SENIC."
+    );
+    expect(hostProblemMessage("host-refused", "video")).toBe(hostProblemMessage("host-refused"));
+  });
 });
 
 describe("storableVideo: worked out on the server", () => {
