@@ -39,8 +39,10 @@ export function formatTimecode(seconds: number): string {
 }
 
 /**
- * Extract an 11-char YouTube id from a watch / share / embed URL, a bare id,
- * or return null if it isn't recognisably YouTube.
+ * Extract an 11-char YouTube id from a watch / share / embed / live URL, a
+ * privacy-enhanced (youtube-nocookie.com) embed, or a bare id; null if it
+ * isn't recognisably YouTube. Whatever it recognises plays only behind the
+ * click-to-load gate (spec 10.2), never in the native player.
  */
 export function parseYouTubeId(input: string): string | null {
   const value = input.trim();
@@ -61,10 +63,19 @@ export function parseYouTubeId(input: string): string | null {
       const id = url.searchParams.get("v");
       return id && /^[\w-]{11}$/.test(id) ? id : null;
     }
-    const m = url.pathname.match(/^\/(?:embed|shorts|v)\/([\w-]{11})/);
+    const m = url.pathname.match(/^\/(?:embed|shorts|v|live)\/([\w-]{11})/);
+    return m ? m[1] : null;
+  }
+  if (host === "youtube-nocookie.com") {
+    const m = url.pathname.match(/^\/embed\/([\w-]{11})/);
     return m ? m[1] : null;
   }
   return null;
+}
+
+/** The watch page of a YouTube video: how a YouTube source is stored, and the gate's "Watch on youtube.com". */
+export function youTubeWatchUrl(id: string): string {
+  return `https://www.youtube.com/watch?v=${id}`;
 }
 
 /** Detect the provider for a pasted URL (for the authoring UI). */

@@ -169,6 +169,11 @@ export function LessonDocumentManager({
         refresh();
         return;
       }
+      // A file that isn't on our own store (D91): trying again can't work.
+      if (res.error === "host-refused" || res.error === "host-unconfigured") {
+        setAttach({ phase: "failed", message: res.message, retry: null });
+        return;
+      }
       // A lesson of the course's own that left the lesson list, or a list
       // that can't be read: trying again can't work (Release 1).
       const listRefusal = lessonListRefusal(res.error);
@@ -222,7 +227,12 @@ export function LessonDocumentManager({
       : undefined;
 
   async function onRemove(doc: LessonDocumentRef) {
-    if (!window.confirm(`Remove “${doc.name}” from this lesson?`)) return;
+    if (
+      !window.confirm(
+        `Remove “${doc.name}” from this lesson? Learners will no longer see it. The file is deleted for good about a week later.`
+      )
+    )
+      return;
     // Its row goes away: keep focus in this editor rather than the page.
     headingRef.current?.focus();
     setListError("");

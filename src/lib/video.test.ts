@@ -5,6 +5,7 @@ import {
   formatTimecode,
   parseYouTubeId,
   detectProvider,
+  youTubeWatchUrl,
 } from "./video";
 import type { VideoCue } from "@/lib/cms/types";
 
@@ -87,6 +88,17 @@ describe("parseYouTubeId", () => {
     expect(parseYouTubeId("dQw4w9WgXcQ")).toBe("dQw4w9WgXcQ");
   });
 
+  // Release 3 (spec 10.3): these go behind the click-to-load gate too,
+  // instead of into the native player, which would load them unasked.
+  it("reads a privacy-enhanced embed and a live URL", () => {
+    expect(parseYouTubeId("https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ")).toBe("dQw4w9WgXcQ");
+    expect(parseYouTubeId("https://youtube-nocookie.com/embed/dQw4w9WgXcQ?rel=0")).toBe("dQw4w9WgXcQ");
+    expect(parseYouTubeId("https://www.youtube.com/live/dQw4w9WgXcQ?si=abc")).toBe("dQw4w9WgXcQ");
+    expect(parseYouTubeId("https://m.youtube.com/live/dQw4w9WgXcQ")).toBe("dQw4w9WgXcQ");
+    expect(parseYouTubeId("https://www.youtube-nocookie.com/watch?v=dQw4w9WgXcQ")).toBeNull();
+    expect(youTubeWatchUrl("dQw4w9WgXcQ")).toBe("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+  });
+
   it("returns null for non-YouTube or malformed urls", () => {
     expect(parseYouTubeId("https://example.com/video.mp4")).toBeNull();
     expect(parseYouTubeId("not a url")).toBeNull();
@@ -97,6 +109,7 @@ describe("parseYouTubeId", () => {
 describe("detectProvider", () => {
   it("maps YouTube urls to youtube, everything else to file", () => {
     expect(detectProvider("https://youtu.be/dQw4w9WgXcQ")).toBe("youtube");
+    expect(detectProvider("https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ")).toBe("youtube");
     expect(detectProvider("https://cdn.example.com/lesson.mp4")).toBe("file");
     expect(detectProvider("/demo/sample-lesson.webm")).toBe("file");
   });

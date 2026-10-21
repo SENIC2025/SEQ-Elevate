@@ -99,6 +99,12 @@ export interface VideoContent {
   captions?: VideoCaptionTrack[];
   /** In-video questions, in any order (sorted by time at render). */
   cues?: VideoCue[];
+  /**
+   * Set on a learner's page only (markExternalMedia, D91): a file on
+   * another host, stored before Release 3. The player shows it as a link
+   * out and never loads it in the page.
+   */
+  external?: boolean;
 }
 
 /** The narrative stages (context / concept / behaviour) carry free-form blocks. */
@@ -127,6 +133,12 @@ export interface LessonDocumentRef {
   sizeBytes: number;
   /** Visible to learners. Editor sees drafts too; the player only gets published. */
   published: boolean;
+  /**
+   * Set on a learner's page only (markExternalMedia, D91): a document on
+   * another host, stored before Release 3, offered as a link and never
+   * shown inside the page.
+   */
+  external?: boolean;
 }
 
 export interface CourseStage {

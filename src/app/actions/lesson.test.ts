@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterAll, vi } from "vitest";
 import { db, prisma, reset, row } from "./sections-test-db";
 import { fingerprint } from "@/lib/cms/stored-json";
 
@@ -32,11 +32,15 @@ const SLUG = "my-course";
 const OWN = "s-abcdefgh";
 const QUIZ = "s-quiz0000";
 const entry = { title: "Warm-up", blocks: [{ kind: "paragraph" as const, text: "Hello" }] };
-const VIDEO = { provider: "youtube" as const, src: "https://www.youtube.com/watch?v=abc" };
-const DOC = { name: "a.pdf", url: "https://blob.example/a.pdf", mimeType: "application/pdf", sizeBytes: 10 };
+// Our own store (D91): only its files, and YouTube, can be attached.
+const STORE = "store1.public.blob.vercel-storage.com";
+const VIDEO = { provider: "youtube" as const, src: "https://www.youtube.com/watch?v=dQw4w9WgXcQ", cues: [] };
+const DOC = { name: "a.pdf", url: `https://${STORE}/a.pdf`, mimeType: "application/pdf", sizeBytes: 10 };
 
 beforeEach(() => {
   reset();
+  vi.unstubAllEnvs();
+  vi.stubEnv("BLOB_PUBLIC_HOST", STORE);
   db.course!.outline = {
     v: 1,
     sections: [
@@ -46,6 +50,8 @@ beforeEach(() => {
     ],
   };
 });
+
+afterAll(() => vi.unstubAllEnvs());
 
 describe("saveLessonNarrative and clearLessonNarrative", () => {
   it("saves a text lesson of the course's own, the course locked before the lesson", async () => {
@@ -176,5 +182,56 @@ describe("setLessonDocumentPublished", () => {
     });
     expect(await setLessonDocumentPublished("doc-9", false)).toEqual({ ok: true });
     expect(db.audit).toEqual([]);
+  });
+});
+
+/*
+ * Release 3 (D91, spec 10.3): the server works out what a video is and
+ * where it may come from. Release 2 stored the browser's object whole,
+ * under the provider the browser named, from any host.
+ */
+describe("the media actions: our own files and YouTube only", () => {
+  it("stores a YouTube link sent as a file as YouTube, with only the fields the player reads", async () => {
+    const sent = { provider: "file", src: "https://youtu.be/dQw4w9WgXcQ", title: "Talk", onerror: "x" };
+    expect(await saveLessonVideo(SLUG, "context", sent as never)).toEqual({ ok: true });
+    expect(db.lessons.find((l) => l.stageKey === "context")?.video).toEqual({
+      provider: "youtube",
+      src: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+      title: "Talk",
+      cues: [],
+    });
+  });
+
+  it("refuses a video, poster, caption or document on another host, and stores nothing", async () => {
+    const refused = { ok: false, error: "host-refused", message: "This link can't be used. Upload the file, or paste a YouTube link." };
+    expect(await saveLessonVideo(SLUG, "context", { provider: "file", src: "https://cdn.example.org/v.mp4" })).toEqual(refused);
+    expect(
+      await saveLessonVideo(SLUG, "context", {
+        provider: "file",
+        src: `https://${STORE}/v.mp4`,
+        captions: [{ src: "https://cdn.example.org/a.vtt", label: "English", lang: "en" }],
+      })
+    ).toEqual(refused);
+    expect(await addLessonDocument(SLUG, "context", { ...DOC, url: "https://cdn.example.org/a.pdf" })).toEqual(refused);
+    expect(await addLessonDocument(SLUG, "context", { ...DOC, url: "//cdn.example.org/a.pdf" })).toEqual(refused);
+    expect(db.lessons).toEqual([]);
+  });
+
+  it("accepts our own store's files and the bundled samples", async () => {
+    expect(await saveLessonVideo(SLUG, "context", { provider: "file", src: "/demo/sample-lesson.webm" })).toEqual({ ok: true });
+    expect(await addLessonDocument(SLUG, "context", DOC)).toEqual({ ok: true, id: "doc-1" });
+  });
+
+  it("on production, refuses every Blob file while the store's address isn't set", async () => {
+    vi.stubEnv("BLOB_PUBLIC_HOST", "");
+    vi.stubEnv("VERCEL_ENV", "production");
+    const unconfigured = {
+      ok: false,
+      error: "host-unconfigured",
+      message: "Uploads can't be attached until the site's storage address is set. Tell SENIC.",
+    };
+    expect(await saveLessonVideo(SLUG, "context", { provider: "file", src: `https://${STORE}/v.mp4` })).toEqual(unconfigured);
+    expect(await addLessonDocument(SLUG, "context", DOC)).toEqual(unconfigured);
+    expect(db.lessons).toEqual([]);
   });
 });

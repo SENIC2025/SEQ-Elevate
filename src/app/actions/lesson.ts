@@ -20,7 +20,12 @@ import {
   lockCourse,
   ownSectionKind,
 } from "@/lib/cms/sections/store.server";
-import { unstorableVideoMessage } from "@/lib/media-url";
+import {
+  hostProblemMessage,
+  mediaHostProblem,
+  serverAppOrigin,
+  storableVideo,
+} from "@/lib/media-url";
 import { ChangedElsewhere, fingerprint } from "@/lib/cms/stored-json";
 import {
   cleanNarrativeLine,
@@ -126,25 +131,19 @@ export async function saveLessonVideo(
   if (!editor) return { ok: false as const, error: "forbidden" as const };
   const bad = await mediaTargetError(courseSlug, stageKey);
   if (bad) return { ok: false as const, error: bad };
-  // Only web links load for learners — never an upload still in the author's
-  // browser (blob:), which would save a broken video or captions.
-  const unstorable = unstorableVideoMessage(video);
-  if (unstorable) {
-    return {
-      ok: false as const,
-      error: "unstorable-media" as const,
-      message: unstorable,
-    };
+  // Worked out here, never taken from the browser (D91): a YouTube link is
+  // stored as YouTube, anything else must be our own file (source, poster,
+  // captions) — never an upload still in the author's browser (blob:) or a
+  // file on another host. Only the fields the player reads are stored.
+  const checked = storableVideo(video, serverAppOrigin());
+  if (!checked.ok) {
+    return { ok: false as const, error: checked.error, message: checked.message };
   }
+  const stored = checked.video as unknown as Prisma.InputJsonValue;
   await prisma.lesson.upsert({
     where: lessonKey(courseSlug, stageKey),
-    create: {
-      projectId: PROJECT,
-      courseSlug,
-      stageKey,
-      video: video as unknown as Prisma.InputJsonValue,
-    },
-    update: { video: video as unknown as Prisma.InputJsonValue },
+    create: { projectId: PROJECT, courseSlug, stageKey, video: stored },
+    update: { video: stored },
   });
   return { ok: true as const };
 }
@@ -167,9 +166,12 @@ export async function addLessonDocument(
   doc: { name: string; url: string; mimeType: string; sizeBytes: number }
 ) {
   const editor = await requireEditor();
-  if (!editor) return { ok: false as const, error: "forbidden" };
+  if (!editor) return { ok: false as const, error: "forbidden" as const };
   const bad = await mediaTargetError(courseSlug, stageKey);
   if (bad) return { ok: false as const, error: bad };
+  // Our own files only (D91): an upload, or a bundled sample.
+  const host = mediaHostProblem(doc?.url, serverAppOrigin());
+  if (host) return { ok: false as const, error: host, message: hostProblemMessage(host) };
   const lesson = await prisma.lesson.upsert({
     where: lessonKey(courseSlug, stageKey),
     create: { projectId: PROJECT, courseSlug, stageKey },
@@ -185,7 +187,7 @@ export async function addLessonDocument(
     data: {
       lessonId: lesson.id,
       name: doc.name.slice(0, 200),
-      url: doc.url,
+      url: doc.url.trim(),
       mimeType: doc.mimeType,
       sizeBytes: doc.sizeBytes,
       order: (last?.order ?? -1) + 1,
