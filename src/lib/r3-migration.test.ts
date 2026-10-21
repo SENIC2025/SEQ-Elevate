@@ -4,12 +4,15 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 // Release 3's migrations (spec 2.2–2.4) run while the Release 2 deployment is
-// still serving (vercel-build migrates before it builds). Both stay safe only
-// while they are what they were reviewed as: one enum value on its own, then,
+// still serving (vercel-build migrates before it builds). They stay safe only
+// while they are what they were reviewed as: one enum value on its own; then,
 // in one transaction (BEGIN to COMMIT: Prisma applies a file's statements one
 // by one, each committing on its own otherwise), new types and tables, the
 // backfills, and only then the statements that lock tables Release 2 uses,
-// the two triggers and a repeat of the Membership-based backfills.
+// in an order that can't deadlock with its writes (checked below against
+// each of them), the two triggers, a repeat of the Membership-based
+// backfills, and last the one lock on User; then two new columns, each a
+// statement and a transaction of its own.
 //
 // Each file's normalised text is pinned (a hash, and its statements' first
 // lines in order, so a change shows where it is). A deliberate change
@@ -19,6 +22,7 @@ const root = fileURLToPath(new URL("../../", import.meta.url));
 const MIGRATIONS = "prisma/migrations";
 const A = `${MIGRATIONS}/20261120090000_r3_role_partner_admin/migration.sql`;
 const B = `${MIGRATIONS}/20261120090100_r3_people_privacy_content/migration.sql`;
+const C = `${MIGRATIONS}/20261120090200_r3_course_project_columns/migration.sql`;
 const read = (file: string) => readFileSync(`${root}${file}`, "utf8");
 
 /** The SQL with comments left out and every run of whitespace one space. */
@@ -139,20 +143,14 @@ const SHAPE_B = [
   'ALTER TABLE "CountryMapping" ADD CONSTRAINT "CountryMapping_organisationId_fkey"',
   'ALTER TABLE "StaffHistory" ADD CONSTRAINT "StaffHistory_userId_fkey"',
   'ALTER TABLE "StaffHistory" ADD CONSTRAINT "StaffHistory_projectId_fkey"',
+  'ALTER TABLE "Observation" ALTER COLUMN "observerId" DROP NOT NULL',
+  'ALTER TABLE "Validation" ALTER COLUMN "validatorId" DROP NOT NULL',
   'ALTER TABLE "CompCard" ALTER COLUMN "privacy" SET DEFAULT',
   'ALTER TABLE "CompCard" ADD COLUMN IF NOT EXISTS "sharedAt"',
   'ALTER TABLE "CompCard" ADD COLUMN IF NOT EXISTS "sharedWithOrganisationId"',
   'ALTER TABLE "CompCard" ADD COLUMN IF NOT EXISTS "sharingVersion"',
   'ALTER TABLE "CompCard" ADD CONSTRAINT "CompCard_sharedWithOrganisationId_fkey"',
   'UPDATE "CompCard" SET "privacy" = \'SELF\'',
-  'ALTER TABLE "Course" ADD COLUMN IF NOT EXISTS "readyLocales"',
-  'ALTER TABLE "Project" ADD COLUMN IF NOT EXISTS "safeguarding"',
-  'ALTER TABLE "Observation" ALTER COLUMN "observerId" DROP NOT NULL',
-  'ALTER TABLE "Validation" ALTER COLUMN "validatorId" DROP NOT NULL',
-  'ALTER TABLE "Observation" DROP CONSTRAINT "Observation_observerId_fkey"',
-  'ALTER TABLE "Observation" ADD CONSTRAINT "Observation_observerId_fkey"',
-  'ALTER TABLE "Validation" DROP CONSTRAINT "Validation_validatorId_fkey"',
-  'ALTER TABLE "Validation" ADD CONSTRAINT "Validation_validatorId_fkey"',
   'CREATE OR REPLACE FUNCTION "record_staff_history"()',
   'DROP TRIGGER IF EXISTS "Membership_record_staff_history"',
   'CREATE TRIGGER "Membership_record_staff_history"',
@@ -161,9 +159,19 @@ const SHAPE_B = [
   'CREATE TRIGGER "ProjectProfile_unshare_on_organisation_change"',
   'INSERT INTO "ProjectProfile"',
   'INSERT INTO "StaffHistory"',
+  'ALTER TABLE "Observation" DROP CONSTRAINT "Observation_observerId_fkey"',
+  'ALTER TABLE "Observation" ADD CONSTRAINT "Observation_observerId_fkey"',
+  'ALTER TABLE "Validation" DROP CONSTRAINT "Validation_validatorId_fkey"',
+  'ALTER TABLE "Validation" ADD CONSTRAINT "Validation_validatorId_fkey"',
   "COMMIT",
 ];
-const SHA256_B = "d1ae717b33a2a285a84e504201716b86ac727265d9292eb2abc16bae8e337ba8";
+const SHA256_B = "c48e69858e043a0161926ca87227b69a6a4b00395c907d8ee5ec0b5cce598cc3";
+/** Migration C, word for word: a lock timeout, then each new column in a statement of its own. */
+const EXPECTED_C = [
+  "SET lock_timeout = '5s'",
+  'ALTER TABLE "Project" ADD COLUMN IF NOT EXISTS "safeguarding" JSONB',
+  'ALTER TABLE "Course" ADD COLUMN IF NOT EXISTS "readyLocales" TEXT[] DEFAULT ARRAY[]::TEXT[]',
+];
 
 describe("the Release 3 migrations", () => {
   const b = statements(normalised(read(B)));
@@ -171,9 +179,10 @@ describe("the Release 3 migrations", () => {
 
   it("sort after every earlier migration", () => {
     const dirs = readdirSync(`${root}${MIGRATIONS}`).filter((d) => /^\d{14}_/.test(d)).sort();
-    expect(dirs.slice(-2)).toEqual([
+    expect(dirs.slice(-3)).toEqual([
       "20261120090000_r3_role_partner_admin",
       "20261120090100_r3_people_privacy_content",
+      "20261120090200_r3_course_project_columns",
     ]);
   });
 
@@ -208,16 +217,18 @@ describe("the Release 3 migrations", () => {
     });
   });
 
-  it("locks Release 2's tables only after the new tables' foreign keys, and adds the triggers last", () => {
-    const firstExisting = index('ALTER TABLE "CompCard"');
+  it("locks Release 2's tables only after the new tables' foreign keys, and repeats the backfills after the trigger", () => {
+    const firstExisting = index('ALTER TABLE "Observation"');
     const lastNewKey = index('ALTER TABLE "StaffHistory" ADD CONSTRAINT "StaffHistory_projectId_fkey"');
     const membershipTrigger = index('CREATE TRIGGER "Membership_record_staff_history"');
     expect(lastNewKey).toBeLessThan(firstExisting);
-    expect(index('ALTER TABLE "Validation" ADD CONSTRAINT')).toBeLessThan(membershipTrigger);
+    expect(index('ALTER TABLE "CompCard"')).toBeLessThan(membershipTrigger);
     // Part 6 repeats the Membership-based backfills after the trigger, so no row
     // Release 2 wrote while Part 2 ran is missed.
     expect(index('INSERT INTO "ProjectProfile"', membershipTrigger)).toBeGreaterThan(membershipTrigger);
     expect(index('INSERT INTO "StaffHistory"', membershipTrigger)).toBeGreaterThan(membershipTrigger);
+    // Neither Project nor Course: their columns are C's.
+    expect(b.filter((s) => /^ALTER TABLE "(Project|Course)"/.test(s))).toEqual([]);
   });
 
   it("repeats Part 2's profile and membership backfills word for word in Part 6", () => {
@@ -300,8 +311,176 @@ describe("the Release 3 migrations", () => {
     );
   });
 
-  it("creates the readyLocales column as Prisma generates it, so migrate finds no drift", () => {
-    expect(b).toContain('ALTER TABLE "Course" ADD COLUMN IF NOT EXISTS "readyLocales" TEXT[] DEFAULT ARRAY[]::TEXT[]');
+  it("C adds the two columns, each a statement and a transaction of its own, after B", () => {
+    const c = statements(normalised(read(C)));
+    expect(c).toEqual(EXPECTED_C);
+    // No BEGIN: each statement commits on its own and locks one table.
+    for (const s of c.slice(1)) expect(locksOf(s)).toHaveLength(1);
+    // readyLocales as Prisma generates it, so migrate finds no drift.
+    expect(c).toContain('ALTER TABLE "Course" ADD COLUMN IF NOT EXISTS "readyLocales" TEXT[] DEFAULT ARRAY[]::TEXT[]');
+  });
+});
+
+/*
+ * Locks (spec 2.3, 2.7). Release 2 keeps writing while the build migrates,
+ * and a transaction holds every lock it takes until it ends. A write that
+ * holds one lock and waits for another that the migration holds, while the
+ * migration waits for the first, is a deadlock: Postgres aborts one of the
+ * two, the write or the migration (and with it the deploy). It can't happen
+ * when, of the locks a write takes that the migration conflicts with, the
+ * one the migration takes first is the one the write takes first: the write
+ * then either finishes before the migration gets there, or waits there
+ * holding nothing the migration needs.
+ */
+
+type Mode = "AS" | "RS" | "RE" | "SUE" | "S" | "SRE" | "E" | "AE";
+/** Postgres's table lock modes, and which each conflicts with. */
+const CONFLICTS: Record<Mode, readonly Mode[]> = {
+  AS: ["AE"],
+  RS: ["E", "AE"],
+  RE: ["S", "SRE", "E", "AE"],
+  SUE: ["SUE", "S", "SRE", "E", "AE"],
+  S: ["RE", "SUE", "SRE", "E", "AE"],
+  SRE: ["RE", "SUE", "S", "SRE", "E", "AE"],
+  E: ["RS", "RE", "SUE", "S", "SRE", "E", "AE"],
+  AE: ["AS", "RS", "RE", "SUE", "S", "SRE", "E", "AE"],
+};
+
+/**
+ * Release 2's writes while the build migrates: the tables each locks, in
+ * the order it locks them. An insert locks its table, then each table its
+ * foreign keys refer to, in the order a database built by the migrations
+ * checks them (the order they were created; production's was built so).
+ */
+const RELEASE_2_WRITES: Record<string, [string, Mode][]> = {
+  "a membership (ensureLearnerMembership, a sign-in grant, addMember)": [
+    ["Membership", "RE"], ["User", "RS"], ["Project", "RS"], ["Organisation", "RS"], ["Cohort", "RS"],
+  ],
+  "a note (saveObservation)": [["Observation", "RE"], ["User", "RS"], ["CompCard", "RS"]],
+  "a validation (recordValidation)": [["Validation", "RE"], ["User", "RS"], ["CompCard", "RS"]],
+  "a first enrolment": [["CourseEnrollment", "RE"], ["User", "RS"], ["Course", "RS"]],
+  "a learner's save (saveProgress: the course row first, a missing badge, the enrolment, the badge)": [
+    ["Course", "RS"], ["Badge", "RE"], ["Project", "RS"], ["Course", "RE"], ["CourseEnrollment", "RS"],
+    ["CourseEnrollment", "RE"], ["User", "RS"], ["Course", "RS"], ["UserBadge", "RE"], ["User", "RS"], ["Badge", "RS"],
+  ],
+  "a Comp Card save (saveCompCard)": [["CompCard", "RE"], ["User", "RS"], ["Project", "RS"]],
+  "an audit row (every audited action, telemetry)": [["AuditLog", "RE"], ["Project", "RS"], ["User", "RS"]],
+  "an editor's change (the course row locked, its learners counted, the change audited)": [
+    ["Course", "RS"], ["Lesson", "RE"], ["Project", "RS"], ["CourseEnrollment", "AS"], ["User", "AS"],
+    ["Membership", "AS"], ["Course", "RE"], ["AuditLog", "RE"], ["Project", "RS"], ["User", "RS"],
+  ],
+  "a badge (awardBadgeAction)": [["UserBadge", "RE"], ["User", "RS"], ["Badge", "RS"]],
+  "a sign-in (its session)": [["Session", "RE"], ["User", "RS"]],
+  "every signed-in request (the session and its person read)": [["Session", "AS"], ["User", "AS"]],
+  "a sign-up, a reading-help setting, a rename": [["User", "RE"]],
+  "an account deleted, its rows with it": [
+    ["User", "RE"], ["Membership", "RE"], ["Account", "RE"], ["Session", "RE"], ["CourseEnrollment", "RE"],
+    ["CompCard", "RE"], ["UserBadge", "RE"], ["MissionProgress", "RE"], ["Observation", "RE"], ["Validation", "RE"],
+    ["AuditLog", "RE"],
+  ],
+  "an organisation added or deleted (its cohorts and memberships with it)": [
+    ["Organisation", "RE"], ["Project", "RS"], ["Cohort", "RE"], ["Membership", "RE"],
+  ],
+  "a cohort": [["Cohort", "RE"], ["Project", "RS"], ["Organisation", "RS"]],
+  "a role changed or removed (setMemberRoles, removeMember)": [["Membership", "RE"]],
+  "the Comp Card template (project.update)": [["Project", "RE"]],
+};
+
+/** The table a foreign key refers to, read from the migration that creates it. */
+function referencedBy(constraint: string): string {
+  for (const dir of readdirSync(`${root}${MIGRATIONS}`)) {
+    if (!existsSync(`${root}${MIGRATIONS}/${dir}/migration.sql`)) continue;
+    const text = normalised(read(`${MIGRATIONS}/${dir}/migration.sql`));
+    const m = new RegExp(`CONSTRAINT "${constraint}" FOREIGN KEY \\([^)]*\\) REFERENCES "(\\w+)"`).exec(text);
+    if (m) return m[1];
+  }
+  throw new Error(`no migration creates ${constraint}`);
+}
+
+/**
+ * The table locks a statement of the Release 3 migrations takes, as
+ * Postgres 16 takes them. A statement this doesn't know fails the test.
+ */
+function locksOf(s: string): { table: string; mode: Mode }[] {
+  let m: RegExpExecArray | null;
+  if (/^(BEGIN|COMMIT|SET (LOCAL )?lock_timeout|CREATE TYPE|CREATE OR REPLACE FUNCTION)\b/.test(s)) return [];
+  if ((m = /^ALTER TABLE "(\w+)" ADD CONSTRAINT "\w+" FOREIGN KEY \([^)]*\) REFERENCES "(\w+)"/.exec(s))) {
+    return [{ table: m[1], mode: "SRE" }, { table: m[2], mode: "SRE" }];
+  }
+  // Dropping a foreign key drops its triggers on the table it refers to too.
+  if ((m = /^ALTER TABLE "(\w+)" DROP CONSTRAINT "(\w+_fkey)"/.exec(s))) {
+    return [{ table: m[1], mode: "AE" }, { table: referencedBy(m[2]), mode: "AE" }];
+  }
+  if ((m = /^ALTER TABLE "(\w+)"/.exec(s))) return [{ table: m[1], mode: "AE" }];
+  if ((m = /^CREATE TRIGGER .* ON "(\w+)"/.exec(s))) return [{ table: m[1], mode: "SRE" }];
+  // The trigger isn't there yet (it is this file's, and a failed apply leaves
+  // nothing): the table is only looked up. ACCESS EXCLUSIVE if it were.
+  if ((m = /^DROP TRIGGER IF EXISTS "\w+" ON "(\w+)"/.exec(s))) return [{ table: m[1], mode: "AS" }];
+  if ((m = /^UPDATE "(\w+)"/.exec(s))) return [{ table: m[1], mode: "RE" }];
+  if ((m = /^INSERT INTO "(\w+)"/.exec(s))) {
+    const read = [...s.matchAll(/\b(?:FROM|JOIN) "(\w+)"/g)].map((r) => ({ table: r[1], mode: "AS" as Mode }));
+    return [{ table: m[1], mode: "RE" }, ...read];
+  }
+  if ((m = /^CREATE (?:UNIQUE )?INDEX "\w+" ON "(\w+)"/.exec(s))) return [{ table: m[1], mode: "S" }];
+  if ((m = /^CREATE TABLE "(\w+)"/.exec(s))) return [{ table: m[1], mode: "AE" }];
+  throw new Error(`the lock model doesn't know this statement: ${s.slice(0, 80)}`);
+}
+
+/**
+ * For each of Release 2's writes, why the migration's statements could
+ * deadlock with it (none: they can't): the lock the write takes first, of
+ * those the migration conflicts with, must be the one the migration takes
+ * first.
+ */
+function deadlocks(statements: string[]): string[] {
+  const out: string[] = [];
+  for (const [write, locks] of Object.entries(RELEASE_2_WRITES)) {
+    // The first statement whose lock conflicts with each of the write's locks.
+    const at = locks.map(([table, mode]) =>
+      statements.findIndex((s) => locksOf(s).some((l) => l.table === table && CONFLICTS[mode].includes(l.mode)))
+    );
+    const conflicting = locks.map((l, i) => ({ l, at: at[i] })).filter((x) => x.at >= 0);
+    if (conflicting.length === 0) continue;
+    const first = conflicting[0];
+    const earliest = conflicting.reduce((a, x) => (x.at < a.at ? x : a));
+    if (earliest.at < first.at) {
+      out.push(
+        `${write}: it locks ${first.l[0]} before ${earliest.l[0]}, the migration ${earliest.l[0]} ` +
+          `("${statements[earliest.at].slice(0, 60)}") before ${first.l[0]} ("${statements[first.at].slice(0, 60)}")`
+      );
+    }
+  }
+  return out;
+}
+
+describe("the Release 3 migrations' locks, against Release 2's writes", () => {
+  const b = statements(normalised(read(B)));
+
+  it("knows what each statement locks", () => {
+    expect(() => b.forEach(locksOf)).not.toThrow();
+    expect(locksOf('ALTER TABLE "Observation" DROP CONSTRAINT "Observation_observerId_fkey"')).toEqual([
+      { table: "Observation", mode: "AE" },
+      { table: "User", mode: "AE" },
+    ]);
+  });
+
+  it("can't deadlock with any of them", () => {
+    expect(deadlocks(b)).toEqual([]);
+  });
+
+  it("would, with the parent tables locked first", () => {
+    // The check itself: a membership locks Membership, then checks User.
+    const parentFirst = [
+      'ALTER TABLE "Observation" DROP CONSTRAINT "Observation_observerId_fkey"',
+      'CREATE TRIGGER "t" AFTER INSERT ON "Membership" FOR EACH ROW EXECUTE FUNCTION "f"()',
+    ];
+    expect(deadlocks(parentFirst)).toContainEqual(expect.stringMatching(/^a membership .* locks Membership before User/));
+  });
+
+  it("holds User, which every signed-in request reads, exclusively only at the very end", () => {
+    const firstUser = b.findIndex((s) => locksOf(s).some((l) => l.table === "User" && l.mode === "AE"));
+    expect(firstUser).toBeGreaterThan(0);
+    expect(b.slice(firstUser).every((s) => /^ALTER TABLE "(Observation|Validation)" (DROP|ADD) CONSTRAINT|^COMMIT$/.test(s))).toBe(true);
   });
 });
 

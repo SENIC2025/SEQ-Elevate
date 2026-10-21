@@ -6,9 +6,23 @@
 --
 -- One transaction, BEGIN to COMMIT: Prisma applies a migration's statements one
 -- by one, and without them each would commit on its own, so a failure half-way
--- would leave half of this applied. With them a failure leaves nothing. Every
--- lock is then held until the end, so the statements that lock tables Release 2
--- uses come LAST.
+-- would leave half of this applied. With them a failure leaves nothing (Prisma
+-- then reports only "current transaction is aborted"; prisma/migrate-deploy.mjs
+-- shows the database's own error). Every lock is held until COMMIT, so the order
+-- of the statements that lock tables Release 2 uses is what lets its writes go on
+-- (r3-migration.test.ts checks it against each of them):
+--   - those statements come after the new tables and the backfills;
+--   - a table Release 2 inserts into is locked before the tables that insert's
+--     foreign keys then check: Observation, Validation and CompCard first, then
+--     the Membership trigger, and User last. An insert under way finishes first;
+--     a later one waits holding nothing this needs;
+--   - User, which every signed-in request reads, is held exclusively only by the
+--     last statements (Part 7);
+--   - Project and Course aren't locked exclusively here at all: Release 2 locks
+--     each of them and User in both orders (a learner's save locks the course
+--     row before it checks the learner; a first enrolment checks the learner
+--     before the course), so their new columns are 20261120090200's, one
+--     statement each.
 
 BEGIN;
 
@@ -157,8 +171,10 @@ JOIN "Organisation" o ON o."id" = v."organisationId" AND o."projectId" = 'seq-el
 ON CONFLICT ("projectId", "country") DO NOTHING;
 
 -- Part 3: foreign keys of the new tables (SHARE ROW EXCLUSIVE on User, Project,
--- Organisation from here to the end: sign-ups wait, briefly). Deleting an
--- organisation someone belongs to, or a country maps to, fails in the database.
+-- Organisation from here to the end: writes to those three wait, briefly: a
+-- sign-up, a reading-help setting, an organisation; reads, and inserts that only
+-- check them, don't). Deleting an organisation someone belongs to, or a country
+-- maps to, fails in the database.
 
 ALTER TABLE "ProjectProfile" ADD CONSTRAINT "ProjectProfile_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 ALTER TABLE "ProjectProfile" ADD CONSTRAINT "ProjectProfile_projectId_fkey" FOREIGN KEY ("projectId") REFERENCES "Project"("id") ON DELETE CASCADE ON UPDATE CASCADE;
@@ -168,7 +184,14 @@ ALTER TABLE "CountryMapping" ADD CONSTRAINT "CountryMapping_organisationId_fkey"
 ALTER TABLE "StaffHistory" ADD CONSTRAINT "StaffHistory_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 ALTER TABLE "StaffHistory" ADD CONSTRAINT "StaffHistory_projectId_fkey" FOREIGN KEY ("projectId") REFERENCES "Project"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
--- Part 4: changes to tables Release 2 uses (ACCESS EXCLUSIVE from here to the end)
+-- Part 4: the tables Release 2 writes notes, validations and Comp Cards to
+-- (ACCESS EXCLUSIVE on each from here to the end), each locked before the tables
+-- its rows refer to (a note: User, then CompCard).
+
+-- D89: notes and validations outlive their author, unsigned (their foreign keys
+-- follow in Part 7).
+ALTER TABLE "Observation" ALTER COLUMN "observerId" DROP NOT NULL;
+ALTER TABLE "Validation" ALTER COLUMN "validatorId" DROP NOT NULL;
 
 -- D80: Comp Card sharing. Every card starts on "Only me". Release 3 reads a card
 -- as shared only with "sharedAt" and the learner's current organisation, which
@@ -180,18 +203,6 @@ ALTER TABLE "CompCard" ADD COLUMN IF NOT EXISTS "sharedWithOrganisationId" TEXT;
 ALTER TABLE "CompCard" ADD COLUMN IF NOT EXISTS "sharingVersion" TEXT;
 ALTER TABLE "CompCard" ADD CONSTRAINT "CompCard_sharedWithOrganisationId_fkey" FOREIGN KEY ("sharedWithOrganisationId") REFERENCES "Organisation"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 UPDATE "CompCard" SET "privacy" = 'SELF';
-
--- D90, D93 (column DDL exactly as Prisma generates it for String[] @default([])).
-ALTER TABLE "Course" ADD COLUMN IF NOT EXISTS "readyLocales" TEXT[] DEFAULT ARRAY[]::TEXT[];
-ALTER TABLE "Project" ADD COLUMN IF NOT EXISTS "safeguarding" JSONB;
-
--- D89: notes and validations outlive their author, unsigned.
-ALTER TABLE "Observation" ALTER COLUMN "observerId" DROP NOT NULL;
-ALTER TABLE "Validation" ALTER COLUMN "validatorId" DROP NOT NULL;
-ALTER TABLE "Observation" DROP CONSTRAINT "Observation_observerId_fkey";
-ALTER TABLE "Observation" ADD CONSTRAINT "Observation_observerId_fkey" FOREIGN KEY ("observerId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-ALTER TABLE "Validation" DROP CONSTRAINT "Validation_validatorId_fkey";
-ALTER TABLE "Validation" ADD CONSTRAINT "Validation_validatorId_fkey" FOREIGN KEY ("validatorId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- Part 5: triggers
 
@@ -258,5 +269,14 @@ FROM "Membership" m
 WHERE m."role" <> 'LEARNER'
 ORDER BY m."userId", m."projectId", m."createdAt", m."role"
 ON CONFLICT ("userId", "projectId") DO NOTHING;
+
+-- Part 7, last: the notes' author keys again, now ON DELETE SET NULL (D89).
+-- Dropping a foreign key locks the table it refers to, User, exclusively: from
+-- here to COMMIT every signed-in request waits (it reads User), so only COMMIT
+-- follows.
+ALTER TABLE "Observation" DROP CONSTRAINT "Observation_observerId_fkey";
+ALTER TABLE "Observation" ADD CONSTRAINT "Observation_observerId_fkey" FOREIGN KEY ("observerId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "Validation" DROP CONSTRAINT "Validation_validatorId_fkey";
+ALTER TABLE "Validation" ADD CONSTRAINT "Validation_validatorId_fkey" FOREIGN KEY ("validatorId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 COMMIT;
