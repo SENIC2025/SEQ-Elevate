@@ -16,6 +16,12 @@ import { defineConfig, devices } from "@playwright/test";
  * (E2E_CUTOFF_PORT, else E2E_PORT + 10). Only the `cutoff` project
  * (r2-cutoff.spec.ts) uses it; every other spec runs before the cut-off.
  *
+ * A third server runs with Release 3's settings as production starts with
+ * them (spec 15, 17.2): R3_PARTNER_ACCESS and STATS_FROM unset, and with
+ * the profile gate's kill switch on (R3_PROFILE_GATE=off), on its own port
+ * (E2E_SWITCHES_PORT, else E2E_PORT + 20). Only the `switches` project
+ * (r3-switches.spec.ts) uses it.
+ *
  * Only *.spec.ts files are specs: e2e/fixtures also holds unit tests
  * (*.test.ts) that vitest runs.
  */
@@ -24,6 +30,9 @@ const BASE_URL = `http://localhost:${PORT}`;
 const CUTOFF_PORT = process.env.E2E_CUTOFF_PORT ?? String(Number(PORT) + 10);
 const CUTOFF_URL = `http://localhost:${CUTOFF_PORT}`;
 const CUTOFF_SPEC = /r2-cutoff\.spec\.ts$/;
+const SWITCHES_PORT = process.env.E2E_SWITCHES_PORT ?? String(Number(PORT) + 20);
+const SWITCHES_URL = `http://localhost:${SWITCHES_PORT}`;
+const SWITCHES_SPEC = /r3-switches\.spec\.ts$/;
 
 // Demo sign-in is opt-in (D98): DEMO_LOGIN_ENABLED and an access code of at
 // least 12 characters, so the demo-access E2E can sign in.
@@ -44,6 +53,10 @@ const SERVER_ENV = {
   R3_PARTNER_ACCESS: "on",
   STATS_FROM: "2020-01-01T00:00:00Z",
 };
+// The switches server: neither of the two settings above (blank reads as
+// unset; Playwright puts this shell's environment under a server's), and
+// the profile gate off.
+const SWITCHES_ENV = { ...SERVER_ENV, R3_PARTNER_ACCESS: "", STATS_FROM: "", R3_PROFILE_GATE: "off" };
 
 export default defineConfig({
   testDir: "./e2e",
@@ -61,8 +74,9 @@ export default defineConfig({
     trace: "on-first-retry",
   },
   projects: [
-    { name: "chromium", use: { ...devices["Desktop Chrome"] }, testIgnore: CUTOFF_SPEC },
+    { name: "chromium", use: { ...devices["Desktop Chrome"] }, testIgnore: [CUTOFF_SPEC, SWITCHES_SPEC] },
     { name: "cutoff", use: { ...devices["Desktop Chrome"], baseURL: CUTOFF_URL }, testMatch: CUTOFF_SPEC },
+    { name: "switches", use: { ...devices["Desktop Chrome"], baseURL: SWITCHES_URL }, testMatch: SWITCHES_SPEC },
   ],
   webServer: [
     {
@@ -78,6 +92,13 @@ export default defineConfig({
       command: `pnpm start --port ${CUTOFF_PORT}`,
       env: { ...SERVER_ENV, RESTRUCTURE_CLOSED_FROM: "2020-01-01T00:00:00Z" },
       url: `${CUTOFF_URL}/en`,
+      reuseExistingServer: !process.env.CI,
+      timeout: 120_000,
+    },
+    {
+      command: `pnpm start --port ${SWITCHES_PORT}`,
+      env: SWITCHES_ENV,
+      url: `${SWITCHES_URL}/en`,
       reuseExistingServer: !process.env.CI,
       timeout: 120_000,
     },

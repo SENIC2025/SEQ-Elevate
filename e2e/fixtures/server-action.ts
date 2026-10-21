@@ -1,6 +1,6 @@
 import { readFileSync, statSync } from "node:fs";
 import path from "node:path";
-import type { APIRequestContext } from "@playwright/test";
+import { test, type APIRequestContext } from "@playwright/test";
 
 /**
  * Release 3 (spec 18.3): call a server action directly, as any person, with
@@ -77,6 +77,13 @@ export function actionId(file: string, name: string): string {
   return hits[0].id;
 }
 
+/** Every (file, exported name) the build has an action id for. */
+export function builtActions(): { file: string; name: string }[] {
+  const seen = new Map<string, { file: string; name: string }>();
+  for (const { file, name } of namedActions()) seen.set(`${file}#${name}`, { file, name });
+  return [...seen.values()];
+}
+
 /** The exported names of `file` that the build has an action id for. */
 export function builtActionsOf(file: string): string[] {
   return [...new Set(namedActions().filter((a) => a.file === file).map((a) => a.name))].sort();
@@ -115,8 +122,20 @@ export interface ActionAnswer {
   raw: string;
 }
 
-/** The origin of the e2e server, as playwright.config.ts builds it. */
-const origin = () => `http://localhost:${process.env.E2E_PORT ?? "3000"}`;
+/**
+ * The origin of the server the running test's project uses (each project
+ * has its own: the cut-off and switches servers run on their own ports),
+ * else the main e2e server's, as playwright.config.ts builds it.
+ */
+const origin = () => {
+  try {
+    const base = test.info().project.use.baseURL;
+    if (base) return new URL(base).origin;
+  } catch {
+    // Not inside a test: the main server.
+  }
+  return `http://localhost:${process.env.E2E_PORT ?? "3000"}`;
+};
 
 /**
  * Calls the action as `as` and answers what it returned. The request carries
