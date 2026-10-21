@@ -1,5 +1,6 @@
 import { setRequestLocale } from "next-intl/server";
 import { AppHeader } from "@/components/AppHeader";
+import { ProfileNotSaving } from "@/components/profile/ProfileNotSaving";
 import { SafeguardingBox } from "@/components/safeguarding/SafeguardingBox";
 
 export default async function AccountLayout({
@@ -16,6 +17,7 @@ export default async function AccountLayout({
   return (
     <div className="flex-1 flex flex-col">
       <AppHeader />
+      <ProfileNotSaving />
       <main id="main-content" tabIndex={-1} className="flex-1 outline-none">{children}</main>
       <SafeguardingBox />
     </div>

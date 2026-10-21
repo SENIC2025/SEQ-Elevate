@@ -18,12 +18,23 @@ export default async function Page({
   const user = await requireUser(locale);
   const memberships = await getMemberships();
 
-  const [enrollmentsCount, badgesCount, compCard] = await Promise.all([
+  const [enrollmentsCount, badgesCount, compCard, profile] = await Promise.all([
     prisma.courseEnrollment.count({ where: { userId: user.id } }),
     prisma.userBadge.count({ where: { userId: user.id } }),
     prisma.compCard.findUnique({
       where: { userId_projectId: { userId: user.id, projectId: PROJECT } },
       select: { id: true },
+    }),
+    // Release 3 (spec 5.7): what the profile step recorded.
+    prisma.projectProfile.findUnique({
+      where: { userId_projectId: { userId: user.id, projectId: PROJECT } },
+      select: {
+        country: true,
+        termsVersion: true,
+        termsAcceptedAt: true,
+        ageConfirmedAt: true,
+        organisation: { select: { name: true } },
+      },
     }),
   ]);
 
@@ -42,6 +53,13 @@ export default async function Page({
         courses: enrollmentsCount,
         badges: badgesCount,
         compCardStarted: !!compCard,
+      }}
+      profile={{
+        country: profile?.country ?? null,
+        organisationName: profile?.organisation?.name ?? null,
+        termsVersion: profile?.termsVersion ?? null,
+        termsAcceptedAt: profile?.termsAcceptedAt?.toISOString() ?? null,
+        ageConfirmedAt: profile?.ageConfirmedAt?.toISOString() ?? null,
       }}
     />
   );

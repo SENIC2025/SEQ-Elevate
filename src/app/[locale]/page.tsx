@@ -3,6 +3,7 @@ import { setRequestLocale } from "next-intl/server";
 import { LandingPage } from "@/components/role/LandingPage";
 import { ProductionLanding } from "@/components/ProductionLanding";
 import { WorkspaceHub } from "@/components/WorkspaceHub";
+import { GuestWorkPrompt } from "@/components/learner/GuestWorkPrompt";
 import { getCurrentUser, getProjectMemberships, requireCompleteProfile } from "@/lib/auth-helpers";
 import { workspacesFor } from "@/lib/workspaces";
 import { demoLoginAllowed } from "@/lib/demo-gate";
@@ -34,7 +35,11 @@ export default async function Page({
     // (Outside the try: redirect() works by throwing.)
     if (workspaces.length === 1) redirect(`/${locale}${workspaces[0].href}`);
     return (
-      <WorkspaceHub workspaces={workspaces} name={user.name || user.email || ""} />
+      <WorkspaceHub
+        workspaces={workspaces}
+        name={user.name || user.email || ""}
+        notice={<GuestWorkPrompt />}
+      />
     );
   }
 

@@ -542,7 +542,7 @@ describe("mergeCompCardOnHydrate", () => {
     improve: "",
     behaviour: "",
     confidence: 3,
-    privacy: "facilitator",
+    sharing: "onlyMe",
     updatedAt: null,
   };
   const saved: CompCardData = {
@@ -551,13 +551,15 @@ describe("mergeCompCardOnHydrate", () => {
     improve: "Saved: ask sooner",
     behaviour: "",
     confidence: 4,
-    privacy: "facilitatorAndMentor",
+    sharing: "facilitators",
+    sharedAt: "2026-11-21T08:00:00.000Z",
+    organisationName: "Pro Arbeit",
     updatedAt: "2026-09-01T09:00:00.000Z",
   };
   const typedAt = "2026-09-29T10:00:00.000Z";
 
   it("takes the saved card when nothing was entered", () => {
-    expect(mergeCompCardOnHydrate(blank, saved, blank)).toBe(saved);
+    expect(mergeCompCardOnHydrate(blank, saved, blank)).toEqual(saved);
   });
 
   it("keeps the local card when none is saved", () => {
@@ -589,22 +591,32 @@ describe("mergeCompCardOnHydrate", () => {
     );
   });
 
-  it("keeps a confidence or privacy changed from the blank card's, else the saved one", () => {
-    const changed = {
-      ...blank,
-      confidence: 2,
-      privacy: "self" as const,
-      updatedAt: typedAt,
-    };
-    expect(mergeCompCardOnHydrate(changed, saved, blank)).toMatchObject({
-      confidence: 2,
-      privacy: "self",
-    });
+  it("keeps a confidence changed from the blank card's, else the saved one", () => {
+    const changed = { ...blank, confidence: 2, updatedAt: typedAt };
+    expect(mergeCompCardOnHydrate(changed, saved, blank)).toMatchObject({ confidence: 2 });
     const untouched = { ...blank, improve: "Typed", updatedAt: typedAt };
-    expect(mergeCompCardOnHydrate(untouched, saved, blank)).toMatchObject({
-      confidence: 4,
-      privacy: "facilitatorAndMentor",
+    expect(mergeCompCardOnHydrate(untouched, saved, blank)).toMatchObject({ confidence: 4 });
+  });
+
+  it("always takes who sees the card from the saved one (D80): a local choice never wins", () => {
+    // Release 2 kept a privacy changed while the card loaded.
+    const local: CompCardData = { ...blank, sharing: "facilitators", sharedAt: typedAt, improve: "Typed", updatedAt: typedAt };
+    const onlyMe: CompCardData = { ...saved, sharing: "onlyMe", sharedAt: null, organisationName: null };
+    expect(mergeCompCardOnHydrate(local, onlyMe, blank)).toMatchObject({
+      sharing: "onlyMe",
+      sharedAt: null,
+      organisationName: null,
     });
+    expect(mergeCompCardOnHydrate({ ...blank, improve: "Typed", updatedAt: typedAt }, saved, blank)).toMatchObject({
+      sharing: "facilitators",
+      sharedAt: "2026-11-21T08:00:00.000Z",
+      organisationName: "Pro Arbeit",
+    });
+  });
+
+  it("reads a saved card that doesn't say (a server from before Release 3) as Only me", () => {
+    const old = { ...saved, sharing: undefined, privacy: "facilitator" } as unknown as CompCardData;
+    expect(mergeCompCardOnHydrate(blank, old, blank)).toMatchObject({ sharing: "onlyMe", sharedAt: null });
   });
 });
 
@@ -632,7 +644,9 @@ describe("guestStateAfterHydrate", () => {
     improve: "",
     behaviour: "",
     confidence: 3,
-    privacy: "facilitator",
+    sharing: "onlyMe",
+    sharedAt: null,
+    organisationName: null,
     updatedAt: null,
   };
   const blank: DemoState = {
@@ -723,7 +737,9 @@ describe("storedGuestState", () => {
       improve: "",
       behaviour: "",
       confidence: 3,
-      privacy: "facilitator",
+      sharing: "onlyMe",
+      sharedAt: null,
+      organisationName: null,
       updatedAt: null,
     },
     refusedKeys: {},
@@ -806,6 +822,29 @@ describe("storedGuestState", () => {
       [`${OWN}/main`]: { type: "quiz", answers: { q1: "a" }, checked: false },
     });
     expect(after.refusedKeys).toEqual({});
+  });
+
+  it("reads a guest's Comp Card as Only me, whatever an older page stored (the mentor choice included)", () => {
+    for (const privacy of ["facilitatorAndMentor", "facilitator", "self"]) {
+      const card = { ...blank.compCard, wentWell: "Mine", updatedAt: "2026-09-01T09:00:00.000Z", privacy };
+      const after = storedGuestState(JSON.parse(JSON.stringify({ ...blank, compCard: card })), blank);
+      expect(after.compCard).toEqual({
+        ...blank.compCard,
+        wentWell: "Mine",
+        updatedAt: "2026-09-01T09:00:00.000Z",
+        sharing: "onlyMe",
+        sharedAt: null,
+        organisationName: null,
+      });
+      expect(after.compCard).not.toHaveProperty("privacy");
+    }
+    // Nor can a stored copy say it was shared.
+    const claimed = { ...blank.compCard, sharing: "facilitators", sharedAt: "2026-11-21T08:00:00.000Z", organisationName: "X" };
+    expect(storedGuestState({ ...blank, compCard: claimed }, blank).compCard).toMatchObject({
+      sharing: "onlyMe",
+      sharedAt: null,
+      organisationName: null,
+    });
   });
 
   it("is the empty store for something that isn't a stored copy", () => {

@@ -15,6 +15,14 @@
 
 import { getCurrentUser, getProjectMemberships } from "@/lib/auth-helpers";
 import { isBootstrapAdmin } from "@/lib/admin-bootstrap";
+import {
+  SHARING_TEXT_VERSION,
+  effectiveSharing,
+  parseCompCardInput,
+  type CompCardField,
+  type Sharing,
+} from "@/lib/comp-card-visibility";
+import { isProfileComplete, profileRules } from "@/lib/profile";
 import { needsLearnerMembership } from "@/lib/learner-membership";
 import { ensureProjectRoles } from "@/lib/role-grants";
 import { prisma } from "@/lib/prisma";
@@ -42,24 +50,13 @@ import {
   type ProgressColumn,
 } from "@/lib/learner-progress/merge-server";
 import { parseProgressPatch, readIds, readResponses } from "@/lib/learner-progress/parse";
-import { Prisma, type StageKey, type PrivacyChoice } from "@prisma/client";
+import { Prisma, type StageKey } from "@prisma/client";
 
 // SaveProgressResult is imported from @/lib/learner-progress/contract, not
 // from here: a "use server" module may export only async functions, and
 // Next's action transform takes a re-exported type for a value.
 
 const PROJECT = "seq-elevate";
-
-const PRIVACY_TO_DB: Record<string, PrivacyChoice> = {
-  self: "SELF",
-  facilitator: "FACILITATOR",
-  facilitatorAndMentor: "FACILITATOR_AND_MENTOR",
-};
-const PRIVACY_FROM_DB: Record<string, "self" | "facilitator" | "facilitatorAndMentor"> = {
-  SELF: "self",
-  FACILITATOR: "facilitator",
-  FACILITATOR_AND_MENTOR: "facilitatorAndMentor",
-};
 
 export interface CourseProgressInput {
   stagesCompleted: string[];
@@ -76,14 +73,34 @@ export interface CourseProgressInput {
   completedAt: string | null;
 }
 
+/**
+ * A Comp Card save (D80): every field optional, and only the fields sent are
+ * written. `privacy` is what pages loaded before Release 3 still send; it is
+ * ignored, as anything else is: sharing changes only through
+ * setCompCardSharing.
+ */
 export interface CompCardInput {
-  wentWell: string;
-  difficult: string;
-  improve: string;
-  behaviour: string;
-  confidence: number;
-  privacy: "self" | "facilitator" | "facilitatorAndMentor";
+  wentWell?: string;
+  difficult?: string;
+  improve?: string;
+  behaviour?: string;
+  confidence?: number;
+  privacy?: unknown;
 }
+
+/** What a Comp Card save answers: answered, never thrown, so the store doesn't try it again. */
+export type SaveCompCardResult =
+  | { ok: true }
+  | { ok: false; error: "too-long" | "bad-input"; field?: CompCardField }
+  | { ok: false; error: "other-account" };
+
+/** What a change of the Comp Card's sharing answers (spec 4.3). */
+export type SetSharingResult =
+  | { ok: true; sharing: Sharing; sharedAt: string | null; organisationName: string | null }
+  | {
+      ok: false;
+      error: "other-account" | "bad-input" | "profile-incomplete" | "no-organisation" | "guardian-consent-needed";
+    };
 
 /**
  * The signed-in learner, for every load and save the learner store makes.
@@ -122,15 +139,46 @@ function isLearner(
 }
 
 /**
+ * The signed-in person's own profile in the project, as far as the learner
+ * actions read it: whether the profile step is done (for the rules in
+ * force), their organisation, and the guardian rule. Called only with the
+ * signed-in learner's id.
+ */
+async function ownProfile(userId: string) {
+  return prisma.projectProfile.findUnique({
+    where: { userId_projectId: { userId, projectId: PROJECT } },
+    select: {
+      country: true,
+      termsVersion: true,
+      ageConfirmedAt: true,
+      consentAt: true,
+      organisationId: true,
+      ageRule: true,
+      guardianSharingConsentAt: true,
+      organisation: { select: { name: true } },
+    },
+  });
+}
+
+/**
  * Give someone who signed in by themselves a place in the project: a
  * LEARNER membership, but only when they hold no role in it at all (see
  * needsLearnerMembership). Staff stay staff, and nothing they hold is
  * removed. The roles are read through getProjectMemberships, which grants
  * an ADMIN_EMAILS address its roles first. A failed read fails the call,
  * so the store tries again rather than guessing that there are none.
+ *
+ * Release 3 (D79): only once the profile step is done. Before that it
+ * grants nothing and answers "profile-incomplete" — answered, never thrown:
+ * a page from before Release 3 tries a thrown call again. The store then
+ * loads, moves and saves nothing (the next full page load goes to the
+ * profile step). Whatever R3_PROFILE_GATE says: with the gate off, people
+ * without a complete profile browse, and nothing of theirs is saved.
  */
-export async function ensureLearnerMembership() {
+export async function ensureLearnerMembership(): Promise<true | "profile-incomplete"> {
   const user = await requireLearner();
+  const profile = await ownProfile(user.id);
+  if (!isProfileComplete(user, profile, profileRules())) return "profile-incomplete";
   const roles = (await getProjectMemberships(PROJECT)).map((m) => m.role);
   if (
     needsLearnerMembership(roles, {
@@ -144,9 +192,26 @@ export async function ensureLearnerMembership() {
   return true;
 }
 
-/** Global learner state: Comp Card, badges, per-course enrollment summaries. */
+/**
+ * Global learner state: Comp Card, badges, per-course enrollment summaries.
+ *
+ * Release 3: refused (thrown) until the profile step is done (D79). A page
+ * from before Release 3 calls this whatever ensureLearnerMembership
+ * answered; the throw makes that a failed load, which it gives up on
+ * before it reads the browser's guest store, so nothing moves into an
+ * account that hasn't accepted the Terms.
+ *
+ * The card says whether it is shared (D80: only with sharedAt, and with the
+ * organisation the learner belongs to now), since when and with whom, and,
+ * for pages from before Release 3, the same as their privacy value. Every
+ * field of the card is optional to the store (a too-long one is held back).
+ */
 export async function loadLearnerGlobal() {
   const user = await requireLearner();
+  const profile = await ownProfile(user.id);
+  if (!isProfileComplete(user, profile, profileRules())) {
+    throw new Error("The profile step isn't done; nothing of the learner's is loaded yet");
+  }
   const [compCard, badges, enrollments] = await Promise.all([
     prisma.compCard.findUnique({
       where: { userId_projectId: { userId: user.id, projectId: PROJECT } },
@@ -160,6 +225,8 @@ export async function loadLearnerGlobal() {
       include: { course: true },
     }),
   ]);
+  const sharing = compCard ? effectiveSharing(compCard, profile?.organisationId ?? null) : "onlyMe";
+  const shared = sharing === "facilitators";
   return {
     compCard: compCard
       ? {
@@ -168,7 +235,11 @@ export async function loadLearnerGlobal() {
           improve: compCard.improve,
           behaviour: compCard.behaviour,
           confidence: compCard.confidence,
-          privacy: PRIVACY_FROM_DB[compCard.privacy],
+          sharing,
+          sharedAt: shared ? (compCard.sharedAt?.toISOString() ?? null) : null,
+          organisationName: shared ? (profile?.organisation?.name ?? null) : null,
+          // What a page from before Release 3 reads (its privacy choice).
+          privacy: shared ? ("facilitator" as const) : ("self" as const),
           updatedAt: compCard.updatedAt.toISOString(),
         }
       : null,
@@ -526,23 +597,101 @@ export async function saveCourseProgress(
   });
 }
 
-/** Upsert the current user's Comp Card; they must be `forUser` (isLearner). */
-export async function saveCompCard(input: CompCardInput, forUser: string) {
+/**
+ * Save the current user's Comp Card; they must be `forUser` (isLearner).
+ * Keeps its name and arguments (D68: pages loaded before Release 3 call it
+ * by its id) and now (D80, spec 4.3):
+ *   - writes only the fields sent: one the store holds back (too long)
+ *     keeps its stored text, and a new card has the others empty;
+ *   - ignores `privacy` and anything else: a save never shares the card,
+ *     whatever a page from before Release 3 sends (it sends "facilitator");
+ *     a new card starts "Only me" (the schema's default);
+ *   - refuses a text longer than 2,000 characters only when it is longer
+ *     than the stored one (an older, longer text can be saved unchanged),
+ *     and then the whole save, with the field named;
+ *   - answers, never throws, a refusal: the store doesn't try it again.
+ * Pages from before Release 3 ignore the answer.
+ */
+export async function saveCompCard(input: CompCardInput, forUser: string): Promise<SaveCompCardResult> {
   const user = await requireLearner();
-  if (!isLearner(user, forUser)) return;
-  const data = {
-    wentWell: input.wentWell,
-    difficult: input.difficult,
-    improve: input.improve,
-    behaviour: input.behaviour,
-    confidence: input.confidence,
-    privacy: PRIVACY_TO_DB[input.privacy] ?? "FACILITATOR",
-  };
+  if (!isLearner(user, forUser)) return { ok: false, error: "other-account" };
+  const stored = await prisma.compCard.findUnique({
+    where: { userId_projectId: { userId: user.id, projectId: PROJECT } },
+    select: { wentWell: true, difficult: true, improve: true, behaviour: true },
+  });
+  const parsed = parseCompCardInput(input, stored);
+  if (!parsed.ok) return parsed.field ? { ok: false, error: parsed.error, field: parsed.field } : { ok: false, error: parsed.error };
+  const data = parsed.value;
+  // Nothing to write: no card is made for it either.
+  if (Object.keys(data).length === 0) return { ok: true };
   await prisma.compCard.upsert({
     where: { userId_projectId: { userId: user.id, projectId: PROJECT } },
     create: { userId: user.id, projectId: PROJECT, ...data },
     update: data,
   });
+  return { ok: true };
+}
+
+/**
+ * Who sees the current user's Comp Card (D80, spec 4.3): "onlyMe" or
+ * "facilitators" (the facilitators of the learner's organisation). Explicit,
+ * never debounced; they must be `forUser` (isLearner).
+ *
+ * Sharing needs a complete profile with an organisation, and, for a learner
+ * invited under the guardian rule, a guardian's permission that covers
+ * sharing (§5.6). It records when, with which organisation (the learner's
+ * own, now) and under which wording (SHARING_TEXT_VERSION): if sharing is
+ * consent-based (Q16), that is the consent. "Only me" takes it back at once,
+ * whatever else holds. Either way the card is made if there is none, and
+ * the change is logged by the card's id, without the learner's
+ * (compcard.sharing_changed; erasure removes these rows).
+ */
+export async function setCompCardSharing(choice: Sharing, forUser: string): Promise<SetSharingResult> {
+  const user = await requireLearner();
+  if (!isLearner(user, forUser)) return { ok: false, error: "other-account" };
+  if (choice !== "onlyMe" && choice !== "facilitators") return { ok: false, error: "bad-input" };
+  const profile = await ownProfile(user.id);
+  const organisationId = profile?.organisationId ?? null;
+  if (choice === "facilitators") {
+    if (!isProfileComplete(user, profile, profileRules())) return { ok: false, error: "profile-incomplete" };
+    if (!organisationId) return { ok: false, error: "no-organisation" };
+    if (profile?.ageRule === "INVITED_WITH_GUARDIAN_CONSENT" && !profile.guardianSharingConsentAt) {
+      return { ok: false, error: "guardian-consent-needed" };
+    }
+  }
+  const sharedAt = choice === "facilitators" ? new Date() : null;
+  const sharingData =
+    choice === "facilitators"
+      ? {
+          privacy: "FACILITATOR" as const,
+          sharedAt,
+          sharedWithOrganisationId: organisationId,
+          sharingVersion: SHARING_TEXT_VERSION,
+        }
+      : { privacy: "SELF" as const, sharedAt: null, sharedWithOrganisationId: null };
+  await prisma.$transaction(async (tx) => {
+    const card = await tx.compCard.upsert({
+      where: { userId_projectId: { userId: user.id, projectId: PROJECT } },
+      create: { userId: user.id, projectId: PROJECT, ...sharingData },
+      update: sharingData,
+      select: { id: true },
+    });
+    await tx.auditLog.create({
+      data: {
+        projectId: PROJECT,
+        action: "compcard.sharing_changed",
+        entity: "CompCard",
+        entityId: card.id,
+        metadata: { to: choice, version: SHARING_TEXT_VERSION },
+      },
+    });
+  });
+  return {
+    ok: true,
+    sharing: choice,
+    sharedAt: sharedAt?.toISOString() ?? null,
+    organisationName: choice === "facilitators" ? (profile?.organisation?.name ?? null) : null,
+  };
 }
 
 /**
