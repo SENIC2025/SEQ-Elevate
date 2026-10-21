@@ -3,17 +3,19 @@
  * and about whom (C20).
  *
  * Both land on another person's record, which the learner reads in their
- * data export and the admin audit shows. So the writer must be a FACILITATOR
- * or ADMIN of the project (the same people who see the facilitator
- * workspace, getProjectLearners), and the person written about must be a
- * learner of the same project (isProjectLearner): someone who isn't in the
- * project at all is refused, and so is anyone holding a staff role there.
- * Staff who opened a learner page before Release 0 still hold the LEARNER
- * role that page used to give everyone, so the LEARNER role alone would let
- * one colleague write on another's record. Nobody writes about themselves
- * either: a writer is staff, so the rule above already refuses that, and
- * the action compares the ids as well. Organisation and cohort aren't
- * checked yet; nothing else scopes staff by them either (D25).
+ * data export and the admin audit shows. So the writer must support
+ * learners in the project (canSupportLearners: FACILITATOR, PARTNER_ADMIN or
+ * ADMIN, the same people who see the facilitator workspace,
+ * getProjectLearners), and the person written about must be a learner of the
+ * same project (isProjectLearner): someone who isn't in the project at all
+ * is refused, and so is anyone holding a staff role there. Staff who opened
+ * a learner page before Release 0 still hold the LEARNER role that page used
+ * to give everyone, so the LEARNER role alone would let one colleague write
+ * on another's record. Nobody writes about themselves either: a writer is
+ * staff, so the rule above already refuses that, and the action compares
+ * the ids as well. Whose learners a writer may write about (their own
+ * organisation's, or the project's for an ADMIN) is the scope's to say: the
+ * action asks inScope (src/lib/scope.ts, D74) as well.
  *
  * What is written is checked here too, as a server action is a public
  * endpoint: text of a sensible length, and a cluster that exists.
@@ -24,22 +26,17 @@
 import type { Role } from "@prisma/client";
 import { SKILL_CLUSTERS, type SkillCluster } from "@/data/course";
 import { isProjectLearner } from "@/lib/learner-scope";
-
-/** Roles that may record observations and validations in a project. */
-export const FACILITATOR_WRITE_ROLES: readonly Role[] = ["FACILITATOR", "ADMIN"];
+import { canSupportLearners } from "@/lib/permissions";
 
 /**
  * May someone holding `writerRoles` in the project write about a person
- * holding `learnerRoles` in it?
+ * holding `learnerRoles` in it (whoever's scope they are in)?
  */
 export function canRecordForLearner(
   writerRoles: readonly Role[],
   learnerRoles: readonly Role[]
 ): boolean {
-  return (
-    writerRoles.some((r) => FACILITATOR_WRITE_ROLES.includes(r)) &&
-    isProjectLearner(learnerRoles)
-  );
+  return canSupportLearners(writerRoles) && isProjectLearner(learnerRoles);
 }
 
 /**

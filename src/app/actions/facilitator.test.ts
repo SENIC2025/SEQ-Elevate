@@ -1,15 +1,20 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 
 // A facilitator's note or validation lands on another person's record, so
-// both writes must check who is writing (FACILITATOR or ADMIN of the
-// project) and about whom (a learner of the project: LEARNER and no staff
-// role there), and refuse anything else, including when either can't be
-// checked.
+// both writes must check who is writing (FACILITATOR, PARTNER_ADMIN or ADMIN
+// of the project), whether the person is in the writer's scope (their own
+// organisation, or the whole project for an ADMIN: D74), and about whom (a
+// learner of the project: LEARNER and no staff role there), and refuse
+// anything else, including when any of it can't be checked.
+vi.mock("server-only", () => ({}));
 const getCurrentUser = vi.fn();
 const getProjectMemberships = vi.fn();
 const hasRole = vi.fn();
+const getViewer = vi.fn();
 const prisma = {
   membership: { findMany: vi.fn(), findFirst: vi.fn() },
+  // inScope's one count: is the learner one of the people in the scope?
+  user: { count: vi.fn() },
   compCard: { findUnique: vi.fn() },
   observation: { create: vi.fn() },
   validation: { create: vi.fn() },
@@ -21,18 +26,36 @@ vi.mock("@/lib/auth-helpers", () => ({
   hasRole,
 }));
 vi.mock("@/lib/prisma", () => ({ prisma }));
+// The viewer is stood in for; inScope and the builders are the real ones.
+vi.mock("@/lib/scope", async (original) => ({
+  ...(await original<typeof import("@/lib/scope")>()),
+  getViewer: () => getViewer(),
+}));
 
 const { saveObservation, recordValidation } = await import("./facilitator");
 
 const STAFF = { id: "staff-1", email: "fac@example.org" };
 const rows = (...roles: string[]) =>
   roles.map((role) => ({ role, projectId: "seq-elevate" }));
+const ORG_A = { kind: "organisation", viewerId: STAFF.id, organisationId: "org-a" } as const;
+const PROJECT_SCOPE = { kind: "project", viewerId: STAFF.id, viewerOrganisationId: null } as const;
 
-/** The viewer holds `viewer`; the person written about holds `target`. */
+/**
+ * The viewer holds `viewer` (with the scope those roles give: an ADMIN the
+ * project, anyone else organisation A); the person written about holds
+ * `target` and is in that scope.
+ */
 function given(viewer: string[], target: string[]) {
   getCurrentUser.mockResolvedValue(STAFF);
   getProjectMemberships.mockResolvedValue(rows(...viewer));
   hasRole.mockImplementation(async (_p: string, r: string) => viewer.includes(r));
+  getViewer.mockResolvedValue({
+    user: STAFF,
+    roles: viewer,
+    profile: null,
+    scope: viewer.includes("ADMIN") ? PROJECT_SCOPE : ORG_A,
+  });
+  prisma.user.count.mockResolvedValue(1);
   prisma.membership.findMany.mockResolvedValue(rows(...target));
   prisma.membership.findFirst.mockResolvedValue(target.length ? rows(...target)[0] : null);
   prisma.compCard.findUnique.mockResolvedValue(null);
@@ -58,7 +81,7 @@ describe.each(both)("%s", (_name, call) => {
     vi.restoreAllMocks();
   });
 
-  it.each([["FACILITATOR"], ["ADMIN"]])("lets a %s write about a learner of the project", async (role) => {
+  it.each([["FACILITATOR"], ["PARTNER_ADMIN"], ["ADMIN"]])("lets a %s write about a learner in their scope", async (role) => {
     given([role], ["LEARNER"]);
     await expect(call()).resolves.toEqual({ ok: true });
     expect(wroteAnything()).toBe(true);
@@ -99,6 +122,7 @@ describe.each(both)("%s", (_name, call) => {
   it("refuses when no one is signed in", async () => {
     given(["FACILITATOR"], ["LEARNER"]);
     getCurrentUser.mockResolvedValue(null);
+    getViewer.mockResolvedValue({ user: null, roles: [], profile: null, scope: { kind: "none" } });
     await expect(call()).resolves.toEqual({ ok: false });
     expect(wroteAnything()).toBe(false);
   });
@@ -113,6 +137,68 @@ describe.each(both)("%s", (_name, call) => {
   });
 });
 
+/*
+ * FD-U12 (D74, spec 3.4 SP6, SP7): a note or validation is about a learner
+ * in the writer's scope. Partner staff write only about their own
+ * organisation's learners, and staff with no organisation (or with the
+ * partner switch off, or an incomplete profile of their own: scope none)
+ * write about no one.
+ */
+describe.each(both)("%s, by scope (FD-U12)", (_name, call) => {
+  afterEach(() => {
+    vi.clearAllMocks();
+    vi.restoreAllMocks();
+  });
+
+  it("refuses a learner of another organisation, writing nothing", async () => {
+    given(["FACILITATOR"], ["LEARNER"]);
+    prisma.user.count.mockResolvedValue(0);
+    await expect(call()).resolves.toEqual({ ok: false });
+    expect(wroteAnything()).toBe(false);
+  });
+
+  it("asks whether the learner is one of the people of the writer's organisation", async () => {
+    given(["FACILITATOR"], ["LEARNER"]);
+    await call();
+    const where = JSON.stringify(prisma.user.count.mock.calls[0]?.[0]);
+    expect(where).toContain('"id":"learner-1"');
+    expect(where).toContain('"organisationId":"org-a"');
+  });
+
+  it.each([["FACILITATOR"], ["PARTNER_ADMIN"]])(
+    "refuses a %s with no scope (no organisation, partner access off, or an incomplete profile)",
+    async (role) => {
+      given([role], ["LEARNER"]);
+      getViewer.mockResolvedValue({ user: STAFF, roles: [role], profile: null, scope: { kind: "none" } });
+      await expect(call()).resolves.toEqual({ ok: false });
+      expect(wroteAnything()).toBe(false);
+      expect(prisma.user.count).not.toHaveBeenCalled();
+    }
+  );
+
+  it("refuses an ADMIN without project scope", async () => {
+    given(["ADMIN"], ["LEARNER"]);
+    getViewer.mockResolvedValue({ user: STAFF, roles: ["ADMIN"], profile: null, scope: { kind: "none" } });
+    await expect(call()).resolves.toEqual({ ok: false });
+    expect(wroteAnything()).toBe(false);
+  });
+
+  it("refuses, writing nothing, when the scope can't be checked", async () => {
+    given(["FACILITATOR"], ["LEARNER"]);
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    prisma.user.count.mockRejectedValue(new Error("db down"));
+    await expect(call()).resolves.toEqual({ ok: false });
+    expect(wroteAnything()).toBe(false);
+  });
+
+  it("lets an ADMIN write about any learner of the project", async () => {
+    given(["ADMIN"], ["LEARNER"]);
+    await expect(call()).resolves.toEqual({ ok: true });
+    const where = JSON.stringify(prisma.user.count.mock.calls[0]?.[0]);
+    expect(where).not.toContain("organisationId");
+  });
+});
+
 describe("who a note or validation may be about", () => {
   afterEach(() => vi.clearAllMocks());
 
@@ -121,6 +207,7 @@ describe("who a note or validation may be about", () => {
   it.each(both)("%s refuses a writer writing about themselves", async (_name, call) => {
     given(["FACILITATOR", "LEARNER"], ["FACILITATOR", "LEARNER"]);
     getCurrentUser.mockResolvedValue({ ...STAFF, id: "learner-1" });
+    getViewer.mockResolvedValue({ user: { ...STAFF, id: "learner-1" }, roles: ["FACILITATOR", "LEARNER"], profile: null, scope: ORG_A });
     await expect(call()).resolves.toEqual({ ok: false });
     expect(wroteAnything()).toBe(false);
   });

@@ -2,46 +2,49 @@
 
 /**
  * Facilitator actions — record an observation and validate a competence
- * against a learner. RBAC-gated: only a FACILITATOR/ADMIN of the project may
- * write, only about a learner of the project (a LEARNER who holds no staff
- * role there), and never about themselves (canRecordForLearner). Both create rows the learner's record + admin
- * audit can read, so what they hold is checked too, and anything else is
- * refused with { ok: false } rather than an error.
+ * against a learner. RBAC- and scope-gated: only someone who supports
+ * learners (FACILITATOR, PARTNER_ADMIN or ADMIN of the project) may write,
+ * only about a person in their scope (their own organisation's, or anyone
+ * in the project for an ADMIN: inScope, D74), only about a learner of the
+ * project (a LEARNER who holds no staff role there), and never about
+ * themselves (canRecordForLearner). Both create rows the learner's record +
+ * admin audit can read, so what they hold is checked too, and anything else
+ * is refused with { ok: false } rather than an error.
  */
 
-import { getCurrentUser, getProjectMemberships } from "@/lib/auth-helpers";
 import {
   canRecordForLearner,
   facilitatorText,
   isSkillCluster,
 } from "@/lib/facilitator-access";
 import { prisma } from "@/lib/prisma";
+import { getViewer, inScope } from "@/lib/scope";
 
 const PROJECT = "seq-elevate";
 
 /**
  * The signed-in staff member, when they may write about `learnerId`; null
- * otherwise, including when `learnerId` is their own. Fails closed: a roles
- * read that fails refuses the write, as does an id that isn't a string (a
- * server action is a public endpoint).
+ * otherwise, including when `learnerId` is their own. Fails closed: a
+ * viewer with no scope (no organisation, the partner switch off, an
+ * incomplete profile of their own), a person outside the scope, a read
+ * that fails and an id that isn't a string (a server action is a public
+ * endpoint) all refuse the write.
  */
 async function requireStaffFor(learnerId: unknown) {
   if (typeof learnerId !== "string" || !learnerId) return null;
   try {
-    const user = await getCurrentUser();
-    if (!user || user.id === learnerId) return null;
-    const [writer, learner] = await Promise.all([
-      getProjectMemberships(PROJECT),
-      prisma.membership.findMany({
-        where: { userId: learnerId, projectId: PROJECT },
-        select: { role: true },
-      }),
-    ]);
+    const viewer = await getViewer();
+    if (!viewer.user || viewer.user.id === learnerId) return null;
+    if (!(await inScope(viewer.scope, learnerId))) return null;
+    const learner = await prisma.membership.findMany({
+      where: { userId: learnerId, projectId: PROJECT },
+      select: { role: true },
+    });
     const ok = canRecordForLearner(
-      writer.map((m) => m.role),
+      viewer.roles,
       learner.map((m) => m.role)
     );
-    return ok ? user : null;
+    return ok ? viewer.user : null;
   } catch (e) {
     console.error("[facilitator] couldn't check who may write this", e);
     return null;

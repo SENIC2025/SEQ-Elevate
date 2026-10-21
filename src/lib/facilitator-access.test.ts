@@ -9,8 +9,10 @@ import {
 } from "./facilitator-access";
 
 describe("canRecordForLearner", () => {
-  it("lets a facilitator or an admin write about a learner", () => {
+  it("lets a facilitator, a partner admin or an admin write about a learner", () => {
     expect(canRecordForLearner(["FACILITATOR"], ["LEARNER"])).toBe(true);
+    // Release 3 (D76): a partner admin includes FACILITATOR.
+    expect(canRecordForLearner(["PARTNER_ADMIN"], ["LEARNER"])).toBe(true);
     expect(canRecordForLearner(["ADMIN"], ["LEARNER"])).toBe(true);
     expect(canRecordForLearner(["ADMIN", "CONTENT_EDITOR"], ["LEARNER"])).toBe(true);
   });
@@ -19,6 +21,11 @@ describe("canRecordForLearner", () => {
     expect(canRecordForLearner([], ["LEARNER"])).toBe(false);
     expect(canRecordForLearner(["LEARNER"], ["LEARNER"])).toBe(false);
     expect(canRecordForLearner(["CONTENT_EDITOR"], ["LEARNER"])).toBe(false);
+  });
+
+  it("refuses a partner admin or another partner admin as the person written about", () => {
+    expect(canRecordForLearner(["PARTNER_ADMIN"], ["LEARNER", "PARTNER_ADMIN"])).toBe(false);
+    expect(canRecordForLearner(["FACILITATOR"], ["PARTNER_ADMIN"])).toBe(false);
   });
 
   it("refuses a person who isn't a learner of the project", () => {
