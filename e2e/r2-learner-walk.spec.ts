@@ -8,6 +8,7 @@ import { applyR2Deltas, type Captured } from "./fixtures/r2-deltas";
 import { applyR3Deltas } from "./fixtures/r3-deltas";
 import { AE1_TITLE, ae1Lessons } from "./fixtures/r2-ae1-course";
 import { removeR2Course, seedR2Course } from "./fixtures/r2-course";
+import { setReady } from "./fixtures/r3-e-course";
 
 /**
  * Release 2, the recorded learner walk (spec 10.3, D63): a course in the
@@ -225,6 +226,9 @@ async function seedCourse() {
       },
     },
   });
+  // Its German is switched on for learners (Release 3, D90), so the walk in
+  // German reads the German it recorded. Not on the old build's database.
+  await setReady(prisma, SLUG, ["de", "el"]);
   for (const l of LESSONS) {
     const lesson = await prisma.lesson.create({
       data: {
