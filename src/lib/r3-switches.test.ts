@@ -1,5 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
+import en from "@/messages/en.json";
 import {
+  CONSENT_VERSION,
   DEFAULT_MINIMUM_AGE,
   ageRuleSetting,
   blobDeleteOn,
@@ -65,9 +67,22 @@ describe("profileConsent", () => {
     expect(log).not.toHaveBeenCalled();
   });
 
-  it("reads optional and required", () => {
-    expect(profileConsent({ PROFILE_CONSENT: "optional" })).toBe("optional");
-    expect(profileConsent({ PROFILE_CONSENT: " Required " })).toBe("required");
+  it("reads optional and required, once the consent text is final", () => {
+    expect(profileConsent({ PROFILE_CONSENT: "optional" }, vi.fn(), "2026-11-30")).toBe("optional");
+    expect(profileConsent({ PROFILE_CONSENT: " Required " }, vi.fn(), "2026-11-30")).toBe("required");
+  });
+
+  it("stays off while the consent text is a draft, saying so once", () => {
+    const log = vi.fn();
+    expect(profileConsent({ PROFILE_CONSENT: "required" }, log, "draft-2026-10-21")).toBe("off");
+    expect(profileConsent({ PROFILE_CONSENT: "optional" }, log, "draft-2026-10-21")).toBe("off");
+    expect(log).toHaveBeenCalledTimes(1);
+    expect(log.mock.calls[0][0]).toMatch(/PROFILE_CONSENT.*draft/);
+    // The text in the messages is the one that counts; today's is a draft.
+    expect(CONSENT_VERSION).toBe(en.profile.consent.version);
+    expect(profileConsent({ PROFILE_CONSENT: "required" }, vi.fn())).toBe(
+      CONSENT_VERSION.startsWith("draft-") ? "off" : "required"
+    );
   });
 
   it("falls back to off for anything else, saying so once and without the value", () => {

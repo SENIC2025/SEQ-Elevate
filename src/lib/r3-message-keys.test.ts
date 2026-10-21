@@ -8,7 +8,9 @@ import el from "@/messages/el.json";
  * of 4.6, 5.9, 6.5, 7.4, 9.5, 10.5 and 11.4 and the legal, account and
  * courseManager.languageReady keys, in English, German and Greek, so the
  * streams only change values in the namespaces they own
- * (messages-parity.test.ts keeps the three in step).
+ * (messages-parity.test.ts keeps the three in step). The role names of 6.5
+ * are among them: AccountView and invitations map roles to keys through a
+ * Record, so a missing key shows as the key itself, not as a type error.
  */
 
 const KEYS = [
@@ -52,6 +54,7 @@ const KEYS = [
     "hintReflection", "footerLink", "helpTitle",
   ].map((k) => `safeguarding.${k}`),
   ...["backHome", "translationPending", "toBeCompleted", "version", "poweredBy"].map((k) => `legal.${k}`),
+  ...["partnerAdmin", "partnerAdminDesc"].map((k) => `roles.${k}`),
 ];
 
 /** The English the spec gives (German and Greek are drafts for partner review). */
@@ -70,6 +73,8 @@ const SPEC_ENGLISH: Record<string, string> = {
   "compCard.sharing.failed": "Your choice didn't save. Please try again.",
   "compCard.charsLeft": "{count} characters left",
   "compCard.tooLong": "This is too long to save. Shorten it to {max} characters.",
+  "roles.partnerAdmin": "Partner admin",
+  "roles.partnerAdminDesc": "Manages the people of one partner organisation, supports its learners, and edits and translates courses.",
   "facilitator.notShared": "Nothing shared with you.",
   "facilitator.compCardSubmissions": "Comp Cards shared with you",
   "facilitator.noOrganisation": "Your account isn't linked to an organisation yet, so no learners are shown. Ask DIESIS to link it.",
@@ -165,15 +170,25 @@ describe("Release 3's message keys", () => {
     for (const [key, text] of Object.entries(SPEC_ENGLISH)) expect(at(en, key), key).toBe(text);
   });
 
-  it("are translated: German and Greek differ from English where the words do", () => {
-    // Version strings and names are the same in every language.
-    const same = new Set(["profile.consent.version", "compCard.sharing.onlyMe"]);
+  it.each(Object.entries({ de, el }))("are translated: %s differs from English where the words do", (lang, messages) => {
+    // Version strings and names are the same in every language, and so is
+    // a word German shares with English.
+    const same = new Set([
+      "profile.consent.version",
+      "compCard.sharing.onlyMe",
+      ...(lang === "de" ? ["account.organisation"] : []),
+    ]);
     for (const key of KEYS.filter((k) => !same.has(k))) {
       const english = at(en, key);
       if (typeof english === "string" && /[a-z]{4,}/i.test(english.replace(/\{[^}]*\}|<[^>]*>/g, ""))) {
-        expect(at(el, key), key).not.toBe(english);
+        expect(at(messages, key), key).not.toBe(english);
       }
     }
+  });
+
+  it("give the consent text one version in every language: it is what a consent records", () => {
+    expect(at(de, "profile.consent.version")).toBe(at(en, "profile.consent.version"));
+    expect(at(el, "profile.consent.version")).toBe(at(en, "profile.consent.version"));
   });
 
   it("tell the Account page what staff always see, as the Comp Card does", () => {

@@ -7,6 +7,13 @@ import type { Role } from "@prisma/client";
  */
 
 vi.mock("server-only", () => ({}));
+// Consent can be asked for only once the consent text is final (a draft's
+// version starts "draft-", r3-switches.ts): these tests read the rules as
+// they are then.
+vi.mock("@/messages/en.json", async (importOriginal) => {
+  const { default: en } = await importOriginal<{ default: typeof import("@/messages/en.json") }>();
+  return { default: { ...en, profile: { ...en.profile, consent: { ...en.profile.consent, version: "2026-11-30" } } } };
+});
 vi.mock("react", async (original) => ({
   ...(await original<typeof import("react")>()),
   cache: <T>(fn: T) => fn,

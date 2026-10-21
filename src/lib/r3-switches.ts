@@ -12,7 +12,10 @@
  *                              scope no longer needs a complete profile.
  *                              Learner membership still waits for it.
  *   PROFILE_CONSENT            off (default) | optional | required: the
- *                              separate unticked consent box (D78, Q16).
+ *                              separate unticked consent box (D78, Q16);
+ *                              off, whatever it says, while the consent
+ *                              text is a draft (its version starts
+ *                              "draft-"): no one consents to a draft.
  *   AGE_RULE                   unset: 16 everywhere (Q18); a whole number
  *                              from 13: that age everywhere; digital-consent:
  *                              each country's age of digital consent.
@@ -26,6 +29,8 @@
  * so once in the log, without the value. STATS_FROM is read by
  * stats-from.ts and the demo sign-in settings by demo-gate.ts.
  */
+
+import en from "@/messages/en.json";
 
 type Env = Record<string, string | undefined>;
 
@@ -53,11 +58,33 @@ export function profileGateOn(env: Env = process.env): boolean {
 
 export type ProfileConsent = "off" | "optional" | "required";
 
-/** PROFILE_CONSENT: whether the profile step shows the consent box, and whether it must be ticked. */
-export function profileConsent(env: Env = process.env, log: (line: string) => void = console.warn): ProfileConsent {
+/**
+ * The version of the consent text (profile.consent.version, the same in
+ * every language): what a consent records. It starts "draft-" until
+ * counsel's wording is in.
+ */
+export const CONSENT_VERSION: string = en.profile.consent.version;
+
+/**
+ * PROFILE_CONSENT: whether the profile step shows the consent box, and
+ * whether it must be ticked. Off while the consent text (`version`) is a
+ * draft, with one line in the log.
+ */
+export function profileConsent(
+  env: Env = process.env,
+  log: (line: string) => void = console.warn,
+  version: string = CONSENT_VERSION
+): ProfileConsent {
   const value = word(env.PROFILE_CONSENT);
   if (value === "" || value === "off") return "off";
-  if (value === "optional" || value === "required") return value;
+  if (value === "optional" || value === "required") {
+    if (!version.startsWith("draft-")) return value;
+    if (!reported.has("PROFILE_CONSENT:draft")) {
+      reported.add("PROFILE_CONSENT:draft");
+      log("[settings] PROFILE_CONSENT is set, but the consent text is still a draft; the consent box stays off.");
+    }
+    return "off";
+  }
   reportOnce("PROFILE_CONSENT", value, "off", log);
   return "off";
 }
