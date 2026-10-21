@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { test, expect, type Page } from "@playwright/test";
-import { getLegal, hasLegalTranslation, LEGAL_DOCS, type LegalDocId } from "../src/data/legal";
+import { getLegal, hasLegalTranslation, LEGACY_VERSION, LEGAL_DOCS, type LegalDocId } from "../src/data/legal";
 import { FINAL_TEXTS } from "../src/content/legal";
 import { legalPlaceholders } from "../src/lib/legal-markdown";
 
@@ -11,8 +11,10 @@ import { legalPlaceholders } from "../src/lib/legal-markdown";
  *   F-E1a (release gate, green whatever counsel's timing):
  *     - every legal page, in every language, is the skip link's target
  *       (<main id="main-content">), shows its version line in the page's
- *       language, and marks English shown under German or Greek as English
- *       (lang="en", WCAG 3.1.2), under a note in the page's language;
+ *       language (counsel's version, or "interim version" for a text
+ *       written before counsel's: never its stored "pre-counsel"), and
+ *       marks English shown under German or Greek as English (lang="en",
+ *       WCAG 3.1.2), under a note in the page's language;
  *     - a document that has a final text shows no placeholder;
  *     - the footer links /help and every document that has a text, and
  *       each link opens its page; the legal notice once its text is in,
@@ -32,13 +34,15 @@ type Locale = (typeof LOCALES)[number];
 
 const messages = (locale: Locale) =>
   JSON.parse(readFileSync(path.resolve(__dirname, `../src/messages/${locale}.json`), "utf8")) as {
-    legal: Record<"backHome" | "translationPending" | "toBeCompleted" | "version", string>;
+    legal: Record<"backHome" | "translationPending" | "toBeCompleted" | "version" | "versionInterim", string>;
     system: { notFoundTitle: string };
     safeguarding: { footerLink: string };
   };
 
 /** The version line's words before the version, in the page's language ("Version", "Έκδοση"). */
 const versionWord = (locale: Locale) => messages(locale).legal.version.split("{version}")[0].trim();
+/** A text written before counsel's: the version line's words before the date ("Interim version · last updated"). */
+const interimWords = (locale: Locale) => messages(locale).legal.versionInterim.split("{date}")[0].trim();
 
 /** The visible main landmark (a hidden server copy can linger while the page streams). */
 const main = (page: Page) => page.locator("main#main-content").filter({ visible: true });
@@ -55,9 +59,13 @@ test.describe("Release 3 — legal pages (F-E1a)", () => {
         await expect(main(page), `${locale}/${doc}: the skip link's target`).toHaveCount(1);
         await expect(main(page).getByRole("heading", { level: 1 })).toHaveText(text.title);
 
-        // The version line, in the page's language.
-        const line = main(page).getByText(`${versionWord(locale)} ${text.version} · `, { exact: false });
+        // The version line, in the page's language: a reader's words, not the stored version of a legacy text.
+        const line = main(page).getByText(
+          text.kind === "final" ? `${versionWord(locale)} ${text.version} · ` : `${interimWords(locale)} `,
+          { exact: false }
+        );
         await expect(line, `${locale}/${doc}: version line`).toBeVisible();
+        await expect(main(page), `${locale}/${doc}`).not.toContainText(LEGACY_VERSION);
         if (text.lang === locale) await expect(line).not.toHaveAttribute("lang", /.+/);
         else await expect(line, `${locale}/${doc}: the version line's language`).toHaveAttribute("lang", locale);
 
@@ -118,6 +126,7 @@ test.describe("Release 3 — legal pages (F-E1a)", () => {
       } else {
         await expect(page.getByRole("heading", { level: 1, name: messages(locale).system.notFoundTitle })).toBeVisible();
         await expect(page.getByText(`${versionWord(locale)} `, { exact: false })).toHaveCount(0);
+        await expect(page.getByText(interimWords(locale), { exact: false })).toHaveCount(0);
       }
     });
   }

@@ -15,7 +15,10 @@ import { ChevronLeft, Info } from "lucide-react";
  * the page's language), else the text written before counsel's, whose
  * open points show as highlighted boxes until counsel's text replaces them.
  * The page's own words (back link, version line, notes) are in the page's
- * language. It is the skip link's target (<main id="main-content">).
+ * language; the version line names counsel's version, and calls a text
+ * written before counsel's an interim one (its stored version,
+ * "pre-counsel", is no word for a reader). It is the skip link's target
+ * (<main id="main-content">).
  */
 
 export function generateStaticParams() {
@@ -84,7 +87,9 @@ export default async function Page({ params }: { params: Promise<{ locale: strin
         <article lang={content.lang !== loc ? content.lang : undefined}>
           <h1 className="text-3xl font-bold tracking-tight">{content.title}</h1>
           <p lang={chromeLang} className="mt-2 text-xs text-[var(--muted-foreground)]">
-            {t("version", { version: content.version, date: longDate(content.lastUpdated, loc) })}
+            {content.kind === "final"
+              ? t("version", { version: content.version, date: longDate(content.lastUpdated, loc) })
+              : t("versionInterim", { date: longDate(content.lastUpdated, loc) })}
           </p>
           {content.kind === "final" ? (
             <LegalBody source={content.body} label={content.title} />
