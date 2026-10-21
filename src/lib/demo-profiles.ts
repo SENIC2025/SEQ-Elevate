@@ -4,9 +4,10 @@
  * src/app/actions/demo.ts. Client-safe (no Prisma import); roles are plain
  * string literals the server casts to the Role enum.
  *
- * SECURITY: this is a demo convenience for the staging/showcase deployment.
- * It's gated by DEMO_ACCESS_CODE and can be turned off with
- * DEMO_LOGIN_DISABLED=true. Disable it on any real production deployment.
+ * SECURITY: this is a demo convenience for showcase deployments with their
+ * own database. It runs only where demoLoginAllowed() says so (opt-in,
+ * never on production, a private access code: src/lib/demo-gate.ts). Every
+ * profile has an address of our own demo domain, never a real person's.
  */
 
 export type DemoRole = "ADMIN" | "CONTENT_EDITOR" | "FACILITATOR" | "LEARNER";
@@ -24,9 +25,9 @@ export interface DemoProfile {
 
 export const DEMO_PROFILES: DemoProfile[] = [
   {
-    id: "stefan",
-    email: "stefan@senic.org",
-    name: "Stefan (SENIC)",
+    id: "demo-admin",
+    email: "demo-admin@seq-elevate.eu",
+    name: "Demo Admin",
     roles: ["ADMIN", "CONTENT_EDITOR"],
     roleLabel: "Admin · Content editor",
     blurb:

@@ -18,6 +18,7 @@ import { PrismaAdapter } from "@auth/prisma-adapter";
 import Resend from "next-auth/providers/resend";
 import { prisma } from "@/lib/prisma";
 import { DEMO_PROFILES } from "@/lib/demo-profiles";
+import { demoLoginAllowed } from "@/lib/demo-gate";
 import { checkRateLimit, hashKey } from "@/lib/rate-limit";
 import {
   BOOTSTRAP_PROJECT,
@@ -176,20 +177,23 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       }
       return true;
     },
+    // What the session carries (D97): the user's id, email and name, and when
+    // it expires. Nothing else of the user or session row (Auth.js passes
+    // both whole), and never roles or an organisation: those are read from
+    // the database on every request (auth-helpers.ts, scope.ts).
     async session({ session, user }) {
-      // Surface the user id on the session for downstream queries.
-      if (session.user) {
-        session.user.id = user.id;
-      }
-      return session;
+      return {
+        user: { id: user.id, email: user.email, name: user.name ?? null },
+        expires: session.expires,
+      };
     },
   },
   events: {
     // Role bootstrap on sign-in. Two server-controlled sources — a signed-in
     // user can never choose their own role:
     //   1. ADMIN_EMAILS allow-list (production path) → ADMIN + CONTENT_EDITOR.
-    //   2. Demo profiles → showcase only; skipped once demo login is disabled,
-    //      so a hardcoded demo email never silently becomes admin on real prod.
+    //   2. Demo profiles → only where demo sign-in is allowed (demo-gate.ts:
+    //      opt-in, never on production).
     // Everyone else signs in with no elevated role and is added via People.
     // (The allow-list is also re-applied on every page load — see
     // getMemberships — so this is the fast path, not the only one.)
@@ -203,8 +207,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         for (const r of BOOTSTRAP_ROLES) rolesToGrant.add(r);
       }
 
-      // 2. Demo profiles — only while demo login is enabled (showcase deploys).
-      if (process.env.DEMO_LOGIN_DISABLED !== "true") {
+      // 2. Demo profiles — only where demo sign-in is allowed (D98).
+      if (demoLoginAllowed()) {
         const profile = DEMO_PROFILES.find((p) => p.email === email);
         if (profile) for (const r of profile.roles) rolesToGrant.add(r as Role);
       }

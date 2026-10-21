@@ -4,29 +4,19 @@
  * One-click demo sign-in for client showcases. Provisions the profile's User
  * + Memberships, creates a database Session and sets the Auth.js session
  * cookie directly — bypassing the magic-link email so a client can explore a
- * role immediately. Gated by DEMO_ACCESS_CODE; disable with
- * DEMO_LOGIN_DISABLED=true on real production.
+ * role immediately. Runs only where demoLoginAllowed() says so (D98: opt-in
+ * with DEMO_LOGIN_ENABLED=true and a private DEMO_ACCESS_CODE of at least 12
+ * characters, never on production; src/lib/demo-gate.ts). There is no
+ * default code.
  */
 
 import { cookies, headers } from "next/headers";
 import { prisma } from "@/lib/prisma";
+import { demoCodeMatches, demoLoginAllowed } from "@/lib/demo-gate";
 import { getDemoProfile, type DemoRole } from "@/lib/demo-profiles";
 import type { Role } from "@prisma/client";
 
 const PROJECT = "seq-elevate";
-
-/**
- * The demo access code. An explicit DEMO_ACCESS_CODE always wins; otherwise the
- * public showcase default is used (it is intentionally shared with clients).
- *
- * The real production safeguard is DEMO_LOGIN_DISABLED=true — checked first in
- * demoSignIn — which turns this whole path off. That is the documented,
- * mandatory launch setting (GO-LIVE.md §2). Auto-detecting "demo vs real prod"
- * from request/env signals proved unreliable at runtime, so the kill-switch is
- * the single source of truth. For belt-and-suspenders on a custom domain, set
- * DEMO_ACCESS_CODE to a private value.
- */
-const ACCESS_CODE = process.env.DEMO_ACCESS_CODE ?? "elevate-demo";
 
 /**
  * Ensure a user holds the given project roles (idempotent).
@@ -52,11 +42,11 @@ async function grantRoles(userId: string, roles: DemoRole[]) {
 }
 
 export async function demoSignIn(profileId: string, code: string) {
-  // The production safeguard: this flag turns demo login off entirely.
-  if (process.env.DEMO_LOGIN_DISABLED === "true") {
+  // Off unless this deployment opted in, and never on production (D98).
+  if (!demoLoginAllowed()) {
     return { ok: false as const, error: "disabled" };
   }
-  if (code.trim() !== ACCESS_CODE) {
+  if (!demoCodeMatches(code)) {
     return { ok: false as const, error: "bad-code" };
   }
   const profile = getDemoProfile(profileId);

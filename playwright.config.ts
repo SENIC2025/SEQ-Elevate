@@ -22,18 +22,24 @@ const CUTOFF_PORT = process.env.E2E_CUTOFF_PORT ?? String(Number(PORT) + 10);
 const CUTOFF_URL = `http://localhost:${CUTOFF_PORT}`;
 const CUTOFF_SPEC = /r2-cutoff\.spec\.ts$/;
 
-// Demo login now requires an explicit access code off the demo host
-// (safe-by-default on real prod); set it so the demo-access E2E can sign in.
+// Demo sign-in is opt-in (D98): DEMO_LOGIN_ENABLED and an access code of at
+// least 12 characters, so the demo-access E2E can sign in.
 // ADMIN_EMAILS lists the one address the workspace-hub spec uses to prove
 // the self-healing admin bootstrap (D26); it elevates no one else.
 // RESEND_API_KEY is forced to the placeholder so tests can NEVER send real
 // email (sign-in links / invitations are logged instead) — even when a
 // developer's .env.local holds the real key.
+// Release 3 (spec 17.2): organisation-scoped staff see their organisation
+// (R3_PARTNER_ACCESS), and statistics count from 2020 (STATS_FROM), so the
+// specs see what partner staff will see once the switch is on.
 const SERVER_ENV = {
   ...process.env,
+  DEMO_LOGIN_ENABLED: "true",
   DEMO_ACCESS_CODE: "elevate-demo",
   ADMIN_EMAILS: "e2e-bootstrap-admin@example.com",
   RESEND_API_KEY: "re_placeholder",
+  R3_PARTNER_ACCESS: "on",
+  STATS_FROM: "2020-01-01T00:00:00Z",
 };
 
 export default defineConfig({
