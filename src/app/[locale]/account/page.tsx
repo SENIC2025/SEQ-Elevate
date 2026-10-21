@@ -3,6 +3,7 @@ import { requireUser, getMemberships } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
 import { AccountView } from "@/components/account/AccountView";
 import { UNVERSIONED_TERMS } from "@/lib/profile";
+import { LEGACY_VERSION } from "@/data/legal";
 
 // Reads the signed-in user — never prerender at build.
 export const dynamic = "force-dynamic";
@@ -59,8 +60,15 @@ export default async function Page({
       profile={{
         country: profile?.country ?? null,
         organisationName: profile?.organisation?.name ?? null,
-        // A version only where the Terms carried one (spec 12.2).
-        termsVersion: profile?.termsVersion && profile.termsVersion !== UNVERSIONED_TERMS ? profile.termsVersion : null,
+        // A version only for counsel's Terms (spec 12.2): a text without
+        // one, or written before counsel's (its legal page calls it an
+        // interim version, in words), ends the line at the date.
+        termsVersion:
+          profile?.termsVersion &&
+          profile.termsVersion !== UNVERSIONED_TERMS &&
+          profile.termsVersion !== LEGACY_VERSION
+            ? profile.termsVersion
+            : null,
         termsAcceptedAt: profile?.termsAcceptedAt?.toISOString() ?? null,
         ageRule: profile?.ageRule ?? null,
         ageConfirmedAt: profile?.ageConfirmedAt?.toISOString() ?? null,
