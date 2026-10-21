@@ -5,6 +5,7 @@ import {
   HEATMAP_BUCKETS,
 } from "@/lib/analytics-sample";
 import { Link } from "@/i18n/navigation";
+import { countingLine, type Counting } from "./counting";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -41,12 +42,15 @@ export function AnalyticsDashboard({
   isSample = true,
   realCount = 0,
   sampleAvailable = false,
+  counting,
 }: {
   data: AnalyticsData;
   isSample?: boolean;
   realCount?: number;
   /** Test copies can switch to sample data; the live site never shows it. */
   sampleAvailable?: boolean;
+  /** What live figures count (spec 7.5); said under the title, never over the sample. */
+  counting?: Counting;
 }) {
   // Release 2: learners on a lesson of their course's own are on none of
   // the seven steps (currentStageIndex -1), and their time there is in
@@ -109,6 +113,9 @@ export function AnalyticsDashboard({
           {isSample ? "sample data" : "live data"}
         </Badge>
       </div>
+      {!isSample && counting ? (
+        <p className="mt-1 text-sm text-[var(--muted-foreground)]">{countingLine(counting)}</p>
+      ) : null}
       <div className="mt-2 rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] p-3 text-xs text-[var(--muted-foreground)] flex flex-wrap items-center gap-2.5">
         <Info className="h-4 w-4 text-[var(--accent)] flex-shrink-0" />
         {isSample ? (
