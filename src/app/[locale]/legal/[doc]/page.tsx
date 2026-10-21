@@ -22,10 +22,6 @@ export function generateStaticParams() {
   return routing.locales.flatMap((locale) => LEGAL_DOCS.map((doc) => ({ locale, doc })));
 }
 
-// Only the documents that have a text have a page: any other address (the
-// legal notice before its text is in) answers 404 without rendering.
-export const dynamicParams = false;
-
 function toLocale(l: string): Locale {
   return (["en", "de", "el"].includes(l) ? l : "en") as Locale;
 }

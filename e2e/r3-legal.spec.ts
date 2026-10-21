@@ -33,6 +33,7 @@ type Locale = (typeof LOCALES)[number];
 const messages = (locale: Locale) =>
   JSON.parse(readFileSync(path.resolve(__dirname, `../src/messages/${locale}.json`), "utf8")) as {
     legal: Record<"backHome" | "translationPending" | "toBeCompleted" | "version", string>;
+    system: { notFoundTitle: string };
     safeguarding: { footerLink: string };
   };
 
@@ -110,9 +111,14 @@ test.describe("Release 3 — legal pages (F-E1a)", () => {
         const res = await request.get(href);
         expect(res.status(), href).toBe(200);
       }
-      // The legal notice has a page and a link exactly when its text is in.
-      const notice = await request.get(`/${locale}/legal/notice`);
-      expect(notice.status()).toBe(LEGAL_DOCS.includes("notice" as LegalDocId) ? 200 : 404);
+      // The legal notice has a page (and a link, above) exactly when its text is in.
+      await page.goto(`/${locale}/legal/notice`);
+      if (LEGAL_DOCS.includes("notice" as LegalDocId)) {
+        await expect(main(page).getByRole("heading", { level: 1 })).toHaveText(getLegal("notice", locale)!.title);
+      } else {
+        await expect(page.getByRole("heading", { level: 1, name: messages(locale).system.notFoundTitle })).toBeVisible();
+        await expect(page.getByText(`${versionWord(locale)} `, { exact: false })).toHaveCount(0);
+      }
     });
   }
 
