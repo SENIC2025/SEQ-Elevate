@@ -47,6 +47,7 @@ function learner(over: Partial<FacilitatorLearner>): FacilitatorLearner {
     currentCourse: null,
     currentStage: null,
     currentStageLabel: null,
+    currentCluster: null,
     lastActiveAt: null,
     secondsTotal: 0,
     secondsByStage: {},

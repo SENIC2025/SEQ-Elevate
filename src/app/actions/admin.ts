@@ -240,12 +240,19 @@ export async function resendInvitation(userId: string, locale?: string) {
     : { ok: false as const, error: outcome, reason };
 }
 
-/** Replace a member's roles in the project. */
+/**
+ * Replace a member's roles in the project. Never one's own Admin role: the
+ * admin would lose this screen at once, and only another admin could give
+ * it back (as removeMember refuses removing oneself).
+ */
 export async function setMemberRoles(userId: string, roles: Role[]) {
   const admin = await requireAdmin();
   if (!admin) return { ok: false as const, error: "forbidden" };
   const wanted = roles.filter((r) => ALLOWED_ROLES.includes(r));
   if (wanted.length === 0) return { ok: false as const, error: "no-roles" };
+  if (userId === admin.id && !wanted.includes("ADMIN")) {
+    return { ok: false as const, error: "own-admin" };
+  }
 
   const existing = await prisma.membership.findMany({
     where: { userId, projectId: PROJECT },

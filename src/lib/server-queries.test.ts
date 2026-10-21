@@ -12,7 +12,7 @@ const day = (n: number) => new Date(Date.UTC(2026, 9, n));
 
 const enrollments = [
   {
-    course: { slug: "asking-for-help" },
+    course: { slug: "asking-for-help", cluster: "communicationEi" },
     stagesCompleted: ["CONTEXT", "CONCEPT", "BEHAVIOUR", "REFLECTION"],
     completedAt: day(2),
     updatedAt: day(2),
@@ -22,7 +22,7 @@ const enrollments = [
     assessment: null,
   },
   {
-    course: { slug: "saying-no" },
+    course: { slug: "saying-no", cluster: "resilience" },
     stagesCompleted: ["CONTEXT", "CONCEPT", "BEHAVIOUR"],
     completedAt: null,
     updatedAt: day(3),
@@ -36,17 +36,19 @@ const enrollments = [
 type Enrolment = (typeof enrollments)[number] & { sectionsCompleted?: unknown };
 const learnerEnrolments = vi.fn((): Enrolment[] => enrollments);
 
-const membershipFindMany = vi.fn(async () => [
+/** A learner whose enrollments are `list` (the last-updated one is current). */
+const learnerOn = (list: unknown[]) => [
   {
     user: {
       id: "u1",
       name: "Ana",
       email: "ana@example.test",
-      enrollments: learnerEnrolments(),
+      enrollments: list,
       compCards: [],
     },
   },
-]);
+];
+const membershipFindMany = vi.fn(async (): Promise<unknown[]> => learnerOn(learnerEnrolments()));
 const membershipCount = vi.fn(async () => 1);
 const auditFindMany = vi.fn(async (): Promise<unknown[]> => []);
 const enrollmentFindMany = vi.fn(async () => learnerEnrolments());
@@ -109,6 +111,53 @@ describe("getProjectLearners", () => {
     // "Guided practice", a step this course doesn't have.
     expect(learner.currentStage).toBe("reflection");
   });
+
+  it("gives the skill cluster of the course they are on, for a validation", async () => {
+    const [learner] = (await getProjectLearners("en")) ?? [];
+    // The course they used last, not the first one or always Communication.
+    expect(learner.currentCluster).toBe("resilience");
+  });
+
+  /*
+   * A course created in the platform says its skill area in each
+   * language's copy (meta), which an editor can change on the course page.
+   * The `cluster` key it was given when it was made ("communication" when
+   * it had none) never follows.
+   */
+  const onCreatedCourse = (cluster: string, meta: Record<string, object>) =>
+    learnerOn([
+      {
+        ...enrollments[1],
+        course: { slug: "created-course", cluster, meta },
+      },
+    ]);
+  const copy = (clusterLabel: string) => ({ title: "Created", tagline: "", clusterLabel });
+
+  it("follows a created course's skill area after it was renamed", async () => {
+    // Made as "Teamwork", renamed to "Leadership" on the course page.
+    membershipFindMany.mockImplementationOnce(async () =>
+      onCreatedCourse("teamwork", { en: copy("Leadership") })
+    );
+    const [learner] = (await getProjectLearners("en")) ?? [];
+    expect(learner.currentCluster).toBe("leadership");
+  });
+
+  it("starts on none for a created course with no skill area", async () => {
+    // Its key is "communication", but it names no skill area: "Skill".
+    membershipFindMany.mockImplementationOnce(async () =>
+      onCreatedCourse("communication", { en: copy("Skill") })
+    );
+    const [learner] = (await getProjectLearners("en")) ?? [];
+    expect(learner.currentCluster).toBeNull();
+  });
+
+  it("starts on none when a created course's languages name different skill areas", async () => {
+    membershipFindMany.mockImplementationOnce(async () =>
+      onCreatedCourse("teamwork", { en: copy("Leadership"), de: copy("Teamwork") })
+    );
+    const [learner] = (await getProjectLearners("en")) ?? [];
+    expect(learner.currentCluster).toBeNull();
+  });
 });
 
 /*
@@ -160,7 +209,7 @@ const sayingNoPlan: LessonPlan = {
   unseen: ["behaviour"],
 };
 const flexible = (stagesCompleted: string[], sectionsCompleted: string[] | null): Enrolment => ({
-  course: { slug: "saying-no" },
+  course: { slug: "saying-no", cluster: "resilience" },
   stagesCompleted,
   sectionsCompleted,
   completedAt: null,

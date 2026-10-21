@@ -65,3 +65,50 @@ export function isSkillCluster(cluster: unknown): cluster is SkillCluster {
     (SKILL_CLUSTERS as readonly string[]).includes(cluster)
   );
 }
+
+/** Letters only, lower case: "Problem solving" and "problem-solving" alike. */
+const letters = (text: string) => text.toLowerCase().replace(/[^a-z]/g, "");
+
+/**
+ * The skill cluster a key or a skill area names: a bundled course's key
+ * ("resilience"), or the free-text skill area of a course created in the
+ * platform ("Problem solving", "problem-solving"). Read as letters only, it
+ * is a cluster's key in full or its start ("Communication" →
+ * communicationEi). Null for any other skill area: the facilitator chooses.
+ */
+export function courseSkillCluster(cluster: unknown): SkillCluster | null {
+  if (typeof cluster !== "string") return null;
+  const area = letters(cluster);
+  // Too short to say which cluster it means.
+  if (area.length < 4) return null;
+  const named = SKILL_CLUSTERS.filter((c) => letters(c).startsWith(area));
+  return named.length === 1 ? named[0] : null;
+}
+
+/**
+ * The skill cluster of a course (its database row), so a validation starts
+ * on the right one. A bundled course has no copy of its own (`meta`), and
+ * its `cluster` is the cluster's key. A course created in the platform says
+ * its skill area in each language's copy (`meta[locale].clusterLabel`),
+ * which an editor can change on the course page; its `cluster` is a key
+ * made once, by createCourse, from the skill area it was created with
+ * ("communication" when it had none), and doesn't follow. So its skill
+ * areas are read: the cluster that those naming one agree on, or null when
+ * none names one or they name different ones.
+ */
+export function skillClusterOfCourse(course: {
+  cluster: string;
+  meta?: unknown;
+}): SkillCluster | null {
+  if (!course.meta || typeof course.meta !== "object") {
+    return courseSkillCluster(course.cluster);
+  }
+  const named = new Set<SkillCluster>();
+  for (const copy of Object.values(course.meta)) {
+    const area = courseSkillCluster(
+      (copy as { clusterLabel?: unknown } | null)?.clusterLabel
+    );
+    if (area) named.add(area);
+  }
+  return named.size === 1 ? [...named][0] : null;
+}

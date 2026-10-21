@@ -10,6 +10,8 @@ import { getCurrentUser, getProjectMemberships } from "@/lib/auth-helpers";
 import { getCourse } from "@/lib/cms";
 import { readAssessment, scoreAssessment } from "@/lib/assessment-progress";
 import { learnerMembershipWhere } from "@/lib/learner-scope";
+import { skillClusterOfCourse } from "@/lib/facilitator-access";
+import type { SkillCluster } from "@/data/course";
 import {
   courseProgress,
   nextStage,
@@ -107,6 +109,12 @@ export interface FacilitatorLearner {
    * (WCAG 3.1.2). Absent otherwise.
    */
   currentStageLabelLang?: Locale;
+  /**
+   * The skill cluster of that course, which a validation starts on; null
+   * when its skill area names none (skillClusterOfCourse) or there's no
+   * course.
+   */
+  currentCluster: SkillCluster | null;
   lastActiveAt: string | null; // ISO
   /**
    * Active time on task (seconds): total + per lesson id. The total holds
@@ -260,11 +268,13 @@ async function loadLearners(
     let currentStageLabel: string | null = null;
     let currentStageLabelLang: Locale | undefined;
     let currentCourse: string | null = null;
+    let currentCluster: SkillCluster | null = null;
     let lastActiveAt: string | null = null;
     if (recent) {
       lastActiveAt = recent.updatedAt.toISOString();
       currentCourse =
         contentBySlug.get(recent.course.slug)?.title ?? recent.course.slug;
+      currentCluster = skillClusterOfCourse(recent.course);
       const next = nextStage(
         stageKeysOf(recent.course.slug),
         completedLessonIds(recent),
@@ -327,6 +337,7 @@ async function loadLearners(
       currentStage,
       currentStageLabel,
       ...(currentStageLabelLang ? { currentStageLabelLang } : {}),
+      currentCluster,
       lastActiveAt,
       secondsTotal: time.total,
       secondsByStage: time.byStage,
