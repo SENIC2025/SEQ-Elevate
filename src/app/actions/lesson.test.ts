@@ -26,6 +26,7 @@ const {
   addLessonDocument,
   getLessonMedia,
   setLessonDocumentPublished,
+  removeLessonDocument,
 } = await import("./lesson");
 
 const SLUG = "my-course";
@@ -233,5 +234,75 @@ describe("the media actions: our own files and YouTube only", () => {
     expect(await saveLessonVideo(SLUG, "context", { provider: "file", src: `https://${STORE}/v.mp4` })).toEqual(unconfigured);
     expect(await addLessonDocument(SLUG, "context", DOC)).toEqual(unconfigured);
     expect(db.lessons).toEqual([]);
+  });
+});
+
+/*
+ * Release 3 (D92, spec 10.4): a file whose record goes is queued in the
+ * editor's own transaction, for the admin run to delete a week later;
+ * the action itself deletes nothing. Release 2 kept every file for good,
+ * with nothing to say which were no longer used.
+ */
+describe("the media actions queue the files they drop", () => {
+  const file = (name: string) => `https://${STORE}/${name}`;
+  const FILE_VIDEO = {
+    provider: "file" as const,
+    src: file("v.mp4"),
+    poster: file("p.jpg"),
+    captions: [{ src: file("en.vtt"), label: "English", lang: "en" }],
+    cues: [],
+  };
+  const queued = () => db.pending.map((p) => [p.url, p.reason]);
+
+  it("removing a document queues its file, in the same transaction, and audits it", async () => {
+    db.lessons = [row("context", { documents: [{ id: "doc-1", url: file("a.pdf") }, { id: "doc-2", url: "/demo/sample.pdf" }] })];
+    expect(await removeLessonDocument("doc-1")).toEqual({ ok: true });
+    expect(await removeLessonDocument("doc-2")).toEqual({ ok: true });
+    expect(db.lessons[0].documents).toEqual([]);
+    // The bundled sample isn't ours to delete.
+    expect(queued()).toEqual([[file("a.pdf"), "document.removed"]]);
+    expect(db.queuedOutside).toEqual([]);
+    expect(db.audit.map((a) => [a.action, a.entity, a.entityId])).toEqual([
+      ["document.removed", "LessonDocument", "doc-1"],
+      ["document.removed", "LessonDocument", "doc-2"],
+    ]);
+    // A document already gone: nothing more.
+    expect(await removeLessonDocument("doc-1")).toEqual({ ok: true });
+    expect(db.audit).toHaveLength(2);
+  });
+
+  it("removing a video queues its source, poster and captions", async () => {
+    db.lessons = [row("context", { video: FILE_VIDEO })];
+    expect(await clearLessonVideo(SLUG, "context")).toEqual({ ok: true });
+    expect(db.lessons[0].video).toBeNull();
+    expect(queued()).toEqual([
+      [file("v.mp4"), "video.cleared"],
+      [file("p.jpg"), "video.cleared"],
+      [file("en.vtt"), "video.cleared"],
+    ]);
+    expect(db.queuedOutside).toEqual([]);
+  });
+
+  it("replacing a video queues the files the new one no longer uses", async () => {
+    db.lessons = [row("context", { video: FILE_VIDEO })];
+    expect(await saveLessonVideo(SLUG, "context", { ...FILE_VIDEO, src: file("v2.mp4") })).toEqual({ ok: true });
+    expect(queued()).toEqual([[file("v.mp4"), "video.replaced"]]);
+    expect(db.queuedOutside).toEqual([]);
+    // A first video replaces nothing.
+    db.pending = [];
+    expect(await saveLessonVideo(SLUG, "concept", VIDEO)).toEqual({ ok: true });
+    expect(db.pending).toEqual([]);
+  });
+
+  it("adding a document is audited", async () => {
+    expect(await addLessonDocument(SLUG, "context", DOC)).toEqual({ ok: true, id: "doc-1" });
+    expect(db.audit).toEqual([
+      expect.objectContaining({
+        action: "document.added",
+        entity: "LessonDocument",
+        entityId: "doc-1",
+        metadata: { courseSlug: SLUG, stageKey: "context" },
+      }),
+    ]);
   });
 });

@@ -27,6 +27,7 @@ import {
   storableVideo,
 } from "@/lib/media-url";
 import { ChangedElsewhere, fingerprint } from "@/lib/cms/stored-json";
+import { queueFileDeletion, videoFileUrls } from "@/lib/blob-files";
 import {
   cleanNarrativeLine,
   sanitizeNarrativeBlocks,
@@ -140,10 +141,25 @@ export async function saveLessonVideo(
     return { ok: false as const, error: checked.error, message: checked.message };
   }
   const stored = checked.video as unknown as Prisma.InputJsonValue;
-  await prisma.lesson.upsert({
-    where: lessonKey(courseSlug, stageKey),
-    create: { projectId: PROJECT, courseSlug, stageKey, video: stored },
-    update: { video: stored },
+  // The files of the video this one replaces go to the queue in the same
+  // transaction (D92); one the new video still uses stays off it.
+  await prisma.$transaction(async (tx) => {
+    await lockLesson(tx, courseSlug, stageKey);
+    const before = await tx.lesson.findUnique({
+      where: lessonKey(courseSlug, stageKey),
+      select: { video: true },
+    });
+    await tx.lesson.upsert({
+      where: lessonKey(courseSlug, stageKey),
+      create: { projectId: PROJECT, courseSlug, stageKey, video: stored },
+      update: { video: stored },
+    });
+    const kept = new Set(videoFileUrls(checked.video));
+    await queueFileDeletion(
+      tx,
+      videoFileUrls(before?.video).filter((url) => !kept.has(url)),
+      "video.replaced"
+    );
   });
   return { ok: true as const };
 }
@@ -153,9 +169,19 @@ export async function clearLessonVideo(courseSlug: string, stageKey: string) {
   if (!editor) return { ok: false as const, error: "forbidden" };
   const bad = await mediaTargetError(courseSlug, stageKey);
   if (bad) return { ok: false as const, error: bad };
-  await prisma.lesson.updateMany({
-    where: { projectId: PROJECT, courseSlug, stageKey },
-    data: { video: Prisma.DbNull },
+  // Its files go to the queue in the same transaction (D92): deleted by
+  // the admin run a week later, unless a lesson uses them again by then.
+  await prisma.$transaction(async (tx) => {
+    await lockLesson(tx, courseSlug, stageKey);
+    const before = await tx.lesson.findUnique({
+      where: lessonKey(courseSlug, stageKey),
+      select: { video: true },
+    });
+    await tx.lesson.updateMany({
+      where: { projectId: PROJECT, courseSlug, stageKey },
+      data: { video: Prisma.DbNull },
+    });
+    await queueFileDeletion(tx, videoFileUrls(before?.video), "video.cleared");
   });
   return { ok: true as const };
 }
@@ -193,13 +219,30 @@ export async function addLessonDocument(
       order: (last?.order ?? -1) + 1,
     },
   });
+  await auditDocument(editor.id, "document.added", created.id, { courseSlug, stageKey });
   return { ok: true as const, id: created.id };
 }
 
+/**
+ * Take a document off its lesson. Its file goes to the queue in the same
+ * transaction (D92): the admin run deletes it a week later, unless a lesson
+ * uses it again by then. Audited.
+ */
 export async function removeLessonDocument(documentId: string) {
   const editor = await requireEditor();
   if (!editor) return { ok: false as const, error: "forbidden" };
-  await prisma.lessonDocument.deleteMany({ where: { id: documentId } });
+  if (typeof documentId !== "string") return { ok: false as const, error: "bad-input" };
+  await prisma.$transaction(async (tx) => {
+    const doc = await tx.lessonDocument.findUnique({
+      where: { id: documentId },
+      select: { url: true },
+    });
+    if (!doc) return;
+    const { count } = await tx.lessonDocument.deleteMany({ where: { id: documentId } });
+    if (!count) return;
+    await queueFileDeletion(tx, [doc.url], "document.removed");
+    await auditDocument(editor.id, "document.removed", documentId, {}, tx);
+  });
   return { ok: true as const };
 }
 
