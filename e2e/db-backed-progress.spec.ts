@@ -2332,7 +2332,9 @@ describe("admin manages organisations, cohorts and people", () => {
     await page.getByLabel(/^name$/i).first().fill(orgName);
     await page.getByRole("button", { name: /add organisation/i }).first().click();
 
-    await expect(page.getByText(orgName).first()).toBeVisible({
+    // Its own region: the name is also an option of the country mapping's
+    // pickers (Release 3), which are hidden until opened.
+    await expect(page.getByRole("region", { name: orgName }).first()).toBeVisible({
       timeout: 10000,
     });
 
