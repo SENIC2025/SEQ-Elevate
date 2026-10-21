@@ -1,4 +1,4 @@
-import { test, expect, type APIRequestContext, type Page } from "@playwright/test";
+import { test, expect, type APIRequestContext, type Locator, type Page } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import {
@@ -96,6 +96,23 @@ async function payload(request: APIRequestContext, person: Person, path: string)
  * in, the server's copy can sit in a hidden block for a moment.)
  */
 const rosterRow = (page: Page, text: string) => page.locator("li", { hasText: text }).filter({ visible: true });
+
+/** The heading of the learner detail of the learner whose name holds `text`. */
+const detailHeading = (page: Page, text: string) => page.getByRole("heading", { level: 2, name: new RegExp(text) });
+
+/**
+ * Opens the detail of the learner whose name holds `text`, from the roster
+ * on screen, with `press` (a click by default). A press before the page has
+ * hydrated does nothing, so it is pressed again until the detail opens.
+ */
+async function openLearner(page: Page, text: string, press?: (button: Locator) => Promise<void>) {
+  const button = rosterRow(page, text).getByRole("button", { name: /open learner/i });
+  const heading = detailHeading(page, text);
+  await expect(async () => {
+    if (!(await heading.isVisible())) await (press ? press(button) : button.click({ timeout: 5_000 }));
+    await expect(heading).toBeVisible({ timeout: 2_000 });
+  }).toPass({ timeout: 30_000 });
+}
 
 describe("Release 3 statistics: who is counted, and what the roster says", () => {
   let world: World;
@@ -214,16 +231,18 @@ describe("Release 3 statistics: who is counted, and what the roster says", () =>
     await signIn(context, world.people.FA.sessionToken);
     await page.goto("/en/facilitator");
     // A's six learners; LA1's card is shared with A, LA2's is "Only me".
-    // (Soft: each part of this test says on its own what it found.)
+    // (Soft: each part of this test says on its own what it found. The
+    // visible figure: while the page streams in, the server's copy can sit
+    // in a hidden block for a moment.)
     const shared = page
       .getByText("Comp Cards shared with you", { exact: true })
-      .locator("xpath=following-sibling::p");
+      .locator("xpath=following-sibling::p")
+      .filter({ visible: true });
     await expect.soft(shared).toHaveText("1/6");
 
     const open = async (text: string) => {
       await page.goto("/en/facilitator");
-      await rosterRow(page, text).getByRole("button", { name: /open learner/i }).click();
-      await expect(page.getByRole("heading", { level: 2, name: new RegExp(text) })).toBeVisible();
+      await openLearner(page, text);
     };
     const card = () =>
       page.getByRole("heading", { name: "Comp Card", level: 3 }).locator("xpath=following-sibling::*[1]");
