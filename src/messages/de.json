@@ -1412,6 +1412,7 @@
     "translationPending": "Die offizielle Übersetzung dieser Seite wird gerade fertiggestellt; bis dahin wird die englische Fassung angezeigt.",
     "toBeCompleted": "Vor dem Start zu ergänzen —",
     "version": "Version {version} · zuletzt aktualisiert am {date}",
+    "versionInterim": "Vorläufige Fassung · zuletzt aktualisiert am {date}",
     "poweredBy": "SEQ Elevate · Entwickelt und betrieben von SENIC"
   }
 }

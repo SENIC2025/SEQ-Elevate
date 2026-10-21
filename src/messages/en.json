@@ -1412,6 +1412,7 @@
     "translationPending": "The official translation of this page is being finalised; the English version is shown in the meantime.",
     "toBeCompleted": "To be completed before launch —",
     "version": "Version {version} · last updated {date}",
+    "versionInterim": "Interim version · last updated {date}",
     "poweredBy": "SEQ Elevate · Created and powered by SENIC"
   }
 }

@@ -57,6 +57,9 @@ const KEYS = [
     "hintReflection", "footerLink", "helpTitle",
   ].map((k) => `safeguarding.${k}`),
   ...["backHome", "translationPending", "toBeCompleted", "version", "poweredBy"].map((k) => `legal.${k}`),
+  // Stream F's contract commit: the version line of a text written before
+  // counsel's, whose stored version ("pre-counsel") is no word for a reader.
+  "legal.versionInterim",
   ...["partnerAdmin", "partnerAdminDesc"].map((k) => `roles.${k}`),
 ];
 
