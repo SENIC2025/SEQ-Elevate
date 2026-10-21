@@ -1347,7 +1347,7 @@
       "hint": "A first name or a nickname is enough.",
       "empty": "Enter a first name or nickname.",
       "tooLong": "Use {max} characters or fewer.",
-      "invalid": "Use letters, numbers, spaces and ordinary punctuation only."
+      "invalid": "A name can't contain line breaks, tabs or other hidden characters."
     },
     "country": {
       "legend": "Where are you taking part?",

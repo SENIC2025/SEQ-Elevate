@@ -1347,7 +1347,7 @@
       "hint": "Ein Vorname oder Spitzname reicht.",
       "empty": "Gib einen Vornamen oder Spitznamen ein.",
       "tooLong": "Höchstens {max} Zeichen.",
-      "invalid": "Verwende nur Buchstaben, Zahlen, Leerzeichen und übliche Satzzeichen."
+      "invalid": "Der Name darf keine Zeilenumbrüche, Tabulatoren oder andere unsichtbare Zeichen enthalten."
     },
     "country": {
       "legend": "Wo nimmst du teil?",
@@ -1386,14 +1386,14 @@
     "notSaving": "Schließ dein Profil ab, damit dein Fortschritt gespeichert wird. <welcome>Jetzt abschließen</welcome>"
   },
   "guestWork": {
-    "title": "Auf diesem Browser gespeicherte Arbeit von vor deiner Anmeldung",
+    "title": "Arbeit, die vor deiner Anmeldung in diesem Browser gespeichert wurde",
     "summary": "{courses}. Comp Card: {compCard, select, true {ja} other {nein}}.",
     "add": "Zu meinem Konto hinzufügen",
-    "remove": "Von diesem Browser entfernen",
+    "remove": "Aus diesem Browser entfernen",
     "added": "Zu deinem Konto hinzugefügt.",
-    "removed": "Von diesem Browser entfernt.",
-    "clear": "Meine Arbeit von diesem Browser löschen",
-    "clearConfirm": "Damit werden dein Fortschritt, deine Antworten und deine Comp Card von diesem Browser entfernt. Das lässt sich nicht rückgängig machen."
+    "removed": "Aus diesem Browser entfernt.",
+    "clear": "Meine Arbeit aus diesem Browser löschen",
+    "clearConfirm": "Damit werden dein Fortschritt, deine Antworten und deine Comp Card aus diesem Browser entfernt. Das lässt sich nicht rückgängig machen."
   },
   "safeguarding": {
     "title": "Brauchst du jemanden zum Reden?",
