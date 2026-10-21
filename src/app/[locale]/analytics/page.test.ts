@@ -149,6 +149,17 @@ describe("the Statistics page", () => {
     expect(html).not.toContain("Counting starts");
   });
 
+  it("marks its English as English on a German or Greek page (WCAG 3.1.2), as the dashboard does", async () => {
+    liveSite();
+    for (const [roles, scope] of [
+      [["ADMIN"], PROJECT],
+      [["LEARNER"], NONE],
+    ] as const) {
+      const html = await render({ roles: [...roles], scope });
+      expect(html.startsWith('<div lang="en"'), roles.join()).toBe(true);
+    }
+  });
+
   it("is for staff only, and reads nothing for anyone else", async () => {
     liveSite();
     const html = await render({ roles: ["LEARNER", "CONTENT_EDITOR"], scope: NONE });

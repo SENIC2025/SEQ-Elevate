@@ -112,10 +112,10 @@ export default async function Page({
   );
 }
 
-/** Centred message in place of the dashboard. */
+/** Centred message in place of the dashboard: English, as the dashboard is, whatever the page's language. */
 function Notice({ children }: { children: React.ReactNode }) {
   return (
-    <div className="mx-auto max-w-md px-4 py-16 text-center">
+    <div lang="en" className="mx-auto max-w-md px-4 py-16 text-center">
       <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-[var(--accent)]/10 text-[var(--accent)]">
         <BarChart3 className="h-6 w-6" />
       </div>
