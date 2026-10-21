@@ -7,8 +7,10 @@ import { Link } from "@/i18n/navigation";
  * reflection's intro, where it also says that facilitators don't read
  * reflections, so a disclosure there reaches nobody. Links /help.
  *
- * The Foundation's stub; Stream F completes it, Streams B and E place it.
- * No hooks but translations, so it renders in server and client components.
+ * A paragraph with one link, in the page's language: the recorded walk
+ * expects it in exactly this shape after a reflection's intro (R3-D1,
+ * e2e/fixtures/r3-deltas.ts). Streams B and E place it. No hooks but
+ * translations, so it renders in server and client components.
  */
 export function SafeguardingHint({ variant = "default" }: { variant?: "default" | "reflection" }) {
   const t = useTranslations("safeguarding");
