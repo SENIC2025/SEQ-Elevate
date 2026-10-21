@@ -183,6 +183,40 @@ describe("Release 3 people and organisations", () => {
     expect(await rolesOf(learner.userId)).toEqual(["FACILITATOR", "LEARNER"]);
   });
 
+  test("A-E1 (guard): a partner admin can't add an ADMIN_EMAILS address, not even one with no account yet", async ({
+    request,
+  }) => {
+    // On the test servers' ADMIN_EMAILS (playwright.config.ts). The
+    // workspace-hub spec signs it in, so it may have an account meanwhile;
+    // either way the partner admin is refused and sets nothing of it.
+    const boss = "e2e-bootstrap-admin@example.com";
+    const paa = world.people.PAA;
+    const before = await prisma.user.findUnique({ where: { email: boss }, select: { id: true } });
+    const addedByPaa = async (userId: string) =>
+      prisma.auditLog.count({ where: { actorId: paa.userId, action: "member.added", entityId: userId } });
+    try {
+      const answer = await call(request, paa, "addMember", [boss, "LEARNER", `Boss ${RUN}`]);
+      expect(answer.result, answer.raw.slice(0, 300)).toEqual({ ok: false, error: "out-of-scope" });
+      const after = await prisma.user.findUnique({
+        where: { email: boss },
+        select: { id: true, name: true, profiles: { select: { organisationSource: true } } },
+      });
+      if (after) {
+        expect(await addedByPaa(after.id), "added by the partner admin").toBe(0);
+        expect(after.name).not.toBe(`Boss ${RUN}`);
+        expect(after.profiles.map((p) => p.organisationSource)).not.toContain("partner-admin");
+      }
+    } finally {
+      // A build that lets it through made the account: it goes again, so
+      // the workspace-hub spec still finds the address unused.
+      const made = before ? null : await prisma.user.findUnique({ where: { email: boss }, select: { id: true } });
+      if (made && (await addedByPaa(made.id)) > 0) {
+        await prisma.auditLog.deleteMany({ where: { entityId: made.id } });
+        await prisma.user.delete({ where: { id: made.id } });
+      }
+    }
+  });
+
   test("A-E2 (SC6, guard): a partner admin changes the roles of its own learners only, and only to what it may grant", async ({
     request,
   }) => {
@@ -373,6 +407,37 @@ describe("Release 3 people and organisations", () => {
     expect(logged.map((l) => l.action).sort()).toEqual(["person.country_changed", "person.organisation_changed"]);
   });
 
+  test("A-E6: the form shows the organisation a new country brings, and keeps one picked after it (the card stays shared)", async ({
+    page,
+    context,
+    request,
+  }) => {
+    // A learner of A who moves to Cyprus but keeps working with A.
+    const { person, marker } = await learnerWithSharedCard("stays", "A");
+    const { A, B } = world.organisations;
+    await signIn(context, world.people.AS.sessionToken);
+    await page.goto(PEOPLE_PAGE);
+    await page
+      .locator("tr", { hasText: person.email })
+      .first()
+      .getByRole("button", { name: `Change details of ${person.email}` })
+      .click();
+    const form = page.getByRole("group", { name: `Change details of ${person.name}` });
+    const organisation = form.getByLabel("Organisation");
+    await expect(organisation).toHaveValue(A.id);
+    await form.getByLabel("Country").selectOption("CY");
+    // What saving would do, on screen before it is done.
+    await expect(organisation, "the organisation Cyprus brings").toHaveValue(B.id);
+    await expect(form.getByRole("status")).toHaveText(`Cyprus: learners join ${B.name}.`);
+    await organisation.selectOption(A.id);
+    await form.getByRole("button", { name: "Save" }).click();
+    await expect(page.getByText(`Saved the details of ${person.email}.`)).toBeVisible();
+
+    expect(await profileOf(person.userId)).toMatchObject({ country: "CY", organisationId: A.id });
+    expect(await cardOf(person.userId)).toMatchObject({ privacy: "FACILITATOR", sharedWithOrganisationId: A.id });
+    expect(await payload(request, world.people.FA, "/en/facilitator"), "A's facilitator still reads it").toContain(marker);
+  });
+
   test("A-E7: an ADMIN maps a country on screen; a partner admin's direct call is refused", async ({
     page,
     context,
@@ -467,12 +532,41 @@ describe("Release 3 people and organisations", () => {
     });
     expect(recorded?.metadata).toMatchObject({ sharing: true, scope: world.organisations.A.id });
 
-    // Their row says so; the sharing part can be taken back.
+    // Their row says so; the sharing part can be taken back, after a
+    // question that says what that does to the card (WCAG 3.3.4). Shared
+    // with A, as the permission allows.
+    await prisma.compCard.create({
+      data: {
+        userId: user.id,
+        projectId: PROJECT,
+        wentWell: `young ${RUN}`,
+        privacy: "FACILITATOR",
+        sharedAt: new Date(),
+        sharedWithOrganisationId: world.organisations.A.id,
+        sharingVersion: "e2e",
+      },
+      select: { id: true },
+    });
     const row = page.locator("tr", { hasText: young }).first();
     await expect(row).toContainText(/guardian's permission recorded/);
-    await row.getByLabel(/also covers sharing their comp card/i).uncheck();
+    const tick = row.getByLabel(/^the guardian's permission also covers sharing their comp card/i);
+    const question = page.getByRole("group", { name: /take back the guardian's permission/i });
+    await tick.uncheck();
+    await expect(question).toBeVisible();
+    await expect(question).toContainText(/goes back to “Only me”/);
+    expect((await profileOf(user.id))?.guardianSharingConsentAt, "nothing changes before the answer").toBeInstanceOf(Date);
+    // Kept: the tick is back on, and nothing changed.
+    await question.getByRole("button", { name: "Keep it" }).click();
+    await expect(question).toHaveCount(0);
+    await expect(tick).toBeChecked();
+    expect((await profileOf(user.id))?.guardianSharingConsentAt).toBeInstanceOf(Date);
+    // Taken back: the permission and the card's sharing go.
+    await tick.uncheck();
+    await question.getByRole("button", { name: "Take back the permission" }).click();
+    await expect(question).toHaveCount(0);
     await expect.poll(async () => (await profileOf(user.id))?.guardianSharingConsentAt ?? null).toBeNull();
     expect((await profileOf(user.id))?.guardianConsentRecordedAt).toBeInstanceOf(Date);
+    expect(await cardOf(user.id)).toEqual({ privacy: "SELF", sharedAt: null, sharedWithOrganisationId: null });
   });
 
   test.fixme("A-E9 (needs Stream B's profile step): that learner's profile screen offers the invited statement; a self-registered learner can't send it", () => {});
@@ -541,6 +635,56 @@ describe("Release 3 people and organisations", () => {
     expect((await profileOf(elsewhere.userId))?.organisationId).toBe(world.organisations.B.id);
   });
 
+  test("A-E11 (guard): a claim at the moment the person finishes the profile step leaves the organisation the profile step set", async ({
+    request,
+  }) => {
+    // Signed up on their own, no profile row yet: claimable when checked.
+    const person = await createPerson(prisma, { email: address("racing"), profile: "none", organisation: null });
+    const { A, B } = world.organisations;
+    // Their profile step (as Stream B's writes it at the first completion):
+    // the row made with B, the organisation Cyprus brings, and held open
+    // while the partner admin's claim comes in.
+    let inserted!: () => void;
+    const rowMade = new Promise<void>((resolve) => (inserted = resolve));
+    const profileStep = prisma.$transaction(
+      async (tx) => {
+        const now = new Date();
+        await tx.projectProfile.create({
+          data: {
+            userId: person.userId,
+            projectId: PROJECT,
+            country: "CY",
+            organisationId: B.id,
+            organisationSource: "country",
+            termsVersion: currentTermsVersion(),
+            termsAcceptedAt: now,
+            ageRule: "SELF_MIN_AGE",
+            ageConfirmedAt: now,
+            profileCompletedAt: now,
+          },
+          select: { id: true },
+        });
+        inserted();
+        await new Promise((resolve) => setTimeout(resolve, 3_000));
+      },
+      { maxWait: 10_000, timeout: 30_000 }
+    );
+    await rowMade;
+    const claim = call(request, world.people.PAA, "addMember", [person.email, "LEARNER", `Mine ${RUN}`]);
+    await profileStep;
+    const answer = await claim;
+    // "changed" when the claim waited for the profile step's row, or
+    // "out-of-scope" when that row was there before the claim was checked.
+    expect(answer.result, answer.raw.slice(0, 300)).toEqual({
+      ok: false,
+      error: expect.stringMatching(/^(changed|out-of-scope)$/),
+    });
+    expect(await profileOf(person.userId)).toMatchObject({ organisationId: B.id, organisationSource: "country" });
+    expect((await profileOf(person.userId))?.organisationId).not.toBe(A.id);
+    expect(await rolesOf(person.userId)).toEqual([]);
+    expect(await nameOf(person.userId)).toBeNull();
+  });
+
   test.fixme("A-E11 (needs Stream B's profile step): the self-registered under-16 is stopped at the age box (profile.age.younger), and after the claim completes the profile with the invited statement and lands in A", () => {});
 
   test("A-E12 (guard): a partner admin's addition, released by the profile step, is listed for an ADMIN; no ADMIN changes their own organisation", async ({
@@ -581,6 +725,95 @@ describe("Release 3 people and organisations", () => {
     expect(ownAdd.result).toEqual({ ok: false, error: "self" });
     expect((await profileOf(ad.userId))?.organisationId).toBe(world.organisations.DIESIS.id);
     expect(await rolesOf(ad.userId)).toEqual(["ADMIN"]);
+  });
+
+  test("A-E12 (guard): a partner admin can't change the country or organisation of its own learner, called directly", async ({
+    request,
+  }) => {
+    const paa = world.people.PAA;
+    const { A, B } = world.organisations;
+    const learner = await createPerson(prisma, {
+      email: address("own-country"),
+      name: `Own ${RUN}`,
+      roles: ["LEARNER"],
+      organisation: "A",
+      country: "DE",
+    });
+    for (const changes of [{ organisationId: B.id }, { organisationId: null }, { country: "CY" }, { country: "CY", organisationId: A.id }]) {
+      const answer = await call(request, paa, "updatePersonProfile", [learner.userId, changes]);
+      expect(answer.result, `${JSON.stringify(changes)}: ${answer.raw.slice(0, 200)}`).toEqual({ ok: false, error: "forbidden" });
+    }
+    const profile = await profileOf(learner.userId);
+    expect(profile).toMatchObject({ country: "DE", organisationId: A.id });
+    const logged = await prisma.auditLog.count({
+      where: { actorId: paa.userId, action: { startsWith: "person." }, entityId: { in: [learner.userId, profile!.id] } },
+    });
+    expect(logged, "no person.* change by the partner admin").toBe(0);
+    // The control: its learner's name it may change.
+    const renamed = await call(request, paa, "updatePersonProfile", [learner.userId, { name: `Renamed ${RUN}` }]);
+    expect(renamed.result).toMatchObject({ ok: true });
+    expect(await nameOf(learner.userId)).toBe(`Renamed ${RUN}`);
+  });
+
+  test("Organisations & cohorts fit a 320px phone, for an ADMIN and a partner admin (WCAG 1.4.10; guard: the people count is new)", async ({
+    page,
+    context,
+  }) => {
+    await page.setViewportSize({ width: 320, height: 800 });
+    for (const [who, heading] of [
+      ["AS", "Organisations & cohorts"],
+      ["PAA", "Cohorts"],
+    ] as const) {
+      await signIn(context, world.people[who].sessionToken);
+      await page.goto(COHORTS_PAGE);
+      await expect(page.getByRole("heading", { level: 1, name: heading })).toBeVisible();
+      // Each organisation's name, counts and bin wrap onto the screen.
+      const overflow = await page.evaluate(
+        () => document.documentElement.scrollWidth - document.documentElement.clientWidth
+      );
+      expect(overflow, `${who}: no horizontal scrolling`).toBeLessThanOrEqual(0);
+    }
+  });
+
+  test("a partner admin's counts are of the people it is shown: never an ADMIN or someone with no role (guard)", async ({
+    page,
+    context,
+  }) => {
+    // An organisation of its own, so the counts are exactly this test's.
+    const org = await prisma.organisation.create({
+      data: { projectId: PROJECT, name: `E2E Counted Org ${RUN}`, shortName: `Counted ${RUN}` },
+      select: { id: true, name: true },
+    });
+    madeOrganisations.push(org.id);
+    const cohort = await prisma.cohort.create({
+      data: { projectId: PROJECT, organisationId: org.id, name: `E2E counted cohort ${RUN}` },
+      select: { id: true, name: true },
+    });
+    madeCohorts.push(cohort.id);
+    const own = { organisation: { id: org.id } };
+    const partnerAdmin = await createPerson(prisma, { email: address("counted-pa"), roles: ["PARTNER_ADMIN"], ...own });
+    const learner = await createPerson(prisma, { email: address("counted-learner"), roles: ["LEARNER"], ...own });
+    const admin = await createPerson(prisma, { email: address("counted-admin"), roles: ["ADMIN"], ...own });
+    await createPerson(prisma, { email: address("counted-removed"), roles: [], ...own });
+    await prisma.membership.updateMany({
+      where: { userId: { in: [learner.userId, admin.userId] }, projectId: PROJECT },
+      data: { cohortId: cohort.id },
+    });
+
+    await signIn(context, partnerAdmin.sessionToken);
+    await page.goto(PEOPLE_PAGE);
+    // The rows on screen (while the page streams in, the server's copy can
+    // sit in a hidden block for a moment).
+    const shown = page.locator("tbody tr").filter({ visible: true });
+    await expect(shown.filter({ hasText: learner.email })).toHaveCount(1);
+    await page.waitForLoadState("networkidle");
+    const rows = await shown.count();
+    expect(rows, "the partner admin and its learner").toBe(2);
+
+    await page.goto(COHORTS_PAGE);
+    const region = page.getByRole("region", { name: org.name });
+    await expect(region).toContainText(`${rows} people`);
+    await expect(region.locator("li", { hasText: cohort.name })).toContainText("1 member");
   });
 
   test("a partner admin's screens, and an ADMIN's country mapping and change form, have no serious accessibility violations (guard)", async ({
