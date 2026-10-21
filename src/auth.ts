@@ -31,11 +31,7 @@ import {
   INVITE_VALID_DAYS,
   currentInviteIntent,
 } from "@/lib/invite-context";
-import {
-  emailHeaderHtml,
-  escapeHtml,
-  renderInviteEmail,
-} from "@/lib/invite-email";
+import { renderInviteEmail, renderSignInEmail } from "@/lib/invite-email";
 import type { Role } from "@prisma/client";
 
 // Cap magic-link requests per email so the endpoint can't be used to
@@ -123,8 +119,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         await sendEmail("sign-in", {
           to: identifier,
           subject: "Your SEQ Elevate sign-in link",
-          html: magicLinkEmail(url),
-          text: `Sign in to SEQ Elevate: ${url}`,
+          ...renderSignInEmail(url),
         });
       },
     }),
@@ -222,15 +217,3 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     },
   },
 });
-
-function magicLinkEmail(url: string): string {
-  return `
-  <div style="font-family: Inter, system-ui, sans-serif; max-width: 480px; margin: 0 auto; padding: 32px; color: #2e2e3d;">
-    ${emailHeaderHtml(url)}
-    <h1 style="font-size: 20px; margin: 0 0 12px;">Sign in to SEQ Elevate</h1>
-    <p style="font-size: 14px; line-height: 1.6; color: #4d4d66;">Click the button below to sign in. This link works once and expires shortly.</p>
-    <a href="${escapeHtml(url)}" style="display: inline-block; margin: 20px 0; background: #cad12c; color: #2e2e3d; font-weight: 600; text-decoration: none; padding: 12px 24px; border-radius: 8px;">Sign in</a>
-    <p style="font-size: 12px; color: #4d4d66; line-height: 1.6;">If you didn't request this, you can safely ignore this email.</p>
-    <p style="font-size: 11px; color: #4d4d66; border-top: 1px solid #e4e4e8; padding-top: 16px; margin-top: 24px;">Created and Powered by SENIC · senic.world</p>
-  </div>`;
-}

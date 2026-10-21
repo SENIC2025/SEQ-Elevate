@@ -59,6 +59,23 @@ describe("workspacesFor", () => {
   });
 });
 
+/*
+ * Release 3 (D76, spec 6.2): a partner admin creates and manages courses
+ * (it includes the editor), manages its organisation's people, supports
+ * its learners and reads their statistics. Each workspace follows the
+ * permission its page asks for.
+ */
+describe("workspacesFor a partner admin (UA2)", () => {
+  it("gives every workspace an admin has, course creation first", () => {
+    expect(ids(["PARTNER_ADMIN"])).toEqual(["content", "courses", "admin", "facilitator", "analytics", "learner"]);
+  });
+
+  it("follows the pages' own permissions: managing people, supporting learners", () => {
+    expect(ids(["PARTNER_ADMIN", "FACILITATOR"])).toEqual(ids(["PARTNER_ADMIN"]));
+    expect(ids(["CONTENT_EDITOR", "FACILITATOR"])).toEqual(["content", "courses", "facilitator", "analytics", "learner"]);
+  });
+});
+
 describe("featuredWorkspaces", () => {
   it("leaves out My learning when the person has staff workspaces", () => {
     expect(featuredWorkspaces(["FACILITATOR"]).map((w) => w.id)).toEqual([
@@ -88,6 +105,12 @@ describe("primaryRole", () => {
       "CONTENT_EDITOR"
     );
     expect(primaryRole(["CONTENT_EDITOR", "ADMIN"])).toBe("ADMIN");
+  });
+
+  it("ranks a partner admin after an ADMIN, before an editor and a facilitator", () => {
+    expect(primaryRole(["PARTNER_ADMIN"])).toBe("PARTNER_ADMIN");
+    expect(primaryRole(["CONTENT_EDITOR", "PARTNER_ADMIN", "FACILITATOR"])).toBe("PARTNER_ADMIN");
+    expect(primaryRole(["PARTNER_ADMIN", "ADMIN"])).toBe("ADMIN");
   });
 
   it("falls back to learner", () => {

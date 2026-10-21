@@ -7,8 +7,11 @@
  * an admin typed (the invitee's and inviter's names), and an invitation must
  * never become a way to inject markup into someone's inbox.
  *
- * The logo header is shared with the sign-in email (auth.ts).
+ * The logo header and the legal links of the footer are shared with the
+ * sign-in email (renderSignInEmail, sent by auth.ts).
  */
+
+import { LEGAL_DOCS } from "@/data/legal";
 
 export interface InviteCapability {
   title: string;
@@ -33,6 +36,52 @@ export interface InviteCopy {
   expiredHelp: string;
   ignore: string;
   footer: string;
+  /** The footer's legal links (legalFooterLinks), resolved against the join link's site. */
+  legalLinks: LegalLink[];
+}
+
+/** A link to one of the site's legal pages, by its path on the site. */
+export interface LegalLink {
+  label: string;
+  /** Locale-prefixed, e.g. "/de/legal/privacy". */
+  path: string;
+}
+
+/*
+ * Labels localised inline, as the site footer's (SiteFooter.tsx): the
+ * emails go out in the invitee's language whatever the sender's screen
+ * shows.
+ */
+const LEGAL_LINK_LABELS: Record<"privacy" | "notice", Record<string, string>> = {
+  privacy: { en: "Privacy notice", de: "Datenschutzhinweise", el: "Ενημέρωση για το απόρρητο" },
+  notice: { en: "Legal notice", de: "Impressum", el: "Νομική σημείωση" },
+};
+
+/**
+ * The legal pages an email links in its footer (spec 6.3; Art. 14 for
+ * people who are invited): the privacy notice, and the legal notice once
+ * the site has one (once it is one of the legal documents).
+ */
+export function legalFooterLinks(locale: string, docs: readonly string[] = LEGAL_DOCS): LegalLink[] {
+  const lang = locale in LEGAL_LINK_LABELS.privacy ? locale : "en";
+  return (["privacy", "notice"] as const)
+    .filter((doc) => docs.includes(doc))
+    .map((doc) => ({ label: LEGAL_LINK_LABELS[doc][lang], path: `/${lang}/legal/${doc}` }));
+}
+
+/** The legal links as HTML, each on the site `linkUrl` belongs to. */
+function legalLinksHtml(linkUrl: string, links: readonly LegalLink[]): string {
+  return links
+    .map(
+      (l) =>
+        `<a href="${escapeHtml(new URL(l.path, linkUrl).href)}" style="color: #4d4d66; text-decoration: underline;">${escapeHtml(l.label)}</a>`
+    )
+    .join(" · ");
+}
+
+/** The legal links as plain text, "Label: URL" per line. */
+function legalLinksText(linkUrl: string, links: readonly LegalLink[]): string[] {
+  return links.map((l) => `${l.label}: ${new URL(l.path, linkUrl).href}`);
 }
 
 export function escapeHtml(value: string): string {
@@ -104,7 +153,9 @@ export function renderInviteEmail({
     <a href="${e(url)}" style="display: inline-block; margin: 24px 0 20px; background: #cad12c; color: #2e2e3d; font-weight: 600; text-decoration: none; padding: 12px 24px; border-radius: 8px;">${e(copy.cta)}</a>
     <p style="font-size: 12px; line-height: 1.6; ${muted}">${e(copy.howItWorks)} ${e(copy.expiredHelp)}</p>
     <p style="font-size: 12px; line-height: 1.6; ${muted}">${e(copy.ignore)}</p>
-    <p style="font-size: 11px; ${muted} border-top: 1px solid #e4e4e8; padding-top: 16px; margin-top: 24px;">${e(copy.footer)}</p>
+    <p style="font-size: 11px; ${muted} border-top: 1px solid #e4e4e8; padding-top: 16px; margin-top: 24px;">${e(copy.footer)}${
+      copy.legalLinks.length ? `<br>${legalLinksHtml(url, copy.legalLinks)}` : ""
+    }</p>
   </div>
 </body>
 </html>`;
@@ -129,7 +180,30 @@ export function renderInviteEmail({
     copy.ignore,
     "",
     copy.footer,
+    ...legalLinksText(url, copy.legalLinks),
   ].join("\n");
 
   return { subject: copy.subject, html, text };
+}
+
+/**
+ * The sign-in link email (auth.ts's email provider). In English, as the
+ * sign-in page sends it; its footer links the privacy notice (and the
+ * legal notice once there is one).
+ */
+export function renderSignInEmail(url: string): { html: string; text: string } {
+  const links = legalFooterLinks("en");
+  const html = `
+  <div style="font-family: Inter, system-ui, sans-serif; max-width: 480px; margin: 0 auto; padding: 32px; color: #2e2e3d;">
+    ${emailHeaderHtml(url)}
+    <h1 style="font-size: 20px; margin: 0 0 12px;">Sign in to SEQ Elevate</h1>
+    <p style="font-size: 14px; line-height: 1.6; color: #4d4d66;">Click the button below to sign in. This link works once and expires shortly.</p>
+    <a href="${escapeHtml(url)}" style="display: inline-block; margin: 20px 0; background: #cad12c; color: #2e2e3d; font-weight: 600; text-decoration: none; padding: 12px 24px; border-radius: 8px;">Sign in</a>
+    <p style="font-size: 12px; color: #4d4d66; line-height: 1.6;">If you didn't request this, you can safely ignore this email.</p>
+    <p style="font-size: 11px; color: #4d4d66; border-top: 1px solid #e4e4e8; padding-top: 16px; margin-top: 24px;">Created and Powered by SENIC · senic.world${
+      links.length ? `<br>${legalLinksHtml(url, links)}` : ""
+    }</p>
+  </div>`;
+  const text = [`Sign in to SEQ Elevate: ${url}`, "", ...legalLinksText(url, links)].join("\n");
+  return { html, text };
 }
