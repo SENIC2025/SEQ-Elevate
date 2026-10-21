@@ -363,6 +363,38 @@ function QuizOverlay({
 
 /* ---------------------------- Native engine ---------------------------- */
 
+/** The part of a <video> element the native engine follows. */
+type FollowedVideo = Pick<
+  HTMLVideoElement,
+  "currentTime" | "duration" | "readyState" | "addEventListener" | "removeEventListener"
+>;
+
+/**
+ * Reports a native video's time and length; returns what stops it. A video
+ * the page arrives with (server-rendered) starts loading before the page's
+ * scripts run, so its length can be known — and "loadedmetadata" already
+ * past — by the time this listens: it is then read at once (readyState 1 is
+ * HAVE_METADATA). Without that the player never learned the length, and
+ * the questions' place on the timeline never showed.
+ */
+export function followNativeVideo(
+  el: FollowedVideo,
+  onTime: (t: number) => void,
+  onDuration: (d: number) => void
+): () => void {
+  const onTimeUpdate = () => onTime(el.currentTime);
+  const onMeta = () => onDuration(el.duration || 0);
+  el.addEventListener("timeupdate", onTimeUpdate);
+  el.addEventListener("seeked", onTimeUpdate);
+  el.addEventListener("loadedmetadata", onMeta);
+  if (el.readyState >= 1) onMeta();
+  return () => {
+    el.removeEventListener("timeupdate", onTimeUpdate);
+    el.removeEventListener("seeked", onTimeUpdate);
+    el.removeEventListener("loadedmetadata", onMeta);
+  };
+}
+
 function NativeEngine({
   src,
   poster,
@@ -391,16 +423,7 @@ function NativeEngine({
     playRef.current = () => {
       void el.play().catch(() => {});
     };
-    const onTimeUpdate = () => onTime(el.currentTime);
-    const onMeta = () => onDuration(el.duration || 0);
-    el.addEventListener("timeupdate", onTimeUpdate);
-    el.addEventListener("seeked", onTimeUpdate);
-    el.addEventListener("loadedmetadata", onMeta);
-    return () => {
-      el.removeEventListener("timeupdate", onTimeUpdate);
-      el.removeEventListener("seeked", onTimeUpdate);
-      el.removeEventListener("loadedmetadata", onMeta);
-    };
+    return followNativeVideo(el, onTime, onDuration);
   }, [onTime, onDuration, pauseRef, playRef]);
 
   return (

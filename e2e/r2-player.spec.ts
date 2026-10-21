@@ -4,6 +4,7 @@ import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import {
   learnerWithSession,
+  narrative,
   ownLessonId,
   removeLearners,
   removeR2Course,
@@ -701,6 +702,87 @@ describe("Release 2 — the learner player", () => {
     await dialog.getByRole("button", { name: /continue watching/i }).click();
     await expect(dialog).toHaveCount(0);
     await expect(video, "focus back on the video's controls").toBeFocused();
+  });
+
+  test("a lesson video that has its length before the page's scripts run still shows where its question is", async ({ page }) => {
+    // Found by the load run of the final verification: the recorded walk's
+    // video lesson sometimes lacked "This video pauses to ask you a quick
+    // question." A video the page arrives with starts loading at once; when
+    // its length is known before the player listens for it (scripts late,
+    // a busy phone), the player never learned it, so the question's place
+    // on the timeline and that line never showed. Here the scripts are held
+    // back until the video has its length.
+    const slug = `e2e-r2-player-early-video-${RUN}`;
+    await seedR2Course(prisma, {
+      slug,
+      title: { en: "E2E early video" },
+      outline: null,
+      lessons: [
+        {
+          id: "context",
+          narrative: narrative({ en: { title: "Watch first", text: "E2E: a video before anything else." } }),
+          video: {
+            provider: "file",
+            src: "/demo/sample-lesson.webm",
+            title: "E2E early video",
+            cues: [
+              {
+                id: `e2e-cue-early-${RUN}`,
+                atSeconds: 4,
+                question: "E2E: what helps most?",
+                options: [
+                  { id: "early", text: "Speaking early" },
+                  { id: "late", text: "Waiting it out" },
+                ],
+                correctOptionId: "early",
+              },
+            ],
+          },
+        },
+        { id: "concept", narrative: narrative({ en: { title: "Then the idea", text: "E2E: the idea." } }) },
+      ],
+    });
+    try {
+      // Noted before any of the page's own code runs: the video said it has its length.
+      await page.addInitScript(() => {
+        document.addEventListener("loadedmetadata", () => ((window as { e2eVideoMeta?: true }).e2eVideoMeta = true), true);
+      });
+      let videoReady = false;
+      await page.route(/\/_next\/static\/.+\.js(\?.*)?$/, async (route) => {
+        for (const until = Date.now() + 15_000; !videoReady && Date.now() < until; ) {
+          await new Promise((r) => setTimeout(r, 50));
+        }
+        await route.continue().catch(() => {});
+      });
+      // The player sometimes draws the lesson afresh as the page comes to
+      // life, with a new video that loads after it listens: only a load
+      // where it keeps the video the page arrived with tells.
+      let kept = false;
+      for (let load = 0; load < 6 && !kept; load++) {
+        videoReady = false;
+        await page.goto(`/en/learner/course/${slug}`, { waitUntil: "commit" });
+        await expect
+          .poll(() => page.evaluate(() => (window as { e2eVideoMeta?: true }).e2eVideoMeta === true).catch(() => false), {
+            timeout: 15_000,
+          })
+          .toBe(true);
+        await page.getByTestId("lesson-video").evaluate((v) => v.setAttribute("data-e2e-from-server", ""));
+        videoReady = true;
+        // React has taken the page's video over (its own key on the element).
+        const video = page.getByTestId("lesson-video");
+        await expect
+          .poll(() => video.evaluate((v) => Object.keys(v).some((k) => k.startsWith("__reactFiber$"))).catch(() => false), {
+            timeout: 15_000,
+          })
+          .toBe(true);
+        kept = (await video.getAttribute("data-e2e-from-server")) !== null;
+      }
+      expect(kept, "a load where the player kept the video the page arrived with").toBe(true);
+      await expect(page.getByText("This video pauses to ask you a quick question.")).toBeVisible({ timeout: 10_000 });
+    } finally {
+      await page.unrouteAll({ behavior: "ignoreErrors" });
+      await removeR2Course(prisma, slug);
+    }
   });
 
   test("A-E10: a published course with no lesson to show says so: no completion, no badge", async ({ page, context }) => {
