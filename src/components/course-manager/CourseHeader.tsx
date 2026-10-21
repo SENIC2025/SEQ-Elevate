@@ -11,7 +11,7 @@ import type {
 } from "@/lib/cms/course-admin-types";
 import type { Locale } from "@/lib/cms/types";
 import { ContentLanguageSwitch } from "./ContentLanguageSwitch";
-import { PublishControls } from "./PublishControls";
+import { LanguagePanel, PublishControls } from "./PublishControls";
 import {
   Archive,
   ChevronLeft,
@@ -91,7 +91,8 @@ export function PreviewLink({
  * The top of the course page: back to all courses, the title in the content
  * language, whether learners can see the course (and so whether saves are
  * live — Q2, D33), the content-language switch, the learner preview and the
- * publishing controls.
+ * publishing controls; for a created course, which languages learners get
+ * it in (D90, LanguagePanel).
  */
 export function CourseHeader({
   slug,
@@ -106,6 +107,8 @@ export function CourseHeader({
   previewLesson,
   lessonName,
   usualOrder,
+  ready,
+  canSignOffLanguage = false,
   onLangChange,
   onStatusChange,
   onRefresh,
@@ -125,6 +128,10 @@ export function CourseHeader({
   lessonName?: (id: string) => string;
   /** The standard lessons' names in their usual order (created courses). */
   usualOrder?: readonly string[];
+  /** The languages learners get the course in (D90); created courses show a switch for each. */
+  ready?: Record<Locale, boolean>;
+  /** The viewer may switch German or Greek on for learners. */
+  canSignOffLanguage?: boolean;
   onLangChange: (next: Locale) => void;
   onStatusChange: (next: CourseStatus) => void;
   /** Re-read the page from the server. */
@@ -207,6 +214,16 @@ export function CourseHeader({
             usualOrder={usualOrder}
             onRefresh={onRefresh}
           />
+          {kind === "cms" && ready ? (
+            <LanguagePanel
+              slug={slug}
+              ready={ready}
+              languages={languages}
+              readiness={readiness}
+              canSignOff={canSignOffLanguage}
+              onRefresh={onRefresh}
+            />
+          ) : null}
         </div>
       </div>
     </header>

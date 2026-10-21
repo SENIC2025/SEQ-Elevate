@@ -190,5 +190,7 @@ export function createdOutline(
     // Release 2: a list unlike the standard one blocks nothing (D66).
     readiness: [],
     sections,
+    ready: { en: true, de: false, el: false },
+    canSignOffLanguage: false,
   };
 }

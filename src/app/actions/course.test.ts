@@ -621,3 +621,78 @@ describe("setCourseLanguageReady", () => {
     expect(prisma.auditLog.create).not.toHaveBeenCalled();
   });
 });
+
+/*
+ * Release 3 (D90, spec 9.4): English is a created course's source
+ * language, so its first publish needs all of it in English. The server
+ * checks under the same lock as the other publish rules, so the course
+ * page isn't the only check. Release 2 published a course written only in
+ * German, whose German then reached Greek learners labelled as English.
+ */
+describe("setCourseStatus: English before the first publish", () => {
+  afterEach(() => vi.clearAllMocks());
+
+  const TEXT = (locale: string) => ({ [locale]: { title: "T", blocks: [{ kind: "paragraph", text: "x" }] } });
+
+  function createdCourse(meta: unknown, lessons: unknown[], publishedAt: Date | null = null) {
+    signedInEditor();
+    listCourses.mockResolvedValue([
+      { slug: "speaking-up", cluster: "communicationEi", durationMinutes: 15, status: "draft" },
+    ]);
+    prisma.$queryRaw.mockResolvedValue([]);
+    prisma.course.findFirst.mockResolvedValue({ id: "course-1", publishedAt });
+    prisma.course.findUnique.mockResolvedValue({
+      id: "course-1",
+      projectId: "seq-elevate",
+      slug: "speaking-up",
+      meta,
+      outline: null,
+      publishedAt,
+      badgeId: "badge-1",
+    });
+    prisma.course.update.mockResolvedValue({});
+    prisma.lesson.findMany.mockResolvedValue(lessons);
+  }
+
+  it("refuses a course whose English title is missing: nothing written, audited", async () => {
+    createdCourse({ de: { title: "Sprich", tagline: "", clusterLabel: "K" } }, [
+      { stageKey: "concept", narrative: TEXT("de"), documents: [] },
+    ]);
+    expect(await setCourseStatus("speaking-up", "published")).toEqual({
+      ok: false,
+      error: "english-incomplete",
+      gaps: { copy: true, lessons: 1 },
+    });
+    expect(prisma.course.update).not.toHaveBeenCalled();
+    expect(prisma.auditLog.create.mock.calls[0][0].data).toMatchObject({
+      action: "course.publish_refused",
+      metadata: { error: "english-incomplete", gaps: { copy: true, lessons: 1 } },
+    });
+  });
+
+  it("refuses a lesson written in German only, and an exercise without English", async () => {
+    const META = { en: { title: "Speak up", tagline: "t", clusterLabel: "C" } };
+    createdCourse(META, [{ stageKey: "concept", narrative: TEXT("de"), documents: [] }]);
+    expect(await setCourseStatus("speaking-up", "published")).toMatchObject({
+      error: "english-incomplete",
+      gaps: { copy: false, lessons: 1 },
+    });
+    createdCourse(META, [
+      {
+        stageKey: "assessment",
+        structure: { kind: "assessment", title: { de: "Q" }, intro: {}, questions: [] },
+        documents: [],
+      },
+    ]);
+    expect(await setCourseStatus("speaking-up", "published")).toMatchObject({ error: "english-incomplete" });
+  });
+
+  it("publishes once English is complete, and never refuses a course published before", async () => {
+    const META = { en: { title: "Speak up", tagline: "t", clusterLabel: "C" } };
+    createdCourse(META, [{ stageKey: "concept", narrative: { ...TEXT("en"), ...TEXT("de") }, documents: [] }]);
+    expect(await setCourseStatus("speaking-up", "published")).toEqual({ ok: true, status: "published" });
+    // Published once already (then archived): the gap is a warning on the page, not a refusal.
+    createdCourse(META, [{ stageKey: "concept", narrative: TEXT("de"), documents: [] }], new Date("2026-11-01"));
+    expect(await setCourseStatus("speaking-up", "published")).toEqual({ ok: true, status: "published" });
+  });
+});

@@ -1,14 +1,16 @@
 "use client";
 
 import * as React from "react";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { setCourseStatus } from "@/app/actions/course";
+import { setCourseLanguageReady, setCourseStatus } from "@/app/actions/course";
 import type {
   CourseStatus,
+  LanguageCoverage,
   ReadinessIssue,
 } from "@/lib/cms/course-admin-types";
+import { nameInSentence, sentenceStart } from "@/lib/cms/language-name";
 import {
   SECTION_LIMITS,
   type NewOnlyReason,
@@ -22,6 +24,7 @@ import {
   AlertTriangle,
   Archive,
   Ban,
+  Check,
   Eye,
   EyeOff,
   Info,
@@ -32,8 +35,12 @@ import {
 
 const STATUS_ICON = { published: Eye, draft: PenLine, archived: Archive };
 
-/** One thing that stops publishing: Release 2's (D66), or Release 1's under a kill switch (spec 3.4). */
-type Blocker = { blocker: PublishBlocker } | { reason: NewOnlyReason };
+/**
+ * One thing that stops publishing: Release 2's (D66), Release 1's under a
+ * kill switch (spec 3.4), or English missing before the first publish
+ * (D90).
+ */
+type Blocker = { blocker: PublishBlocker } | { reason: NewOnlyReason } | { english: true };
 
 /** The blockers among the readiness issues, in their order. */
 export function blockersOf(readiness: readonly ReadinessIssue[]): Blocker[] {
@@ -41,8 +48,16 @@ export function blockersOf(readiness: readonly ReadinessIssue[]): Blocker[] {
     if (issue.level !== "blocker") return [];
     if (issue.code === "cannot-publish" && issue.blocker) return [{ blocker: issue.blocker }];
     if (issue.code === "needs-release-2" && issue.reason) return [{ reason: issue.reason }];
+    if (issue.code === "english-incomplete") return [{ english: true }];
     return [];
   });
+}
+
+/** A language's name inside a sentence of the menu language (lower case in Greek). */
+function useLanguageInSentence() {
+  const t = useTranslations("courseManager");
+  const ui = useLocale();
+  return (locale: Locale) => nameInSentence(t(`languageName.${locale}`), ui);
 }
 
 /**
@@ -59,7 +74,9 @@ export function blockersOf(readiness: readonly ReadinessIssue[]): Blocker[] {
  * yet (the server refused with "cannot-publish") says why the same way.
  * Under a kill switch the blockers are Release 1's (spec 3.4), said the
  * same way: lesson names are marked with the content language, and "a new
- * order" says what the usual order is.
+ * order" says what the usual order is. Release 3 (D90): a created course
+ * whose English is incomplete is listed as blocked until its first
+ * publish (the server refuses it too).
  */
 export function PublishControls({
   slug,
@@ -94,6 +111,7 @@ export function PublishControls({
   const tDraft = useTranslations("exerciseEditor.page");
   const tList = useTranslations("lessonList");
   const tReason = useTranslations("lessonList.publish.reason");
+  const ui = useLocale();
   const ids = React.useId();
   const headingRef = React.useRef<HTMLHeadingElement>(null);
   const warningRef = React.useRef<HTMLParagraphElement>(null);
@@ -105,6 +123,7 @@ export function PublishControls({
   /** The reasons of a refused publish (a page that didn't know them yet). */
   const [refusedReasons, setRefusedReasons] = React.useState<Blocker[]>([]);
 
+  const languageIn = useLanguageInSentence();
   const nameOf = (id: string) => (lessonName ? lessonName(id) : tStage(id));
   const order = (usualOrder ?? []).join(", ");
   const blockers = blockersOf(readiness);
@@ -125,6 +144,10 @@ export function PublishControls({
       if (res.ok) {
         setConfirming(false);
         onStatusChange(res.status);
+      } else if (res.error === "english-incomplete") {
+        // Changed since this page loaded: the page brings the list up to date.
+        setError(t("languageReady.englishRequired"));
+        onRefresh?.();
       } else if (res.error === "cannot-publish" || res.error === "needs-release-2") {
         // Changed since this page loaded: say why, and bring the page up to date.
         setError(tList("publish.refused"));
@@ -184,7 +207,8 @@ export function PublishControls({
   };
 
   const readinessText = (issue: ReadinessIssue) => {
-    const language = issue.locale ? t(`languageName.${issue.locale}`) : "";
+    const language = issue.locale ? languageIn(issue.locale) : "";
+    const sentence = (text: string) => sentenceStart(text, ui);
     switch (issue.code) {
       case "copy-missing":
         return t("page.readiness.copyMissing", { language });
@@ -211,6 +235,12 @@ export function PublishControls({
         return issue.blocker ? blockerText(issue.blocker, nameOf, tReason).text : "";
       case "needs-release-2":
         return issue.reason ? reasonText(issue.reason, nameOf, tReason, order).text : "";
+      case "english-incomplete":
+        return t("languageReady.englishMissing");
+      case "language-live-incomplete":
+        return sentence(t("languageReady.liveIncomplete", { language }));
+      case "language-not-live":
+        return sentence(t("languageReady.notLive", { language }));
     }
   };
 
@@ -218,6 +248,14 @@ export function PublishControls({
   const reasonList = (reasons: Blocker[]) => (
     <ul className="mt-1.5 space-y-1">
       {reasons.map((b, i) => {
+        if ("english" in b) {
+          return (
+            <li key={i} className="flex items-start gap-1.5 text-xs">
+              <Ban className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-[var(--danger)]" aria-hidden />
+              <span>{t("languageReady.englishRequired")}</span>
+            </li>
+          );
+        }
         const { href, name, format } =
           "blocker" in b ? blockerText(b.blocker, nameOf, tReason) : reasonText(b.reason, nameOf, tReason, order);
         const text = <Named format={format} name={name} lang={nameLang} />;
@@ -416,6 +454,217 @@ export function PublishControls({
             {refusedReasons.length && !blocked ? reasonList(refusedReasons) : null}
           </div>
         </div>
+      ) : null}
+    </section>
+  );
+}
+
+const SWITCHABLE: readonly Locale[] = ["de", "el"];
+
+/**
+ * Which of a created course's languages learners get (D90, spec 9.4): one
+ * switch per language, German and Greek, with its coverage beside it.
+ * Until a language is on, learners using it get the whole course in
+ * English. Switching one on while its coverage isn't complete asks first;
+ * the panel says plainly what coverage doesn't check. Switching is a
+ * partner admin's or an ADMIN's (canSignOff); everyone else sees the state
+ * read-only. A live language whose text is no longer complete is said, never
+ * switched off; so is English missing on a published course (before the
+ * first publish it is a blocker of PublishControls).
+ *
+ * The state is a switch's position and its sentence, never colour alone.
+ */
+export function LanguagePanel({
+  slug,
+  ready,
+  languages,
+  readiness,
+  canSignOff,
+  onRefresh,
+}: {
+  slug: string;
+  ready: Record<Locale, boolean>;
+  languages: Record<Locale, LanguageCoverage>;
+  readiness: readonly ReadinessIssue[];
+  canSignOff: boolean;
+  /** Re-read the page (its readiness follows the switch). */
+  onRefresh?: () => void;
+}) {
+  const t = useTranslations("courseManager");
+  const ui = useLocale();
+  const languageIn = useLanguageInSentence();
+  const ids = React.useId();
+  const confirmRef = React.useRef<HTMLParagraphElement>(null);
+  const switchRefs = React.useRef<Partial<Record<Locale, HTMLButtonElement | null>>>({});
+  // The confirmation goes away: focus goes back to its switch.
+  const backToSwitch = (locale: Locale) => requestAnimationFrame(() => switchRefs.current[locale]?.focus());
+  // What the server answered last, until the page's next outline arrives.
+  const [live, setLive] = React.useState(ready);
+  const [seen, setSeen] = React.useState(ready);
+  if (ready !== seen) {
+    setSeen(ready);
+    setLive(ready);
+  }
+  const [confirming, setConfirming] = React.useState<Locale | null>(null);
+  const [pending, setPending] = React.useState<Locale | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (confirming) confirmRef.current?.focus();
+  }, [confirming]);
+
+  const sentence = (key: string, locale: Locale) =>
+    sentenceStart(t(key, { language: languageIn(locale) }), ui);
+  const englishMissing = readiness.some((i) => i.code === "english-incomplete" && i.level === "warning");
+
+  async function change(locale: Locale, next: boolean) {
+    setPending(locale);
+    setError(null);
+    try {
+      const res = await setCourseLanguageReady(slug, locale as "de" | "el", next);
+      if (res.ok) {
+        if (confirming) backToSwitch(locale);
+        setConfirming(null);
+        setLive((l) => ({ ...l, de: res.readyLocales.includes("de"), el: res.readyLocales.includes("el") }));
+        onRefresh?.();
+      } else {
+        setError(res.error === "forbidden" ? t("languageReady.readOnly") : t("page.errors.generic"));
+      }
+    } catch {
+      setError(t("page.errors.generic"));
+    }
+    setPending(null);
+  }
+
+  function toggle(locale: Locale) {
+    const next = !live[locale];
+    if (next && languages[locale].state !== "complete") {
+      setConfirming(locale);
+      return;
+    }
+    void change(locale, next);
+  }
+
+  return (
+    <section
+      aria-labelledby={`${ids}-h`}
+      className="mt-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4"
+    >
+      <h2 id={`${ids}-h`} className="text-sm font-semibold">
+        {t("languageReady.title")}
+      </h2>
+      {englishMissing ? (
+        <p className="mt-2 flex items-start gap-1.5 text-xs">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-[var(--warning)]" aria-hidden />
+          {t("languageReady.englishMissing")}
+        </p>
+      ) : null}
+      <ul className="mt-2 space-y-3">
+        {SWITCHABLE.map((locale) => {
+          const on = live[locale];
+          const coverage = languages[locale];
+          const label = sentence("languageReady.label", locale);
+          const stateId = `${ids}-${locale}-state`;
+          const coverageId = `${ids}-${locale}-coverage`;
+          const coverageText = t("grid.lang.label", {
+            language: t(`languageName.${locale}`),
+            state:
+              coverage.state === "partial"
+                ? t("grid.lang.partial", { covered: coverage.covered, total: coverage.total })
+                : t(`grid.lang.${coverage.state}`),
+          });
+          return (
+            <li key={locale} className="text-sm">
+              {canSignOff ? (
+                <button
+                  type="button"
+                  ref={(el) => {
+                    switchRefs.current[locale] = el;
+                  }}
+                  role="switch"
+                  aria-checked={on}
+                  aria-describedby={`${stateId} ${coverageId}`}
+                  disabled={pending !== null}
+                  onClick={() => toggle(locale)}
+                  className="flex min-h-9 items-center gap-2 rounded-md text-left font-medium disabled:opacity-60"
+                >
+                  {/* The position and the tick say it, not the colour. */}
+                  <span
+                    aria-hidden
+                    className={`relative inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full border transition-colors ${
+                      on
+                        ? "border-[var(--success)] bg-[var(--success)]"
+                        : "border-[var(--border)] bg-[var(--surface-muted)]"
+                    }`}
+                  >
+                    <span
+                      className={`absolute flex h-4 w-4 items-center justify-center rounded-full bg-[var(--surface)] shadow transition-[left] ${
+                        on ? "left-[1.125rem]" : "left-0.5"
+                      }`}
+                    >
+                      {on ? <Check className="h-3 w-3 text-[var(--success)]" /> : null}
+                    </span>
+                  </span>
+                  {pending === locale ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
+                  {label}
+                </button>
+              ) : (
+                <p className="font-medium">{label}</p>
+              )}
+              <p id={stateId} className="mt-0.5 text-xs text-[var(--muted-foreground)]">
+                {sentence(on ? "languageReady.on" : "languageReady.off", locale)}
+              </p>
+              <p id={coverageId} className="text-xs text-[var(--muted-foreground)]">
+                {coverageText}
+              </p>
+              {on && coverage.state !== "complete" ? (
+                <p className="mt-1 flex items-start gap-1.5 text-xs">
+                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-[var(--warning)]" aria-hidden />
+                  {sentence("languageReady.liveIncomplete", locale)}
+                </p>
+              ) : null}
+              {confirming === locale ? (
+                <div
+                  role="group"
+                  aria-labelledby={`${ids}-${locale}-confirm`}
+                  className="mt-2 rounded-lg border border-[var(--warning)]/40 bg-[var(--warning)]/5 p-3"
+                >
+                  <p
+                    id={`${ids}-${locale}-confirm`}
+                    ref={confirmRef}
+                    tabIndex={-1}
+                    className="text-sm font-semibold outline-none"
+                  >
+                    {sentence("languageReady.confirmTitle", locale)}
+                  </p>
+                  <p className="mt-1 text-xs">{sentence("languageReady.confirmBody", locale)}</p>
+                  <p className="mt-1 text-xs">{t("languageReady.notChecked")}</p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <Button size="sm" disabled={pending !== null} onClick={() => void change(locale, true)}>
+                      {sentence("languageReady.confirm", locale)}
+                    </Button>
+                    <Button size="sm" variant="outline" disabled={pending !== null} onClick={() => {
+                        setConfirming(null);
+                        backToSwitch(locale);
+                      }}>
+                      {t("page.cancel")}
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
+            </li>
+          );
+        })}
+      </ul>
+      {canSignOff ? null : (
+        <p className="mt-3 text-xs text-[var(--muted-foreground)]">{t("languageReady.readOnly")}</p>
+      )}
+      <p className="mt-3 text-xs text-[var(--muted-foreground)]">{t("languageReady.notChecked")}</p>
+      {error ? (
+        <p role="alert" className="mt-2 flex items-start gap-1.5 text-sm text-[var(--danger)]">
+          <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" aria-hidden />
+          {error}
+        </p>
       ) : null}
     </section>
   );

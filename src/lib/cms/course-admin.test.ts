@@ -13,6 +13,9 @@ import type { NarrativeBlock } from "./types";
 
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/editor-gate", () => ({ viewerCanEditContent: async () => true }));
+// The viewer's roles, for whether they may switch a language on (D90).
+const viewerRoles = vi.hoisted(() => ({ roles: ["CONTENT_EDITOR"] as string[] }));
+vi.mock("@/lib/server-queries", () => ({ getViewerRoles: async () => viewerRoles.roles }));
 
 const para = (text: string): NarrativeBlock => ({ kind: "paragraph", text });
 const at = new Date("2026-10-01T10:00:00.000Z");
@@ -120,10 +123,11 @@ describe("getCourseOutline with a cleared translation", () => {
       locale: "de",
       count: 4,
     });
-    // Greek is written, so no warning for it.
+    // Greek is written, so no warning for it; only (Release 3, D90) that
+    // its learners get English until it is switched on.
     expect(
       outline?.readiness.filter((r) => "locale" in r && r.locale === "el")
-    ).toEqual([]);
+    ).toEqual([{ level: "info", code: "language-not-live", locale: "el" }]);
     expect(outline?.languages.de).toEqual({ state: "missing", covered: 0, total: 4 });
   });
 
@@ -585,5 +589,30 @@ describe("getCourseGrid with a stored lesson list", () => {
     const [card] = await getCourseGrid("en");
     expect(card.sections).toBeUndefined();
     expect(card.lessonKeys).toEqual(["context", "concept", "behaviour", "reflection"]);
+  });
+});
+
+/*
+ * Release 3 (D90, spec 9.4): the course page and grid say which languages
+ * learners get the course in, and whether the viewer may switch one.
+ */
+describe("which languages are live for learners", () => {
+  it("reads a created course's signed-off languages, and the viewer's right to switch them", async () => {
+    viewerRoles.roles = ["PARTNER_ADMIN"];
+    const outline = await getCourseOutline("asking-for-help");
+    expect(outline?.ready).toEqual({ en: true, de: false, el: false });
+    expect(outline?.canSignOffLanguage).toBe(true);
+    viewerRoles.roles = ["CONTENT_EDITOR"];
+    expect((await getCourseOutline("asking-for-help"))?.canSignOffLanguage).toBe(false);
+    const original = courseFindFirst.getMockImplementation()!;
+    const row = await original();
+    courseFindFirst.mockImplementation(async () => ({ ...row, readyLocales: ["de", "el"] }));
+    const live = await getCourseOutline("asking-for-help");
+    courseFindFirst.mockImplementation(original);
+    expect(live?.ready).toEqual({ en: true, de: true, el: true });
+    // German is live but its text was cleared: said, never switched off.
+    // Greek is live and complete: nothing to say.
+    expect(live?.readiness).toContainEqual({ level: "warning", code: "language-live-incomplete", locale: "de" });
+    expect(live?.readiness.filter((r) => r.locale === "el")).toEqual([]);
   });
 });

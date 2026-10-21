@@ -22,6 +22,9 @@ import "server-only";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { viewerCanEditContent } from "@/lib/editor-gate";
+import { getViewerRoles } from "@/lib/server-queries";
+import { canSignOffLanguage } from "@/lib/permissions";
+import { contentLocaleFor } from "./language-ready";
 import { learnerUserWhere } from "@/lib/learner-scope";
 import { STAGES } from "@/data/course";
 import { getBaseCourseCopy, getCourse, listCourses } from "@/lib/cms";
@@ -145,6 +148,7 @@ export async function getCourseGrid(locale: Locale): Promise<CourseGridEntry[]> 
         meta: true,
         outline: true,
         updatedAt: true,
+        readyLocales: true,
         ...enrolledLearners,
       },
     }),
@@ -216,9 +220,23 @@ export async function getCourseGrid(locale: Locale): Promise<CourseGridEntry[]> 
         coverageFacts(kind, row?.outline ?? null, courseLessons),
         lessonKeys
       ),
+      ready: readyByLocale(kind, row?.readyLocales),
       lastEdited: lastEdited(row?.updatedAt ?? null, courseLessons),
     };
   });
+}
+
+/**
+ * The languages learners get a course in (D90): English and every language
+ * of a built-in course always; a created course's German and Greek once
+ * signed off (language-ready.ts decides, the kill switch included).
+ */
+function readyByLocale(kind: CourseKind, readyLocales: readonly string[] | null | undefined): Record<Locale, boolean> {
+  const out = {} as Record<Locale, boolean>;
+  for (const locale of CONTENT_LOCALES) {
+    out[locale] = contentLocaleFor(kind === "cms" ? "created" : "builtin", readyLocales, locale) === locale;
+  }
+  return out;
 }
 
 /**
@@ -249,6 +267,7 @@ export async function getCourseOutline(
         status: true,
         publishedAt: true,
         updatedAt: true,
+        readyLocales: true,
         ...enrolledLearners,
       },
     }),
@@ -267,6 +286,8 @@ export async function getCourseOutline(
   const kind: CourseKind = row?.meta ? "cms" : "bundled";
   const meta = (row?.meta ?? null) as CourseMeta | null;
   const lessonByStage = new Map(lessons.map((l) => [l.stageKey, l]));
+  const ready = readyByLocale(kind, row?.readyLocales);
+  const signOff = canSignOffLanguage(await getViewerRoles());
   const present = new Set(en.stages.map((s) => s.key));
 
   const copy = {} as Record<Locale, CourseCopyState>;
@@ -314,6 +335,8 @@ export async function getCourseOutline(
       languages: created.languages,
       lessons: created.lessons,
       sections: created.sections,
+      ready,
+      canSignOffLanguage: signOff,
     };
     return { ...outline, readiness: publishReadiness(outline, blockers) };
   }
@@ -383,6 +406,8 @@ export async function getCourseOutline(
     languages: languageCoverage(kind, meta, lessons, presentKeys),
     lessons: outlineLessons,
     sections: null,
+    ready,
+    canSignOffLanguage: signOff,
   };
   return { ...outline, readiness: publishReadiness(outline) };
 }

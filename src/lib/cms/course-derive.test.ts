@@ -7,6 +7,7 @@ import {
   lastEdited,
   publishBlockerIssues,
   publishReadiness,
+  englishGaps,
   release1BlockerIssues,
   offersAdd,
   type LessonFacts,
@@ -563,5 +564,104 @@ describe("coverage of a lesson of the course's own", () => {
         );
       }
     }
+  });
+});
+
+/*
+ * Release 3 (D90, spec 9.4): English is a created course's source
+ * language. A course whose English is incomplete is not published the
+ * first time (a blocker; guardPublish refuses it too); once published, the
+ * same gap is a warning and nothing is unpublished. A language that is
+ * live for learners but no longer complete is a warning; one that is
+ * written in part but not switched on is info. Release 2 only warned.
+ */
+describe("publishReadiness: English first, and which languages are live", () => {
+  const sim3 = sim({ en: "a", de: "a", el: "a" });
+  const ready = (de: boolean, el: boolean) => ({ en: true, de, el });
+  const cov = (state: "complete" | "partial" | "missing") => ({ state, covered: 1, total: 1 });
+  const languages = { en: cov("complete"), de: cov("complete"), el: cov("complete") };
+
+  it("blocks a course never published while its English title or a lesson's English is missing", () => {
+    const noCopy = publishReadiness({ ...outline([lesson("concept", { en: 1, de: 1, el: 1 })], { en: "fallback" }), publishedAt: null });
+    expect(noCopy[0]).toEqual({ level: "blocker", code: "english-incomplete" });
+    expect(noCopy).toContainEqual({ level: "warning", code: "copy-missing", locale: "en" });
+
+    // A lesson written first in German, never in English.
+    const germanFirst = publishReadiness({ ...outline([lesson("concept", { de: 1 })]), publishedAt: null });
+    expect(germanFirst[0]).toEqual({ level: "blocker", code: "english-incomplete" });
+    // So is an exercise missing its English.
+    const exercise = publishReadiness({
+      ...outline([lesson("simulation", {}, { body: "interactive", structure: sim({ de: "a" }) })]),
+      publishedAt: null,
+    });
+    expect(exercise[0]).toEqual({ level: "blocker", code: "english-incomplete" });
+  });
+
+  it("keeps blockers first: the server's own come before it", () => {
+    const blockers = [{ level: "blocker" as const, code: "cannot-publish" as const, blocker: { code: "no-lessons" as const } }];
+    const issues = publishReadiness({ ...outline([lesson("concept", { de: 1 })]), publishedAt: null }, blockers);
+    expect(issues.slice(0, 2)).toEqual([...blockers, { level: "blocker", code: "english-incomplete" }]);
+  });
+
+  it("warns, never blocks, once the course was published", () => {
+    const issues = publishReadiness({
+      ...outline([lesson("concept", { de: 1 })]),
+      publishedAt: "2026-11-01T09:00:00.000Z",
+    });
+    expect(issues).toContainEqual({ level: "warning", code: "english-incomplete" });
+    expect(issues.some((i) => i.level === "blocker")).toBe(false);
+  });
+
+  it("says nothing when English is complete, other languages' gaps aside", () => {
+    const issues = publishReadiness({ ...outline([lesson("concept", { en: 1 })], { de: "fallback" }), publishedAt: null });
+    expect(issues.some((i) => i.code === "english-incomplete")).toBe(false);
+    // An empty lesson is lesson-empty, not English missing.
+    const empty = publishReadiness({ ...outline([lesson("context", {}), lesson("concept", { en: 1 })]), publishedAt: null });
+    expect(empty.some((i) => i.code === "english-incomplete")).toBe(false);
+  });
+
+  it("warns about a live language that isn't complete any more, and notes a written one not yet live", () => {
+    const issues = publishReadiness({
+      ...outline([lesson("assessment", {}, { body: "interactive", structure: sim3 })]),
+      publishedAt: null,
+      ready: ready(true, false),
+      languages: { ...languages, de: cov("partial"), el: cov("partial") },
+    });
+    expect(issues).toContainEqual({ level: "warning", code: "language-live-incomplete", locale: "de" });
+    expect(issues).toContainEqual({ level: "info", code: "language-not-live", locale: "el" });
+    // Complete and live, or not written at all: nothing to say.
+    const quiet = publishReadiness({
+      ...outline([lesson("assessment", {}, { body: "interactive", structure: sim3 })]),
+      ready: ready(true, false),
+      languages: { ...languages, el: cov("missing") },
+    });
+    expect(quiet.filter((i) => i.code.startsWith("language-"))).toEqual([]);
+  });
+});
+
+describe("englishGaps: the same rule, from the stored rows (guardPublish)", () => {
+  const META = { en: { title: "T", tagline: "t" } };
+  const text = (blocks: number) => ({ title: "T", blocks: Array.from({ length: blocks }, () => ({ kind: "paragraph", text: "x" })) });
+
+  it("finds the English title and every listed lesson written in another language only", () => {
+    expect(englishGaps(META, [])).toEqual({ copy: false, lessons: 0 });
+    expect(englishGaps({ de: { title: "T" } }, [])).toEqual({ copy: true, lessons: 0 });
+    expect(englishGaps({ en: { title: " ", tagline: "" } }, [])).toEqual({ copy: true, lessons: 0 });
+    expect(
+      englishGaps(META, [
+        { mainKind: "narrative", narrative: { de: text(1) } },
+        { mainKind: "reflection", narrative: { el: text(0) } },
+        { mainKind: "simulation", structure: sim({ de: "a" }) },
+        { mainKind: "narrative", narrative: { en: text(1), de: text(1) } },
+        { mainKind: "scenario", structure: null },
+      ])
+    ).toEqual({ copy: false, lessons: 3 });
+  });
+
+  it("leaves out a text lesson nobody wrote blocks for, as lesson-empty does", () => {
+    expect(englishGaps(META, [{ mainKind: "narrative", narrative: { de: { title: "Nur ein Titel" } } }])).toEqual({
+      copy: false,
+      lessons: 0,
+    });
   });
 });

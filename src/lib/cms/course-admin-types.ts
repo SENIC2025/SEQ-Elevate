@@ -204,7 +204,12 @@ export interface ReadinessIssue {
     | "cannot-publish"
     | "needs-release-2"
     | "part-draft"
-    | "sections-many";
+    | "sections-many"
+    // Release 3 (D90): English is the source language; which languages
+    // learners get.
+    | "english-incomplete"
+    | "language-live-incomplete"
+    | "language-not-live";
   locale?: Locale;
   /** The lesson's id (a stage key, or a Release 1 lesson's "s-…"). */
   stage?: string;
@@ -238,6 +243,14 @@ export interface CourseOutline {
   readiness: ReadinessIssue[];
   /** The lesson list's bases and reasons: created courses only, else null. */
   sections: SectionsMeta | null;
+  /**
+   * The languages learners get the course in (D90, Course.readyLocales):
+   * English always; a built-in course's every language; a created course's
+   * German and Greek once signed off.
+   */
+  ready: Record<Locale, boolean>;
+  /** The viewer may switch German or Greek on or off for learners (canSignOffLanguage). */
+  canSignOffLanguage: boolean;
 }
 
 /** One card on the course grid. */
@@ -263,6 +276,8 @@ export interface CourseGridEntry {
    */
   sections?: { id: string; name: string }[];
   languages: Record<Locale, LanguageCoverage>;
+  /** The languages learners get the course in (as CourseOutline.ready). */
+  ready: Record<Locale, boolean>;
   /** ISO time of the latest edit, or null when never edited. */
   lastEdited: string | null;
 }

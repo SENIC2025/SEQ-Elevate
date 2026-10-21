@@ -34,7 +34,8 @@ import {
 } from "@/lib/cms/ensure-course-badge";
 import { slugify } from "@/lib/slug";
 import type { Locale } from "@/lib/cms/types";
-import { LEGACY_ORDER, type PublishRefused } from "@/lib/cms/sections/contract";
+import { LEGACY_ORDER, mainKindOf, type PublishRefused } from "@/lib/cms/sections/contract";
+import { englishGaps } from "@/lib/cms/course-derive";
 import { newOnlyReasons } from "@/lib/cms/sections/guard";
 import { resolveOutline, toStoredOutline } from "@/lib/cms/sections/outline";
 import { publishBlockers } from "@/lib/cms/sections/publish-blockers";
@@ -82,9 +83,15 @@ const FULL_TEMPLATE = toStoredOutline({
   materialised: true,
 }) as unknown as Prisma.InputJsonValue;
 
-/** Thrown in setCourseStatus's transaction to refuse publishing (G1): nothing is written. */
+/**
+ * A first publish refused because some of the course isn't in English
+ * (D90): `gaps` says what (englishGaps).
+ */
+export type EnglishRefused = { ok: false; error: "english-incomplete"; gaps: { copy: boolean; lessons: number } };
+
+/** Thrown in setCourseStatus's transaction to refuse publishing (G1, D90): nothing is written. */
 class GuardRefused extends Error {
-  constructor(readonly refused: PublishRefused) {
+  constructor(readonly refused: PublishRefused | EnglishRefused) {
     super(refused.error);
     this.name = "GuardRefused";
   }
@@ -189,6 +196,12 @@ export async function createCourse(input: {
  * gives learners Release 1's view again) Release 1's whole rule (D57,
  * newOnlyReasons) is back, refused as "needs-release-2" as then.
  *
+ * Release 3 (D90): English is the source language, so a created course
+ * that was never published is refused as "english-incomplete" while its
+ * English title, or a listed lesson's English, is missing (englishGaps,
+ * the course page's english-incomplete blocker). A course published before
+ * (publishedAt) isn't checked again: the page only warns.
+ *
  * Runs first in the publishing transaction, under the Course row lock, so
  * a lesson-list change (which takes the same lock) can't slip in between
  * the check and the publish. Throws GuardRefused, which rolls back.
@@ -197,7 +210,7 @@ async function guardPublish(tx: Prisma.TransactionClient, courseId: string, slug
   await tx.$queryRaw`SELECT id FROM "Course" WHERE "id" = ${courseId} FOR UPDATE`;
   const course = await tx.course.findUnique({
     where: { id: courseId },
-    select: { meta: true, outline: true },
+    select: { meta: true, outline: true, publishedAt: true },
   });
   if (!course?.meta) return;
   const rows = await tx.lesson.findMany({
@@ -226,10 +239,21 @@ async function guardPublish(tx: Prisma.TransactionClient, courseId: string, slug
   if (publishGuardOn()) {
     const reasons = newOnlyReasons("cms", resolveOutline("cms", course.outline ?? null, lessons), lessons);
     if (reasons.length) throw new GuardRefused({ ok: false, error: "needs-release-2", reasons });
-    return;
+  } else {
+    const reasons = publishBlockers("cms", course.outline ?? null, lessons);
+    if (reasons.length) throw new GuardRefused({ ok: false, error: "cannot-publish", reasons });
   }
-  const reasons = publishBlockers("cms", course.outline ?? null, lessons);
-  if (reasons.length) throw new GuardRefused({ ok: false, error: "cannot-publish", reasons });
+  if (course.publishedAt) return;
+  const rowOf = new Map(lessons.map((l) => [l.stageKey, l]));
+  const gaps = englishGaps(
+    course.meta,
+    resolveOutline("cms", course.outline ?? null, lessons).sections.map((s) => ({
+      mainKind: mainKindOf(s),
+      narrative: rowOf.get(s.id)?.narrative,
+      structure: rowOf.get(s.id)?.structure,
+    }))
+  );
+  if (gaps.copy || gaps.lessons) throw new GuardRefused({ ok: false, error: "english-incomplete", gaps });
 }
 
 /**
@@ -245,8 +269,9 @@ async function guardPublish(tx: Prisma.TransactionClient, courseId: string, slug
  * Publishing a created course is refused with "cannot-publish" and the
  * reasons when its lessons can't be read or learners would see none (G1,
  * guardPublish; "needs-release-2" under a kill switch) — also from
- * published or archived to published. Nothing is written then, and the
- * refusal is audited.
+ * published or archived to published — and, the first time, with
+ * "english-incomplete" while some of it isn't in English (D90). Nothing is
+ * written then, and the refusal is audited.
  */
 export async function setCourseStatus(slug: string, status: CourseStatus) {
   const editor = await requireEditor();
@@ -286,11 +311,14 @@ export async function setCourseStatus(slug: string, status: CourseStatus) {
       });
     } catch (error) {
       if (!(error instanceof GuardRefused)) throw error;
+      const refused = error.refused;
       await audit(editor.id, "course.publish_refused", slug, {
-        error: error.refused.error,
-        reasons: error.refused.reasons as unknown as Prisma.InputJsonValue,
+        error: refused.error,
+        ...("reasons" in refused
+          ? { reasons: refused.reasons as unknown as Prisma.InputJsonValue }
+          : { gaps: refused.gaps }),
       });
-      return error.refused;
+      return refused;
     }
   } else {
     await prisma.course.create({
