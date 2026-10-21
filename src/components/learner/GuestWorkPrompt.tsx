@@ -14,14 +14,18 @@ import { useDemoState } from "@/store/demo-state";
  * load.
  *
  * A labelled region with a heading at the top of the learner pages and the
- * hub; focus isn't moved to it. Once a choice is made, what became of the
- * work takes its place, and focus goes there (the button pressed is gone).
+ * hub; focus isn't moved to it. While the work is being added it says so;
+ * once a choice is made, what became of the work takes its place, and
+ * focus goes there (the button pressed is gone). "Added" is said only once
+ * all of it is in the account; a move that didn't get through says so, and
+ * the choice is offered again.
  * Nothing is shown when there is no such work (and never in the recorded
  * walk, which signs in with no guest store).
  */
 export function GuestWorkPrompt() {
   const t = useTranslations("guestWork");
   const tProfile = useTranslations("profile");
+  const tCompCard = useTranslations("compCard");
   const { guestWork, guestWorkDone, claimGuestWork, discardGuestWork } = useDemoState();
   const ids = React.useId();
   const [busy, setBusy] = React.useState(false);
@@ -35,8 +39,15 @@ export function GuestWorkPrompt() {
 
   if (!guestWork && !(guestWorkDone && chosen)) return null;
 
-  const outcome =
-    guestWorkDone === "added" ? t("added") : guestWorkDone === "removed" ? t("removed") : guestWorkDone === "failed" ? tProfile("failed") : null;
+  const outcome = busy
+    ? tCompCard("saving")
+    : guestWorkDone === "added"
+      ? t("added")
+      : guestWorkDone === "removed"
+        ? t("removed")
+        : guestWorkDone === "failed"
+          ? tProfile("failed")
+          : null;
 
   return (
     <section aria-labelledby={`${ids}-title`} className="mx-auto max-w-6xl px-4 pt-6">
@@ -51,6 +62,7 @@ export function GuestWorkPrompt() {
                 n: guestWork.courses.length,
                 courses: guestWork.courses.join(", "),
                 compCard: guestWork.compCard ? "true" : "false",
+                badges: guestWork.badges,
               })}
             </p>
             <div className="mt-3 flex flex-wrap gap-2">

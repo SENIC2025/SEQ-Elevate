@@ -172,8 +172,12 @@ function Player({
     },
   });
 
-  // Telemetry is for signed-in learners, never for an editor's preview.
-  const track = status === "authenticated" && !preview;
+  // Telemetry is for signed-in learners whose own data has loaded, never
+  // for an editor's preview. Before the profile step nothing of a person's
+  // is saved (D79), so it never loads for them: with the profile gate off
+  // they play, and nothing of what they do is recorded.
+  const { accountLoaded } = useDemoState();
+  const track = status === "authenticated" && !preview && accountLoaded;
 
   // In-video answers of signed-in learners (an engagement signal for
   // facilitators), with the lesson they belong to. Guests keep theirs in

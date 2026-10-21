@@ -147,6 +147,8 @@ export interface GuestWork {
   compCard: boolean;
   /** Reflection answers written. */
   reflections: number;
+  /** Badges earned. */
+  badges: number;
 }
 
 const answered = (text: unknown) => typeof text === "string" && text.trim() !== "";
@@ -172,6 +174,7 @@ export function guestWorkOf(guest: DemoState): GuestWork | null {
     courses: inCourse ? [course.courseTitle ?? course.courseSlug!] : [],
     compCard,
     reflections,
+    badges: (guest.badges ?? []).length,
   };
 }
 

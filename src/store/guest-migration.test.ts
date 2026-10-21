@@ -372,15 +372,16 @@ describe("guestWorkOf: what a guest store holds, offered after sign-in (spec 5.5
       ...guest,
       course: { ...course, reflection: { p1: "One", p2: " ", p3: "Three" } },
     });
-    expect(work).toEqual({ courses: ["Workplace conflict"], compCard: true, reflections: 2 });
+    expect(work).toEqual({ courses: ["Workplace conflict"], compCard: true, reflections: 2, badges: guest.badges.length });
   });
 
-  it("is a Comp Card alone, or badges alone, too", () => {
-    expect(guestWorkOf({ ...empty, compCard: card })).toEqual({ courses: [], compCard: true, reflections: 0 });
-    expect(guestWorkOf({ ...empty, badges: ["voice-without-edges"] })).toEqual({
+  it("is a Comp Card alone, or badges alone, too, and counts the badges so the offer can name them", () => {
+    expect(guestWorkOf({ ...empty, compCard: card })).toEqual({ courses: [], compCard: true, reflections: 0, badges: 0 });
+    expect(guestWorkOf({ ...empty, badges: ["voice-without-edges", "listening-first"] })).toEqual({
       courses: [],
       compCard: false,
       reflections: 0,
+      badges: 2,
     });
   });
 

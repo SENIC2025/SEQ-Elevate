@@ -10,7 +10,8 @@ import { Link } from "@/i18n/navigation";
 import { PlayerAnnouncer, useAnnounce } from "@/components/course/PlayerAnnouncer";
 import { SafeguardingHint } from "@/components/safeguarding/SafeguardingHint";
 import { COMP_CARD_TEXT_MAX } from "@/lib/comp-card-visibility";
-import { useDemoState } from "@/store/demo-state";
+import { useDemoState, type CompCardData } from "@/store/demo-state";
+import type { Sharing } from "@/lib/comp-card-visibility";
 import { CompCardPrint } from "./CompCardPrint";
 import {
   Printer,
@@ -36,6 +37,24 @@ export interface SharingContext {
   /** The learner's organisation: the facilitators they would share with. */
   organisationName: string | null;
   blocked: "no-organisation" | "guardian-consent-needed" | null;
+  /**
+   * Who sees the card, as the server read it for the page (effectiveSharing):
+   * shown until the learner's own data has loaded into the store, whose
+   * empty card says "Only me" whatever theirs says. Absent when it couldn't
+   * be read: then neither choice is shown as made until the store has it.
+   */
+  saved?: { sharing: Sharing; sharedAt: string | null } | null;
+}
+
+/** Who sees the card, as far as the page knows it; null while it doesn't. */
+type KnownSharing = Pick<CompCardData, "sharing" | "sharedAt" | "organisationName">;
+
+function knownSharing(card: CompCardData, context: SharingContext, accountLoaded: boolean): KnownSharing | null {
+  // A guest's card is theirs and always "Only me"; a learner's, once loaded.
+  if (!context.signedIn || accountLoaded) return card;
+  if (!context.saved) return null;
+  const shared = context.saved.sharing === "facilitators";
+  return { ...context.saved, organisationName: shared ? context.organisationName : null };
 }
 
 const GUEST: SharingContext = { signedIn: false, organisationName: null, blocked: null };
@@ -92,8 +111,9 @@ function CompCardBody({ template, sharing }: { template?: CompCardTemplate; shar
   const tPlayer = useTranslations("coursePlayer");
   const locale = useLocale();
 
-  const { state, dispatch } = useDemoState();
+  const { state, dispatch, accountLoaded } = useDemoState();
   const c = state.compCard;
+  const known = knownSharing(c, sharing, accountLoaded);
   const set = (patch: Partial<typeof c>) =>
     dispatch({ type: "updateCompCard", patch });
 
@@ -260,7 +280,7 @@ function CompCardBody({ template, sharing }: { template?: CompCardTemplate; shar
                 </p>
               </div>
 
-              <SharingChoice context={sharing} />
+              <SharingChoice context={sharing} known={known} />
             </div>
 
             <div className="mt-7 flex flex-wrap gap-3 justify-between">
@@ -290,7 +310,7 @@ function CompCardBody({ template, sharing }: { template?: CompCardTemplate; shar
         courseTitle={courseTitle}
         dateStr={dateStr}
         scenarioSummary={scenarioSummary}
-        compCard={c}
+        compCard={known ? { ...c, ...known } : c}
         template={template}
       />
     </>
@@ -301,13 +321,14 @@ function CompCardBody({ template, sharing }: { template?: CompCardTemplate; shar
  * Who sees the card: "Only me", or the facilitators of the learner's
  * organisation after a question asked in place (the course page's
  * DeleteConfirm pattern). Saved at once by its own action; put back, and
- * said, when that fails.
+ * said, when that fails. Until the learner's data has loaded the choice
+ * can't be changed, and shows what the server read for the page (`known`),
+ * or neither choice made when it read nothing.
  */
-function SharingChoice({ context }: { context: SharingContext }) {
+function SharingChoice({ context, known }: { context: SharingContext; known: KnownSharing | null }) {
   const t = useTranslations("compCard");
   const locale = useLocale();
-  const { state, setSharing, accountLoaded } = useDemoState();
-  const c = state.compCard;
+  const { setSharing, accountLoaded } = useDemoState();
   const ids = React.useId();
   const [asking, setAsking] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
@@ -316,7 +337,7 @@ function SharingChoice({ context }: { context: SharingContext }) {
   const question = React.useRef<HTMLHeadingElement>(null);
 
   const organisation = context.organisationName;
-  const shared = c.sharing === "facilitators";
+  const shared = known?.sharing === "facilitators";
   // Sharing isn't open to them, and nothing is shared to take back.
   const fixed = !shared && (!context.signedIn || !organisation || context.blocked !== null);
   const why = !context.signedIn
@@ -370,14 +391,14 @@ function SharingChoice({ context }: { context: SharingContext }) {
         <div role="group" aria-labelledby={`${ids}-label`} className="space-y-1.5">
           <button
             type="button"
-            aria-pressed={!shared}
+            aria-pressed={!!known && !shared}
             aria-disabled={!accountLoaded || busy || undefined}
             onClick={() => {
               if (shared) void choose("onlyMe");
             }}
-            className={option(!shared)}
+            className={option(!!known && !shared)}
           >
-            <Lock className={icon(!shared)} aria-hidden />
+            <Lock className={icon(!!known && !shared)} aria-hidden />
             <span>{t("sharing.onlyMe")}</span>
           </button>
           <button
@@ -391,7 +412,7 @@ function SharingChoice({ context }: { context: SharingContext }) {
             className={option(shared)}
           >
             <Eye className={icon(shared)} aria-hidden />
-            <span>{t("sharing.facilitators", { organisation: organisation ?? c.organisationName ?? "" })}</span>
+            <span>{t("sharing.facilitators", { organisation: organisation ?? known?.organisationName ?? "" })}</span>
           </button>
         </div>
       )}
@@ -427,10 +448,10 @@ function SharingChoice({ context }: { context: SharingContext }) {
         </div>
       ) : null}
 
-      {shared && c.sharedAt ? (
+      {shared && known?.sharedAt ? (
         <p className="mt-2 text-sm">
           {t("sharing.sharedSince", {
-            date: new Date(c.sharedAt).toLocaleDateString(locale, { year: "numeric", month: "long", day: "numeric" }),
+            date: new Date(known.sharedAt).toLocaleDateString(locale, { year: "numeric", month: "long", day: "numeric" }),
           })}
         </p>
       ) : null}
@@ -440,9 +461,13 @@ function SharingChoice({ context }: { context: SharingContext }) {
           {t("sharing.failed")}
         </p>
       ) : null}
-      <p className="mt-3 text-xs text-[var(--muted-foreground)]">
-        {organisation ? t("sharing.always", { organisation }) : t("sharing.alwaysNoOrganisation")}
-      </p>
+      {/* What a signed-in learner's facilitators and the platform's staff
+          see whatever the choice; a guest's work is sent to no one. */}
+      {context.signedIn ? (
+        <p className="mt-3 text-xs text-[var(--muted-foreground)]">
+          {organisation ? t("sharing.always", { organisation }) : t("sharing.alwaysNoOrganisation")}
+        </p>
+      ) : null}
     </div>
   );
 }

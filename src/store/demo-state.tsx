@@ -1093,7 +1093,10 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
   // hold goes to the store whether its write got through or not, and the
   // store's write-throughs save what didn't: the Comp Card, the badges not
   // yet awarded, and the course once it has loaded (migratedRef, read back
-  // from the server and merged, the account's answers first).
+  // from the server and merged, the account's answers first). The page
+  // says it was added only once every write is through: someone who signs
+  // out on a shared computer when told so leaves nothing of theirs behind.
+  // A write that didn't get through is said too, and the offer comes back.
   const claimGuestWork = React.useCallback(async () => {
     const forUser = dbOwnerRef.current;
     if (!forUser) return;
@@ -1113,10 +1116,10 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
         /* nothing to remove */
       }
     };
-    setGuestWork(null);
-    setGuestWorkDone("added");
     if (!guest) {
       removeGuestStore();
+      setGuestWork(null);
+      setGuestWorkDone("added");
       return;
     }
     const migrated = await migrateGuest(
@@ -1141,6 +1144,14 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
     }
     // Server-rendered parts (the dashboard) show what was just written.
     if (migrated.wrote) router.refresh();
+    if (migrated.settled) {
+      setGuestWork(null);
+      setGuestWorkDone("added");
+    } else {
+      // Offered again: a second move sends only what the account lacks.
+      setGuestWork(guestWorkOf(guest));
+      setGuestWorkDone("failed");
+    }
   }, [router]);
 
   // "Remove it from this browser": nothing is sent.

@@ -17,7 +17,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { Link } from "@/i18n/navigation";
-import type { Country, Role } from "@prisma/client";
+import type { AgeRule, Country, Role } from "@prisma/client";
 
 const ROLE_KEY: Record<Role, string> = {
   LEARNER: "learner",
@@ -31,8 +31,11 @@ const ROLE_KEY: Record<Role, string> = {
 export interface AccountProfile {
   country: Country | null;
   organisationName: string | null;
+  /** The version of the Terms accepted; null while the Terms carried none. */
   termsVersion: string | null;
   termsAcceptedAt: string | null;
+  /** Which statement was confirmed: the age, or an inviter's guardian permission. */
+  ageRule: AgeRule | null;
   ageConfirmedAt: string | null;
 }
 
@@ -41,6 +44,7 @@ const NO_PROFILE: AccountProfile = {
   organisationName: null,
   termsVersion: null,
   termsAcceptedAt: null,
+  ageRule: null,
   ageConfirmedAt: null,
 };
 
@@ -102,6 +106,9 @@ export function AccountView({
   }
 
   const uniqueRoles = Array.from(new Set(roles));
+  // Staff aren't on rosters (D53): what facilitators always see of a
+  // learner isn't said to them, as on the profile step (spec 5.4).
+  const staff = roles.some((r) => r !== "LEARNER");
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-8 space-y-6">
@@ -156,13 +163,22 @@ export function AccountView({
               <dd className="mt-0.5">{profile.organisationName ?? t("organisationNone")}</dd>
             </div>
           </dl>
-          {profile.termsAcceptedAt && profile.termsVersion ? (
+          {profile.termsAcceptedAt ? (
             <p className="mt-3 text-sm">
-              {t("termsAccepted", { date: dateOf(profile.termsAcceptedAt), version: profile.termsVersion })}
+              {t("termsAccepted", {
+                date: dateOf(profile.termsAcceptedAt),
+                versioned: profile.termsVersion ? "true" : "false",
+                version: profile.termsVersion ?? "",
+              })}
             </p>
           ) : null}
           {profile.ageConfirmedAt ? (
-            <p className="mt-1 text-sm">{t("ageConfirmed", { date: dateOf(profile.ageConfirmedAt) })}</p>
+            <p className="mt-1 text-sm">
+              {t("ageConfirmed", {
+                date: dateOf(profile.ageConfirmedAt),
+                rule: profile.ageRule === "INVITED_WITH_GUARDIAN_CONSENT" ? "invited" : "self",
+              })}
+            </p>
           ) : null}
           <p className="mt-3 text-sm text-[var(--muted-foreground)]">
             {t.rich("changeDetails", {
@@ -173,11 +189,13 @@ export function AccountView({
               ),
             })}
           </p>
-          <p className="mt-3 text-sm text-[var(--muted-foreground)]">
-            {profile.organisationName
-              ? t("alwaysSee", { organisation: profile.organisationName })
-              : t("alwaysSeeNoOrganisation")}
-          </p>
+          {!staff ? (
+            <p className="mt-3 text-sm text-[var(--muted-foreground)]">
+              {profile.organisationName
+                ? t("alwaysSee", { organisation: profile.organisationName })
+                : t("alwaysSeeNoOrganisation")}
+            </p>
+          ) : null}
 
           <div className="mt-5 grid grid-cols-3 gap-3 text-center">
             <Stat icon={BookOpen} value={stats.courses} label={t("statCourses")} />

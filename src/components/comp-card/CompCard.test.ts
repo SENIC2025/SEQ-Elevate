@@ -23,6 +23,8 @@ vi.mock("@/i18n/navigation", async () => {
 });
 
 let card: CompCardData;
+/** The signed-in learner's own data has loaded into the store. */
+let loaded = true;
 vi.mock("@/store/demo-state", async () => {
   const { DEFAULT_STATE } = await vi.importActual<typeof import("@/store/demo-state")>("@/store/demo-state");
   return {
@@ -31,7 +33,7 @@ vi.mock("@/store/demo-state", async () => {
       state: { ...DEFAULT_STATE, compCard: card },
       dispatch: () => {},
       setSharing: async () => true,
-      accountLoaded: true,
+      accountLoaded: loaded,
     }),
   };
 });
@@ -44,8 +46,9 @@ const { DEFAULT_STATE } = await import("@/store/demo-state");
 
 const MEMBER: SharingContext = { signedIn: true, organisationName: "Pro Arbeit", blocked: null };
 
-function render(sharing: SharingContext, over: Partial<CompCardData> = {}) {
+function render(sharing: SharingContext, over: Partial<CompCardData> = {}, accountLoaded = true) {
   card = { ...DEFAULT_STATE.compCard, ...over };
+  loaded = accountLoaded;
   const html = renderToStaticMarkup(createElement(CompCard, { sharing }));
   return { html, text: html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").replace(/&#x27;|&#39;/g, "'") };
 }
@@ -97,6 +100,37 @@ describe("the Comp Card's sharing (spec 4.5)", () => {
     expect(text).toContain("Only me");
     expect(text).not.toContain("Me and the facilitators");
     expect(text).toContain(why);
+  });
+
+  it("until the learner's own data has loaded, shows the choice the server read for the page, not the store's empty Only me", () => {
+    const shared: SharingContext = {
+      ...MEMBER,
+      saved: { sharing: "facilitators", sharedAt: "2026-11-21T09:00:00.000Z" },
+    };
+    const { html, text } = render(shared, {}, false);
+    expect(toggles(html).filter(([name]) => !/^\d$/.test(name))).toEqual([
+      ["Only me", "false"],
+      ["Me and the facilitators at Pro Arbeit", "true"],
+    ]);
+    expect(text).toContain("Shared since November 21, 2026.");
+    // The print shows it too.
+    expect(text).toMatch(/Who can see this Comp Card Me and the facilitators at Pro Arbeit/);
+  });
+
+  it("presses neither choice while nothing of the learner's has been read", () => {
+    const { html, text } = render(MEMBER, {}, false);
+    expect(toggles(html).filter(([name]) => !/^\d$/.test(name))).toEqual([
+      ["Only me", "false"],
+      ["Me and the facilitators at Pro Arbeit", "false"],
+    ]);
+    expect(text).not.toContain("Shared since");
+  });
+
+  it("tells a guest only that signing in lets them share: a guest's work is sent to no one", () => {
+    const { text } = render({ signedIn: false, organisationName: null, blocked: null });
+    expect(text).toContain("Sign in to share your Comp Card with your facilitators.");
+    expect(text).not.toContain("always see");
+    expect(text).not.toContain("DIESIS and SENIC staff");
   });
 
   it("says what is always seen without naming an organisation when there is none", () => {

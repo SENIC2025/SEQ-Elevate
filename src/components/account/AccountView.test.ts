@@ -5,6 +5,7 @@ import { createTranslator } from "next-intl";
 import en from "@/messages/en.json";
 import de from "@/messages/de.json";
 import el from "@/messages/el.json";
+import type { Role } from "@prisma/client";
 import type { AccountProfile } from "./AccountView";
 
 /*
@@ -34,10 +35,11 @@ const PROFILE: AccountProfile = {
   organisationName: "Pro Arbeit",
   termsVersion: "2026-11-20",
   termsAcceptedAt: "2026-11-21T09:00:00.000Z",
+  ageRule: "SELF_MIN_AGE",
   ageConfirmedAt: "2026-11-21T09:00:00.000Z",
 };
 
-const render = (profile: AccountProfile, lang: "en" | "de" | "el" = "en") => {
+const render = (profile: AccountProfile, lang: "en" | "de" | "el" = "en", roles: Role[] = ["LEARNER"]) => {
   messages = { en, de, el }[lang];
   locale = lang;
   const html = renderToStaticMarkup(
@@ -45,7 +47,7 @@ const render = (profile: AccountProfile, lang: "en" | "de" | "el" = "en") => {
       email: "ana@example.org",
       name: "Ana",
       memberSince: "2026-11-21T09:00:00.000Z",
-      roles: ["LEARNER"],
+      roles,
       projectName: "SEQ Elevate",
       stats: { courses: 1, badges: 0, compCardStarted: true },
       profile,
@@ -63,6 +65,7 @@ describe("the Account page's profile (spec 5.7)", () => {
     expect(text).toContain("Age rule confirmed on November 21, 2026.");
   });
 
+
   it("says name and country are changed by asking, linking the privacy notice", () => {
     const { html, text } = render(PROFILE);
     expect(text).toContain("You can't change your name or country here.");
@@ -77,6 +80,15 @@ describe("the Account page's profile (spec 5.7)", () => {
     expect(none).toContain("Not linked to a partner organisation yet.");
     expect(none).toContain("Once your account is linked to a partner organisation, its facilitators will see them too.");
   });
+
+  it.each([["FACILITATOR"], ["PARTNER_ADMIN"], ["ADMIN"], ["CONTENT_EDITOR"]] as [Role][])(
+    "doesn't tell someone holding %s what facilitators always see: staff aren't on rosters",
+    (role) => {
+      const { text } = render(PROFILE, "en", [role]);
+      expect(text).not.toContain("always see");
+      expect(render({ ...PROFILE, organisationName: null }, "en", [role, "LEARNER"]).text).not.toContain("always see");
+    }
+  );
 
   it("says staff notes are in the data download, with no count", () => {
     const { text } = render(PROFILE);
