@@ -286,6 +286,18 @@ describe("mergeCourseProgress", () => {
     ).toBe("Saved");
   });
 
+  it("keeps the language of the title shown with it: the local one's, else the saved one's (D90)", () => {
+    expect(
+      mergeCourseProgress(
+        progress({ courseTitle: "Local", courseLocale: "en" }),
+        progress({ courseTitle: "Gespeichert", courseLocale: "de" })
+      )
+    ).toMatchObject({ courseTitle: "Local", courseLocale: "en" });
+    expect(
+      mergeCourseProgress(progress(), progress({ courseTitle: "Saved", courseLocale: "en" }))
+    ).toMatchObject({ courseTitle: "Saved", courseLocale: "en" });
+  });
+
   it("lists the course's own lessons saved first, then the new local ones", () => {
     const saved = progress({ sectionsCompleted: [OWN] });
     const local = progress({ sectionsCompleted: [OWN2, OWN] });

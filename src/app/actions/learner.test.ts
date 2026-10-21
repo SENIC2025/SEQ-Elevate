@@ -93,9 +93,11 @@ const {
   saveCourseProgress,
   saveCourseProgressPatch,
   loadLearnerGlobal,
+  loadCourseProgress,
   saveCompCard,
   setCompCardSharing,
 } = await import("./learner");
+const { getCourse } = await import("@/lib/cms");
 const { currentTermsVersion } = await import("@/lib/profile");
 const { SHARING_TEXT_VERSION } = await import("@/lib/comp-card-visibility");
 
@@ -981,5 +983,69 @@ describe("setCompCardSharing (D80, spec 4.3)", () => {
   it("fails when no one is signed in", async () => {
     getCurrentUser.mockResolvedValue(null);
     await expect(setCompCardSharing("onlyMe", "u1")).rejects.toThrow();
+  });
+});
+
+/* ---------------------------------------------- Release 3 (D90, spec 9.3) --- */
+
+describe("loadCourseProgress reads the course in the language the learner gets it in (D90, spec 9.3)", () => {
+  /** The created course, with its scenario's choices in the language asked for. */
+  const content = (locale: string) => ({
+    title: locale === "de" ? "Nein sagen" : "Saying no",
+    stages: [
+      {
+        key: "scenario",
+        scenario: {
+          choices: [
+            {
+              id: "c1",
+              text: locale === "de" ? "Bitte ausreden lassen" : "Ask to finish",
+              followups: [{ id: "f1", text: locale === "de" ? "Dich bedanken" : "Thank them" }],
+            },
+          ],
+        },
+      },
+    ],
+  });
+
+  beforeEach(() => {
+    getCurrentUser.mockResolvedValue(USER);
+    enrolment = { ...EMPTY_ROW, scenarioRoot: "c1", scenarioFollowup: "f1" };
+    vi.mocked(getCourse).mockImplementation((async (_p: string, _s: string, locale: string) => content(locale)) as never);
+  });
+  afterEach(() => {
+    enrolment = null;
+    vi.clearAllMocks();
+  });
+
+  /** The course row as both reads take it: its id, and which languages are switched on. */
+  const created = (readyLocales: string[]) =>
+    course.findUnique.mockResolvedValue({ id: "c-1", slug: "saying-no", readyLocales, meta: { kind: "created" } });
+
+  it("a German learner of a course whose German isn't switched on gets its title and choices in English, and is told so", async () => {
+    created([]);
+    const progress = await loadCourseProgress("saying-no", "de");
+    expect(vi.mocked(getCourse)).toHaveBeenCalledWith("seq-elevate", "saying-no", "en");
+    expect(progress).toMatchObject({
+      courseTitle: "Saying no",
+      courseLocale: "en",
+      scenario: { root: "c1", followup: "f1", rootLabel: "Ask to finish", followupLabel: "Thank them" },
+    });
+  });
+
+  it("once German is switched on, in German", async () => {
+    created(["de"]);
+    const progress = await loadCourseProgress("saying-no", "de");
+    expect(vi.mocked(getCourse)).toHaveBeenCalledWith("seq-elevate", "saying-no", "de");
+    expect(progress).toMatchObject({
+      courseTitle: "Nein sagen",
+      courseLocale: "de",
+      scenario: { rootLabel: "Bitte ausreden lassen", followupLabel: "Dich bedanken" },
+    });
+  });
+
+  it("in English, English", async () => {
+    created([]);
+    await expect(loadCourseProgress("saying-no", "en")).resolves.toMatchObject({ courseLocale: "en", courseTitle: "Saying no" });
   });
 });

@@ -24,6 +24,18 @@ const playing: DemoState = {
   course: { ...DEFAULT_STATE.course, courseSlug: SLUG, courseTitle: "Saying no" },
 };
 
+describe("the course being played records the language its text is in (D90, spec 9.3)", () => {
+  it("keeps the course's language with its title, and changes when it changes", () => {
+    const opened = reducer(DEFAULT_STATE, { type: "setCourseContext", slug: SLUG, title: "Saying no", locale: "en" });
+    expect(opened.course).toMatchObject({ courseSlug: SLUG, courseTitle: "Saying no", courseLocale: "en" });
+    // The same course in the same language again: nothing changes.
+    expect(reducer(opened, { type: "setCourseContext", slug: SLUG, title: "Saying no", locale: "en" })).toBe(opened);
+    // Its language switched on: the title and its language change together.
+    const german = reducer(opened, { type: "setCourseContext", slug: SLUG, title: "Nein sagen", locale: "de" });
+    expect(german.course).toMatchObject({ courseTitle: "Nein sagen", courseLocale: "de" });
+  });
+});
+
 describe("the learner store's Release 2 actions", () => {
   it("keeps the course's own lessons out of stagesCompleted, whichever action finishes them", () => {
     let s = reducer(playing, { type: "completeLesson", id: OWN });

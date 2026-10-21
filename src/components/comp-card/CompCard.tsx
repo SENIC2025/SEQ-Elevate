@@ -139,6 +139,13 @@ function CompCardBody({ template, sharing }: { template?: CompCardTemplate; shar
   const scenarioSummary = hasScenarioEvidence
     ? `${sc.rootLabel} → ${sc.followupLabel}`
     : "—";
+  // The course's own text, when it isn't in the page's language (English on
+  // a German or Greek page until that language is switched on, D90): marked
+  // with its language (WCAG 3.1.2). The dash of no course is the page's.
+  const courseLang =
+    state.course.courseLocale && state.course.courseLocale !== locale ? state.course.courseLocale : undefined;
+  const titleLang = state.course.courseTitle ? courseLang : undefined;
+  const scenarioLang = hasScenarioEvidence ? courseLang : undefined;
 
   const dateFormat = { year: "numeric", month: "long", day: "numeric" } as const;
   const dateStr = c.updatedAt
@@ -184,7 +191,9 @@ function CompCardBody({ template, sharing }: { template?: CompCardTemplate; shar
                 <p className="text-xs uppercase tracking-wider text-[var(--muted-foreground)] font-semibold">
                   {t("courseLabel")}
                 </p>
-                <p className="font-medium">{courseTitle}</p>
+                <p className="font-medium" lang={titleLang}>
+                  {courseTitle}
+                </p>
               </div>
               <div>
                 <p className="text-xs uppercase tracking-wider text-[var(--muted-foreground)] font-semibold">
@@ -203,7 +212,9 @@ function CompCardBody({ template, sharing }: { template?: CompCardTemplate; shar
                 <p className="text-sm leading-snug font-medium">
                   {t("fieldScenario")}
                 </p>
-                <p className="text-sm mt-0.5">{scenarioSummary}</p>
+                <p className="text-sm mt-0.5" lang={scenarioLang}>
+                  {scenarioSummary}
+                </p>
               </div>
             ) : null}
 
@@ -308,8 +319,10 @@ function CompCardBody({ template, sharing }: { template?: CompCardTemplate; shar
       {/* Hidden, only visible in print */}
       <CompCardPrint
         courseTitle={courseTitle}
+        courseTitleLang={titleLang}
         dateStr={dateStr}
         scenarioSummary={scenarioSummary}
+        scenarioLang={scenarioLang}
         compCard={known ? { ...c, ...known } : c}
         template={template}
       />

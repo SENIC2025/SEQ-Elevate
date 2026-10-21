@@ -28,6 +28,7 @@ import { ensureProjectRoles } from "@/lib/role-grants";
 import { prisma } from "@/lib/prisma";
 import type { BadgeAwardResult } from "@/lib/badge-award";
 import { getCourse } from "@/lib/cms";
+import { learnerContentLocale } from "@/lib/cms/language-ready";
 import { normaliseStatus } from "@/lib/cms/course-status";
 import { ensureCourseBadge } from "@/lib/cms/ensure-course-badge";
 import { isLegacySectionId } from "@/lib/cms/sections/contract";
@@ -259,6 +260,11 @@ export async function loadLearnerGlobal() {
 /**
  * A single course's progress, with display labels resolved from the CMS;
  * null when there is no such course or the learner isn't enrolled in it.
+ * The title and the scenario's choice texts are read in the language the
+ * learner gets the course in (learnerContentLocale, D90, spec 9.3): English
+ * on a German or Greek page until that language is switched on for the
+ * course, as the player shows it. `courseLocale` says which, so the Comp
+ * Card can mark them.
  */
 export async function loadCourseProgress(slug: string, locale: Locale) {
   const user = await requireLearner();
@@ -271,8 +277,10 @@ export async function loadCourseProgress(slug: string, locale: Locale) {
   });
   if (!e) return null;
 
-  // Resolve scenario choice labels + course title from the CMS.
-  const content = await getCourse(PROJECT, slug, locale);
+  // Resolve scenario choice labels + course title from the CMS, in the
+  // language the learner reads the course in.
+  const courseLocale = await learnerContentLocale(PROJECT, slug, locale);
+  const content = await getCourse(PROJECT, slug, courseLocale);
   let rootLabel: string | null = null;
   let followupLabel: string | null = null;
   const scenario = content?.stages.find((s) => s.key === "scenario")?.scenario;
@@ -288,6 +296,7 @@ export async function loadCourseProgress(slug: string, locale: Locale) {
   return {
     courseSlug: slug,
     courseTitle: content?.title ?? null,
+    courseLocale,
     stagesCompleted: e.stagesCompleted.map((s) => s.toLowerCase()),
     simulation: e.simulationChoice
       ? { choice: e.simulationChoice, correct: !!e.simulationCorrect }

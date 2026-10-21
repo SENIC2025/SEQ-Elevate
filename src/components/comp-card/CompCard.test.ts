@@ -1,9 +1,9 @@
-import { describe, it, expect, vi } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createTranslator } from "next-intl";
 import en from "@/messages/en.json";
-import type { CompCardData } from "@/store/demo-state";
+import type { CompCardData, CourseProgress } from "@/store/demo-state";
 import type { SharingContext } from "./CompCard";
 
 /*
@@ -12,10 +12,12 @@ import type { SharingContext } from "./CompCard";
  * facilitators always see, no mentor, and length notes instead of a cut.
  */
 
+/** The page's language (the interface strings stay English here: only `lang` is checked by it). */
+let pageLocale = "en";
 vi.mock("next-intl", async (importOriginal) => ({
   ...(await importOriginal<typeof import("next-intl")>()),
   useTranslations: (namespace: string) => createTranslator({ locale: "en", messages: en, namespace: namespace as never }),
-  useLocale: () => "en",
+  useLocale: () => pageLocale,
 }));
 vi.mock("@/i18n/navigation", async () => {
   const { createElement: h } = await import("react");
@@ -23,6 +25,8 @@ vi.mock("@/i18n/navigation", async () => {
 });
 
 let card: CompCardData;
+/** The course the learner played, as the store holds it (none by default). */
+let played: Partial<CourseProgress> = {};
 /** The signed-in learner's own data has loaded into the store. */
 let loaded = true;
 vi.mock("@/store/demo-state", async () => {
@@ -30,7 +34,7 @@ vi.mock("@/store/demo-state", async () => {
   return {
     DEFAULT_STATE,
     useDemoState: () => ({
-      state: { ...DEFAULT_STATE, compCard: card },
+      state: { ...DEFAULT_STATE, compCard: card, course: { ...DEFAULT_STATE.course, ...played } },
       dispatch: () => {},
       setSharing: async () => true,
       accountLoaded: loaded,
@@ -164,5 +168,48 @@ describe("the Comp Card's length notes (D80)", () => {
     expect(text).toContain("100 characters left");
     expect(html).toMatch(/id="comp-card-difficult"[^>]*aria-describedby="comp-card-difficult-length"|aria-describedby="comp-card-difficult-length"[^>]*id="comp-card-difficult"/);
     expect(html).toMatch(/aria-invalid="true"/);
+  });
+});
+
+describe("the course's own text on the Comp Card carries its language (D90, spec 9.3; WCAG 3.1.2)", () => {
+  const ENGLISH_COURSE: Partial<CourseProgress> = {
+    courseSlug: "saying-no",
+    courseTitle: "Saying no",
+    courseLocale: "en",
+    scenario: { root: "c1", followup: "f1", rootLabel: "Ask to finish", followupLabel: "Thank them" },
+  };
+  /** The element that holds exactly `text`, as its opening tag. */
+  const tagOf = (html: string, text: string) => {
+    const tag = new RegExp(`(<[a-z0-9]+[^>]*>)${text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}</`).exec(html)?.[1];
+    expect(tag, `an element holding exactly "${text}"`).toBeDefined();
+    return tag ?? "";
+  };
+
+  afterEach(() => {
+    pageLocale = "en";
+    played = {};
+  });
+
+  it("marks a course shown in English on a German page: its title and the scenario's choices", () => {
+    pageLocale = "de";
+    played = ENGLISH_COURSE;
+    const { html } = render(MEMBER);
+    expect(tagOf(html, "Saying no")).toContain('lang="en"');
+    expect(tagOf(html, "Ask to finish → Thank them")).toContain('lang="en"');
+  });
+
+  it("marks nothing when the course is in the page's language", () => {
+    played = ENGLISH_COURSE;
+    const { html } = render(MEMBER);
+    expect(tagOf(html, "Saying no")).not.toContain("lang=");
+    expect(tagOf(html, "Ask to finish → Thank them")).not.toContain("lang=");
+  });
+
+  it("marks nothing for a course whose language the store doesn't know, nor the dash of no course", () => {
+    pageLocale = "de";
+    played = { ...ENGLISH_COURSE, courseLocale: undefined };
+    expect(tagOf(render(MEMBER).html, "Saying no")).not.toContain("lang=");
+    played = {};
+    expect(tagOf(render(MEMBER).html, "—")).not.toContain("lang=");
   });
 });

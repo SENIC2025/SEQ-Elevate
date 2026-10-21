@@ -6,14 +6,20 @@ import type { CompCardTemplate } from "@/lib/cms/types";
 
 export function CompCardPrint({
   courseTitle,
+  courseTitleLang,
   dateStr,
   scenarioSummary,
+  scenarioLang,
   compCard,
   template,
 }: {
   courseTitle: string;
+  /** The title's language when it isn't the page's (D90), as the form marks it. */
+  courseTitleLang?: string;
   dateStr: string;
   scenarioSummary: string;
+  /** The scenario's choices' language when it isn't the page's (D90). */
+  scenarioLang?: string;
   compCard: CompCardData;
   /** Same template the form uses, so the printout stays consistent. */
   template?: CompCardTemplate;
@@ -106,7 +112,9 @@ export function CompCardPrint({
         >
           <div>
             <p style={tinyLabel}>{t("courseLabel")}</p>
-            <p style={fieldVal}>{courseTitle}</p>
+            <p style={fieldVal} lang={courseTitleLang}>
+              {courseTitle}
+            </p>
           </div>
           <div>
             <p style={tinyLabel}>{t("dateLabel")}</p>
@@ -114,7 +122,7 @@ export function CompCardPrint({
           </div>
         </div>
 
-        <FieldRow label={t("fieldScenario")} value={scenarioSummary} />
+        <FieldRow label={t("fieldScenario")} value={scenarioSummary} lang={scenarioLang} />
         {textKeys.map((key) =>
           key in textValue ? (
             <FieldRow
@@ -205,11 +213,13 @@ const fieldVal: React.CSSProperties = {
   whiteSpace: "pre-wrap",
 };
 
-function FieldRow({ label, value }: { label: string; value: string }) {
+function FieldRow({ label, value, lang }: { label: string; value: string; lang?: string }) {
   return (
     <div style={{ marginBottom: "14px" }}>
       <p style={tinyLabel}>{label}</p>
-      <p style={fieldVal}>{value}</p>
+      <p style={fieldVal} lang={lang}>
+        {value}
+      </p>
     </div>
   );
 }

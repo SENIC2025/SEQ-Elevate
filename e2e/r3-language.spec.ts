@@ -547,18 +547,16 @@ describe("Release 3: German and Greek, switched on per course (D90)", () => {
    * E-E8, a later visit: the Comp Card names the course and the scenario
    * choices as the learner plays the course, English while German isn't
    * switched on, and marks them. In a new visit the choices come from the
-   * server, by loadCourseProgress (src/app/actions/learner.ts), and the
-   * Comp Card draws them (src/components/comp-card/CompCard.tsx): both
-   * Stream B's (spec 9.3, 17.3). Until they read the course's language
-   * (learnerContentLocale) and mark it, the choices come in German beside
-   * an English course. Expected to fail until then; once it passes, drop
-   * test.fail.
+   * server, by loadCourseProgress (src/app/actions/learner.ts), which reads
+   * the course in the learner's content language (learnerContentLocale,
+   * spec 9.3) and says which; the Comp Card
+   * (src/components/comp-card/CompCard.tsx) marks the title and the
+   * choices with it.
    */
   test("E-E8: in a later visit, the Comp Card has a course not switched on and its choices in English, marked", async ({
     page,
     context,
   }) => {
-    test.fail(true, "Stream B: loadCourseProgress and CompCard don't read or mark the course's language yet (spec 9.3)");
     await setReady(prisma, WALK.slug, []);
     await signIn(context, reader.sessionToken);
     await page.goto(`/de/learner/course/${WALK.slug}`);
@@ -571,8 +569,12 @@ describe("Release 3: German and Greek, switched on per course (D90)", () => {
     await expect(main).toContainText(WALK.title.en, { timeout: 15_000 });
     await expect(main).toContainText("Ask to finish → Thank them");
     await expect(main).not.toContainText("Bitte ausreden lassen");
-    await expect(main.getByText(WALK.title.en, { exact: true })).toHaveAttribute("lang", "en");
-    await expect(main.getByText("Ask to finish → Thank them", { exact: true })).toHaveAttribute("lang", "en");
+    // The card and its print view each hold the title and the choices, marked.
+    for (const text of [WALK.title.en, "Ask to finish → Thank them"]) {
+      const shown = main.getByText(text, { exact: true });
+      await expect(shown).toHaveCount(2);
+      for (const element of await shown.all()) await expect(element, text).toHaveAttribute("lang", "en");
+    }
   });
 });
 

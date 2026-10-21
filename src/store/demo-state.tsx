@@ -94,6 +94,14 @@ export interface CourseProgress {
   /** The course currently being played (set when the player mounts). */
   courseSlug: string | null;
   courseTitle: string | null;
+  /**
+   * Release 3 (D90, spec 9.3): the language the course's title and its
+   * scenario's choice texts are in, which is English on a German or Greek
+   * page until that language is switched on for the course; the Comp Card
+   * marks them with it (WCAG 3.1.2). Unknown (undefined) in a guest store
+   * written before it, which is shown unmarked, as before.
+   */
+  courseLocale?: Locale | null;
   stagesCompleted: string[];
   simulation: SimulationAttempt | null;
   scenario: ScenarioAttempt;
@@ -257,7 +265,7 @@ function readGuestWork(): GuestWork | null {
 type Action =
   | { type: "setProject"; projectId: string }
   | { type: "setRole"; role: Role | null }
-  | { type: "setCourseContext"; slug: string; title: string }
+  | { type: "setCourseContext"; slug: string; title: string; locale?: Locale }
   | { type: "completeStage"; stage: string }
   | { type: "recordSimulation"; attempt: SimulationAttempt }
   | { type: "recordScenarioRoot"; choice: string; label: string }
@@ -334,7 +342,8 @@ export function reducer(state: DemoState, action: Action): DemoState {
       // only opened it.
       if (
         state.course.courseSlug === action.slug &&
-        state.course.courseTitle === action.title
+        state.course.courseTitle === action.title &&
+        state.course.courseLocale === action.locale
       ) {
         return state;
       }
@@ -347,6 +356,7 @@ export function reducer(state: DemoState, action: Action): DemoState {
             ...DEFAULT_STATE.course,
             courseSlug: action.slug,
             courseTitle: action.title,
+            courseLocale: action.locale,
           },
           refusedKeys: DEFAULT_STATE.refusedKeys,
         };
@@ -357,6 +367,7 @@ export function reducer(state: DemoState, action: Action): DemoState {
           ...state.course,
           courseSlug: action.slug,
           courseTitle: action.title,
+          courseLocale: action.locale,
         },
       };
     case "completeStage":

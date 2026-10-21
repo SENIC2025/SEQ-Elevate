@@ -130,7 +130,8 @@ export function hasCourseProgress(course: CourseProgress): boolean {
  *   local answer;
  * - completedAt: the saved date — the first completion stays the date —
  *   else the local one;
- * - courseTitle: the local (displayed) title, else the saved one.
+ * - courseTitle: the local (displayed) title, else the saved one, with
+ *   the language that title is in (courseLocale).
  */
 export function mergeCourseProgress(
   local: CourseProgress,
@@ -141,6 +142,7 @@ export function mergeCourseProgress(
   return {
     courseSlug: local.courseSlug,
     courseTitle: local.courseTitle ?? saved.courseTitle,
+    courseLocale: local.courseTitle ? local.courseLocale : saved.courseLocale,
     stagesCompleted: union(saved.stagesCompleted, local.stagesCompleted),
     sectionsCompleted: union(saved.sectionsCompleted ?? [], local.sectionsCompleted),
     simulation: local.simulation ?? saved.simulation,

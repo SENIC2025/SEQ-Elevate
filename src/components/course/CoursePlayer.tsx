@@ -248,13 +248,17 @@ function Player({
   // on a slow server — while the clicks went into a store holding no
   // course: the completion screen then had no course to complete, and a
   // guest's course migrated on sign-in took the lessons over.
+  // With the language the course's text is in (D90, spec 9.3: English on
+  // a German or Greek page until that language is switched on), so the
+  // Comp Card marks the title and the choices made here with it.
   useLayoutEffect(() => {
     dispatch({
       type: "setCourseContext",
       slug: course.slug,
       title: course.title,
+      locale: course.locale,
     });
-  }, [dispatch, course.slug, course.title]);
+  }, [dispatch, course.slug, course.title, course.locale]);
 
   const goNext = useCallback(() => {
     if (current === "complete" || current === "empty") return;
