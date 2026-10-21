@@ -69,6 +69,21 @@ export function gateFits(width: number | null, fontSize: string | null | undefin
   return width !== null && width >= NARROW_PLAYER_PX && (!fontSize || fontSize === "normal");
 }
 
+/** Where the YouTube gate stands: before the press, loading after it, or failed. */
+export type YouTubeGateState = "gate" | "loading" | "failed";
+
+/**
+ * The gate's state for the video now shown. A press is for the video it
+ * was made for (`videoId`): any other video, as when the editor's live
+ * preview keeps its player while the link changes, is back at the gate.
+ */
+export function gateStateFor(
+  pressed: { videoId: string | null; state: YouTubeGateState },
+  videoId: string | null
+): YouTubeGateState {
+  return videoId !== null && pressed.videoId === videoId ? pressed.state : "gate";
+}
+
 /** The YouTube player, once the viewer has asked for it: privacy-enhanced host, starting at once. */
 export function youTubePlayerOptions(videoId: string, events: Record<string, (event: { data?: unknown }) => void>) {
   return {
@@ -121,16 +136,31 @@ export function InteractiveVideoPlayer({
     return () => observer.disconnect();
   }, []);
 
-  // The YouTube gate: nothing from YouTube until the viewer presses play.
-  const [ytState, setYtState] = React.useState<"gate" | "loading" | "failed">("gate");
+  // The YouTube gate: nothing from YouTube until the viewer presses play,
+  // and each video asks again: the press is kept with its video's id, and
+  // forgotten once another video is shown (coming back to the first asks
+  // again too). A YouTube link plays behind the gate, whatever provider a
+  // row stored before Release 3 names.
+  const ytId = parseYouTubeId(video.src);
+  const [ytPressed, setYtPressed] = React.useState<{ videoId: string | null; state: YouTubeGateState }>({
+    videoId: null,
+    state: "gate",
+  });
+  if (ytPressed.videoId !== null && ytPressed.videoId !== ytId) {
+    setYtPressed({ videoId: null, state: "gate" });
+  }
+  const ytState = gateStateFor(ytPressed, ytId);
   const statusRef = React.useRef<HTMLParagraphElement>(null);
   const playYouTube = () => {
-    setYtState("loading");
+    setYtPressed({ videoId: ytId, state: "loading" });
     // The status line stays where it is, so focus waits there (never in
     // YouTube's frame) while the player loads.
     window.setTimeout(() => statusRef.current?.focus(), 0);
   };
-  const youTubeFailed = React.useCallback(() => setYtState("failed"), []);
+  const youTubeFailed = React.useCallback(
+    () => setYtPressed((p) => ({ ...p, state: "failed" })),
+    [setYtPressed]
+  );
 
   // Engine controls, set by whichever child engine mounts.
   const pauseRef = React.useRef<() => void>(() => {});
@@ -174,9 +204,7 @@ export function InteractiveVideoPlayer({
     [onCueAnswered]
   );
 
-  // A YouTube link plays behind the gate, whatever provider a row stored
-  // before Release 3 names; anything else from another host is a link out.
-  const ytId = parseYouTubeId(video.src);
+  // Anything else from another host is a link out.
   const external = !ytId && (video.provider === "youtube" || video.external === true);
   const inside = gateFits(width, fontSize);
 
@@ -374,7 +402,7 @@ function WatchLink({ videoId }: { videoId: string }) {
  */
 export const VideoStatus = React.forwardRef<
   HTMLParagraphElement,
-  { state: "gate" | "loading" | "failed"; videoId: string }
+  { state: YouTubeGateState; videoId: string }
 >(function VideoStatus({ state, videoId }, ref) {
   const t = useTranslations("video.youtubeGate");
   return (

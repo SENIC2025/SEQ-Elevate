@@ -16,6 +16,7 @@ import {
   YouTubeGate,
   followNativeVideo,
   gateFits,
+  gateStateFor,
   youTubePlayerOptions,
 } from "./InteractiveVideoPlayer";
 import { elements, renderIn, textOf } from "./sectioned/render.test-helpers";
@@ -149,6 +150,17 @@ describe("the YouTube gate", () => {
       playerVars: { rel: 0, playsinline: 1, autoplay: 1 },
       events: { onReady },
     });
+  });
+
+  it("asks again for another video: a press plays only the video it was for", () => {
+    // The editor's live preview keeps one player while its link changes.
+    const pressed = { videoId: "dQw4w9WgXcQ", state: "loading" as const };
+    expect(gateStateFor(pressed, "dQw4w9WgXcQ")).toBe("loading");
+    expect(gateStateFor({ ...pressed, state: "failed" }, "dQw4w9WgXcQ")).toBe("failed");
+    expect(gateStateFor(pressed, "e2eVideo002")).toBe("gate");
+    expect(gateStateFor({ ...pressed, state: "failed" }, "e2eVideo002")).toBe("gate");
+    expect(gateStateFor(pressed, null)).toBe("gate");
+    expect(gateStateFor({ videoId: null, state: "gate" }, "dQw4w9WgXcQ")).toBe("gate");
   });
 
   it("says on the status line that it is loading, or that it can't be played here with the watch link", () => {
