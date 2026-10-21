@@ -382,7 +382,10 @@ describe("Release 3 — safeguarding (F-E2, F-E4)", () => {
     }
   });
 
-  test("F-E4: /admin/safeguarding passes axe, empty and with contacts", async ({ page, context }) => {
+  test("F-E4: /admin/safeguarding passes axe, empty and with contacts; English, and marked so under /de and /el", async ({
+    page,
+    context,
+  }) => {
     const stored = await readSetting();
     try {
       await signIn(context, people.admin!.sessionToken);
@@ -391,6 +394,11 @@ describe("Release 3 — safeguarding (F-E2, F-E4)", () => {
         await page.goto("/en/admin/safeguarding");
         await expect(main(page).getByRole("button", { name: "Save contacts" })).toBeVisible();
         await axeClean(page, `/en/admin/safeguarding${setting ? " with contacts" : ""}`);
+      }
+      for (const locale of ["de", "el"] as const) {
+        await page.goto(`/${locale}/admin/safeguarding`);
+        await expect(main(page).locator(":scope > div[lang='en']")).toContainText("Safeguarding contacts");
+        await axeClean(page, `/${locale}/admin/safeguarding`);
       }
     } finally {
       await writeSetting(stored);

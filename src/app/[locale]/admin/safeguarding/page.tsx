@@ -16,23 +16,27 @@ export const metadata: Metadata = { title: "Safeguarding contacts" };
 /**
  * Release 3 (D93, spec 11.2): the safeguarding contacts learners see beside
  * their pages and on /help, per country. An ADMIN with project scope only
- * (DIESIS or SENIC); English, like the other staff screens. New contacts
- * need no deploy: an admin enters them here.
+ * (DIESIS or SENIC); English, like the other staff screens, and marked as
+ * English under /de and /el. New contacts need no deploy: an admin enters
+ * them here.
  */
 export default async function Page({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
   setRequestLocale(locale);
   const admin = await requireAdminProject();
+  // English on every locale's address, and marked so (WCAG 3.1.2).
   if (!admin) {
     return (
-      <AccessNotice title="Admins only">
-        Sign in with an admin account to edit the safeguarding contacts.
-      </AccessNotice>
+      <div lang="en">
+        <AccessNotice title="Admins only">
+          Sign in with an admin account to edit the safeguarding contacts.
+        </AccessNotice>
+      </div>
     );
   }
   const setting = await readSafeguarding();
   return (
-    <div className="mx-auto max-w-4xl px-4 py-8">
+    <div lang="en" className="mx-auto max-w-4xl px-4 py-8">
       <Link
         href="/admin"
         className="inline-flex min-h-6 items-center gap-1 text-sm text-[var(--muted-foreground)] hover:text-[var(--foreground)] mb-3"
