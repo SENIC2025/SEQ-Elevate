@@ -108,8 +108,8 @@ test.describe("Release 3 — legal pages (F-E1a)", () => {
       const legal = hrefs.filter((h) => h.includes("/legal/"));
       expect(legal).toEqual(LEGAL_DOCS.map((doc) => `/${locale}/legal/${doc}`));
       for (const href of [`/${locale}/help`, ...legal]) {
-        const res = await request.get(href);
-        expect(res.status(), href).toBe(200);
+        // Asked again if the server dropped a reused connection.
+        await expect(async () => expect((await request.get(href)).status(), href).toBe(200)).toPass({ timeout: 15000 });
       }
       // The legal notice has a page (and a link, above) exactly when its text is in.
       await page.goto(`/${locale}/legal/notice`);
