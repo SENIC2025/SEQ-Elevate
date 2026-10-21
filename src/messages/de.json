@@ -1398,7 +1398,7 @@
   "safeguarding": {
     "title": "Brauchst du jemanden zum Reden?",
     "emergency": "Im Notfall: Ruf 112 an.",
-    "contactFor": "Ansprechstelle für {country}:",
+    "contactFor": "Ansprechstelle für {country, select, DE {Deutschland} CY {Zypern} BE {Belgien} GR {Griechenland} other {andere Länder}}:",
     "helpline": "Hilfetelefon:",
     "allContacts": "Ansprechstellen in allen Ländern",
     "fallback": "Sprich mit einer Person deines Vertrauens bei deiner Partnerorganisation.",

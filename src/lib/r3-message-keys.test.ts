@@ -145,7 +145,10 @@ const SPEC_ENGLISH: Record<string, string> = {
   "video.hostUnconfigured": "Uploads can't be attached until the site's storage address is set. Tell SENIC.",
   "safeguarding.title": "Need to talk to someone?",
   "safeguarding.emergency": "In an emergency, call 112.",
-  "safeguarding.contactFor": "Contact for {country}:",
+  // Spec 11.4's "Contact for {country}:", with the country named by its
+  // code (an ICU select), so "Other" reads "other countries".
+  "safeguarding.contactFor":
+    "Contact for {country, select, DE {Germany} CY {Cyprus} BE {Belgium} GR {Greece} other {other countries}}:",
   "safeguarding.helpline": "Help line:",
   "safeguarding.allContacts": "Contacts in every country",
   "safeguarding.fallback": "Talk to someone you trust at your partner organisation.",

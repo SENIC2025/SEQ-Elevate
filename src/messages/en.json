@@ -1398,7 +1398,7 @@
   "safeguarding": {
     "title": "Need to talk to someone?",
     "emergency": "In an emergency, call 112.",
-    "contactFor": "Contact for {country}:",
+    "contactFor": "Contact for {country, select, DE {Germany} CY {Cyprus} BE {Belgium} GR {Greece} other {other countries}}:",
     "helpline": "Help line:",
     "allContacts": "Contacts in every country",
     "fallback": "Talk to someone you trust at your partner organisation.",
