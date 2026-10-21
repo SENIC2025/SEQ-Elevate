@@ -16,11 +16,13 @@ import en from "../src/messages/en.json";
  * (WCAG 3.1.2), never a field-by-field mix of German and English.
  *
  *   E-E1  a /de learner on a created course not switched on for German
- *         reads English everywhere they read it: the dashboard's card and
- *         hero (marked, with "Auf Englisch"), the player (the note, its
- *         title and lessons marked, the interface not) and the Comp Card's
- *         course title (the course as played); after the partner admin
- *         switches German on in the course page's panel, German, unmarked
+ *         reads English everywhere they read it: the dashboard's card,
+ *         hero and the hero's step names (marked, with "Auf Englisch"),
+ *         the player (the note, its title and lessons marked, the
+ *         interface not) and the Comp Card's course title (the course as
+ *         played); the partner admin switches German on in the course
+ *         page's panel by keyboard, focus staying on the switch, and Manage
+ *         courses says in a word that German is live; then German, unmarked
  *   E-E2  an editor's preview in German shows the German, and says German
  *         learners get English until it is switched on (in Greek, with the
  *         language's name in lower case mid-sentence)
@@ -31,7 +33,10 @@ import en from "../src/messages/en.json";
  *   E-E8  a /de learner finishes two lessons in English; German is switched
  *         on; they resume at lesson 3 in German, finish, get the badge, and
  *         the Comp Card holds the course and the scenario choices as they
- *         played them; German switched off again changes no progress
+ *         played them; German switched off again changes no progress, and
+ *         the completion screen is the course's English, marked; in a later
+ *         visit the Comp Card has the course and the choices in English,
+ *         marked (expected to fail until Stream B's files do so: see there)
  *
  * Each is red on Release 2's build: it has no switch, so a German learner
  * gets German wherever it is written and English elsewhere, and no editor
@@ -145,12 +150,14 @@ const emails = {
   paa: `e2e-r3-lang-paa-${RUN}@example.com`,
   editor: `e2e-r3-lang-editor-${RUN}@example.com`,
   facilitator: `e2e-r3-lang-fa-${RUN}@example.com`,
+  reader: `e2e-r3-lang-reader-${RUN}@example.com`,
 };
 let learner: Person;
 let walker: Person;
 let paa: Person;
 let editor: Person;
 let facilitator: Person;
+let reader: Person;
 
 /* -------------------------------------------------------- the screens --- */
 
@@ -208,8 +215,21 @@ describe("Release 3: German and Greek, switched on per course (D90)", () => {
     paa = await createPerson(prisma, { email: emails.paa, roles: ["PARTNER_ADMIN"], organisation: "A" });
     editor = await createPerson(prisma, { email: emails.editor, roles: ["CONTENT_EDITOR"], organisation: "A" });
     facilitator = await createPerson(prisma, { email: emails.facilitator, roles: ["FACILITATOR"], organisation: "A" });
+    reader = await createPerson(prisma, { email: emails.reader, roles: ["LEARNER"] });
     const langId = await seedECourse(prisma, { ...LANG, lessons: langLessons });
-    await seedECourse(prisma, { ...WALK, lessons: walkLessons });
+    const walkId = await seedECourse(prisma, { ...WALK, lessons: walkLessons });
+    // The reader made the scenario's choices in an earlier visit, German not switched on.
+    await prisma.courseEnrollment.create({
+      data: {
+        userId: reader.userId,
+        courseId: walkId,
+        stagesCompleted: [],
+        sectionsCompleted: [walkLessons[0].id, walkLessons[1].id],
+        scenarioRoot: "c1",
+        scenarioFollowup: "f1",
+      },
+      select: { id: true },
+    });
     // The learner has started the course, so it is their dashboard's hero.
     await prisma.courseEnrollment.create({
       data: { userId: learner.userId, courseId: langId, stagesCompleted: [] },
@@ -218,7 +238,7 @@ describe("Release 3: German and Greek, switched on per course (D90)", () => {
   });
 
   test.afterAll(async () => {
-    const ids = [learner, walker, paa, editor, facilitator].filter(Boolean).map((p) => p.userId);
+    const ids = [learner, walker, paa, editor, facilitator, reader].filter(Boolean).map((p) => p.userId);
     await prisma.auditLog.deleteMany({ where: { OR: [{ actorId: { in: ids } }, { entityId: { in: [LANG.slug, WALK.slug] } }] } });
     await removePeople(prisma, Object.values(emails));
     await removeECourse(prisma, LANG.slug);
@@ -243,6 +263,12 @@ describe("Release 3: German and Greek, switched on per course (D90)", () => {
     await expect(tile.getByText(de.dashboard.inEnglish, { exact: true })).toBeVisible();
     await expect(heroTitle(page)).toHaveText(LANG.title.en);
     await expect(heroTitle(page)).toHaveAttribute("lang", "en");
+    // The hero's step names, in "Deine Reise" beside it, are the course's text too.
+    const step = page.getByRole("main").getByText("First steps", { exact: true }).last();
+    await expect(step).toBeVisible();
+    expect(await step.evaluate((s) => s.closest("[lang]")?.getAttribute("lang") ?? null), "the step name is marked").toBe(
+      "en"
+    );
 
     // The player: the note, the course text marked, the interface not.
     await page.goto(`/de/learner/course/${LANG.slug}`);
@@ -279,11 +305,21 @@ describe("Release 3: German and Greek, switched on per course (D90)", () => {
       const german = panel.getByRole("switch", { name: "German for learners" });
       await expect(german).toHaveAttribute("aria-checked", "false");
       await expect(panel).toContainText("Not live: learners using German get this course in English.");
-      await german.click();
-      // Fully written: no question asked.
+      // By keyboard. Fully written: no question asked, and focus stays on
+      // the switch while it saves, so its new state is read out.
+      await german.focus();
+      await staff.page.keyboard.press("Space");
       await expect(german).toHaveAttribute("aria-checked", "true");
       await expect(panel).toContainText("Live: learners using German get this course in German.");
+      await expect(german).toBeFocused();
       await expect.poll(() => readyOf(prisma, LANG.slug)).toEqual(["de"]);
+
+      // Manage courses says it in a word on the course's German chip, not by a mark alone.
+      await staff.page.goto("/en/content/courses");
+      const gridCard = staff.page.locator(`article[aria-labelledby="course-${LANG.slug}-title"]`);
+      await expect(gridCard).toBeVisible({ timeout: 15_000 });
+      await expect(gridCard.getByText(en.courseManager.languageReady.liveMark, { exact: true })).toHaveCount(1);
+      await expect(gridCard.getByText(en.courseManager.languageReady.liveMark, { exact: true })).toBeVisible();
     } finally {
       await staff.context.close();
     }
@@ -490,10 +526,46 @@ describe("Release 3: German and Greek, switched on per course (D90)", () => {
     await expect(tile.getByText(de.dashboard.completed, { exact: true }).first()).toBeVisible();
     await page.goto(`/de/learner/course/${WALK.slug}`);
     await expect(courseTitle(page)).toHaveText(WALK.title.en, { timeout: 15_000 });
+    // A finished course opens on its completion screen: the course's English, marked.
+    const complete = page.getByRole("heading", { name: "Course complete", exact: true });
+    await expect(complete).toBeVisible();
+    await expect(complete).toHaveAttribute("lang", "en");
     expect(await enrolment()).toEqual(done);
     expect(
       await prisma.userBadge.count({ where: { userId: walker.userId, badge: { slug: { startsWith: WALK.slug } } } })
     ).toBe(1);
+  });
+
+  /*
+   * E-E8, a later visit: the Comp Card names the course and the scenario
+   * choices as the learner plays the course, English while German isn't
+   * switched on, and marks them. In a new visit the choices come from the
+   * server, by loadCourseProgress (src/app/actions/learner.ts), and the
+   * Comp Card draws them (src/components/comp-card/CompCard.tsx): both
+   * Stream B's (spec 9.3, 17.3). Until they read the course's language
+   * (learnerContentLocale) and mark it, the choices come in German beside
+   * an English course. Expected to fail until then; once it passes, drop
+   * test.fail.
+   */
+  test("E-E8: in a later visit, the Comp Card has a course not switched on and its choices in English, marked", async ({
+    page,
+    context,
+  }) => {
+    test.fail(true, "Stream B: loadCourseProgress and CompCard don't read or mark the course's language yet (spec 9.3)");
+    await setReady(prisma, WALK.slug, []);
+    await signIn(context, reader.sessionToken);
+    await page.goto(`/de/learner/course/${WALK.slug}`);
+    await expect(courseTitle(page)).toHaveText(WALK.title.en, { timeout: 15_000 });
+    await expect(counter(page)).toHaveText("3 / 4 · The moment");
+    await page.waitForLoadState("networkidle");
+
+    await compCardFromPlayer(page);
+    const main = page.getByRole("main");
+    await expect(main).toContainText(WALK.title.en, { timeout: 15_000 });
+    await expect(main).toContainText("Ask to finish → Thank them");
+    await expect(main).not.toContainText("Bitte ausreden lassen");
+    await expect(main.getByText(WALK.title.en, { exact: true })).toHaveAttribute("lang", "en");
+    await expect(main.getByText("Ask to finish → Thank them", { exact: true })).toHaveAttribute("lang", "en");
   });
 });
 

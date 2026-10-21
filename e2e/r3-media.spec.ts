@@ -19,7 +19,9 @@ import en from "../src/messages/en.json";
  *         stand-in: no request at all before the viewer presses play, in
  *         the player and in the editor's live preview; after it the frame
  *         comes from www.youtube-nocookie.com and focus is on the status
- *         line (never in YouTube's frame)
+ *         line (never in YouTube's frame); a press plays that one video
+ *         only: another link pasted into the preview asks again, and so
+ *         does the first one pasted back
  *   E-E5  saveLessonVideo given a YouTube link as a file stores YouTube; an
  *         .mp4 and a document on another host are refused
  *   E-E6  a video stored on another host (before Release 3) is a link out:
@@ -65,6 +67,7 @@ const ADMIN_DATA = "src/app/actions/admin-data.ts";
 /** A YouTube video id (11 characters). */
 const VIDEO_ID = "e2eVideo001";
 const OTHER_VIDEO_ID = "e2eVideo002";
+const THIRD_VIDEO_ID = "e2eVideo003";
 /** A video file on someone else's site. */
 const OTHER_HOST_VIDEO = "https://media.example.org/e2e/clip.mp4";
 /** A file on a Vercel Blob store (ours on this server: see above). */
@@ -305,6 +308,27 @@ describe("Release 3: lesson media from our own store, YouTube on request (D91, D
     );
     await page.waitForLoadState("networkidle");
     await pressPlay(page, preview, asked, en.video.youtubeGate.play);
+
+    // The press was for that video: another link pasted asks again, and loads nothing.
+    await field.fill(`https://youtu.be/${THIRD_VIDEO_ID}`);
+    await expect(preview).toBeVisible();
+    await expect(preview.getByRole("link", { name: en.video.youtubeGate.watchOn })).toHaveAttribute(
+      "href",
+      `https://www.youtube.com/watch?v=${THIRD_VIDEO_ID}`
+    );
+    await expect(playerFrame(page)).toHaveCount(0);
+    await page.waitForLoadState("networkidle");
+    expect(asked.filter((url) => url.includes(THIRD_VIDEO_ID)), "nothing asked of YouTube for the new link").toEqual([]);
+    // Back to the link played before: asked again too.
+    const playedBefore = asked.length;
+    await field.fill(`https://youtu.be/${OTHER_VIDEO_ID}`);
+    await expect(preview.getByRole("link", { name: en.video.youtubeGate.watchOn })).toHaveAttribute(
+      "href",
+      `https://www.youtube.com/watch?v=${OTHER_VIDEO_ID}`
+    );
+    await expect(playerFrame(page)).toHaveCount(0);
+    await page.waitForLoadState("networkidle");
+    expect(asked.length, "nothing asked of YouTube until the next press").toBe(playedBefore);
   });
 
   test("E-E5: a YouTube link saved as a file is stored as YouTube; another host's video or document is refused", async ({
