@@ -27,6 +27,12 @@ import { AlertTriangle, CheckCircle2, Loader2, Plus, Trash2 } from "lucide-react
  * refuses anyone else). A refused save lists every problem at the top, each
  * linked to its field, and marks the fields; nothing is saved until all are
  * right. English, like the other staff screens.
+ *
+ * Focus never falls to the page's start (WCAG 2.4.3): a contact added takes
+ * it in its first field; once one is removed, the contact after it does,
+ * else its country's Add button; Save says it is busy with aria-disabled
+ * and keeps it, and a save keeps every field on the screen, so a field
+ * Enter was pressed in keeps it too.
  */
 
 export const COUNTRY_NAMES: Record<Country, string> = {
@@ -73,6 +79,15 @@ const toDraft = (key: number, c?: SafeguardingContact): Draft => ({
 /** The saved contacts as drafts, keyed by their place (the same on the server and in the browser). */
 const draftsOf = (contacts: ContactsByCountry): Drafts =>
   Object.fromEntries(COUNTRIES.map((c) => [c, (contacts[c] ?? []).map((contact, i) => toDraft(i, contact))])) as Drafts;
+/**
+ * The contacts a save stored, as drafts that keep the keys of the drafts in
+ * their places (a save stores them in the order sent), so no field on the
+ * screen is replaced by a new one.
+ */
+const redraft = (current: Drafts, contacts: ContactsByCountry, newKey: () => number): Drafts =>
+  Object.fromEntries(
+    COUNTRIES.map((c) => [c, (contacts[c] ?? []).map((contact, i) => toDraft(current[c][i]?.key ?? newKey(), contact))])
+  ) as Drafts;
 
 /** What the server is sent: the fields as typed (it trims and checks them), empty ones left out. */
 function payload(drafts: Drafts): Record<string, unknown[]> {
@@ -147,8 +162,18 @@ export function SafeguardingEditor({ initial }: { initial: SafeguardingSetting }
   const summaryRef = React.useRef<HTMLDivElement>(null);
   // Keys for entries added here: past any a country can hold when loaded.
   const added = React.useRef(MAX_CONTACTS_PER_COUNTRY);
+  // A save on its way: a second Enter doesn't send another.
+  const saving = React.useRef(false);
+  // The element that takes the focus once an Add or a Remove has shown.
+  const focusNext = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    const id = focusNext.current;
+    focusNext.current = null;
+    if (id) document.getElementById(id)?.focus();
+  }, [drafts]);
 
   const idOf = (country: Country, key: number, field: string) => `${uid}-${country}-${key}-${field}`;
+  const addId = (country: Country) => `${uid}-${country}-add`;
   const fieldErrors = (country: Country, index: number, field: ContactField) =>
     errors.filter((e) => e.country === country && e.index === index && e.field === field);
 
@@ -156,6 +181,7 @@ export function SafeguardingEditor({ initial }: { initial: SafeguardingSetting }
     setDrafts((all) => ({ ...all, [country]: all[country].map((d) => (d.key === key ? { ...d, ...patch } : d)) }));
   const add = (country: Country) => {
     const key = added.current++;
+    focusNext.current = idOf(country, key, "kind");
     setDrafts((all) => ({
       ...all,
       [country]: [
@@ -164,25 +190,34 @@ export function SafeguardingEditor({ initial }: { initial: SafeguardingSetting }
       ],
     }));
   };
-  const remove = (country: Country, key: number) =>
+  const remove = (country: Country, key: number) => {
+    const list = drafts[country];
+    const after = list[list.findIndex((d) => d.key === key) + 1];
+    focusNext.current = after ? idOf(country, after.key, "kind") : addId(country);
     setDrafts((all) => ({ ...all, [country]: all[country].filter((d) => d.key !== key) }));
+  };
 
   async function save(event: React.FormEvent) {
     event.preventDefault();
+    if (saving.current) return;
+    saving.current = true;
     setPending(true);
     setResult(null);
     let res: Awaited<ReturnType<typeof saveSafeguardingContacts>>;
     try {
       res = await saveSafeguardingContacts(payload(drafts));
     } catch {
+      saving.current = false;
       setPending(false);
       setResult({ kind: "error", text: "There was no answer from the server. Reload the page to see whether the contacts were saved." });
       return;
     }
+    saving.current = false;
     setPending(false);
     if (res.ok) {
+      const stored = res.setting.contacts;
       setErrors([]);
-      setDrafts(draftsOf(res.setting.contacts));
+      setDrafts((current) => redraft(current, stored, () => added.current++));
       setSavedAt(res.setting.updatedAt);
       setResult({
         kind: "ok",
@@ -389,7 +424,7 @@ export function SafeguardingEditor({ initial }: { initial: SafeguardingSetting }
                     ))}
                   </ol>
                   {list.length < MAX_CONTACTS_PER_COUNTRY ? (
-                    <Button type="button" variant="outline" size="sm" className="mt-3" onClick={() => add(country)}>
+                    <Button id={addId(country)} type="button" variant="outline" size="sm" className="mt-3" onClick={() => add(country)}>
                       <Plus className="h-4 w-4" aria-hidden />
                       Add a contact for {COUNTRY_NAMES[country]}
                     </Button>
@@ -406,7 +441,8 @@ export function SafeguardingEditor({ initial }: { initial: SafeguardingSetting }
       </div>
 
       <div className="mt-6 flex flex-wrap items-center gap-3">
-        <Button type="submit" disabled={pending} aria-disabled={pending}>
+        {/* aria-disabled, not disabled, while it saves: focus stays on it. */}
+        <Button type="submit" className="aria-disabled:cursor-not-allowed aria-disabled:opacity-50" aria-disabled={pending || undefined}>
           {pending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
           Save contacts
         </Button>

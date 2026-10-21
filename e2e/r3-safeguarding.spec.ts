@@ -253,6 +253,76 @@ describe("Release 3 — safeguarding (F-E2, F-E4)", () => {
     await axeClean(page, "/en/admin/safeguarding with mistakes");
   });
 
+  test("F-E4: on /admin/safeguarding, focus stays near what the keyboard pressed: Add, Remove and Save (WCAG 2.4.3)", async ({
+    page,
+    context,
+  }) => {
+    test.setTimeout(60_000);
+    const stored = await readSetting();
+    // Each place is checked softly, so a run reports every one that drops the focus, and where it went.
+    const focusOn = async (target: Locator, when: string) => {
+      const elsewhere = await expect(target)
+        .toBeFocused({ timeout: 5000 })
+        .then(
+          () => null,
+          () => page.evaluate(() => document.activeElement?.outerHTML.slice(0, 80) ?? "nothing")
+        );
+      expect.soft(elsewhere, `${when}: the focus is elsewhere`).toBeNull();
+    };
+    try {
+      await writeSetting(null);
+      await signIn(context, people.admin!.sessionToken);
+      await page.goto("/en/admin/safeguarding");
+      const country = (name: string) => main(page).getByRole("group", { name, exact: true });
+      const add = (name: string) => country(name).getByRole("button", { name: `Add a contact for ${name}` });
+      const entry = (name: string, n: number) => country(name).getByRole("group", { name: `Contact ${n} for ${name}` });
+
+      // Add, three times: the new contact's first field takes the focus, the third time too (its Add button goes).
+      for (const n of [1, 2, 3]) {
+        await add("Belgium").focus();
+        await page.keyboard.press("Enter");
+        await expect(entry("Belgium", n)).toBeVisible();
+        await focusOn(entry("Belgium", n).getByLabel("Kind"), `after adding contact ${n}`);
+      }
+      await expect(add("Belgium")).toHaveCount(0);
+
+      // Remove the second: the contact after it (now the second) takes the focus.
+      await entry("Belgium", 3).getByLabel("Organisation or service").fill(`E2E third ${RUN}`);
+      await country("Belgium").getByRole("button", { name: "Remove contact 2 for Belgium" }).focus();
+      await page.keyboard.press("Enter");
+      await expect(entry("Belgium", 2).getByLabel("Organisation or service")).toHaveValue(`E2E third ${RUN}`);
+      await focusOn(entry("Belgium", 2).getByLabel("Kind"), "after removing contact 2");
+      // Remove the last: no contact after it, so its country's Add button.
+      await country("Belgium").getByRole("button", { name: "Remove contact 2 for Belgium" }).focus();
+      await page.keyboard.press("Enter");
+      await expect(entry("Belgium", 2)).toHaveCount(0);
+      await focusOn(add("Belgium"), "after removing the last contact");
+
+      // Save from the button: it keeps the focus while it saves, and after.
+      await entry("Belgium", 1).getByLabel("Organisation or service").fill(`E2E focus ${RUN}`);
+      await entry("Belgium", 1).getByLabel("Phone").fill("116 000");
+      const save = main(page).getByRole("button", { name: "Save contacts" });
+      await save.focus();
+      await page.keyboard.press("Enter");
+      await expect(main(page).getByRole("status")).toContainText("Saved: Belgium.");
+      await focusOn(save, "after Save");
+
+      // Save with Enter in a field of a contact added on this page: the field keeps the focus.
+      await add("Cyprus").focus();
+      await page.keyboard.press("Enter");
+      const field = entry("Cyprus", 1).getByLabel("Organisation or service");
+      await field.fill(`E2E line ${RUN}`);
+      await entry("Cyprus", 1).getByLabel("Phone").fill("116 111");
+      await field.focus();
+      await page.keyboard.press("Enter");
+      await expect(main(page).getByRole("status")).toContainText("Saved: Cyprus.");
+      await focusOn(field, "after Enter in a field");
+      await expect(field).toHaveValue(`E2E line ${RUN}`);
+    } finally {
+      await writeSetting(stored);
+    }
+  });
+
   test("F-E2: the footer's help link is on every page, prerendered legal pages included, first in the footer", async ({
     page,
     context,
