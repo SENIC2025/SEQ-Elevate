@@ -232,6 +232,15 @@ describe("RealFacilitatorView: time per lesson (spec 6)", () => {
  * scenario choice is progress, not the card: it is in the Activity panel.
  * The roster counts the cards shared with the viewer, and labels test
  * accounts and former staff.
+ *
+ * Which of these reproduce what r3@9be590e did: the labels, the scenario in
+ * the Activity panel, the fields shown by name only when they reached the
+ * screen, "Nothing shared with you." and the card without the scenario
+ * (the base listed all four fields, "—" for each missing one, the scenario
+ * among them, and a bare "—" for an unshared card). "Shows the fields
+ * shared and the confidence", "never shows a field as redacted on screen"
+ * and the shared count are regression tests: the base did those already,
+ * once the Foundation filtered the payload.
  */
 const SHARED = {
   fields: { wentWell: "I stayed calm", improve: "Ask earlier" },
@@ -293,8 +302,9 @@ describe("RealFacilitatorView: the scenario choice is in the Activity panel (D82
     const html = panel({ scenario: [{ text: "Speak to Sam in private" }, { text: "Tell Sam it's fine" }] });
     const quiz = html.indexOf(`${en.facilitator.quizPractice}:`);
     const scenario = html.indexOf(`${en.facilitator.scenarioChoice}:`);
-    expect(scenario).toBeGreaterThan(-1);
     expect(quiz).toBeGreaterThan(-1);
+    // After the quiz and practice results, with them (D82).
+    expect(scenario).toBeGreaterThan(quiz);
     expect(html.replace(/<!-- -->/g, "").replace(/<[^>]*>/g, "").replace(/&#x27;/g, "'")).toContain(
       "Speak to Sam in private → Tell Sam it's fine"
     );
