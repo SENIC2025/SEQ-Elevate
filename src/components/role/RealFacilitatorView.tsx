@@ -496,7 +496,7 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 }
 
 /** The Comp Card's text fields, in the card's order, with their labels' keys. */
-const CARD_FIELDS: readonly [CompCardField, string][] = [
+const CARD_FIELDS: readonly [CompCardField, `field${Capitalize<CompCardField>}`][] = [
   ["wentWell", "fieldWentWell"],
   ["difficult", "fieldDifficult"],
   ["improve", "fieldImprove"],
