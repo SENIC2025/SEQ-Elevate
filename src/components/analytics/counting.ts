@@ -32,24 +32,34 @@ export function countingLine({ from, organisation }: Counting): string {
 
 /**
  * Why there are no figures to show, most specific first: staff whose
- * account isn't linked to an organisation see none; before the start date
- * nothing is counted yet; after it, no learner (of the organisation) has
- * started.
+ * account isn't linked to an organisation see none; other staff with no
+ * scope (partner access switched off, D77) see none either, whatever the
+ * date; a read that failed says so, never that nobody started (spec 7.3);
+ * before the start date nothing is counted yet; after it, no learner (of
+ * the organisation) has started.
  */
 export function emptyStatistics({
   from,
   organisation,
   noOrganisation,
+  noScope = false,
+  unreadable = false,
   now = Date.now(),
 }: {
   from: Date | null;
   organisation: string | null;
   noOrganisation: boolean;
+  /** The viewer's scope is none: no learner is read for them at all. */
+  noScope?: boolean;
+  /** The read failed (buildRealAnalytics's "unreadable"). */
+  unreadable?: boolean;
   now?: number;
 }): string {
   if (noOrganisation) {
     return "Your account isn't linked to an organisation yet, so no learners are counted. Ask DIESIS to link it.";
   }
+  if (noScope) return "Statistics can't be shown to your account right now.";
+  if (unreadable) return "The statistics couldn't be read just now. Try reloading the page in a few minutes.";
   if (from && now < from.getTime()) return `Counting starts on ${countingDay(from)}.`;
   if (organisation) {
     return from

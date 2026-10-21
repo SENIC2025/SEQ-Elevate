@@ -53,7 +53,7 @@ async function render({
   scope: Scope;
   organisationId?: string | null;
   organisation?: string | null;
-  real?: ReturnType<typeof buildSampleAnalytics> | null;
+  real?: ReturnType<typeof buildSampleAnalytics> | null | "unreadable";
   now?: number;
   live?: string;
 }): Promise<string> {
@@ -149,6 +149,38 @@ describe("the Statistics page", () => {
     expect(html).not.toContain("Counting starts");
   });
 
+  it("doesn't promise figures to partner staff who see no learners for now (partner access off)", async () => {
+    // Review R2 (a): a facilitator whose account has an organisation, while
+    // R3_PARTNER_ACCESS is off (before the review, or switched off after
+    // launch), has no scope: counting may well have started, and reloading
+    // won't help.
+    liveSite();
+    for (const now of [BEFORE, AFTER]) {
+      const html = await render({ roles: ["FACILITATOR"], scope: NONE, organisationId: "org-a", now });
+      expect(html).toContain("Statistics can't be shown to your account right now.");
+      expect(html).not.toContain("as soon as a learner starts");
+      expect(html).not.toContain("Counting starts");
+    }
+  });
+
+  it("says a read that failed failed, never that no learner has started (spec 7.3)", async () => {
+    // Review R2 (b).
+    liveSite();
+    for (const now of [BEFORE, AFTER]) {
+      const html = await render({
+        roles: ["FACILITATOR"],
+        scope: ORG_A,
+        organisationId: "org-a",
+        organisation: "Pro Arbeit",
+        real: "unreadable",
+        now,
+      });
+      expect(html).toContain("The statistics couldn't be read just now. Try reloading the page in a few minutes.");
+      expect(html).not.toContain("No learners in Pro Arbeit have started");
+      expect(html).not.toContain("Counting starts");
+    }
+  });
+
   it("marks its English as English on a German or Greek page (WCAG 3.1.2), as the dashboard does", async () => {
     liveSite();
     for (const [roles, scope] of [
@@ -186,6 +218,15 @@ describe("the Statistics page", () => {
       const html = await render({ roles: ["ADMIN"], scope: PROJECT, live: "1" });
       expect(html).toContain("Counting starts on 1 December 2026.");
       expect(html).not.toContain("sample data");
+      const failed = await render({ roles: ["ADMIN"], scope: PROJECT, real: "unreadable", live: "1" });
+      expect(failed).toContain("The statistics couldn't be read just now.");
+    });
+
+    it("shows the sample, not a failed read, when live figures aren't asked for", async () => {
+      testCopy();
+      const html = await render({ roles: ["ADMIN"], scope: PROJECT, real: "unreadable" });
+      expect(html).toContain("sample data");
+      expect(html).not.toContain("View live data");
     });
   });
 });

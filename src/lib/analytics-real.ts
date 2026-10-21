@@ -21,10 +21,12 @@ import "server-only";
  * launch don't count. A learner's position, progress and last activity come
  * from what is counted. (A running total, stage.time or video.cue_answered,
  * keeps its first event's time: one started before `from` is left out whole.)
- * Returns null when no learner has started yet, so the page can fall back to
- * the representative sample for the showcase, and when the read fails, which
- * is logged without learner data. Same AnalyticsData shape as the sample, so
- * the dashboard renders either identically.
+ * Returns null when no learner has started yet (and for no scope), so the
+ * page can fall back to the representative sample for the showcase, and
+ * "unreadable" when the read fails, which is logged without learner data:
+ * the page then says so, rather than that no one has started (spec 7.3).
+ * Same AnalyticsData shape as the sample, so the dashboard renders either
+ * identically.
  */
 
 import { prisma } from "@/lib/prisma";
@@ -52,7 +54,7 @@ export async function buildRealAnalytics(
   locale: Locale,
   /** The moment the statistics count from; null counts everything (STATS_FROM=off). */
   from: Date | null = statsFrom()
-): Promise<AnalyticsData | null> {
+): Promise<AnalyticsData | null | "unreadable"> {
   if (scope.kind === "none") return null;
   try {
     const memberships = await prisma.membership.findMany({
@@ -330,9 +332,9 @@ export async function buildRealAnalytics(
         .sort((a, b) => b.lastActiveHoursAgo - a.lastActiveHoursAgo),
     };
   } catch (e) {
-    // Said in the log, so a broken filter doesn't pass for "no statistics
-    // yet"; how it failed, never a learner's data.
+    // Said in the log and on the page, so a broken filter doesn't pass for
+    // "no statistics yet"; how it failed, never a learner's data.
     console.error(`[statistics] failed: ${e instanceof Error ? e.name : "error"}`);
-    return null;
+    return "unreadable";
   }
 }

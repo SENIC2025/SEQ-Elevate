@@ -69,15 +69,18 @@ export default async function Page({
   // Counted from STATS_FROM (spec 7.3): the figures and what the page says
   // of them use the same date.
   const from = statsFrom();
-  const [real, organisation] = await Promise.all([
+  const [read, organisation] = await Promise.all([
     buildRealAnalytics(viewer.scope, loc, from),
     scopeOrganisationName(viewer.scope),
   ]);
+  const unreadable = read === "unreadable";
+  const real = unreadable ? null : read;
   const counting = { from: from ? countingDay(from) : null, organisation };
 
   // No figures: say why — the account isn't linked to an organisation (as
-  // the facilitator page does), counting hasn't started, or no learner (of
-  // the organisation) has started since.
+  // the facilitator page does), it may see no learners for now, the read
+  // failed, counting hasn't started, or no learner (of the organisation) has
+  // started since.
   const empty = (
     <Notice>
       <p className="mt-2 text-sm text-[var(--muted-foreground)]">
@@ -85,6 +88,8 @@ export default async function Page({
           from,
           organisation,
           noOrganisation: !seesWholeProject(viewer.roles) && !viewer.profile?.organisationId,
+          noScope: viewer.scope.kind === "none",
+          unreadable,
         })}
       </p>
     </Notice>

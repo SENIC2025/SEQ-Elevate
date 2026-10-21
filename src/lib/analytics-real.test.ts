@@ -120,7 +120,13 @@ vi.mock("@/lib/cms", () => ({
     }) as unknown as CourseContent,
 }));
 
-const { buildRealAnalytics: analyticsFor } = await import("./analytics-real");
+const { buildRealAnalytics: readAnalytics } = await import("./analytics-real");
+/** The figures, or null when there are none; a read that failed fails the test. */
+const analyticsFor = async (...args: Parameters<typeof readAnalytics>) => {
+  const data = await readAnalytics(...args);
+  if (data === "unreadable") throw new Error("the statistics read failed");
+  return data;
+};
 const { statisticsMembershipsInScope } = await import("./scope");
 
 /** An ADMIN's scope: the whole project. */
@@ -450,12 +456,13 @@ describe("the statistics' start date", () => {
     expect((await analyticsFor(PROJECT_SCOPE, "en", null))?.kpis.badges).toBe(3);
   });
 
-  it("logs a failure without learner data, and answers null", async () => {
+  it("logs a failure without learner data, and answers that the read failed, not that no one started", async () => {
+    // Review R2: a null here read as "no learner has started" on the page.
     const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
     membershipFindMany.mockImplementationOnce(async () => {
       throw new TypeError("lena@example.com: column missing");
     });
-    expect(await analyticsFor(PROJECT_SCOPE, "en", FROM)).toBeNull();
+    expect(await readAnalytics(PROJECT_SCOPE, "en", FROM)).toBe("unreadable");
     expect(error).toHaveBeenCalledTimes(1);
     expect(error.mock.calls[0]).toEqual(["[statistics] failed: TypeError"]);
   });
