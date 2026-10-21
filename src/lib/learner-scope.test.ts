@@ -15,11 +15,11 @@ import {
  * through this rule instead.
  */
 
-const STAFF = { in: ["FACILITATOR", "ADMIN", "CONTENT_EDITOR"] };
+const STAFF = { in: ["FACILITATOR", "ADMIN", "CONTENT_EDITOR", "PARTNER_ADMIN"] };
 
 describe("STAFF_ROLES", () => {
-  it("is every role other than LEARNER", () => {
-    expect([...STAFF_ROLES].sort()).toEqual(["ADMIN", "CONTENT_EDITOR", "FACILITATOR"]);
+  it("is every role other than LEARNER, the partner admin included (Release 3)", () => {
+    expect([...STAFF_ROLES].sort()).toEqual(["ADMIN", "CONTENT_EDITOR", "FACILITATOR", "PARTNER_ADMIN"]);
   });
 });
 
@@ -32,6 +32,7 @@ describe("isProjectLearner", () => {
     [["LEARNER", "FACILITATOR"]],
     [["LEARNER", "ADMIN"]],
     [["LEARNER", "CONTENT_EDITOR"]],
+    [["LEARNER", "PARTNER_ADMIN"]],
     [["ADMIN", "CONTENT_EDITOR", "FACILITATOR", "LEARNER"]],
   ])("is false for staff who still hold an old LEARNER role: %j", (roles) => {
     expect(isProjectLearner(roles)).toBe(false);

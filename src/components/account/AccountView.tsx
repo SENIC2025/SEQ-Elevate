@@ -23,6 +23,7 @@ const ROLE_KEY: Record<Role, string> = {
   FACILITATOR: "facilitator",
   ADMIN: "admin",
   CONTENT_EDITOR: "content",
+  PARTNER_ADMIN: "partnerAdmin",
 };
 
 export function AccountView({

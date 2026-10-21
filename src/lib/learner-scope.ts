@@ -30,6 +30,7 @@ const IS_STAFF: Record<Exclude<Role, "LEARNER">, true> = {
   FACILITATOR: true,
   ADMIN: true,
   CONTENT_EDITOR: true,
+  PARTNER_ADMIN: true,
 };
 
 /** The roles that make someone staff of a project, never a learner of it. */

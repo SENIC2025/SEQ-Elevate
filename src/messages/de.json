@@ -83,11 +83,13 @@
     "admin": "Admin",
     "contentEditor": "Inhalts-Redaktion",
     "content": "Inhalts-Redaktion",
+    "partnerAdmin": "Partner-Admin",
     "learnerDesc": "Die junge Person, die die Reise geht",
     "facilitatorDesc": "Der Coach, der beobachtet und bestätigt",
     "adminDesc": "Organisations-Eigentümer:in, betreut Kohorten und DSGVO",
     "contentEditorDesc": "Partner-Redaktion, schreibt Kurse im CMS",
-    "contentDesc": "Partner-Redaktion, schreibt Kurse im CMS"
+    "contentDesc": "Partner-Redaktion, schreibt Kurse im CMS",
+    "partnerAdminDesc": "Verwaltet die Personen einer Partnerorganisation, begleitet ihre Lernenden und bearbeitet und übersetzt Kurse."
   },
   "skillClusters": {
     "communicationEi": "Kommunikation & Emotionale Intelligenz",

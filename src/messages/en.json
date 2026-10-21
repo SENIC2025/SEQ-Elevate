@@ -83,11 +83,13 @@
     "admin": "Admin",
     "contentEditor": "Content Editor",
     "content": "Content Editor",
+    "partnerAdmin": "Partner admin",
     "learnerDesc": "The young person walking the journey",
     "facilitatorDesc": "The coach observing and validating",
     "adminDesc": "Organisation owner, runs cohorts and GDPR",
     "contentEditorDesc": "Partner author writing courses in the CMS",
-    "contentDesc": "Partner author writing courses in the CMS"
+    "contentDesc": "Partner author writing courses in the CMS",
+    "partnerAdminDesc": "Manages the people of one partner organisation, supports its learners, and edits and translates courses."
   },
   "skillClusters": {
     "communicationEi": "Communication & Emotional Intelligence",

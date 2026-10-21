@@ -51,6 +51,11 @@ model Project {
   // Null = use the bundled message-catalogue copy. Field KEYS are fixed
   // (they map to CompCard columns); editors reword, reorder and hide.
   compCardTemplate Json?
+  // Release 3 (D93). Safeguarding contacts per country, set by an ADMIN:
+  // { v: 1, contacts: { DE: [{ kind, organisation, phone?, … }], … }, updatedAt }.
+  // Null = none yet (learners still see 112 and the fallback line). Parsed
+  // on read, as untrusted JSON.
+  safeguarding   Json?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -63,6 +68,9 @@ model Project {
   compCards      CompCard[]
   auditLogs      AuditLog[]
   lessons        Lesson[]
+  profiles        ProjectProfile[]
+  countryMappings CountryMapping[]
+  staffHistory    StaffHistory[]
 }
 
 // ============================================================
@@ -146,12 +154,33 @@ enum Role {
   FACILITATOR
   ADMIN
   CONTENT_EDITOR
+  // Release 3 (D76): manages one partner organisation's people and supports
+  // its learners; includes CONTENT_EDITOR and FACILITATOR (permissions.ts).
+  PARTNER_ADMIN
 }
 
 enum PrivacyChoice {
   SELF
   FACILITATOR
   FACILITATOR_AND_MENTOR
+}
+
+// Release 3 (D72, Q24). Where a person takes part. GR is the country; "el"
+// is the language.
+enum Country {
+  DE
+  CY
+  BE
+  GR
+  OTHER
+}
+
+// Release 3 (Q18). How the profile step confirmed the age rule: the person
+// is at least the minimum age, or was invited by an organisation that holds
+// a parent's or guardian's permission.
+enum AgeRule {
+  SELF_MIN_AGE
+  INVITED_WITH_GUARDIAN_CONSENT
 }
 
 enum StageKey {
@@ -197,6 +226,8 @@ model User {
   badges          UserBadge[]
   missionProgress MissionProgress[]
   auditEvents     AuditLog[]
+  profiles        ProjectProfile[]
+  staffHistory    StaffHistory[]
 }
 
 // Membership = "this user belongs to this project in this role,
@@ -275,6 +306,9 @@ model Organisation {
   project     Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
   cohorts     Cohort[]
   memberships Membership[]
+  profiles        ProjectProfile[]
+  countryMappings CountryMapping[]
+  sharedCompCards CompCard[]
 
   @@index([projectId])
 }
@@ -298,6 +332,83 @@ model Cohort {
 
   @@index([projectId])
   @@index([organisationId])
+}
+
+// Release 3 (D72). One row per person per project: where they take part,
+// their organisation, the profile step's answers and the test-account mark.
+// Scoping reads a person's organisation here and nowhere else
+// (src/lib/scope.ts); Membership.organisationId is no longer read for
+// access. organisationId is written only by setPersonOrganisation (D101).
+model ProjectProfile {
+  id                        String    @id @default(cuid())
+  userId                    String
+  projectId                 String
+  country                   Country?
+  organisationId            String?
+  // Who set organisationId last: "admin" | "partner-admin" | "country" |
+  // "backfill" | "released" (D101).
+  organisationSource        String?
+  profileCompletedAt        DateTime?
+  termsVersion              String?
+  termsAcceptedAt           DateTime?
+  ageRule                   AgeRule?
+  ageConfirmedAt            DateTime?
+  // Only with PROFILE_CONSENT (D78).
+  consentVersion            String?
+  consentAt                 DateTime?
+  // Set by the inviting admin or partner admin.
+  guardianConsentRecordedAt DateTime?
+  // The guardian's permission also covers sharing the Comp Card (D80).
+  guardianSharingConsentAt  DateTime?
+  // D85; who marked it is in the audit row.
+  testAccountAt             DateTime?
+  createdAt                 DateTime  @default(now())
+  updatedAt                 DateTime  @updatedAt
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project      Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  organisation Organisation? @relation(fields: [organisationId], references: [id], onDelete: Restrict)
+
+  @@unique([userId, projectId])
+  @@index([projectId, organisationId])
+}
+
+// Release 3 (D73). Which organisation supports learners from a country.
+model CountryMapping {
+  projectId      String
+  country        Country
+  organisationId String
+  updatedAt      DateTime @updatedAt
+
+  project      Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Restrict)
+
+  @@id([projectId, country])
+}
+
+// Release 3 (D84). Everyone who ever held a staff role in a project, kept
+// when the role goes, so statistics can leave them out. Written by a
+// database trigger on Membership (migration 20261120090100) and a one-off
+// backfill.
+model StaffHistory {
+  userId    String
+  projectId String
+  firstAt   DateTime @default(now())
+  firstRole Role?    // null when the evidence was an audit row or a note
+  source    String   // "membership" | "trigger" | "audit" | "notes" | "demo-profile"
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@id([userId, projectId])
+}
+
+// Release 3 (D92). Course files whose record went, on our own Blob host
+// only; the logged admin run deletes them once a week old and unreferenced.
+model PendingFileDeletion {
+  url      String   @id
+  queuedAt DateTime @default(now())
+  reason   String   // "document.removed" | "video.cleared" | "video.replaced" | "section.deleted"
 }
 
 // ============================================================
@@ -330,6 +441,11 @@ model Course {
   // Null = today's standard layout, derived from the lessons
   // (src/lib/cms/sections/outline.ts). Learners don't read it before Release 2.
   outline         Json?
+  // Release 3 (D90). The languages other than English signed off for
+  // learners of a course created here; until a language is in the list,
+  // its learners get the whole course in English (cms/language-ready.ts).
+  // Bundled courses are always ready, whatever it holds.
+  readyLocales    String[] @default([])
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -395,12 +511,20 @@ model CompCard {
   improve      String        @default("")
   behaviour    String        @default("")
   confidence   Int           @default(3) // 1-5
-  privacy      PrivacyChoice @default(FACILITATOR)
+  privacy      PrivacyChoice @default(SELF)
+  // Release 3 (D80, D81). A card is shared only when privacy is FACILITATOR,
+  // sharedAt is set and sharedWithOrganisationId is the learner's current
+  // organisation (comp-card-visibility.ts). sharingVersion is the wording
+  // the learner was shown when sharing.
+  sharedAt                 DateTime?
+  sharedWithOrganisationId String?
+  sharingVersion           String?
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
 
   user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   project     Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  sharedWithOrganisation Organisation? @relation(fields: [sharedWithOrganisationId], references: [id], onDelete: SetNull)
   entries     CompCardEntry[]
   observations Observation[]
   validations  Validation[]
@@ -505,7 +629,8 @@ model MissionProgress {
 
 model Observation {
   id          String   @id @default(cuid())
-  observerId  String
+  // Release 3 (D89): null once the author's account is erased; the note stays.
+  observerId  String?
   observedId  String
   compCardId  String?
   cohortId    String?
@@ -513,7 +638,7 @@ model Observation {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  observer User      @relation("ObserverUser", fields: [observerId], references: [id], onDelete: Cascade)
+  observer User?     @relation("ObserverUser", fields: [observerId], references: [id], onDelete: SetNull)
   observed User      @relation("ObservedUser", fields: [observedId], references: [id], onDelete: Cascade)
   compCard CompCard? @relation(fields: [compCardId], references: [id], onDelete: SetNull)
 
@@ -523,14 +648,15 @@ model Observation {
 
 model Validation {
   id          String   @id @default(cuid())
-  validatorId String
+  // Release 3 (D89): null once the author's account is erased; the validation stays.
+  validatorId String?
   validatedId String
   compCardId  String?
   cluster     String   // skill cluster key being validated
   evidence    String?  // free-text evidence note
   createdAt   DateTime @default(now())
 
-  validator User      @relation("ValidatorUser", fields: [validatorId], references: [id], onDelete: Cascade)
+  validator User?     @relation("ValidatorUser", fields: [validatorId], references: [id], onDelete: SetNull)
   validated User      @relation("ValidatedUser", fields: [validatedId], references: [id], onDelete: Cascade)
   compCard  CompCard? @relation(fields: [compCardId], references: [id], onDelete: SetNull)
 

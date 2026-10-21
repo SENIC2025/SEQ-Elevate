@@ -56,6 +56,7 @@ const ROLE_KEY: Record<Role, string> = {
   CONTENT_EDITOR: "contentEditor",
   FACILITATOR: "facilitator",
   LEARNER: "learner",
+  PARTNER_ADMIN: "partnerAdmin",
 };
 
 export async function sendInvitation(opts: {
