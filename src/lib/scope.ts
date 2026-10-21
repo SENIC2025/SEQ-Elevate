@@ -13,7 +13,8 @@ import "server-only";
  * A viewer whose own profile is not complete gets no one either (unless
  * R3_PROFILE_GATE=off): layouts don't run on every request and server actions
  * never pass through them, so this is where it holds. Any error reading the
- * viewer gives no one, and one log line without personal data.
+ * viewer gives no one, and one log line without personal data (Next's own
+ * signals excepted: they are thrown on).
  *
  * The scope says whose data; the role says which powers (permissions.ts).
  * An ADMIN-only action asks for both (requireAdminProject).
@@ -26,6 +27,7 @@ import "server-only";
  */
 
 import { cache } from "react";
+import { unstable_rethrow } from "next/navigation";
 import type { Prisma, ProjectProfile, Role } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser, getProjectMemberships } from "@/lib/auth-helpers";
@@ -108,6 +110,9 @@ export const getViewer = cache(async (): Promise<Viewer> => {
       scope: scopeFor({ userId: user.id, name: user.name, roles, profile }),
     };
   } catch (e) {
+    // Next's own signals (render per request, a redirect) go through: a
+    // page is never built once as "nobody".
+    unstable_rethrow(e);
     // No personal data in the log: only that the read failed, and how.
     console.error(`[scope] couldn't read the viewer; no learner data shown: ${e instanceof Error ? e.name : "error"}`);
     return NOBODY;

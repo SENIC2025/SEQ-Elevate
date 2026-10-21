@@ -9,7 +9,9 @@ import { builtActionsOf, callAction, decodeActionResponse } from "./fixtures/ser
  * saveObservation, whose rules hold on every build since Release 0: a
  * facilitator's note about a staff member is refused and nothing is
  * written; the same note about a learner is saved; with no session nothing
- * is written either.
+ * is written either. Where the Release 3 tables exist, everyone here has a
+ * complete profile in one organisation, so the facilitator's scope covers
+ * them (D74); the old build has no such table and needs none.
  *
  * Requires a real database — gated on E2E_DB=1. Every email is unique to
  * the run, and everything the run made is removed afterwards.
@@ -33,10 +35,37 @@ const EMAILS = [email("facilitator"), email("staff"), email("learner")];
 const FILE = "src/app/actions/facilitator.ts";
 const PAGE = "/en/facilitator";
 
+/** The organisation everyone here belongs to (one the seed makes). */
+const ORGANISATION = "seq-elevate-proarbeit";
+
+/** Does the database have Release 3's profiles? */
+async function hasProfiles() {
+  const [row] = await prisma.$queryRaw<{ t: string | null }[]>`SELECT to_regclass('"ProjectProfile"')::text AS t`;
+  return row.t !== null;
+}
+
 async function makeUser(address: string, roles: Role[]) {
-  const user = await prisma.user.create({ data: { email: address, emailVerified: new Date() } });
+  const user = await prisma.user.create({ data: { email: address, name: "E2E", emailVerified: new Date() } });
   for (const role of roles) {
     await prisma.membership.create({ data: { userId: user.id, projectId: PROJECT, role } });
+  }
+  if (await hasProfiles()) {
+    const now = new Date();
+    await prisma.projectProfile.create({
+      data: {
+        userId: user.id,
+        projectId: PROJECT,
+        country: "DE",
+        organisationId: ORGANISATION,
+        organisationSource: "admin",
+        // profile.ts's currentTermsVersion() until the legal texts carry a version.
+        termsVersion: "unversioned",
+        termsAcceptedAt: now,
+        ageRule: "SELF_MIN_AGE",
+        ageConfirmedAt: now,
+        profileCompletedAt: now,
+      },
+    });
   }
   const sessionToken = `e2e-action-${RUN}-${Math.random().toString(36).slice(2)}`;
   await prisma.session.create({

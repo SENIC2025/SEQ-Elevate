@@ -196,6 +196,27 @@ describe("getViewer", () => {
   });
 });
 
+/*
+ * A page that reads the session can't be prerendered: Next signals that by
+ * throwing from the session read, and a redirect is a throw too. getViewer
+ * lets those through, so a page is never built once as "nobody" and served
+ * so (and the log line stays for real read errors).
+ */
+describe("getViewer and Next's own signals", () => {
+  it.each([
+    ["rendering per request", "DYNAMIC_SERVER_USAGE"],
+    ["a redirect", "NEXT_REDIRECT;replace;/en/welcome;307;"],
+  ])("lets %s through, without a log line", async (_name, digest) => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const signal = Object.assign(new Error(digest), { digest });
+    getCurrentUser.mockReset();
+    getCurrentUser.mockRejectedValue(signal);
+    await expect(getViewer()).rejects.toBe(signal);
+    expect(error).not.toHaveBeenCalled();
+    error.mockRestore();
+  });
+});
+
 describe("the builders", () => {
   const builders = {
     learnerUsersInScope,
