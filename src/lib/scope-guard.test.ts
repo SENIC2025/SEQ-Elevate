@@ -989,6 +989,8 @@ const ALLOW: AllowList = {
   "src/app/actions/learner.ts#lockRow": own("locks the learner's own enrolment row in a save (SP37)"),
   "src/app/actions/learner.ts#saveCompCard": own("the learner's own Comp Card (SP37)"),
   "src/app/actions/learner.ts#awardBadgeAction": own("the learner's own badge (SP37)"),
+  "src/app/actions/profile.ts#completeProfile": own("the profile step: the person's own profile, name and learner membership (SP34, D78)"),
+  "src/app/[locale]/welcome/page.tsx#readStep": own("the profile step's page: the person's own profile (spec 5.4)"),
   "src/app/actions/telemetry.ts#recordStageTime": own("the learner's own time on a lesson (SP37)"),
   "src/app/actions/video.ts#recordVideoCueAnswer": own("the learner's own video answer (SP37)"),
   "src/app/actions/a11y.ts#saveA11yPrefs": own("the person's own reading-help settings (SP37)"),
@@ -998,6 +1000,7 @@ const ALLOW: AllowList = {
   // ---- 3. Counts and system paths ----
   "src/lib/auth-helpers.ts#getCurrentUser": system("the signed-in person's own row, by the session's id"),
   "src/lib/auth-helpers.ts#load": system("the signed-in person's own memberships (getMemberships), by the session's id"),
+  "src/lib/auth-helpers.ts#requireCompleteProfile": system("the profile step's gate: the signed-in person's own profile, by the session's id (spec 5.3)"),
   "src/lib/role-grants.ts#ensureProjectRoles": system("grants roles at sign-in to ADMIN_EMAILS and demo profiles (auth.ts) and on page load (auth-helpers.ts)"),
   "src/lib/scope.ts#getViewer": system("the scope module reads the viewer's own profile"),
   "src/lib/scope.ts#inScope": system("the scope module's own count (peopleInScope)"),

@@ -1,14 +1,17 @@
 import { PERSONAS, THROWN, answers, type Persona, type Row } from "./kit";
 
 /**
- * The action table's rows for Stream B's files (spec 17.3): learner.ts
- * (and profile.ts once it exists). A learner's own data is keyed to the
- * session: a save names the account it was loaded for (`forUser`), and one
- * aimed at anyone else is refused; with no session nothing is read or
- * written.
+ * The action table's rows for Stream B's files (spec 17.3): learner.ts and
+ * profile.ts. A learner's own data is keyed to the session: a save names
+ * the account it was loaded for (`forUser`), and one aimed at anyone else
+ * is refused; with no session nothing is read or written. The profile step
+ * takes no one's id at all: it is the signed-in person's own, and after
+ * the first completion a call changes only the Terms, the consent and a
+ * blank name (SP34).
  */
 
 const LEARNER = "src/app/actions/learner.ts";
+const PROFILE = "src/app/actions/profile.ts";
 const PAGE = "/en/learner";
 
 /** No session: the action throws (requireLearner). Signed in: `refused`. */
@@ -93,6 +96,37 @@ export const rows: Row[] = [
     outcome: otherAccount(undefined),
     tables: ["CompCard"],
     why: "a Comp Card is saved only for the account it was loaded for, and never shares it (D80)",
+  },
+  {
+    kind: "call",
+    file: PROFILE,
+    name: "completeProfile",
+    page: "/en/welcome",
+    args: (c) => [
+      {
+        name: `Renamed ${c.run}`,
+        country: "CY",
+        age: "invited",
+        termsAccepted: true,
+        consent: true,
+        organisationId: c.other.id,
+        userId: c.target.userId,
+      },
+    ],
+    refuse: PERSONAS,
+    partnerAdmin: "anyone",
+    // A completed profile: another country, age rule, organisation or name
+    // sent again changes nothing ("ok", nothing to store). FI's profile isn't
+    // complete: its first completion is refused, as the invited age rule
+    // needs a guardian's permission an inviter recorded. No session: no one.
+    outcome: (as) =>
+      as === "anonymous"
+        ? answers({ ok: false, error: "signed-out" })
+        : as === "FI"
+          ? answers({ ok: false, errors: { age: "not-invited" } })
+          : answers({ ok: true }),
+    tables: ["ProjectProfile", "User", "Membership", "CompCard", "AuditLog"],
+    why: "the profile step is one's own: no one else's, and after the first completion no country, age rule, organisation or name (SP34, UB2)",
   },
   {
     kind: "call",
