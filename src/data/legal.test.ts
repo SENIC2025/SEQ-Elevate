@@ -124,6 +124,7 @@ describe("legalPlaceholders (what the guard refuses)", () => {
       "Retention: TBD",
       "To be completed before launch",
       "A list [",
+      "Escaped, it is still a draft's mark: \\[DIESIS address\\]",
     ]) {
       expect(legalPlaceholders(draft), draft).not.toEqual([]);
     }

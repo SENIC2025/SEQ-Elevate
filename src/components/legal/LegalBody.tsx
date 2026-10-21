@@ -33,7 +33,10 @@ function nearestHeading(blocks: Block[], index: number): string | null {
 
 /** The words of inline content, without its marks. */
 function plain(nodes: Inline[]): string {
-  return nodes.map((n) => (n.type === "text" ? n.text : plain(n.children))).join("").trim();
+  return nodes
+    .map((n) => (n.type === "text" ? n.text : n.type === "break" ? " " : plain(n.children)))
+    .join("")
+    .trim();
 }
 
 function renderBlock(block: Block, key: number, near: string): ReactNode {
@@ -110,6 +113,8 @@ function inlines(nodes: Inline[]): ReactNode {
     switch (node.type) {
       case "text":
         return node.text;
+      case "break":
+        return <br key={i} />;
       case "strong":
         return <strong key={i}>{inlines(node.children)}</strong>;
       case "link":

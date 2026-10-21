@@ -6,8 +6,11 @@
  *
  * The subset:
  * - `## heading` and `### heading`;
- * - paragraphs (lines in a row; a blank line ends one);
- * - lists: `- item`, and `  - item` (indented) for a second level;
+ * - paragraphs (lines in a row; a blank line ends one), each line its own:
+ *   a line break in the text is one on the page, so an address or
+ *   numbered points keep their lines;
+ * - lists: `- item`, and `  - item` (indented) for a second level; a line
+ *   under an item that starts no other block carries it on, on a new line;
  * - tables in the GitHub form: a header row, a `|---|---|` row, body rows;
  * - inline `**bold**` and `[text](address)`, the address only https:,
  *   mailto:, /legal/<document> or /help (the page adds the language);
@@ -26,6 +29,7 @@ export type LegalHref = { kind: "external"; href: string } | { kind: "internal";
 
 export type Inline =
   | { type: "text"; text: string }
+  | { type: "break" }
   | { type: "strong"; children: Inline[] }
   | { type: "link"; href: LegalHref; children: Inline[] };
 
@@ -61,7 +65,10 @@ export function legalHref(address: string): LegalHref | null {
 
 const ESCAPABLE = "*[]|\\";
 
-/** Inline text: bold, links and escapes; `inLink`/`inStrong` stop either from nesting in itself. */
+/**
+ * Inline text: bold, links, escapes, and a line break for each "\n";
+ * `inLink`/`inStrong` stop either from nesting in itself.
+ */
 export function parseInline(source: string, inLink = false, inStrong = false): Inline[] {
   const out: Inline[] = [];
   let text = "";
@@ -72,6 +79,12 @@ export function parseInline(source: string, inLink = false, inStrong = false): I
   let i = 0;
   while (i < source.length) {
     const c = source[i];
+    if (c === "\n") {
+      flush();
+      out.push({ type: "break" });
+      i += 1;
+      continue;
+    }
     if (c === "\\" && ESCAPABLE.includes(source[i + 1] ?? "")) {
       text += source[i + 1];
       i += 2;
@@ -202,10 +215,10 @@ export function parseLegalMarkdown(source: string): Block[] {
         } else if (startsBlock(i)) {
           break;
         } else {
-          // A line that carries on the item above.
+          // A line that carries on the item above, on a line of its own.
           const last = items[items.length - 1];
           const target = last.items.length ? last.items[last.items.length - 1] : last;
-          target.children.push(...parseInline(` ${lines[i].trim()}`));
+          target.children.push(...parseInline(`\n${lines[i].trim()}`));
         }
         i += 1;
       }
@@ -217,7 +230,7 @@ export function parseLegalMarkdown(source: string): Block[] {
       paragraph.push(lines[i].trim());
       i += 1;
     }
-    blocks.push({ type: "paragraph", children: parseInline(paragraph.join(" ")) });
+    blocks.push({ type: "paragraph", children: parseInline(paragraph.join("\n")) });
   }
   return blocks;
 }

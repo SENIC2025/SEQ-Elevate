@@ -9,6 +9,7 @@ import { legalHref, linkAddresses, parseInline, parseLegalMarkdown, tableCells, 
  */
 
 const text = (t: string): Inline => ({ type: "text", text: t });
+const br: Inline = { type: "break" };
 
 describe("parseLegalMarkdown", () => {
   it("reads headings, paragraphs and lists two levels deep", () => {
@@ -27,13 +28,13 @@ describe("parseLegalMarkdown", () => {
     );
     expect(blocks).toEqual([
       { type: "heading", level: 2, children: [text("Who is responsible")] },
-      { type: "paragraph", children: [text("DIESIS decides how your data is used. It works with partners.")] },
+      { type: "paragraph", children: [text("DIESIS decides how your data is used."), br, text("It works with partners.")] },
       { type: "heading", level: 3, children: [text("Contact")] },
       {
         type: "list",
         items: [
           { children: [text("By email")], items: [{ children: [text("within a month")], items: [] }] },
-          { children: [text("By post,"), text(" in Brussels")], items: [] },
+          { children: [text("By post,"), br, text("in Brussels")], items: [] },
         ],
       },
     ]);
@@ -59,6 +60,28 @@ describe("parseLegalMarkdown", () => {
       ],
     });
     expect(blocks[1]).toEqual({ type: "paragraph", children: [text("After the table.")] });
+  });
+
+  it("keeps a paragraph's lines as lines: an address, numbered points", () => {
+    expect(parseLegalMarkdown("A\nB")).toEqual([{ type: "paragraph", children: [text("A"), br, text("B")] }]);
+    expect(parseLegalMarkdown("DIESIS Network\nBoulevard Charlemagne 74\n1000 Brussels")).toEqual([
+      { type: "paragraph", children: [text("DIESIS Network"), br, text("Boulevard Charlemagne 74"), br, text("1000 Brussels")] },
+    ]);
+    expect(parseLegalMarkdown("1. First\n2. Second\n\na) one\nb) two")).toEqual([
+      { type: "paragraph", children: [text("1. First"), br, text("2. Second")] },
+      { type: "paragraph", children: [text("a) one"), br, text("b) two")] },
+    ]);
+    // Bold and links may still run over a line's end.
+    expect(parseLegalMarkdown("**Data\ncontroller** [write\nto us](mailto:privacy@example.org)")).toEqual([
+      {
+        type: "paragraph",
+        children: [
+          { type: "strong", children: [text("Data"), br, text("controller")] },
+          text(" "),
+          { type: "link", href: { kind: "external", href: "mailto:privacy@example.org" }, children: [text("write"), br, text("to us")] },
+        ],
+      },
+    ]);
   });
 
   it("keeps a line starting with | that has no rule under it as text", () => {

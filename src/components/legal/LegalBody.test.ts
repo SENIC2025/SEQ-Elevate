@@ -29,6 +29,11 @@ describe("LegalBody", () => {
     expect(html).toMatch(/<ul class="mt-3 ml-5 list-disc[^"]*"><li>Access<ul class="mt-1 ml-5 list-\[circle\][^"]*"><li>within a month<\/li><\/ul><\/li><\/ul>/);
   });
 
+  it("breaks the line where the text does: an address keeps its lines", () => {
+    const html = render("DIESIS Network\nBoulevard Charlemagne 74\n1000 Brussels");
+    expect(html).toContain('<p class="mt-3">DIESIS Network<br/>Boulevard Charlemagne 74<br/>1000 Brussels</p>');
+  });
+
   it("links our own pages in the page's language, and other sites as written", () => {
     const html = render("See [cookies](/legal/cookies), [help](/help) and [the authority](https://example.org/dpa).");
     expect(html).toContain('href="/de/legal/cookies"');

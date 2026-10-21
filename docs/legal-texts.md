@@ -54,8 +54,11 @@ DIESIS decides how and why your data is used.
 - **`body`** is written in a small part of Markdown (`src/lib/legal-markdown.ts`),
   and nothing else:
   - `## Heading` and `### Heading`;
-  - paragraphs, separated by a blank line;
-  - lists: `- item`, and `  - item` (two spaces in) for a second level;
+  - paragraphs, separated by a blank line. A line break inside a paragraph is a
+    line break on the page, so an address or numbered points (`1.`, `a)`) keep
+    their lines: write each paragraph of running text on one line;
+  - lists: `- item`, and `  - item` (two spaces in) for a second level; a line
+    under an item carries it on, on a new line;
   - tables: a header row, a `|---|---|` row, then the rows;
   - `**bold**`;
   - links `[words](address)`, where the address is `https://…`, `mailto:…`,
@@ -64,6 +67,8 @@ DIESIS decides how and why your data is used.
   address is shown as text, and the test refuses it.
 - Inside the backticks, write `` \` `` for a backtick and `\${` for `${`. A Markdown
   backslash (`\*`, `\|`) is written twice: `\\*`, `\\|`.
+- A `[` is only for a link: the test refuses any other, with a backslash before
+  it too, since a bracket is how a draft marks what is missing. Write `(…)`.
 
 ## 3. Dropping a text in
 
