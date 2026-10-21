@@ -1361,7 +1361,7 @@
     "whoSees": "Facilitators at {organisation} and the DIESIS and SENIC staff who run the platform will see your name and email, your progress, your last activity, the time you spend on each lesson, your quiz and video-question results and the choices you make in exercises. Your Comp Card stays private unless you share it.",
     "whoSeesNoOrganisation": "The DIESIS and SENIC staff who run the platform will see your name and email, your progress, your last activity, the time you spend on each lesson, your quiz and video-question results and the choices you make in exercises. Once your account is linked to a partner organisation, its facilitators will too. Your Comp Card stays private unless you share it.",
     "setUpBy": "Your account was set up by {organisation}.",
-    "setUpByMismatch": "{organisation} supports learners in another country. If you continue with {country}, DIESIS will check which organisation supports you; until then only DIESIS and SENIC staff see your progress.",
+    "setUpByMismatch": "{organisation} supports learners in another country. If you continue with {country, select, DE {Germany} CY {Cyprus} BE {Belgium} GR {Greece} other {another country}}, DIESIS will check which organisation supports you; until then only DIESIS and SENIC staff see your progress.",
     "age": {
       "self": "I am {minAge} or older.",
       "invited": "{organisation} invited me and has my parent's or guardian's permission.",
@@ -1387,7 +1387,7 @@
   },
   "guestWork": {
     "title": "Work saved on this browser before you signed in",
-    "summary": "{courses}. Comp Card: {compCard, select, true {yes} other {no}}.",
+    "summary": "{n, plural, =0 {No course progress} other {{courses}}}. Comp Card: {compCard, select, true {yes} other {no}}.",
     "add": "Add it to my account",
     "remove": "Remove it from this browser",
     "added": "Added to your account.",

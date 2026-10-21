@@ -100,7 +100,9 @@ const SPEC_ENGLISH: Record<string, string> = {
   "profile.whoSees": "Facilitators at {organisation} and the DIESIS and SENIC staff who run the platform will see your name and email, your progress, your last activity, the time you spend on each lesson, your quiz and video-question results and the choices you make in exercises. Your Comp Card stays private unless you share it.",
   "profile.whoSeesNoOrganisation": "The DIESIS and SENIC staff who run the platform will see your name and email, your progress, your last activity, the time you spend on each lesson, your quiz and video-question results and the choices you make in exercises. Once your account is linked to a partner organisation, its facilitators will too. Your Comp Card stays private unless you share it.",
   "profile.setUpBy": "Your account was set up by {organisation}.",
-  "profile.setUpByMismatch": "{organisation} supports learners in another country. If you continue with {country}, DIESIS will check which organisation supports you; until then only DIESIS and SENIC staff see your progress.",
+  // The country is named by its code (DE, CY, BE, GR, OTHER), each in the
+  // words the sentence needs in every language (a select, not a name put in).
+  "profile.setUpByMismatch": "{organisation} supports learners in another country. If you continue with {country, select, DE {Germany} CY {Cyprus} BE {Belgium} GR {Greece} other {another country}}, DIESIS will check which organisation supports you; until then only DIESIS and SENIC staff see your progress.",
   "profile.age.self": "I am {minAge} or older.",
   "profile.age.invited": "{organisation} invited me and has my parent's or guardian's permission.",
   "profile.age.required": "You can continue only if this is true.",
@@ -114,7 +116,8 @@ const SPEC_ENGLISH: Record<string, string> = {
   "profile.failed": "That didn't save. Please try again.",
   "profile.notSaving": "Finish your profile to save your progress. <welcome>Finish it now</welcome>",
   "guestWork.title": "Work saved on this browser before you signed in",
-  "guestWork.summary": "{courses}. Comp Card: {compCard, select, true {yes} other {no}}.",
+  // `n`: how many courses there are; a Comp Card alone (or badges) is work too.
+  "guestWork.summary": "{n, plural, =0 {No course progress} other {{courses}}}. Comp Card: {compCard, select, true {yes} other {no}}.",
   "guestWork.add": "Add it to my account",
   "guestWork.remove": "Remove it from this browser",
   "guestWork.added": "Added to your account.",
@@ -205,6 +208,13 @@ describe("Release 3's message keys", () => {
     expect(at(en, "facilitator.compCardSubmissions")).toBe("Comp Cards shared with you");
     for (const messages of [en, de, el]) {
       expect(JSON.stringify(at(messages, "compCard.sharing"))).not.toMatch(/mentor/i);
+    }
+  });
+
+  it("name the country of setUpByMismatch by a select on its code, in every language", () => {
+    for (const messages of [en, de, el]) {
+      const text = at(messages, "profile.setUpByMismatch") as string;
+      expect(text).toMatch(/\{country, select, DE \{[^}]+\} CY \{[^}]+\} BE \{[^}]+\} GR \{[^}]+\} other \{[^}]+\}\}/);
     }
   });
 
