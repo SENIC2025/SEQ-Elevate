@@ -24,10 +24,12 @@ has taken on are marked **[SENIC action]**. "The letter" means SENIC's letter to
 the consortium of 13 October 2026, which records the consortium's answers
 (K1–K11) and SENIC's suggested defaults (Q-numbers).
 
-_Last updated: 2026-10-20. Describes the platform at code version 54084cb.
-Changes planned for Release 3 (20 Nov 2026, before the 1 Dec 2026 pilot) are
-marked "Planned from 20 November". Maintained by SENIC (developer and operator;
-processor)._
+_Last updated: 2026-10-21. Describes the platform at code version 54084cb,
+except data rights, test accounts and the clean-up (§1 note 2, §2, §2b rows 6,
+8, 11, 13 and 14 and the retention note, §5, §6), which describe Release 3 as
+it ships on 20 Nov 2026. Other changes planned for Release 3 (before the 1 Dec
+2026 pilot) are marked "Planned from 20 November". Maintained by SENIC
+(developer and operator; processor)._
 
 ---
 
@@ -62,9 +64,12 @@ managed-cloud providers (sub-processors):
      (`src/app/api/document/upload/route.ts:44`).
    - But anyone who has a file's link can open it. That includes documents not
      yet shown to learners.
-   - Removing a document from a lesson does not delete the file
-     (`src/app/actions/lesson.ts:175-180`). [SENIC action: delete files when
-     they are removed.]
+   - A file removed from a lesson (a document removed, a video cleared or
+     replaced, a lesson deleted) is queued. The ADMIN clean-up run deletes it
+     from the store once it is 7 days old and nothing uses it again; until then
+     it stays reachable by its address. Only the production deployment deletes
+     files, and only from its own store (`src/lib/account-data.ts`,
+     `deletePendingFiles`; D92).
 3. **Resend.**
    - Sign-in emails are in English only. Invitations are in English, German or
      Greek.
@@ -160,15 +165,15 @@ Framework.]
 | Organisation & sorting | ✅ | Learners grouped into organisations & cohorts; courses/documents ordered |
 | Storage | ✅ | PostgreSQL (Neon, EU) + file storage (Blob) + daily off-site backup copies (Scaleway, Paris; kept 30 days, the newest 7 always kept), each made on a GitHub-hosted runner; guest progress kept in the learner's own browser (local storage) |
 | Provision / making available | ✅ | Serving content and a learner's own data back to them and to authorised staff |
-| Retention | ✅ | Today learner records are kept with no time limit, and nothing deletes them automatically: `vercel.json` has no scheduled job, and `Cohort.endsAt` is stored but not used. Retention period **[Controller]** [For DIESIS / its adviser: retention, see §5.] |
+| Retention | ✅ | Learner records are kept with no time limit set yet, and no scheduled job deletes them: `vercel.json` has none, and `Cohort.endsAt` is stored but not used. An ADMIN's clean-up run, before launch and then monthly, erases accounts marked as test accounts, ends demo sessions, purges expired sessions and sign-in links, and deletes queued course files (`docs/data-management.md`). Retention period **[Controller]** [For DIESIS / its adviser: retention, see §5.] |
 | Retrieval | ✅ | Reading a learner's progress / Comp Card |
 | Querying | ✅ | Database queries (parameterised, via Prisma) |
 | Modification | ✅ | Updating progress, reflections, roles, cohort assignments |
-| Transmission | ✅ | Sign-in and invitation emails (Resend); a learner's data export to themselves; the nightly backup to Scaleway through GitHub; the learner's browser contacting YouTube where a lesson embeds a YouTube video |
+| Transmission | ✅ | Sign-in and invitation emails (Resend); a person's data export to themselves, or by an ADMIN for a request in DIESIS's register; the nightly backup to Scaleway through GitHub; the learner's browser contacting YouTube where a lesson embeds a YouTube video |
 | Distribution | ⚠️ yes | **Today:** every facilitator and admin in the project can see each learner's progress, scores, time per stage and scenario choice. They also see the Comp Card answers "what went well", "what I'd improve" and confidence, **whatever the learner chose**. The learner makes one choice per card. On screen, "Only me" hides only "what was difficult"; "behaviour" is hidden unless the learner chose "my facilitator and mentor" (`src/components/role/RealFacilitatorView.tsx:116-117,159-170`). Today this visibility is applied on the staff screen, not on the server.<br>**Planned from 20 November:** "Only me" becomes the default and hides the whole card, with the filtering done on the server. Partner staff see only learners of their own organisation. DIESIS (and SENIC, for support) see all learners. |
 | Matching | ⚠️ limited | Staff dashboards put labels on individual learners who have not completed the course: "needs attention" (progress above 0% and below 50%) and "stuck" (no activity for more than 72 hours). The dashboards also show each learner's assessment score (`src/lib/server-queries.ts:267`; `src/lib/analytics-real.ts:132-136`). The labels are only displayed; the platform takes no automatic action on them. [For DIESIS / its adviser: whether these labels count as profiling that must be disclosed. The letter gives no default.] |
 | Linking | ✅ | Linking a user to their enrolments, cohort and organisation |
-| Deletion / destruction | ✅ | Self-service account deletion, which deletes linked records (see §5). Admins have no tool to erase or export another person's data. "Remove from project" only takes away roles and keeps the account and all its data (`src/app/actions/admin.ts:300-310`); the person's session is not ended, and they get a learner role again on their next signed-in page load (`src/lib/learner-membership.ts:32-37`; `src/app/actions/learner.ts:107-120`).<br>**Planned from 20 November:** admins can reset or erase accounts marked as test accounts. |
+| Deletion / destruction | ✅ | Self-service account deletion, which deletes linked records (see §2b, retention note). On **Admin → Data**, ADMINs (DIESIS, SENIC) export or erase any account for a request in DIESIS's register (reference `REQ-YYYY-NNN`), and mark, reset and erase test accounts; every use is logged (`src/app/actions/admin-data.ts`; `docs/data-management.md`). "Remove from project" only takes away roles and keeps the account and all its data (`src/app/actions/admin.ts:300-310`); the person's session is not ended, and they get a learner role again on their next signed-in page load (`src/lib/learner-membership.ts:32-37`; `src/app/actions/learner.ts:107-120`). |
 | Restriction | ✅ | The Comp Card privacy setting (see Distribution) and content publish/unpublish. There is **no consent-withdrawal function**; only a code comment mentions one (`prisma/schema.prisma:537`). [For DIESIS / its adviser: SENIC's suggested default (Q16) uses consent only for optional sharing. If that is chosen, SENIC suggests the Comp Card setting serves as the way to withdraw.] |
 
 ---
@@ -199,35 +204,34 @@ The personal data actually stored is deliberately minimal.
 | 3 | **Comp Card (self-reflection)** | Free-text reflections the learner writes + a 1–5 confidence rating + **one privacy choice per card**.<br>**Today** there are three options: "Only me"; "Me and my facilitator"; "Me, my facilitator and mentor", although no mentor role exists. The default is "Me and my facilitator" (`prisma/schema.prisma:387`; `src/app/actions/learner.ts:291`). The platform sets no length limit of its own on Comp Card text (`src/app/actions/learner.ts:282-298`).<br>**Planned from 20 November:** two options, "Only me" (the default) and "Me and the facilitators at &lt;organisation&gt;". Existing cards are reset to "Only me". | Storage, modification, restriction |
 | 4 | **Facilitator support** | **Today any facilitator sees every learner in the project**, not only their own cohort or organisation (`src/lib/facilitator-access.ts:15-16`; `src/lib/server-queries.ts:120-134`). For each learner they see: name and email; progress, current course and stage, last activity, and time per stage; how many in-video questions the learner answered, and how many correctly; assessment and simulation scores, and the scenario choice; the Comp Card (see §2, Distribution) (`src/lib/server-queries.ts:261-292`; `src/components/role/RealFacilitatorView.tsx:496-507`).<br>**Planned from 20 November:** partner facilitators and partner admins see only learners of their own organisation, enforced on the server. DIESIS (and SENIC, for support) see everyone, including "Other".<br>Until then, SENIC's plan is that partner staff get only the Editor role, which shows no learner data, only learner counts (`src/lib/cms/course-admin.ts:111,180`).<br>[For DIESIS / its adviser: SENIC's suggested default (Q25) is that facilitators see their whole organisation. Proposed country mapping (Q24): Germany = Pro Arbeit, Cyprus = Synthesis, Greece = University of Macedonia, Belgium and Other = DIESIS.] | Retrieval, provision |
 | 5 | **Admin / cohort management** | Email, name, role(s), organisation & cohort assignment (`Membership`) | Organisation, modification, linking |
-| 6 | **Activity events (learning analytics)** | Event records linked to the learner's user id: when they open a course; seconds spent on each stage; whether each in-video question was answered correctly (`src/app/actions/telemetry.ts:18-79`; `src/app/actions/video.ts:19-60`). These are personal data. They are stored in the same table as the audit log, and no job deletes them. Nothing is recorded for guests. | Storage, retention |
+| 6 | **Activity events (learning analytics)** | Event records linked to the learner's user id: when they open a course; seconds spent on each stage; whether each in-video question was answered correctly (`src/app/actions/telemetry.ts:18-79`; `src/app/actions/video.ts:19-60`). These are personal data. They are stored in the same table as the audit log. They are in the person's data download, and are deleted with the account (or by a test account's reset). Nothing is recorded for guests. | Storage, retention, deletion |
 | 7 | **Analytics dashboard** | Facilitators and admins see, for learners who have started at least one course: a table with one row per learner (name, or email if there is no name; cohort; progress; seconds per stage; hours since last activity; assessment score; and a done / stuck / active status); a progress funnel; and a heatmap of when learners open courses, by weekday and 4-hour block (`src/app/[locale]/analytics/page.tsx:30-34`; `src/lib/analytics-real.ts:38-62,138-151,196-207`).<br>Statistics leave out people who currently hold a staff role (`src/lib/learner-scope.ts:54-62`, used at `src/lib/analytics-real.ts:39`).<br>**Planned from 20 November:** statistics also leave out anyone who ever held a staff role and accounts marked as test accounts, and they count from 1 Dec 2026.<br>[For DIESIS / its adviser: SENIC's suggested default for test data (Q19) is to hide it from statistics and delete accounts marked as test accounts.] | Retrieval, provision |
-| 8 | **GDPR self-service** | **Export:** a JSON file containing the account, memberships, course progress and reflections, Comp Card, badges, and the staff notes and validations about the learner (`src/lib/gdpr-export.ts:13-105`). It leaves out activity events, audit rows about the person, notes the person wrote as staff, and some account fields.<br>**Delete:** see §5.<br>[SENIC action: add activity events to the export, or state the gap in the privacy text.] | Transmission, deletion |
+| 8 | **GDPR self-service** | **Export:** a JSON file with the account (including when the address was first confirmed and last changed) and profile (country, organisation, Terms version and time, age statement, consent, the date a guardian's permission was recorded, the test-account mark, and whether and since when the person held a staff role); memberships; course progress and reflections; the Comp Card and how it is shared; badges; the activity events; the log entries about the person (action and date, not who); sessions and pending sign-in links (count and expiry, never a token); and the staff notes and validations about the learner, signed "a facilitator at ‹organisation›". For staff, how many notes and validations they wrote, not their text (`src/lib/gdpr-export.ts`).<br>The same file goes to an ADMIN who exports it for a request in DIESIS's register (a form on Admin → Data; logged with the reference).<br>**Delete:** see the retention note below. | Transmission, deletion |
 | 9 | **Accessibility preferences** | Text size, easy-read font and contrast settings on the user record. A copy is also kept in the browser's local storage and stays there after sign-out (`src/components/a11y/AccessibilityProvider.tsx:32,36-44`). [For DIESIS / its adviser: see the easy-read question above this table.] | Storage, modification |
 | 10 | **Invitation email** | An admin adds someone and (by default) emails them a one-click join link: their email, optional name, role, and the inviting admin's name (or email), sent via Resend. Only an admin can trigger it; the link expires after 7 days | Transmission |
-| 11 | **Staff notes and competence validations** | A facilitator's free-text note about a learner (up to 2000 characters), and the validation of a skill area with free-text evidence (`src/app/actions/facilitator.ts:51-117`). Learners cannot see these in the app, only in their export. There is no screen for reading notes. | Storage, retrieval |
+| 11 | **Staff notes and competence validations** | A facilitator's free-text note about a learner (up to 2000 characters), and the validation of a skill area with free-text evidence (`src/app/actions/facilitator.ts:51-117`). Learners cannot see these in the app, only in their export, where they are signed "a facilitator at ‹organisation›", never by name. There is no screen for reading notes. When the author's account is erased, their notes stay, unsigned (D89). | Storage, retrieval |
 | 12 | **Guest use (no account)** | Progress, reflections and Comp Card text are kept only in the browser's local storage, with no expiry. At sign-in they are merged into whichever account signs in on that browser (`src/store/demo-state.tsx:549-553,652-665`). On a shared device, one person's guest notes can therefore end up in another person's account. | Storage, linking |
-| 13 | **Sign-in, sessions and abuse protection** | Session records (token and expiry; no IP or browser), valid for 30 days and renewed on use. Sign-in token records holding the plain email address, valid 24 hours for sign-in and 7 days for invitations; used tokens are deleted, unused ones stay. Rate-limit records keyed by a hash of the email address or by the internal user id. | Storage, deletion |
-| 14 | **Audit log of staff actions** | Records who added, invited, removed or changed the role of whom; organisation and cohort changes; that a note or validation was created (not about whom); exports and deletions; content saves. It stores user ids, not names. There is no screen for reading it and no retention limit. It does **not** record sign-ins, failed sign-ins, staff viewing learner data, or document changes. | Storage |
+| 13 | **Sign-in, sessions and abuse protection** | Session records (token and expiry; no IP or browser), valid for 30 days and renewed on use. Sign-in token records holding the email address, valid 24 hours for sign-in and 7 days for invitations; used tokens are deleted; expired ones, and expired sessions, are deleted by the ADMIN clean-up run. Rate-limit records are stored under a keyed hash (HMAC with a server secret) of the email address or the internal user id, so neither can be read back from them; rows older than two hours are deleted as new ones are written (`src/lib/rate-limit.ts`). | Storage, deletion |
+| 14 | **Audit log of staff actions** | Records who added, invited, removed or changed the role of whom; organisation and cohort changes; that a note or validation was created (not about whom); exports and deletions; content saves. It stores user ids, not names. ADMINs read its data and account records (exports and erasures, resets and test marks, organisation and country changes, clean-up runs) on Admin → Data, with the admin's address and never a learner's name. It has no retention limit. It does **not** record sign-ins, failed sign-ins, staff viewing learner data, or document changes. | Storage |
 
 Retention note:
-- When an account is deleted, the user record and everything linked to it are
-  deleted: memberships, sessions, course progress, Comp Card, badges, and staff
-  notes and validations about the person.
-- Some records remain. They no longer point to the person through the actor
-  field, but they are **not anonymous**:
-  - activity events and audit rows keep timestamps and course identifiers, with
-    the actor left empty;
-  - the `account.deleted` row and the staff-action rows about the person keep
-    the person's user id (`src/app/actions/gdpr.ts:47-57`;
-    `src/app/actions/admin.ts:38-42`);
-  - unused sign-in tokens keep the plain email address;
-  - backups keep all the data until they are pruned (§5).
-- When a **staff member** deletes their account, the notes and validations they
-  wrote about learners are deleted too (`prisma/schema.prisma:505,522`).
-- [SENIC action: remove the user id from the remaining rows on erasure, and
-  delete unused sign-in tokens.]
+- Erasing an account (the person's own "Delete my account", or an ADMIN's
+  erasure for a request) is one database transaction
+  (`src/lib/account-data.ts`, `eraseAccount`). It deletes the user record and
+  everything linked to it: memberships, profile, sessions, course progress,
+  Comp Card, badges, staff notes and validations about the person, and also
+  their activity events, the log of their Comp Card's sharing, their pending
+  sign-in links (whatever the case of the address) and their rate-limit
+  records.
+- Other audit rows about the person lose the person's user id. One record that
+  an account was deleted keeps it, without name or address, so that the erasure
+  can be applied again after a restore from backup (§5).
+- Notes and validations a **staff member** wrote about learners stay when the
+  staff member's account is erased, without the author (D89, SENIC's default).
+- Backups keep the data until they are pruned (§5).
 - [For DIESIS / its adviser: whether staff notes about a learner must survive
-  when the staff member leaves.]
+  when the staff member leaves. Built default: they stay, unsigned; deleting
+  them instead is a one-line change.]
 
 ---
 
@@ -339,15 +343,16 @@ Google's player and cookies load without a click. Click-to-load is planned from
   **contractual** (Erasmus+/programme terms). The platform does not impose a
   period of its own.
 - **Regular automatic deletion within time limits?** **Not yet** — there is no
-  scheduled purge. Learner-initiated deletion is implemented. It deletes the
-  account and its linked records, but some records remain and are not anonymous
-  (§2b, retention note). Other gaps:
-  - Expired sessions are deleted only if someone presents them again.
-  - Unused sign-in tokens stay.
-  - Uploaded files are never deleted by the platform.
+  scheduled purge. Erasure, by the person or by an ADMIN for a request, is
+  implemented and complete (§2b, retention note). An ADMIN's clean-up run,
+  before launch and monthly during the pilot (`docs/data-management.md`),
+  deletes expired sessions and sign-in links, every demo session, the accounts
+  marked as test accounts, and course files removed from lessons more than 7
+  days earlier that nothing uses.
 - **Data-deletion policy document?** **Not yet formalised — [Controller] to
-  produce.** The platform supports learner self-service erasure and data export
-  (with the gaps above), so the policy can be enforced once defined. Once DIESIS
+  produce.** The platform supports self-service and ADMIN erasure and data
+  export, and `docs/data-management.md` describes how requests, test accounts
+  and the clean-up are handled, so the policy can be enforced once defined. Once DIESIS
   sets the rule, SENIC builds scheduled deletion with these safeguards:
   - a dry run that DIESIS approves before the first large deletion;
   - warnings to learners 30 and 7 days ahead;
@@ -371,12 +376,13 @@ Google's player and cookies load without a click. Click-to-load is planned from
   - Neon's own point-in-time history is 6 hours on the current (Free) plan, and
     7 days after the move to the paid (Launch) plan before participants start
     (`BACKUP.md:11-14`) **[to confirm once set]**.
-  - The documented restore procedure requires re-applying the erasures and
-    corrections made after the dump's date, before restored data is used
-    (`BACKUP.md:202-205`, step R10). This is a manual step.
-    - If the live database itself is lost, the record of those erasures is
-      lost with it, because it is kept in the same database's audit log.
-    - [SENIC action: keep a record of erasures outside the database.]
+  - The documented restore procedure applies again, before restored data is
+    used, every erasure recorded after the dump's date (BACKUP.md, step R10).
+    Each erasure leaves an `account.deleted` record with the erased account's
+    id, and every daily dump carries these records, so the newest available
+    dump lists them; only erasures made in the last day before a total loss of
+    the database are at risk. Corrections are applied again from DIESIS's
+    register of requests.
 
 ---
 
@@ -391,9 +397,9 @@ unless marked _planned_.
   - There is no organisation or cohort scoping yet; it is planned from 20 November.
   - Comp Card field visibility is applied on the staff screen today. Server-side filtering is planned from 20 November.
 - Server-side authorisation on all data-mutating operations and file-upload token issuance.
-- Rate limits on sign-in, invitations and uploads.
-  - Keys for email-based limits are hashed. Upload limits and per-admin invitation limits use the internal user id.
-  - [SENIC action: fix known weaknesses in the rate limiter.]
+- Rate limits on sign-in, invitations, adding people and uploads (`src/lib/rate-limit.ts`).
+  - Every key is stored as a keyed hash (HMAC with a server secret) of the email address or the internal user id.
+  - When the limiter can't count, sign-in links are allowed (so learners can still sign in) and every staff-only limit refuses.
 
 **Data minimisation & privacy by design**
 - Minimal identity data: the email address, and a name only if an admin enters one. Planned from 20 November: also country, Terms acceptance and age confirmation. See §2b on IP addresses, cookies and free text.
@@ -403,11 +409,10 @@ unless marked _planned_.
 
 **Data subject rights**
 - Self-service data export (**JSON only**; contents in §2b row 8) and account deletion.
-- Deletion removes the learner's linked records. The remaining log rows are not anonymous (§2b).
+- Erasure removes the person's records and unlinks the log rows about them (§2b, retention note).
 - Learners cannot correct their own name or email. An admin can change a name only by adding the person again; nobody can change an email address in the app.
-- Admins cannot export or erase another person's data.
-- [For DIESIS: the procedure for corrections and for requests from people who cannot sign in (K3). SENIC's suggestion: they go to DIESIS, and SENIC carries them out on DIESIS's instruction.]
-- [SENIC action: an admin tool for export and erasure on request.]
+- ADMINs (DIESIS, SENIC) export or erase any account on Admin → Data for a request logged in DIESIS's register: the export needs the request's reference (`REQ-YYYY-NNN`) and comes only from the platform's own page; an erasure needs the address typed again and the reference. Every use is logged and shown in the log on the same page. Partner admins cannot.
+- Procedure: requests go to DIESIS, which records them in its register; SENIC carries them out on DIESIS's instruction (`docs/data-management.md`). [For DIESIS: the internal deadline, and how requests from people who cannot sign in are verified (K3).]
 
 **Encryption & residency**
 - HTTPS for the site; TLS to the database [SENIC to confirm: the connection string requires TLS].
@@ -420,12 +425,12 @@ unless marked _planned_.
 - **Backups:** Neon point-in-time restore (history window 6 hours on the current Free plan; 7 days after the move to the paid Launch plan before participants start **[to confirm once set]**) and a **daily off-site backup** to Scaleway (Paris), kept 30 days, with the newest 7 copies always kept (so if backups stop, an older copy can remain until new ones replace it). Taken with a **read-only** database role, sign-in tokens left out, verified on every run (size, tables, every data block; the stored copy read back and compared). Active since **20 October 2026** (first verified run).
   - Each night the backup is made, checked and test-restored on a GitHub-hosted runner. The nightly test restore has been on since 20 Oct 2026 (`BACKUP.md:211-214`).
   - BACKUP.md also asks for a manual test restore into a Neon branch every quarter. None has been done yet, because the backups started on 20 Oct 2026. SENIC's plan puts the first restore drill in the week of 23–27 Nov 2026.
-- **Audit log** of staff actions (§2b row 14). It does not record sign-ins, failed sign-ins, staff viewing learner data, or document changes, and it has no screen for reading it and no retention limit (§4, item 7).
+- **Audit log** of staff actions (§2b row 14). It does not record sign-ins, failed sign-ins, staff viewing learner data, or document changes, and it has no retention limit (§4, item 7). Its data and account records are shown to ADMINs on Admin → Data.
 - **WCAG 2.2 AA** accessibility (relevant for equitable access; internally tested).
 
 **Known gaps, being fixed**
 - The app does not yet set security headers of its own (such as a Content-Security-Policy); only the framework's and Vercel's defaults apply. [SENIC action: add them and verify them on the production host.]
-- The code contains a demo sign-in for the demonstration site, which bypasses the email sign-in. It is switched off by a server setting. [SENIC to confirm: it is switched off on production.]
+- The code contains a demo sign-in for showcase deployments, which bypasses the email sign-in. It runs only where it is switched on with a private access code, and never on the production deployment (D98); the clean-up run ends every demo session.
 - Test deployments that do not send email write sign-in details, including the email address, to their logs instead. [SENIC action: use only test addresses there.]
 - Uploaded files are public to anyone who has the link (§1).
 
@@ -520,7 +525,7 @@ suggested default where the letter gives one:
 - **Whether "needs attention" and "stuck" count as profiling.** No default.
 - **Whether the easy-read setting is health data.** No default.
 - **Whether staff notes about a learner survive when the staff member leaves.**
-  No default.
+  Built default: they stay, without the author.
 - **Request procedure and internal deadline for data requests** (K3). No
   default in the letter; SENIC's suggestion is in §6 (Data subject rights).
 - **Who keeps the record of Facilitator and Admin role holders.** SENIC

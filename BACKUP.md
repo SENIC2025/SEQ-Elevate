@@ -200,9 +200,26 @@ and `"CourseEnrollment"` with production. `"Session"` and `"VerificationToken"` 
 by design: everyone signs in again, and pending invitations must be resent.
 
 R10. Cut-over (a disaster only, decided with the team): point `DATABASE_URL` and
-`DIRECT_URL` in Vercel at the restored database; record the incident; **re-apply every
-GDPR erasure or correction processed after the dump's date**; rotate the `backup_reader`
-password if the old project still exists.
+`DIRECT_URL` in Vercel at the restored database; record the incident; **apply again every
+erasure and correction made after the dump's date**, before anyone uses the restored data
+(below); rotate the `backup_reader` password if the old project still exists.
+
+**Erasures after a restore.** Every erasure, by the person or by an admin, leaves one
+`account.deleted` row in the audit log with the erased account's id and nothing else about
+them (no name, no address). Every daily dump carries these rows, so no receipt outside the
+database is needed:
+1. From the **newest** dump available (or the old database, if it still exists), list,
+   read-only, the `entityId` of every `account.deleted` row created after the restored
+   dump was taken: `SELECT "entityId", "createdAt" FROM "AuditLog" WHERE "action" =
+   'account.deleted' AND "createdAt" > '<restored dump time>' ORDER BY "createdAt";`
+2. For each id still present in the restored database, an admin erases that account again
+   on **Admin → Data** (find it by address; the owner reads the address for the id,
+   read-only), with the original request's reference from DIESIS's register, or a new
+   register entry for a person's own deletion (docs/data-management.md). Never with SQL.
+3. Corrections (a name or country changed on request) are made again from the register.
+
+Only erasures made in the last day before a total loss of the database are at risk: they
+are in no dump. The register (kept by DIESIS outside the platform) names those requests.
 
 R11. Delete `restore.download`, `restore.dump` and `meta.json`, and the drill branch.
 

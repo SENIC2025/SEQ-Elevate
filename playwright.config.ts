@@ -22,6 +22,12 @@ import { defineConfig, devices } from "@playwright/test";
  * (E2E_SWITCHES_PORT, else E2E_PORT + 20). Only the `switches` project
  * (r3-switches.spec.ts) uses it.
  *
+ * The `last` project (r3-data-last.spec.ts: a test account's reset with a
+ * deploy's badge backfill, and the clean-up run) acts on the whole
+ * database: the run erases every marked test account and ends every demo
+ * session, whoever made them. It runs on the main server after every other
+ * project has finished (dependencies), so no other spec loses its people.
+ *
  * Only *.spec.ts files are specs: e2e/fixtures also holds unit tests
  * (*.test.ts) that vitest runs.
  */
@@ -33,6 +39,7 @@ const CUTOFF_SPEC = /r2-cutoff\.spec\.ts$/;
 const SWITCHES_PORT = process.env.E2E_SWITCHES_PORT ?? String(Number(PORT) + 20);
 const SWITCHES_URL = `http://localhost:${SWITCHES_PORT}`;
 const SWITCHES_SPEC = /r3-switches\.spec\.ts$/;
+const LAST_SPEC = /r3-data-last\.spec\.ts$/;
 
 // Demo sign-in is opt-in (D98): DEMO_LOGIN_ENABLED and an access code of at
 // least 12 characters, so the demo-access E2E can sign in.
@@ -74,9 +81,15 @@ export default defineConfig({
     trace: "on-first-retry",
   },
   projects: [
-    { name: "chromium", use: { ...devices["Desktop Chrome"] }, testIgnore: [CUTOFF_SPEC, SWITCHES_SPEC] },
+    { name: "chromium", use: { ...devices["Desktop Chrome"] }, testIgnore: [CUTOFF_SPEC, SWITCHES_SPEC, LAST_SPEC] },
     { name: "cutoff", use: { ...devices["Desktop Chrome"], baseURL: CUTOFF_URL }, testMatch: CUTOFF_SPEC },
     { name: "switches", use: { ...devices["Desktop Chrome"], baseURL: SWITCHES_URL }, testMatch: SWITCHES_SPEC },
+    {
+      name: "last",
+      use: { ...devices["Desktop Chrome"] },
+      testMatch: LAST_SPEC,
+      dependencies: ["chromium", "cutoff", "switches"],
+    },
   ],
   webServer: [
     {

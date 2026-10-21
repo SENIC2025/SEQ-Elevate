@@ -1,17 +1,31 @@
 import "server-only";
 
 /**
- * Small DB-backed fixed-window rate limiter. Serverless-safe (the DB is the
- * shared source of truth, so it works across Vercel lambdas) and stores no
- * PII — callers pass an already-hashed key for anything sensitive.
+ * Small DB-backed fixed-window rate limiter (D96, spec 13.6). Serverless-safe:
+ * the DB is the shared source of truth, so it works across Vercel lambdas.
  *
- * Fail-open by design: if the limiter itself errors, we allow the request. A
- * hiccup in the rate-limit table must never lock a real learner out of
- * signing in — the limiter is abuse mitigation, not an auth gate.
+ * - **No identifier is stored.** Every key is stored as `<prefix>:` plus a
+ *   keyed hash (HMAC-SHA256) of what the caller passed, under a server
+ *   secret: RATE_LIMIT_SECRET, else a key derived from AUTH_SECRET with a
+ *   fixed label. hashKey (for an email address) is a keyed hash too, so an
+ *   address can't be found again by hashing likely addresses. Changing the
+ *   secret starts every counter again (harmless).
+ * - **Windows compare.** A row's windowStart is its window's first second, in
+ *   epoch seconds (fits an Int until 2038). The clean-up removes rows whose
+ *   window started more than two hours ago (the longest window is one hour),
+ *   so a short-window caller never removes a long-window counter.
+ * - **Failing is decided by the key's prefix**, so no caller changes:
+ *   sign-in links (`magiclink:`) are allowed when the limiter can't count (a
+ *   database hiccup must never lock a learner out of signing in), with one
+ *   log line; everything else — the staff-only callers (`upload-…`,
+ *   `invite-by:`, `invite:`, `add-by:`) and any prefix this file doesn't
+ *   know — is refused.
  */
 
-import { createHash } from "node:crypto";
+import { createHmac } from "node:crypto";
 import { prisma } from "@/lib/prisma";
+
+type Env = Record<string, string | undefined>;
 
 export interface RateLimitResult {
   ok: boolean;
@@ -19,39 +33,86 @@ export interface RateLimitResult {
   limit: number;
 }
 
-/** Stable, non-reversible key for a sensitive identifier (e.g. an email). */
-export function hashKey(prefix: string, value: string): string {
-  const digest = createHash("sha256")
-    .update(value.trim().toLowerCase())
-    .digest("hex")
-    .slice(0, 32);
-  return `${prefix}:${digest}`;
+/** The longest window a caller may use; rows are kept twice as long. */
+const MAX_WINDOW_MS = 60 * 60 * 1000;
+const KEEP_SECONDS = 2 * 60 * 60;
+/** What the key derived from AUTH_SECRET is made for (changing it resets every counter). */
+const DERIVATION_LABEL = "seq-elevate rate-limit keys v1";
+
+/** The only prefix allowed through when the limiter can't count: sign-in links. */
+const FAIL_OPEN_PREFIX = "magiclink";
+
+/** The HMAC key: RATE_LIMIT_SECRET, else one derived from AUTH_SECRET. Throws when neither is set. */
+function limiterKey(env: Env): Buffer {
+  const own = env.RATE_LIMIT_SECRET?.trim();
+  if (own) return Buffer.from(own, "utf8");
+  const auth = env.AUTH_SECRET?.trim();
+  if (!auth) throw new Error("rate-limit: no secret (RATE_LIMIT_SECRET or AUTH_SECRET)");
+  return createHmac("sha256", auth).update(DERIVATION_LABEL).digest();
+}
+
+const keyed = (value: string, env: Env) => createHmac("sha256", limiterKey(env)).update(value).digest("hex");
+
+/** A key's prefix: what comes before its first colon ("" when there is none). */
+const prefixOf = (key: string) => (key.includes(":") ? key.slice(0, key.indexOf(":")) : "");
+
+/** A key for a sensitive identifier (an email address): its keyed hash, the same however it is typed. */
+export function hashKey(prefix: string, value: string, env: Env = process.env): string {
+  return `${prefix}:${keyed(value.trim().toLowerCase(), env)}`;
+}
+
+/** How a key is stored: its prefix, then the keyed hash of the whole key. */
+export function storedKey(key: string, env: Env = process.env): string {
+  return `${prefixOf(key) || "key"}:${keyed(key, env)}`;
+}
+
+/** The prefixes callers key by a person's id, and by their email address (through hashKey). */
+const ID_PREFIXES = ["upload-video", "upload-doc", "upload-caption", "invite-by", "add-by"] as const;
+const EMAIL_PREFIXES = ["magiclink", "invite"] as const;
+
+/**
+ * Every stored key the callers make for one person (from their id and from
+ * their address), so erasing the person removes their counters too.
+ */
+export function rateLimitKeysOf(person: { id: string; email: string }, env: Env = process.env): string[] {
+  return [
+    ...ID_PREFIXES.map((prefix) => storedKey(`${prefix}:${person.id}`, env)),
+    ...EMAIL_PREFIXES.map((prefix) => storedKey(hashKey(prefix, person.email, env), env)),
+  ];
 }
 
 /**
  * Count this request against `key` in the current time window. Returns ok=false
- * once the count exceeds `limit` within `windowMs`.
+ * once the count exceeds `limit` within `windowMs` (at most an hour), and when
+ * the limiter can't count, except for sign-in links (see the top of this file).
  */
 export async function checkRateLimit(
   key: string,
   { limit, windowMs }: { limit: number; windowMs: number }
 ): Promise<RateLimitResult> {
-  const bucket = Math.floor(Date.now() / windowMs);
+  const now = Math.floor(Date.now() / 1000);
   try {
+    if (!(windowMs >= 1000 && windowMs <= MAX_WINDOW_MS)) throw new Error("rate-limit: window out of range");
+    const stored = storedKey(key);
+    const seconds = Math.round(windowMs / 1000);
+    const windowStart = Math.floor(now / seconds) * seconds;
     const row = await prisma.rateLimit.upsert({
-      where: { key_windowStart: { key, windowStart: bucket } },
-      create: { key, windowStart: bucket, count: 1 },
+      where: { key_windowStart: { key: stored, windowStart } },
+      create: { key: stored, windowStart, count: 1 },
       update: { count: { increment: 1 } },
     });
 
-    // Opportunistic cleanup of stale buckets (older than the previous window),
-    // so the table can't grow without bound. Best-effort, ignore failures.
-    prisma.rateLimit
-      .deleteMany({ where: { windowStart: { lt: bucket - 1 } } })
-      .catch(() => {});
+    // Rows whose window started more than two hours ago, whatever their
+    // window's length, so the table can't grow without bound. Best-effort.
+    prisma.rateLimit.deleteMany({ where: { windowStart: { lt: now - KEEP_SECONDS } } }).catch(() => {});
 
     return { ok: row.count <= limit, count: row.count, limit };
-  } catch {
-    return { ok: true, count: 0, limit };
+  } catch (e) {
+    const open = prefixOf(key) === FAIL_OPEN_PREFIX;
+    // The kind of key and of failure only: never the key itself.
+    console.error(
+      `[rate-limit] couldn't count a "${prefixOf(key) || "(no prefix)"}" request (${e instanceof Error ? e.name : "error"}); ${open ? "allowed" : "refused"}`
+    );
+    return { ok: open, count: 0, limit };
   }
 }

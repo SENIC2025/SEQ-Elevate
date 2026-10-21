@@ -1,60 +1,37 @@
 "use server";
 
 /**
- * GDPR self-service. A learner can export everything we hold about them
- * (Art. 15 right of access / Art. 20 portability) and delete their account
- * (Art. 17 right to erasure). Deleting cascades away all personal data; the
- * AuditLog keeps an *anonymised* record (its actorId is SetNull on delete),
- * so the legal trail survives without the PII.
+ * GDPR self-service: a person deletes their own account (Art. 17). Their
+ * data export (Art. 15 and 20) is the /api/me/export route.
+ *
+ * Deleting is eraseAccount (src/lib/account-data.ts), in one transaction:
+ * the account and everything linked to it go, with the person's activity
+ * records, sign-in links and rate-limit counters; other log rows about them
+ * lose the link to them; one record that an account was deleted keeps its
+ * id, without a name or an address, so the erasure can be applied again
+ * after a restore from backup (D86). Notes they wrote as staff stay,
+ * unsigned (D89).
  */
 
 import { cookies } from "next/headers";
 import { getCurrentUser } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
-
-const FALLBACK_PROJECT = "seq-elevate";
-
-/** Record that the current user exported their data (for the audit trail). */
-export async function logDataExport() {
-  const user = await getCurrentUser();
-  if (!user) return;
-  await prisma.auditLog.create({
-    data: {
-      projectId: user.lastProjectId ?? FALLBACK_PROJECT,
-      actorId: user.id,
-      action: "account.exported",
-      entity: "User",
-      entityId: user.id,
-      metadata: { selfService: true },
-    },
-  });
-}
+import { eraseAccount } from "@/lib/account-data";
 
 /**
- * Permanently delete the current user's account and all their personal data.
- * Writes an audit record first; the cascade then anonymises it (actorId →
- * null) while keeping the row. Returns true on success.
+ * Permanently delete the current user's account and all their personal data,
+ * once they have typed their own address to confirm.
  */
 export async function deleteMyAccount(confirmEmail: string) {
   const user = await getCurrentUser();
   if (!user) return { ok: false as const, error: "not-authenticated" };
   // Defence in depth: the UI already requires this, but never delete on a
   // mismatched confirmation.
-  if (confirmEmail.trim().toLowerCase() !== user.email.toLowerCase()) {
+  if (typeof confirmEmail !== "string" || confirmEmail.trim().toLowerCase() !== user.email.toLowerCase()) {
     return { ok: false as const, error: "confirmation-mismatch" };
   }
 
-  await prisma.auditLog.create({
-    data: {
-      projectId: user.lastProjectId ?? FALLBACK_PROJECT,
-      actorId: user.id,
-      action: "account.deleted",
-      entity: "User",
-      entityId: user.id,
-      metadata: { selfService: true },
-    },
-  });
-  await prisma.user.delete({ where: { id: user.id } });
+  await prisma.$transaction((tx) => eraseAccount(tx, user.id, { by: "self" }));
 
   // Clear the session cookie ourselves rather than calling NextAuth signOut:
   // the cascade already deleted the Session row, so signOut's adapter would

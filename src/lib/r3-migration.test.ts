@@ -103,6 +103,10 @@ const LEARNER_CALLABLE = [
   "src/app/actions/a11y.ts",
   "src/app/actions/profile.ts",
   "src/app/api/me/export/route.ts",
+  // The records of a person's own erasure and export (gdpr.ts and the
+  // export route write them through it); the admin actions write their own
+  // rows in admin-data.ts.
+  "src/lib/account-data.ts",
 ];
 /** Release 3's own learner actions, named by the spec before their code exists. */
 const RELEASE_3_LEARNER_ACTIONS = ["profile.completed", "compcard.sharing_changed"];

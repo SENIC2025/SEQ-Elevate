@@ -71,8 +71,7 @@ portability, objection). *The platform provides self-service data export
 (JSON) and account deletion.*
 - *Learners cannot correct their own details.*
 - *An admin can change a name only by adding the person again; nobody can change an email address in the app.*
-- *Admins have no tool to export or erase another person's data.*
-- *Such requests go to the Controller, and the Processor carries them out on the Controller's documented instruction within `[For DIESIS / its adviser: an internal deadline that keeps within the one-month legal deadline]`.*
+- *Such requests go to the Controller, which records each in its register with a reference (`REQ-YYYY-NNN`). The Processor carries them out on the Controller's documented instruction within `[For DIESIS / its adviser: an internal deadline that keeps within the one-month legal deadline]`, with the platform's admin data tools: an export or an erasure of any account, each needing the request's reference and each logged in the platform (the platform's `docs/data-management.md`).*
 
 **(e) Assistance with compliance** — the Processor assists the Controller in
 ensuring compliance with Art. 32–36 (security, breach notification, DPIA, prior
@@ -165,10 +164,14 @@ confirmation of when the 5-year period starts (SENIC's plan adds that groups
 under 5 are suppressed in the statistics); people who join later are
 deleted after 12 months without activity; staff accounts are deleted when the
 person leaves, or in July 2028. The rule must also cover the activity and audit
-log, unused sign-in tokens, uploaded files and backups.]` Today learner records
-are kept with no time limit. Scheduled deletion is not built yet. SENIC builds
-it, with a dry run and DIESIS's approval, before the first deletion date.
-Learner-initiated erasure is available today.
+log, unused sign-in tokens, uploaded files and backups.]` Learner records are
+kept with no time limit set yet. Scheduled deletion is not built yet. SENIC
+builds it, with a dry run and DIESIS's approval, before the first deletion
+date. Erasure on the person's own request, or on the Controller's instruction,
+is available; an admin clean-up run (a dry run first, then a logged run, before
+launch and monthly) erases accounts marked as test accounts, purges expired
+sessions and sign-in links, and deletes course files removed from lessons once
+they are 7 days old and unused.
 
 ---
 
@@ -180,7 +183,7 @@ lists above it only once it is live.*
 
 **Access control & authentication**
 - Passwordless sign-in via one-time email link; **no passwords stored**.
-- Rate limits on sign-in, invitations and file uploads (abuse mitigation). Keys for email-based limits are hashed; the other keys use internal user ids.
+- Rate limits on sign-in, invitations, adding people and file uploads (abuse mitigation). Every key is stored as a keyed hash (HMAC with a server secret) of the email address or the internal user id.
 - Project-scoped **role-based access control** (Learner / Facilitator / Content-Editor / Admin), checked **server-side**, scoped to the project, on every data operation and file-upload authorisation. Organisation scoping and server-side Comp Card filtering are planned from 20 November 2026 (see "Measures planned"); until then Comp Card field visibility is applied on the staff screen.
 
 **Data minimisation & privacy by design**
@@ -188,6 +191,7 @@ lists above it only once it is live.*
 - **Cookieless** web analytics (Plausible) is built in but **not active**. `[For DIESIS / its adviser: whether to activate it, and whether any cookie consent is needed, in particular for YouTube.]`
 - Comp Card: one privacy choice per card; today shared with facilitators by default. Course reflection answers are not shown to staff.
 - Error monitoring (Sentry) is built in but **not active**. If activated, it is configured not to send default personal data, without performance tracing, and without session replay.
+- Storage limitation: an admin clean-up run (a dry run first; every run logged) purges expired sessions and sign-in links, ends every demo session, erases accounts marked as test accounts, and deletes course files removed from lessons once they are 7 days old and nothing uses them.
 
 **Confidentiality, integrity, availability & resilience (Art. 32(1)(b))**
 - HTTPS for the site; TLS to the database `[SENIC to confirm]`.
@@ -201,17 +205,18 @@ lists above it only once it is live.*
 - Version-controlled code; automated CI (type-check, lint, unit + end-to-end tests, automated accessibility checks) gating every change; reviewed, versioned database migrations.
 
 **Accountability & monitoring**
-- An **audit log** of staff actions. It does not record sign-ins, staff viewing learner data, or document changes. On erasure the remaining rows lose the actor reference, but some keep the person's user id, so they are not anonymous (see DATA-PROTECTION.md §2b).
+- An **audit log** of staff actions. It does not record sign-ins, staff viewing learner data, or document changes. On erasure, rows about the person lose the person's user id; one record that an account was deleted keeps it, without name or address, so that the erasure can be applied again after a restore (see DATA-PROTECTION.md §2b). Admins read its data and account records (exports, erasures, resets, clean-up runs) in the platform.
 - **WCAG 2.2 AA** accessibility (equitable access), internally tested.
 
 **Data-subject rights (built in)**
-- Self-service **data export** (JSON) and **account deletion**. Other requests are handled on the Controller's instruction (§3(d)).
+- Self-service **data export** (JSON) and **account deletion**, which erases the account's records completely in one transaction (activity records, sign-in links and rate-limit records included).
+- On the Controller's instruction (§3(d)): an admin export or erasure of any account, with the request's reference from the Controller's register; each use is logged.
 
 **Ability to restore / test measures (Art. 32(1)(c),(d))**
 - Provider-level redundancy; daily verified off-site backups with a documented restore procedure.
   - Each nightly run also test-restores the dump on the runner (since 20 Oct 2026).
   - A manual test restore into a Neon branch is planned every quarter. The first is planned for 23–27 Nov 2026.
-  - The restore procedure requires re-applying the erasures and corrections made after a backup's date before restored data is used (a manual step; see DATA-PROTECTION.md §5).
+  - Before restored data is used, the restore procedure applies again every erasure recorded after the backup's date (each leaves a record in the database, carried by every daily backup) and the corrections in the Controller's register (see DATA-PROTECTION.md §5).
 - The measures above are reviewed as the platform evolves. `[External penetration test: planned / on request.]`
 
 **Measures planned before the pilot (Release 3, 20 November 2026)** — *planned, not yet in place*
@@ -223,10 +228,7 @@ lists above it only once it is live.*
 - a safeguarding contact shown to learners;
 - a legal notice.
 
-Also planned, date `[SENIC to confirm]`: the app's own security headers;
-deleting uploaded files when they are removed from a lesson; removing the user
-id from the rows that remain after erasure, and deleting unused sign-in tokens;
-fixing known weaknesses in the rate limiter.
+Also planned, date `[SENIC to confirm]`: the app's own security headers.
 
 ---
 
