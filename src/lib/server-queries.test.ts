@@ -59,6 +59,7 @@ const auditFindMany = vi.fn(async (): Promise<unknown[]> => []);
 const enrollmentFindMany = vi.fn(async () => learnerEnrolments());
 const cohortCount = vi.fn(async () => 0);
 const organisationCount = vi.fn(async () => 0);
+const organisationFindFirst = vi.fn(async (): Promise<unknown> => ({ name: "Pro Arbeit" }));
 const courseCount = vi.fn(async () => 0);
 // The Comp Card template (Project.compCardTemplate): nothing hidden by default.
 const projectFindUnique = vi.fn(async (): Promise<unknown> => ({ compCardTemplate: null }));
@@ -68,7 +69,7 @@ vi.mock("@/lib/prisma", () => ({
     auditLog: { findMany: auditFindMany },
     courseEnrollment: { findMany: enrollmentFindMany },
     cohort: { count: cohortCount },
-    organisation: { count: organisationCount },
+    organisation: { count: organisationCount, findFirst: organisationFindFirst },
     course: { count: courseCount },
     project: { findUnique: projectFindUnique },
   },
@@ -107,7 +108,7 @@ vi.mock("@/lib/cms", () => ({
     }) as unknown as CourseContent,
 }));
 
-const { getProjectLearners: learnersFor, getAdminCounts, getLearnerEnrollments } = await import(
+const { getProjectLearners: learnersFor, getAdminCounts, getLearnerEnrollments, scopeOrganisationName } = await import(
   "./server-queries"
 );
 const {
@@ -590,5 +591,37 @@ describe("getAdminCounts (FD-U9, spec 7.4)", () => {
     await getAdminCounts(ORG_A);
     expect(JSON.stringify(membershipCount.mock.calls)).not.toContain("undefined");
     expect(MATCH_NOTHING).toEqual({ id: { in: [] } });
+  });
+});
+
+describe("scopeOrganisationName (SP1: the facilitator page's empty organisation)", () => {
+  afterEach(() => {
+    organisationFindFirst.mockClear();
+    organisationFindFirst.mockImplementation(async () => ({ name: "Pro Arbeit" }));
+  });
+
+  it("answers null for no scope and for the whole project, without asking the database", async () => {
+    await expect(scopeOrganisationName(NONE)).resolves.toBeNull();
+    await expect(scopeOrganisationName(PROJECT_SCOPE)).resolves.toBeNull();
+    await expect(
+      scopeOrganisationName({ kind: "project", viewerId: "admin", viewerOrganisationId: "org-a" })
+    ).resolves.toBeNull();
+    expect(organisationFindFirst).not.toHaveBeenCalled();
+  });
+
+  it("names the viewer's own organisation, read by its id within the scope", async () => {
+    await expect(scopeOrganisationName(ORG_A)).resolves.toBe("Pro Arbeit");
+    expect(organisationFindFirst.mock.calls).toEqual([
+      [{ where: { AND: [{ id: "org-a" }, organisationsInScope(ORG_A)] }, select: { name: true } }],
+    ]);
+  });
+
+  it("answers null when it can't be read", async () => {
+    organisationFindFirst.mockImplementation(async () => {
+      throw new Error("down");
+    });
+    await expect(scopeOrganisationName(ORG_A)).resolves.toBeNull();
+    organisationFindFirst.mockImplementation(async () => null);
+    await expect(scopeOrganisationName(ORG_A)).resolves.toBeNull();
   });
 });

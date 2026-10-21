@@ -68,6 +68,20 @@ function stat(html: string, label: string): string | undefined {
   return html.slice(at).match(/<p class="text-2xl font-bold">([^<]*)<\/p>/)?.[1];
 }
 
+describe("RealFacilitatorView: an empty roster (SP1)", () => {
+  it("names the viewer's organisation when it has no learners yet", () => {
+    const html = renderToStaticMarkup(createElement(RealFacilitatorView, { learners: [], now: NOW, organisation: "Pro Arbeit" }));
+    expect(html).toContain("No learners at Pro Arbeit yet.");
+    expect(html).not.toContain(en.facilitator.noLearners);
+  });
+
+  it("says the project has no learners yet to a viewer of the whole project", () => {
+    const html = renderToStaticMarkup(createElement(RealFacilitatorView, { learners: [], now: NOW, organisation: null }));
+    expect(html).toContain(en.facilitator.noLearners);
+    expect(html).not.toContain("No learners at");
+  });
+});
+
 describe("RealFacilitatorView: “Active in the last 24h”", () => {
   // It counts what it says: learners whose last activity — lastActiveAt,
   // the "Last active" of their activity panel — is at most a day before the
