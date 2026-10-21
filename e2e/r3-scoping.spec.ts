@@ -1,6 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
+import { createPerson } from "./fixtures/people";
 
 /**
  * Release 3 (spec 18.2): what the server lets each person see. FD-E1: the
@@ -30,14 +31,12 @@ describe("Release 3 scoping", () => {
 
   test.beforeAll(async () => {
     await prisma.user.deleteMany({ where: { email: LA1 } });
-    const user = await prisma.user.create({
-      data: { email: LA1, name: `LA1 ${RUN}`, emailVerified: new Date(), fontSize: "lg" },
-    });
-    userId = user.id;
-    sessionToken = `e2e-scoping-${RUN}-${Math.random().toString(36).slice(2)}`;
-    await prisma.session.create({
-      data: { sessionToken, userId, expires: new Date(Date.now() + 86_400_000) },
-    });
+    ({ userId, sessionToken } = await createPerson(prisma, {
+      email: LA1,
+      name: `LA1 ${RUN}`,
+      roles: ["LEARNER"],
+      user: { fontSize: "lg" },
+    }));
   });
 
   test.afterAll(async () => {

@@ -2,6 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
+import { createPerson } from "./fixtures/people";
 
 /**
  * Release 0, the course player (fact-check C7, C8):
@@ -216,19 +217,9 @@ const createdUserIds: string[] = [];
 /** A learner with a live session (the LEARNER membership comes on first use). */
 async function newLearner(email: string) {
   await prisma.user.deleteMany({ where: { email } });
-  const user = await prisma.user.create({
-    data: { email, emailVerified: new Date() },
-  });
-  createdUserIds.push(user.id);
-  const sessionToken = `e2e-r0p-${RUN}-${Math.random().toString(36).slice(2)}`;
-  await prisma.session.create({
-    data: {
-      sessionToken,
-      userId: user.id,
-      expires: new Date(Date.now() + 86_400_000),
-    },
-  });
-  return { userId: user.id, sessionToken };
+  const { userId, sessionToken } = await createPerson(prisma, { email });
+  createdUserIds.push(userId);
+  return { userId, sessionToken };
 }
 
 /** The learner's saved quick check in `slug`, once a save has arrived. */
@@ -666,21 +657,10 @@ dbDescribe("R0 player — quick-check answers are saved to the account", () => {
     );
 
     // The facilitator view scores it by question id.
-    const staff = await prisma.user.create({
-      data: { email: STAFF, emailVerified: new Date() },
-    });
-    createdUserIds.push(staff.id);
-    await prisma.membership.create({
-      data: { userId: staff.id, projectId: PROJECT, role: "FACILITATOR" },
-    });
-    const staffSession = `e2e-r0p-staff-${RUN}`;
-    await prisma.session.create({
-      data: {
-        sessionToken: staffSession,
-        userId: staff.id,
-        expires: new Date(Date.now() + 86_400_000),
-      },
-    });
+    // In the learner's organisation (A), so the learner is theirs (D74).
+    const staff = await createPerson(prisma, { email: STAFF, roles: ["FACILITATOR"], organisation: "A" });
+    createdUserIds.push(staff.userId);
+    const staffSession = staff.sessionToken;
     await page.goto("about:blank");
     await context.clearCookies();
     await signIn(page, staffSession);

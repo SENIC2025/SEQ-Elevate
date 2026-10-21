@@ -1,6 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
+import { createPerson } from "./fixtures/people";
 import type { StageKey } from "@prisma/client";
 
 /**
@@ -88,21 +89,14 @@ async function signedInUser(
   role: "CONTENT_EDITOR" | "FACILITATOR" | "LEARNER",
   name?: string
 ) {
-  const user = await prisma.user.create({
-    data: { email, name, emailVerified: new Date() },
+  // The facilitator is in the learners' organisation (A), so they are theirs (D74).
+  const { userId, sessionToken } = await createPerson(prisma, {
+    email,
+    roles: [role],
+    name,
+    organisation: role === "FACILITATOR" ? "A" : undefined,
   });
-  await prisma.membership.create({
-    data: { userId: user.id, projectId: PROJECT, role },
-  });
-  const sessionToken = `e2e-r0-${RUN}-${Math.random().toString(36).slice(2)}`;
-  await prisma.session.create({
-    data: {
-      sessionToken,
-      userId: user.id,
-      expires: new Date(Date.now() + 86_400_000),
-    },
-  });
-  return { userId: user.id, sessionToken };
+  return { userId, sessionToken };
 }
 
 /**

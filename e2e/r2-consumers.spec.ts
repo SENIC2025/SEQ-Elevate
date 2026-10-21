@@ -1,6 +1,7 @@
 import { test, expect, type Locator, type Page } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
+import { createPerson } from "./fixtures/people";
 import {
   PROJECT,
   learnerWithSession,
@@ -104,18 +105,9 @@ async function seedCourse(seed: R2CourseSeed) {
 /** A member of staff (FACILITATOR) with a session, as a sign-in leaves it. */
 async function staffWithSession(email: string) {
   await prisma.user.deleteMany({ where: { email } });
-  const user = await prisma.user.create({
-    data: { email, emailVerified: new Date() },
-    select: { id: true },
-  });
-  await prisma.membership.create({
-    data: { userId: user.id, projectId: PROJECT, role: "FACILITATOR" },
-  });
-  const sessionToken = `e2e-r2c-staff-${RUN}-${Math.random().toString(36).slice(2)}`;
-  await prisma.session.create({
-    data: { sessionToken, userId: user.id, expires: new Date(Date.now() + 86_400_000) },
-  });
-  return { userId: user.id, sessionToken };
+  // In the learners' organisation (A), so the facilitator sees them (D74).
+  const { userId, sessionToken } = await createPerson(prisma, { email, roles: ["FACILITATOR"], organisation: "A" });
+  return { userId, sessionToken };
 }
 
 const courseId = async (slug: string) =>

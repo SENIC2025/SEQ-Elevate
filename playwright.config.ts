@@ -15,6 +15,9 @@ import { defineConfig, devices } from "@playwright/test";
  * and database with RESTRUCTURE_CLOSED_FROM in the past, on its own port
  * (E2E_CUTOFF_PORT, else E2E_PORT + 10). Only the `cutoff` project
  * (r2-cutoff.spec.ts) uses it; every other spec runs before the cut-off.
+ *
+ * Only *.spec.ts files are specs: e2e/fixtures also holds unit tests
+ * (*.test.ts) that vitest runs.
  */
 const PORT = process.env.E2E_PORT ?? "3000";
 const BASE_URL = `http://localhost:${PORT}`;
@@ -44,6 +47,7 @@ const SERVER_ENV = {
 
 export default defineConfig({
   testDir: "./e2e",
+  testMatch: "**/*.spec.ts",
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,

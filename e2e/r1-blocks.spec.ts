@@ -2,6 +2,7 @@ import { test, expect, type BrowserContext, type Locator, type Page } from "@pla
 import AxeBuilder from "@axe-core/playwright";
 import { Prisma, PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
+import { createPerson } from "./fixtures/people";
 
 /**
  * Release 1 — a lesson's content (Stream E, spec 11.2 and 13.2 item 6).
@@ -84,21 +85,8 @@ async function storedParts(courseSlug: string, stageKey: string): Promise<Stored
 
 /** Create a user holding `role`, plus a live session; returns both ids. */
 async function signedInUser(email: string, role: "CONTENT_EDITOR" | "LEARNER") {
-  const user = await prisma.user.create({
-    data: { email, emailVerified: new Date() },
-  });
-  await prisma.membership.create({
-    data: { userId: user.id, projectId: PROJECT, role },
-  });
-  const sessionToken = `e2e-r1b-${RUN}-${Math.random().toString(36).slice(2)}`;
-  await prisma.session.create({
-    data: {
-      sessionToken,
-      userId: user.id,
-      expires: new Date(Date.now() + 86_400_000),
-    },
-  });
-  return { userId: user.id, sessionToken };
+  const { userId, sessionToken } = await createPerson(prisma, { email, roles: [role] });
+  return { userId, sessionToken };
 }
 
 /**

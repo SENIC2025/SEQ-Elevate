@@ -1,5 +1,6 @@
 import { Prisma, type PrismaClient } from "@prisma/client";
 import type { BrowserContext } from "@playwright/test";
+import { createPerson } from "./people";
 import type { LocalizedText, StoredStructure } from "@/lib/cms/structure";
 import type { ExerciseValue, StoredPart, StoredSection } from "@/lib/cms/sections/contract";
 
@@ -165,6 +166,12 @@ export interface R2CourseSeed {
   /** In learner order. */
   lessons: R2LessonSeed[];
   /**
+   * The languages other than English switched on for learners (Release 3,
+   * D90). Default: German and Greek, so Release 2's walks in German keep
+   * what they recorded; a spec of the switch itself passes fewer.
+   */
+  readyLocales?: Exclude<Locale, "en">[];
+  /**
    * Course.outline as stored, instead of the one the lessons make: null for
    * the standard layout (derived from the lessons), anything else as it is
    * (an unreadable list, say).
@@ -207,6 +214,7 @@ export async function seedR2Course(prisma: PrismaClient, seed: R2CourseSeed) {
       durationMinutes: 15,
       status,
       publishedAt: status === "published" ? new Date() : null,
+      readyLocales: seed.readyLocales ?? ["de", "el"],
       outline: json(seed.outline === undefined ? outlineOf(seed.lessons) : seed.outline),
       meta: Object.fromEntries(
         Object.entries(title).map(([l, t]) => [l, { title: t, tagline: "E2E course", clusterLabel: "Communication" }])
@@ -258,25 +266,14 @@ export async function removeR2Course(prisma: PrismaClient, slug: string) {
 
 /**
  * A learner of the project (LEARNER membership, so they count as one, D53)
- * with a session, as a sign-in leaves it. Any earlier user with the email
+ * with a session, as a sign-in leaves it, and a complete profile in
+ * organisation A (e2e/fixtures/people.ts). Any earlier user with the email
  * is removed first.
  */
 export async function learnerWithSession(prisma: PrismaClient, email: string) {
   await prisma.user.deleteMany({ where: { email } });
-  const user = await prisma.user.create({
-    data: { email, emailVerified: new Date() },
-    select: { id: true },
-  });
-  await prisma.membership.create({
-    data: { userId: user.id, projectId: PROJECT, role: "LEARNER" },
-    select: { id: true },
-  });
-  const sessionToken = `e2e-r2-${runId()}-${Math.random().toString(36).slice(2)}`;
-  await prisma.session.create({
-    data: { sessionToken, userId: user.id, expires: new Date(Date.now() + 86_400_000) },
-    select: { sessionToken: true },
-  });
-  return { userId: user.id, sessionToken };
+  const { userId, sessionToken } = await createPerson(prisma, { email, roles: ["LEARNER"] });
+  return { userId, sessionToken };
 }
 
 /** Removes the users (their sessions, memberships, enrolments and badges go with them). */

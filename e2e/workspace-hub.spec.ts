@@ -2,6 +2,7 @@ import { test, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { PrismaClient, type Role } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
+import { createPerson } from "./fixtures/people";
 
 /**
  * "Your workspaces" (D26): after sign-in, staff land on a hub of the
@@ -34,25 +35,10 @@ const EMAILS = [STAFF, EDITOR, LEARNER, BOOTSTRAP];
 
 const TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
 
-/** Create a user holding `roles`, plus a live session; returns its token. */
+/** Create a user holding `roles` (complete profile), plus a live session; returns its token. */
 async function signedInUser(email: string, roles: Role[]) {
-  const user = await prisma.user.create({
-    data: { email, emailVerified: new Date() },
-  });
-  for (const role of roles) {
-    await prisma.membership.create({
-      data: { userId: user.id, projectId: PROJECT, role },
-    });
-  }
-  const sessionToken = `e2e-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  await prisma.session.create({
-    data: {
-      sessionToken,
-      userId: user.id,
-      expires: new Date(Date.now() + 86_400_000),
-    },
-  });
-  return { userId: user.id, sessionToken };
+  const { userId, sessionToken } = await createPerson(prisma, { email, roles });
+  return { userId, sessionToken };
 }
 
 async function useSession(

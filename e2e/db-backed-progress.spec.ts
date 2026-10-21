@@ -2,6 +2,7 @@ import { test, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
+import { ORGANISATIONS, createPerson, createSession } from "./fixtures/people";
 
 /**
  * Verifies that an AUTHENTICATED learner's progress persists to Postgres:
@@ -73,18 +74,7 @@ describe("DB-backed learner progress", () => {
 
   test.beforeAll(async () => {
     await prisma.user.deleteMany({ where: { email } });
-    const user = await prisma.user.create({
-      data: { email, emailVerified: new Date() },
-    });
-    userId = user.id;
-    sessionToken = `e2e-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    await prisma.session.create({
-      data: {
-        sessionToken,
-        userId,
-        expires: new Date(Date.now() + 86_400_000),
-      },
-    });
+    ({ userId, sessionToken } = await createPerson(prisma, { email }));
   });
 
   test.afterAll(async () => {
@@ -263,7 +253,7 @@ async function sessionLostDuring(
       try {
         return await route.fetch();
       } finally {
-        await prisma.session.create({ data: session });
+        await createSession(prisma, session.userId, { sessionToken, expires: session.expires });
         away = false;
         back();
       }
@@ -383,18 +373,8 @@ describe("progress made before the learner's data has loaded", () => {
       where: { email: { in: [firstEmail, resumeEmail] } },
     });
     for (const email of [firstEmail, resumeEmail]) {
-      const user = await prisma.user.create({
-        data: { email, emailVerified: new Date() },
-      });
-      const session = `e2e-early-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-      await prisma.session.create({
-        data: {
-          sessionToken: session,
-          userId: user.id,
-          expires: new Date(Date.now() + 86_400_000),
-        },
-      });
-      users[email] = { id: user.id, session };
+      const person = await createPerson(prisma, { email });
+      users[email] = { id: person.userId, session: person.sessionToken };
     }
   });
 
@@ -545,18 +525,8 @@ describe("progress kept when the learner's data loads late, fails or overlaps", 
   test.beforeAll(async () => {
     await prisma.user.deleteMany({ where: { email: { in: all } } });
     for (const email of all) {
-      const user = await prisma.user.create({
-        data: { email, emailVerified: new Date() },
-      });
-      const session = `e2e-late-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-      await prisma.session.create({
-        data: {
-          sessionToken: session,
-          userId: user.id,
-          expires: new Date(Date.now() + 86_400_000),
-        },
-      });
-      users[email] = { id: user.id, session };
+      const person = await createPerson(prisma, { email });
+      users[email] = { id: person.userId, session: person.sessionToken };
     }
   });
 
@@ -833,18 +803,8 @@ describe("progress kept when the session is lost, changes hands or the course ch
   test.beforeAll(async () => {
     await prisma.user.deleteMany({ where: { email: { in: all } } });
     for (const email of all) {
-      const user = await prisma.user.create({
-        data: { email, emailVerified: new Date() },
-      });
-      const session = `e2e-lost-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-      await prisma.session.create({
-        data: {
-          sessionToken: session,
-          userId: user.id,
-          expires: new Date(Date.now() + 86_400_000),
-        },
-      });
-      users[email] = { id: user.id, session };
+      const person = await createPerson(prisma, { email });
+      users[email] = { id: person.userId, session: person.sessionToken };
     }
   });
 
@@ -1014,7 +974,7 @@ describe("progress kept when the session is lost, changes hands or the course ch
 
     // …then it's back (Auth.js dropped the cookie of the session it
     // couldn't find, so it's set again), and they walk on.
-    await prisma.session.create({ data: row });
+    await createSession(prisma, row.userId, { sessionToken: row.sessionToken, expires: row.expires });
     await signIn(context, emails.sessionBack);
     await recheckSession(page);
     await expect(signOut).toBeVisible();
@@ -1580,12 +1540,12 @@ describe("facilitator sees real learners", () => {
     });
 
     // A learner with progress + a Comp Card the facilitator may see
-    const learner = await prisma.user.create({
-      data: { email: learnerEmail, emailVerified: new Date() },
+    const { userId: learnerId } = await createPerson(prisma, {
+      email: learnerEmail,
+      roles: ["LEARNER"],
+      session: false,
     });
-    await prisma.membership.create({
-      data: { userId: learner.id, projectId: "seq-elevate", role: "LEARNER" },
-    });
+    const learner = { id: learnerId };
     const course = await prisma.course.findFirst({
       where: { slug: "workplace-conflict" },
     });
@@ -1607,6 +1567,8 @@ describe("facilitator sees real learners", () => {
         completedAt: new Date(),
       },
     });
+    // Shared with the learner's organisation (A), as the learner chose
+    // (Release 3: shared only with sharedAt and the organisation, D80).
     await prisma.compCard.create({
       data: {
         userId: learner.id,
@@ -1614,24 +1576,15 @@ describe("facilitator sees real learners", () => {
         wentWell: "I stayed calm",
         difficult: "Speaking up",
         privacy: "FACILITATOR",
+        sharedAt: new Date(),
+        sharedWithOrganisationId: ORGANISATIONS.A,
       },
     });
 
-    // Staff member (FACILITATOR) with a session
-    const staff = await prisma.user.create({
-      data: { email: staffEmail, emailVerified: new Date() },
-    });
-    await prisma.membership.create({
-      data: { userId: staff.id, projectId: "seq-elevate", role: "FACILITATOR" },
-    });
-    staffSession = `e2e-staff-${Date.now()}`;
-    await prisma.session.create({
-      data: {
-        sessionToken: staffSession,
-        userId: staff.id,
-        expires: new Date(Date.now() + 86_400_000),
-      },
-    });
+    // Staff member (FACILITATOR) with a session, in the learner's organisation
+    staffSession = (
+      await createPerson(prisma, { email: staffEmail, roles: ["FACILITATOR"], organisation: "A" })
+    ).sessionToken;
   });
 
   test.afterAll(async () => {
@@ -1674,18 +1627,7 @@ describe("guest progress migrates to the DB on sign-in", () => {
 
   test.beforeAll(async () => {
     await prisma.user.deleteMany({ where: { email } });
-    const user = await prisma.user.create({
-      data: { email, emailVerified: new Date() },
-    });
-    userId = user.id;
-    sessionToken = `e2e-migrate-${Date.now()}`;
-    await prisma.session.create({
-      data: {
-        sessionToken,
-        userId,
-        expires: new Date(Date.now() + 86_400_000),
-      },
-    });
+    ({ userId, sessionToken } = await createPerson(prisma, { email }));
   });
 
   test.afterAll(async () => {
@@ -1752,18 +1694,7 @@ describe("accessibility preferences persist to the account", () => {
 
   test.beforeAll(async () => {
     await prisma.user.deleteMany({ where: { email } });
-    const user = await prisma.user.create({
-      data: { email, emailVerified: new Date() },
-    });
-    userId = user.id;
-    sessionToken = `e2e-a11y-${Date.now()}`;
-    await prisma.session.create({
-      data: {
-        sessionToken,
-        userId,
-        expires: new Date(Date.now() + 86_400_000),
-      },
-    });
+    ({ userId, sessionToken } = await createPerson(prisma, { email }));
   });
 
   test.afterAll(async () => {
@@ -1822,13 +1753,9 @@ describe("GDPR self-service (export + erasure)", () => {
     });
 
     // Export subject — give them data so the export has content.
-    const ex = await prisma.user.create({
-      data: { email: exportEmail, emailVerified: new Date() },
-    });
+    const exported = await createPerson(prisma, { email: exportEmail, roles: ["LEARNER"] });
+    const ex = { id: exported.userId };
     exportUserId = ex.id;
-    await prisma.membership.create({
-      data: { userId: ex.id, projectId: "seq-elevate", role: "LEARNER" },
-    });
     const course = await prisma.course.findFirst({
       where: { slug: "workplace-conflict" },
     });
@@ -1840,31 +1767,12 @@ describe("GDPR self-service (export + erasure)", () => {
         scenarioRoot: "private",
       },
     });
-    exportSession = `e2e-gdpr-ex-${Date.now()}`;
-    await prisma.session.create({
-      data: {
-        sessionToken: exportSession,
-        userId: ex.id,
-        expires: new Date(Date.now() + 86_400_000),
-      },
-    });
+    exportSession = exported.sessionToken;
 
     // Erasure subject.
-    const del = await prisma.user.create({
-      data: { email: deleteEmail, emailVerified: new Date() },
-    });
-    deleteUserId = del.id;
-    await prisma.membership.create({
-      data: { userId: del.id, projectId: "seq-elevate", role: "LEARNER" },
-    });
-    deleteSession = `e2e-gdpr-del-${Date.now()}`;
-    await prisma.session.create({
-      data: {
-        sessionToken: deleteSession,
-        userId: del.id,
-        expires: new Date(Date.now() + 86_400_000),
-      },
-    });
+    const erased = await createPerson(prisma, { email: deleteEmail, roles: ["LEARNER"] });
+    deleteUserId = erased.userId;
+    deleteSession = erased.sessionToken;
   });
 
   test.afterAll(async () => {
@@ -1983,18 +1891,7 @@ describe("in-video quiz answers persist for signed-in learners", () => {
 
   test.beforeAll(async () => {
     await prisma.user.deleteMany({ where: { email } });
-    const u = await prisma.user.create({
-      data: { email, emailVerified: new Date() },
-    });
-    userId = u.id;
-    sessionToken = `e2e-video-${Date.now()}`;
-    await prisma.session.create({
-      data: {
-        sessionToken,
-        userId,
-        expires: new Date(Date.now() + 86_400_000),
-      },
-    });
+    ({ userId, sessionToken } = await createPerson(prisma, { email }));
   });
 
   test.afterAll(async () => {
@@ -2064,18 +1961,7 @@ describe("time-on-task is recorded for signed-in learners", () => {
 
   test.beforeAll(async () => {
     await prisma.user.deleteMany({ where: { email } });
-    const u = await prisma.user.create({
-      data: { email, emailVerified: new Date() },
-    });
-    userId = u.id;
-    sessionToken = `e2e-time-${Date.now()}`;
-    await prisma.session.create({
-      data: {
-        sessionToken,
-        userId,
-        expires: new Date(Date.now() + 86_400_000),
-      },
-    });
+    ({ userId, sessionToken } = await createPerson(prisma, { email }));
   });
 
   test.afterAll(async () => {
@@ -2326,22 +2212,16 @@ describe("demo access — one-click profile sign-in", () => {
 
 describe("statistics showcase (staff)", () => {
   const email = "e2e-analytics-staff@example.com";
-  let userId: string;
   let sessionToken: string;
 
   test.beforeAll(async () => {
     await prisma.user.deleteMany({ where: { email } });
-    const u = await prisma.user.create({
-      data: { email, emailVerified: new Date() },
-    });
-    userId = u.id;
-    await prisma.membership.create({
-      data: { userId, projectId: "seq-elevate", role: "FACILITATOR" },
-    });
-    sessionToken = `e2e-analytics-${Date.now()}`;
-    await prisma.session.create({
-      data: { sessionToken, userId, expires: new Date(Date.now() + 86_400_000) },
-    });
+    // In the learners' organisation (A), as a facilitator who sees them (D74).
+    ({ sessionToken } = await createPerson(prisma, {
+      email,
+      roles: ["FACILITATOR"],
+      organisation: "A",
+    }));
   });
   test.afterAll(async () => {
     await prisma.user.deleteMany({ where: { email } });
@@ -2397,37 +2277,13 @@ describe("admin manages organisations, cohorts and people", () => {
   test.beforeAll(async () => {
     await prisma.user.deleteMany({ where: { email: { in: allEmails } } });
 
-    const admin = await prisma.user.create({
-      data: { email: adminEmail, emailVerified: new Date() },
-    });
-    adminId = admin.id;
-    await prisma.membership.create({
-      data: { userId: admin.id, projectId: "seq-elevate", role: "ADMIN" },
-    });
-    adminSession = `e2e-admin-${Date.now()}`;
-    await prisma.session.create({
-      data: {
-        sessionToken: adminSession,
-        userId: admin.id,
-        expires: new Date(Date.now() + 86_400_000),
-      },
-    });
+    ({ userId: adminId, sessionToken: adminSession } = await createPerson(prisma, {
+      email: adminEmail,
+      roles: ["ADMIN"],
+    }));
 
     // A plain learner — used to prove the RBAC gate actually blocks.
-    const learner = await prisma.user.create({
-      data: { email: learnerEmail, emailVerified: new Date() },
-    });
-    await prisma.membership.create({
-      data: { userId: learner.id, projectId: "seq-elevate", role: "LEARNER" },
-    });
-    learnerSession = `e2e-admin-learner-${Date.now()}`;
-    await prisma.session.create({
-      data: {
-        sessionToken: learnerSession,
-        userId: learner.id,
-        expires: new Date(Date.now() + 86_400_000),
-      },
-    });
+    learnerSession = (await createPerson(prisma, { email: learnerEmail, roles: ["LEARNER"] })).sessionToken;
   });
 
   test.afterAll(async () => {
@@ -2642,40 +2498,12 @@ describe("course lifecycle — publish / unpublish from the CMS", () => {
   test.beforeAll(async () => {
     await prisma.user.deleteMany({ where: { email: { in: allEmails } } });
 
-    const editor = await prisma.user.create({
-      data: { email: editorEmail, emailVerified: new Date() },
-    });
-    editorId = editor.id;
-    await prisma.membership.create({
-      data: {
-        userId: editor.id,
-        projectId: "seq-elevate",
-        role: "CONTENT_EDITOR",
-      },
-    });
-    editorSession = `e2e-course-editor-${Date.now()}`;
-    await prisma.session.create({
-      data: {
-        sessionToken: editorSession,
-        userId: editor.id,
-        expires: new Date(Date.now() + 86_400_000),
-      },
-    });
+    ({ userId: editorId, sessionToken: editorSession } = await createPerson(prisma, {
+      email: editorEmail,
+      roles: ["CONTENT_EDITOR"],
+    }));
 
-    const learner = await prisma.user.create({
-      data: { email: learnerEmail, emailVerified: new Date() },
-    });
-    await prisma.membership.create({
-      data: { userId: learner.id, projectId: "seq-elevate", role: "LEARNER" },
-    });
-    learnerSession = `e2e-course-learner-${Date.now()}`;
-    await prisma.session.create({
-      data: {
-        sessionToken: learnerSession,
-        userId: learner.id,
-        expires: new Date(Date.now() + 86_400_000),
-      },
-    });
+    learnerSession = (await createPerson(prisma, { email: learnerEmail, roles: ["LEARNER"] })).sessionToken;
   });
 
   test.afterAll(async () => {
@@ -2891,40 +2719,12 @@ describe("creating a course in the CMS (no code)", () => {
       where: { projectId: "seq-elevate", slug: { startsWith: `${SLUG}-complete` } },
     });
 
-    const editor = await prisma.user.create({
-      data: { email: editorEmail, emailVerified: new Date() },
-    });
-    editorId = editor.id;
-    await prisma.membership.create({
-      data: {
-        userId: editor.id,
-        projectId: "seq-elevate",
-        role: "CONTENT_EDITOR",
-      },
-    });
-    editorSession = `e2e-create-editor-${Date.now()}`;
-    await prisma.session.create({
-      data: {
-        sessionToken: editorSession,
-        userId: editor.id,
-        expires: new Date(Date.now() + 86_400_000),
-      },
-    });
+    ({ userId: editorId, sessionToken: editorSession } = await createPerson(prisma, {
+      email: editorEmail,
+      roles: ["CONTENT_EDITOR"],
+    }));
 
-    const learner = await prisma.user.create({
-      data: { email: learnerEmail, emailVerified: new Date() },
-    });
-    await prisma.membership.create({
-      data: { userId: learner.id, projectId: "seq-elevate", role: "LEARNER" },
-    });
-    learnerSession = `e2e-create-learner-${Date.now()}`;
-    await prisma.session.create({
-      data: {
-        sessionToken: learnerSession,
-        userId: learner.id,
-        expires: new Date(Date.now() + 86_400_000),
-      },
-    });
+    learnerSession = (await createPerson(prisma, { email: learnerEmail, roles: ["LEARNER"] })).sessionToken;
   });
 
   test.afterAll(async () => {
@@ -3089,25 +2889,10 @@ describe("Comp Card template — editable wording (CMS)", () => {
       `UPDATE "Project" SET "compCardTemplate" = NULL WHERE id = 'seq-elevate'`
     );
 
-    const editor = await prisma.user.create({
-      data: { email: editorEmail, emailVerified: new Date() },
-    });
-    editorId = editor.id;
-    await prisma.membership.create({
-      data: {
-        userId: editor.id,
-        projectId: "seq-elevate",
-        role: "CONTENT_EDITOR",
-      },
-    });
-    editorSession = `e2e-cc-editor-${Date.now()}`;
-    await prisma.session.create({
-      data: {
-        sessionToken: editorSession,
-        userId: editor.id,
-        expires: new Date(Date.now() + 86_400_000),
-      },
-    });
+    ({ userId: editorId, sessionToken: editorSession } = await createPerson(prisma, {
+      email: editorEmail,
+      roles: ["CONTENT_EDITOR"],
+    }));
   });
 
   test.afterAll(async () => {
@@ -3353,21 +3138,10 @@ describe("CMS-created course with authored interactive stages plays + grades", (
       },
     });
 
-    const learner = await prisma.user.create({
-      data: { email: learnerEmail, emailVerified: new Date() },
-    });
-    learnerId = learner.id;
-    await prisma.membership.create({
-      data: { userId: learner.id, projectId: "seq-elevate", role: "LEARNER" },
-    });
-    learnerSession = `e2e-struct-${Date.now()}`;
-    await prisma.session.create({
-      data: {
-        sessionToken: learnerSession,
-        userId: learner.id,
-        expires: new Date(Date.now() + 86_400_000),
-      },
-    });
+    ({ userId: learnerId, sessionToken: learnerSession } = await createPerson(prisma, {
+      email: learnerEmail,
+      roles: ["LEARNER"],
+    }));
   });
 
   test.afterAll(async () => {
@@ -3474,25 +3248,10 @@ describe("authoring an interactive stage in the CMS", () => {
       },
     });
 
-    const editor = await prisma.user.create({
-      data: { email: editorEmail, emailVerified: new Date() },
-    });
-    editorId = editor.id;
-    await prisma.membership.create({
-      data: {
-        userId: editor.id,
-        projectId: "seq-elevate",
-        role: "CONTENT_EDITOR",
-      },
-    });
-    editorSession = `e2e-struct-ed-${Date.now()}`;
-    await prisma.session.create({
-      data: {
-        sessionToken: editorSession,
-        userId: editor.id,
-        expires: new Date(Date.now() + 86_400_000),
-      },
-    });
+    ({ userId: editorId, sessionToken: editorSession } = await createPerson(prisma, {
+      email: editorEmail,
+      roles: ["CONTENT_EDITOR"],
+    }));
   });
 
   test.afterAll(async () => {
@@ -3728,17 +3487,14 @@ describe("statistics dashboard — live data from real events", () => {
     ] as const;
 
     for (let i = 0; i < learnerEmails.length; i++) {
-      const u = await prisma.user.create({
-        data: {
-          email: learnerEmails[i],
-          name: `Live Learner ${i}`,
-          emailVerified: new Date(),
-        },
+      const { userId: id } = await createPerson(prisma, {
+        email: learnerEmails[i],
+        name: `Live Learner ${i}`,
+        roles: ["LEARNER"],
+        session: false,
       });
+      const u = { id };
       learnerIds.push(u.id);
-      await prisma.membership.create({
-        data: { userId: u.id, projectId: "seq-elevate", role: "LEARNER" },
-      });
       const completed = i === 4;
       await prisma.courseEnrollment.create({
         data: {
@@ -3775,20 +3531,10 @@ describe("statistics dashboard — live data from real events", () => {
       });
     }
 
-    const staff = await prisma.user.create({
-      data: { email: staffEmail, emailVerified: new Date() },
-    });
-    await prisma.membership.create({
-      data: { userId: staff.id, projectId: "seq-elevate", role: "FACILITATOR" },
-    });
-    staffSession = `e2e-live-${Date.now()}`;
-    await prisma.session.create({
-      data: {
-        sessionToken: staffSession,
-        userId: staff.id,
-        expires: new Date(Date.now() + 86_400_000),
-      },
-    });
+    // In the learners' organisation (A), so they are theirs (D74).
+    staffSession = (
+      await createPerson(prisma, { email: staffEmail, roles: ["FACILITATOR"], organisation: "A" })
+    ).sessionToken;
   });
 
   test.afterAll(async () => {

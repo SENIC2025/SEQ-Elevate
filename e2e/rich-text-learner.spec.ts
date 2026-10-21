@@ -2,6 +2,7 @@ import { test, expect, type Locator, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { Prisma, PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
+import { createPerson } from "./fixtures/people";
 
 /**
  * Rich lesson text as learners see it (D36): bold, italic, nested lists and
@@ -129,21 +130,8 @@ const BLOCKS: Json[] = [
 
 /** Create a user holding `role`, plus a live session; returns both ids. */
 async function signedInUser(email: string, role: "CONTENT_EDITOR" | "LEARNER") {
-  const user = await prisma.user.create({
-    data: { email, emailVerified: new Date() },
-  });
-  await prisma.membership.create({
-    data: { userId: user.id, projectId: PROJECT, role },
-  });
-  const sessionToken = `e2e-rt-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  await prisma.session.create({
-    data: {
-      sessionToken,
-      userId: user.id,
-      expires: new Date(Date.now() + 86_400_000),
-    },
-  });
-  return { userId: user.id, sessionToken };
+  const { userId, sessionToken } = await createPerson(prisma, { email, roles: [role] });
+  return { userId, sessionToken };
 }
 
 /**

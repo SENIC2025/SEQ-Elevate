@@ -1,6 +1,7 @@
 import { test, expect, type BrowserContext, type Locator, type Page } from "@playwright/test";
 import { Prisma, PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
+import { createPerson } from "./fixtures/people";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { applyR2Deltas, type Captured } from "./fixtures/r2-deltas";
@@ -370,17 +371,8 @@ async function cleanCourse() {
 
 async function learner(email: string) {
   await prisma.user.deleteMany({ where: { email } });
-  const user = await prisma.user.create({
-    data: { email, emailVerified: new Date() },
-  });
-  await prisma.membership.create({
-    data: { userId: user.id, projectId: PROJECT, role: "LEARNER" },
-  });
-  const sessionToken = `e2e-r1-${RUN}-${Math.random().toString(36).slice(2)}`;
-  await prisma.session.create({
-    data: { sessionToken, userId: user.id, expires: new Date(Date.now() + 86_400_000) },
-  });
-  return { userId: user.id, sessionToken };
+  const { userId, sessionToken } = await createPerson(prisma, { email, roles: ["LEARNER"] });
+  return { userId, sessionToken };
 }
 
 async function useSession(context: BrowserContext, sessionToken: string) {
@@ -791,15 +783,7 @@ describe("Release 2 — the recorded learner walk, phase 3: a course as built", 
   }) => {
     test.setTimeout(180_000);
     await prisma.user.deleteMany({ where: { email: FLEX_EMAILS.editor } });
-    const editor = await prisma.user.create({
-      data: { email: FLEX_EMAILS.editor, emailVerified: new Date() },
-      select: { id: true },
-    });
-    await prisma.membership.create({ data: { userId: editor.id, projectId: PROJECT, role: "CONTENT_EDITOR" } });
-    const sessionToken = `e2e-r2-walk-editor-${RUN}-${Math.random().toString(36).slice(2)}`;
-    await prisma.session.create({
-      data: { sessionToken, userId: editor.id, expires: new Date(Date.now() + 86_400_000) },
-    });
+    const { sessionToken } = await createPerson(prisma, { email: FLEX_EMAILS.editor, roles: ["CONTENT_EDITOR"] });
     await useSession(context, sessionToken);
     for (const locale of ["en", "de"] as const) {
       await walkFlexible(page, locale, "?preview=1", previewSees(page, locale));

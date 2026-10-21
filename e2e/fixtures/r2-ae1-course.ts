@@ -13,6 +13,11 @@ import { narrative, parts, structures, type R2LessonSeed } from "./r2-course";
  * 10.3), which records what a learner sees of it in
  * e2e/fixtures/r2-learner-baseline.json — so a change here is a change to
  * that recording, which is pinned (src/lib/r2-fixture-pin.test.ts).
+ *
+ * Release 3 (D90): seeded with German and Greek switched on for learners
+ * (readyLocales ["de", "el"], seedR2Course's default), so its German walk
+ * shows the German it recorded rather than the English a learner gets
+ * until a language is switched on.
  */
 
 /** The title, in English and German. */

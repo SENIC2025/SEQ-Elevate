@@ -1,6 +1,7 @@
 import { test, expect, type Locator, type Page } from "@playwright/test";
 import { Prisma, PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
+import { createPerson } from "./fixtures/people";
 import {
   PROJECT,
   learnerWithSession,
@@ -109,13 +110,8 @@ const seed = (slug: string, status: "draft" | "published", lessons: R2LessonSeed
 /** A CONTENT_EDITOR of the project with a session, as a sign-in leaves it. */
 async function editorWithSession(email: string) {
   await prisma.user.deleteMany({ where: { email } });
-  const user = await prisma.user.create({ data: { email, emailVerified: new Date() }, select: { id: true } });
-  await prisma.membership.create({ data: { userId: user.id, projectId: PROJECT, role: "CONTENT_EDITOR" } });
-  const sessionToken = `e2e-r2-live-${RUN}-${Math.random().toString(36).slice(2)}`;
-  await prisma.session.create({
-    data: { sessionToken, userId: user.id, expires: new Date(Date.now() + 86_400_000) },
-  });
-  return { userId: user.id, sessionToken };
+  const { userId, sessionToken } = await createPerson(prisma, { email, roles: ["CONTENT_EDITOR"] });
+  return { userId, sessionToken };
 }
 
 /** Enrol a learner with what they did: standard lessons, the course's own, finished or not. */

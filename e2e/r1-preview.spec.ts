@@ -2,6 +2,7 @@ import { test, expect, type BrowserContext, type Locator, type Page } from "@pla
 import AxeBuilder from "@axe-core/playwright";
 import { Prisma, PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
+import { createPerson } from "./fixtures/people";
 
 /**
  * Release 1, Stream C: a flexible course previews with every kind of
@@ -292,15 +293,8 @@ async function cleanCourse() {
 
 async function signedInUser(email: string) {
   await prisma.user.deleteMany({ where: { email } });
-  const user = await prisma.user.create({ data: { email, emailVerified: new Date() } });
-  await prisma.membership.create({
-    data: { userId: user.id, projectId: PROJECT, role: "CONTENT_EDITOR" },
-  });
-  const sessionToken = `e2e-r1p-${RUN}-${Math.random().toString(36).slice(2)}`;
-  await prisma.session.create({
-    data: { sessionToken, userId: user.id, expires: new Date(Date.now() + 86_400_000) },
-  });
-  return { userId: user.id, sessionToken };
+  const { userId, sessionToken } = await createPerson(prisma, { email, roles: ["CONTENT_EDITOR"] });
+  return { userId, sessionToken };
 }
 
 /**

@@ -1,6 +1,7 @@
 import { test, expect, type Locator, type Page } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
+import { createPerson } from "./fixtures/people";
 import {
   PROJECT,
   learnerWithSession,
@@ -88,13 +89,7 @@ function seed(slug: string, lessons: R2LessonSeed[], status: "draft" | "publishe
 
 async function editorWithSession(email: string) {
   await prisma.user.deleteMany({ where: { email } });
-  const user = await prisma.user.create({ data: { email, emailVerified: new Date() }, select: { id: true } });
-  await prisma.membership.create({ data: { userId: user.id, projectId: PROJECT, role: "CONTENT_EDITOR" } });
-  const sessionToken = `e2e-r2-cutoff-${RUN}-${Math.random().toString(36).slice(2)}`;
-  await prisma.session.create({
-    data: { sessionToken, userId: user.id, expires: new Date(Date.now() + 86_400_000) },
-  });
-  return sessionToken;
+  return (await createPerson(prisma, { email, roles: ["CONTENT_EDITOR"] })).sessionToken;
 }
 
 async function enrol(userId: string, slug: string) {

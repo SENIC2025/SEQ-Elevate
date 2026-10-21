@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { test, expect } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
+import { createPerson, createSession } from "./fixtures/people";
 
 /**
  * A signed-in user's reading-help settings (text size, easy-read font, high
@@ -97,7 +98,7 @@ async function breakReadingHelpLoads(
       try {
         return await route.fetch();
       } finally {
-        await prisma.session.create({ data: session });
+        await createSession(prisma, session.userId, { sessionToken, expires: session.expires });
       }
     });
     queue = turn.catch(() => undefined);
@@ -269,18 +270,8 @@ describe("reading-help settings kept when a load fails or the session changes ha
   test.beforeAll(async () => {
     await prisma.user.deleteMany({ where: { email: { in: all } } });
     for (const email of all) {
-      const user = await prisma.user.create({
-        data: { email, emailVerified: new Date() },
-      });
-      const session = `e2e-a11y-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-      await prisma.session.create({
-        data: {
-          sessionToken: session,
-          userId: user.id,
-          expires: new Date(Date.now() + 86_400_000),
-        },
-      });
-      users[email] = { id: user.id, session };
+      const person = await createPerson(prisma, { email });
+      users[email] = { id: person.userId, session: person.sessionToken };
     }
   });
 

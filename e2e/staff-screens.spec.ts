@@ -2,6 +2,7 @@ import { test, expect, type BrowserContext, type Page, type Request } from "@pla
 import AxeBuilder from "@axe-core/playwright";
 import { PrismaClient, type Role } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
+import { createPerson } from "./fixtures/people";
 
 /**
  * Three things the staff guide had to warn about (October 2026):
@@ -60,23 +61,15 @@ const COURSE = "receiving-feedback";
 const TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
 
 async function makeUser(address: string, roles: Role[], name?: string) {
-  const user = await prisma.user.create({
-    data: { email: address, name, emailVerified: new Date() },
+  // A facilitator sees the learners of their own organisation (D74): A,
+  // where the people fixture puts learners.
+  const { userId, sessionToken } = await createPerson(prisma, {
+    email: address,
+    roles,
+    name,
+    organisation: roles.includes("FACILITATOR") ? "A" : undefined,
   });
-  for (const role of roles) {
-    await prisma.membership.create({
-      data: { userId: user.id, projectId: PROJECT, role },
-    });
-  }
-  const sessionToken = `e2e-staff-${RUN}-${Math.random().toString(36).slice(2)}`;
-  await prisma.session.create({
-    data: {
-      sessionToken,
-      userId: user.id,
-      expires: new Date(Date.now() + 86_400_000),
-    },
-  });
-  return { userId: user.id, sessionToken };
+  return { userId, sessionToken };
 }
 
 async function signInAs(context: BrowserContext, sessionToken: string) {

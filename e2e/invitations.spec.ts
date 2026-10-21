@@ -3,6 +3,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { createHash, randomBytes } from "node:crypto";
 import { PrismaClient, type Role } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
+import { createPerson } from "./fixtures/people";
 
 /**
  * Invitation emails (D27): an admin adds someone and they receive a one-click
@@ -28,7 +29,6 @@ const prisma = DB
 const describe = DB ? test.describe : test.describe.skip;
 test.describe.configure({ mode: "serial" });
 
-const PROJECT = "seq-elevate";
 // Unique per run, so the per-address invitation rate limit never carries
 // over from a previous run.
 const RUN = Date.now().toString(36);
@@ -43,24 +43,7 @@ const TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
 let adminSession = "";
 
 async function makeUser(email: string, roles: Role[], withSession: boolean) {
-  const user = await prisma.user.create({
-    data: { email, emailVerified: new Date() },
-  });
-  for (const role of roles) {
-    await prisma.membership.create({
-      data: { userId: user.id, projectId: PROJECT, role },
-    });
-  }
-  if (!withSession) return "";
-  const sessionToken = `e2e-${RUN}-${Math.random().toString(36).slice(2)}`;
-  await prisma.session.create({
-    data: {
-      sessionToken,
-      userId: user.id,
-      expires: new Date(Date.now() + 86_400_000),
-    },
-  });
-  return sessionToken;
+  return (await createPerson(prisma, { email, roles, session: withSession })).sessionToken;
 }
 
 function sessionCookie(value: string) {

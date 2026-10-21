@@ -1,6 +1,7 @@
 import { test, expect, type BrowserContext } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
+import { createPerson } from "./fixtures/people";
 
 /**
  * Pages fit a 320px phone (WCAG 1.4.10 Reflow) in every language: the home
@@ -35,23 +36,7 @@ async function signedInUser(
   email: string,
   roles: ("LEARNER" | "ADMIN" | "CONTENT_EDITOR" | "FACILITATOR")[]
 ) {
-  const user = await prisma.user.create({
-    data: { email, emailVerified: new Date() },
-  });
-  for (const role of roles) {
-    await prisma.membership.create({
-      data: { userId: user.id, projectId: PROJECT, role },
-    });
-  }
-  const sessionToken = `e2e-header-${RUN}-${Math.random().toString(36).slice(2)}`;
-  await prisma.session.create({
-    data: {
-      sessionToken,
-      userId: user.id,
-      expires: new Date(Date.now() + 86_400_000),
-    },
-  });
-  return sessionToken;
+  return (await createPerson(prisma, { email, roles })).sessionToken;
 }
 
 async function signIn(context: BrowserContext, sessionToken: string) {

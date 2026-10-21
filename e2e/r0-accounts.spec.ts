@@ -1,6 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
+import { createPerson } from "./fixtures/people";
 
 /**
  * Release 0, accounts stream:
@@ -53,28 +54,20 @@ const COURSE_SLUGS = [COURSE_SLUG, BADGELESS_SLUG];
 // A bundled course's badge (from the seed), held by a staff member.
 const BUNDLED_BADGE = { slug: "voice-without-edges", name: "Voice without edges" };
 
-type Role = "ADMIN" | "FACILITATOR" | "CONTENT_EDITOR" | "LEARNER";
-const STAFF_ROLES: Role[] = ["ADMIN", "FACILITATOR", "CONTENT_EDITOR"];
+type Role = "ADMIN" | "PARTNER_ADMIN" | "FACILITATOR" | "CONTENT_EDITOR" | "LEARNER";
+const STAFF_ROLES: Role[] = ["ADMIN", "PARTNER_ADMIN", "FACILITATOR", "CONTENT_EDITOR"];
 
 /** A user holding `roles` in the project, plus a live session. */
 async function signedInUser(address: string, roles: Role[], name?: string) {
-  const user = await prisma.user.create({
-    data: { email: address, name, emailVerified: new Date() },
+  // A facilitator sees the learners of their own organisation (D74): A,
+  // where the people fixture puts learners.
+  const { userId, sessionToken } = await createPerson(prisma, {
+    email: address,
+    roles,
+    name,
+    organisation: roles.includes("FACILITATOR") ? "A" : undefined,
   });
-  for (const role of roles) {
-    await prisma.membership.create({
-      data: { userId: user.id, projectId: PROJECT, role },
-    });
-  }
-  const sessionToken = `e2e-r0acc-${RUN}-${Math.random().toString(36).slice(2)}`;
-  await prisma.session.create({
-    data: {
-      sessionToken,
-      userId: user.id,
-      expires: new Date(Date.now() + 86_400_000),
-    },
-  });
-  return { userId: user.id, sessionToken };
+  return { userId, sessionToken };
 }
 
 /**
@@ -108,8 +101,10 @@ const learnerRoles = (userId: string) =>
 /**
  * The project's learners as the database holds them right now (among
  * `userIds`, when given): a LEARNER membership and no staff role in the
- * project. Written out here, not taken from the app, so the spec checks the
- * app against the rule itself.
+ * project, and, as the admin's Learners figure counts them since Release 3
+ * (D83), never a staff role before (StaffHistory) and not a test account.
+ * Written out here, not taken from the app, so the spec checks the app
+ * against the rule itself.
  */
 const learnerCount = (userIds?: string[]) =>
   prisma.membership.count({
@@ -121,6 +116,8 @@ const learnerCount = (userIds?: string[]) =>
         memberships: {
           none: { projectId: PROJECT, role: { in: STAFF_ROLES } },
         },
+        staffHistory: { none: { projectId: PROJECT } },
+        profiles: { none: { projectId: PROJECT, testAccountAt: { not: null } } },
       },
     },
   });

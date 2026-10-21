@@ -1,6 +1,7 @@
 import { test, expect, type BrowserContext, type Locator, type Page } from "@playwright/test";
 import { Prisma, PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
+import { createPerson } from "./fixtures/people";
 
 /**
  * Release 1 — a course built on Release 0 carries over unchanged (D56, spec
@@ -140,13 +141,8 @@ async function outlineOf() {
 
 /** Create a content editor with a live session; returns both ids. */
 async function signedInEditor(email: string) {
-  const user = await prisma.user.create({ data: { email, emailVerified: new Date() } });
-  await prisma.membership.create({ data: { userId: user.id, projectId: PROJECT, role: "CONTENT_EDITOR" } });
-  const sessionToken = `e2e-r1c-${RUN}-${Math.random().toString(36).slice(2)}`;
-  await prisma.session.create({
-    data: { sessionToken, userId: user.id, expires: new Date(Date.now() + 86_400_000) },
-  });
-  return { userId: user.id, sessionToken };
+  const { userId, sessionToken } = await createPerson(prisma, { email, roles: ["CONTENT_EDITOR"] });
+  return { userId, sessionToken };
 }
 
 async function useSession(context: BrowserContext, sessionToken: string) {

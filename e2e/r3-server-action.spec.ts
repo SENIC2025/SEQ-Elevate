@@ -2,6 +2,7 @@ import { test, expect } from "@playwright/test";
 import { PrismaClient, type Role } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { builtActionsOf, callAction, decodeActionResponse } from "./fixtures/server-action";
+import { createPerson } from "./fixtures/people";
 
 /**
  * Release 3 (spec 18.3): the fixture that calls a server action directly
@@ -27,7 +28,6 @@ const prisma = DB
 const describe = DB ? test.describe : test.describe.skip;
 test.describe.configure({ mode: "serial" });
 
-const PROJECT = "seq-elevate";
 const RUN = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 const email = (who: string) => `e2e-action-${who}-${RUN}@example.com`;
 const EMAILS = [email("facilitator"), email("staff"), email("learner")];
@@ -35,43 +35,16 @@ const EMAILS = [email("facilitator"), email("staff"), email("learner")];
 const FILE = "src/app/actions/facilitator.ts";
 const PAGE = "/en/facilitator";
 
-/** The organisation everyone here belongs to (one the seed makes). */
-const ORGANISATION = "seq-elevate-proarbeit";
-
-/** Does the database have Release 3's profiles? */
-async function hasProfiles() {
-  const [row] = await prisma.$queryRaw<{ t: string | null }[]>`SELECT to_regclass('"ProjectProfile"')::text AS t`;
-  return row.t !== null;
-}
-
 async function makeUser(address: string, roles: Role[]) {
-  const user = await prisma.user.create({ data: { email: address, name: "E2E", emailVerified: new Date() } });
-  for (const role of roles) {
-    await prisma.membership.create({ data: { userId: user.id, projectId: PROJECT, role } });
-  }
-  if (await hasProfiles()) {
-    const now = new Date();
-    await prisma.projectProfile.create({
-      data: {
-        userId: user.id,
-        projectId: PROJECT,
-        country: "DE",
-        organisationId: ORGANISATION,
-        organisationSource: "admin",
-        // profile.ts's currentTermsVersion() until the legal texts carry a version.
-        termsVersion: "unversioned",
-        termsAcceptedAt: now,
-        ageRule: "SELF_MIN_AGE",
-        ageConfirmedAt: now,
-        profileCompletedAt: now,
-      },
-    });
-  }
-  const sessionToken = `e2e-action-${RUN}-${Math.random().toString(36).slice(2)}`;
-  await prisma.session.create({
-    data: { sessionToken, userId: user.id, expires: new Date(Date.now() + 86_400_000) },
+  // Everyone in one organisation (A, one the seed makes), so the
+  // facilitator's scope covers them (D74).
+  const { userId, sessionToken } = await createPerson(prisma, {
+    email: address,
+    name: "E2E",
+    roles,
+    organisation: "A",
   });
-  return { userId: user.id, sessionToken };
+  return { userId, sessionToken };
 }
 
 const notesAbout = (userId: string) => prisma.observation.count({ where: { observedId: userId } });
