@@ -110,12 +110,18 @@ export interface ActionCall {
 export interface ActionAnswer {
   /** The HTTP status of the response. */
   status: number;
+  /** Its Content-Type: an action's answer is "text/x-component". */
+  contentType: string;
   /**
    * What the action returned (undefined for a void action). When the action
-   * threw, `error` is set instead: production builds send only a digest.
+   * threw, `error` is set instead (production builds send only a digest) and
+   * `thrown` is true; when the response holds no action result at all (the
+   * page doesn't serve that action, an error page), `error` says so and
+   * `thrown` is false.
    */
   result: unknown;
   error?: string;
+  thrown?: boolean;
   /** Where the action redirected to, when it called redirect(). */
   redirect?: string;
   /** The response body, for a failure message. */
@@ -162,7 +168,7 @@ export async function callAction(request: APIRequestContext, call: ActionCall): 
   const headers = response.headers();
   const redirect = headers["x-action-redirect"]?.split(";")[0];
   const decoded = decodeActionResponse(raw);
-  return { status: response.status(), raw, redirect, ...decoded };
+  return { status: response.status(), contentType: headers["content-type"] ?? "", raw, redirect, ...decoded };
 }
 
 /**
@@ -175,7 +181,7 @@ export async function callAction(request: APIRequestContext, call: ActionCall): 
  * read here: "$@id"/"$id" references, "$undefined", dates ("$D…"), big
  * numbers ("$n…") and "$$" for a literal "$".
  */
-export function decodeActionResponse(raw: string): { result: unknown; error?: string } {
+export function decodeActionResponse(raw: string): { result: unknown; error?: string; thrown?: boolean } {
   // Read as bytes: a text row's length counts UTF-8 bytes, not characters.
   const bytes = Buffer.from(raw, "utf8");
   const rows = new Map<string, string>();
@@ -225,14 +231,21 @@ export function decodeActionResponse(raw: string): { result: unknown; error?: st
   };
 
   try {
-    const head = JSON.parse(rows.get("0") ?? "null") as { a?: unknown } | null;
-    if (!head || !("a" in head)) return { result: undefined, error: "no action result in the response" };
+    let head: { a?: unknown } | null = null;
+    try {
+      head = JSON.parse(rows.get("0") ?? "null") as { a?: unknown } | null;
+    } catch {
+      // Not an RSC payload (an error page): no action result.
+    }
+    if (!head || typeof head !== "object" || !("a" in head)) {
+      return { result: undefined, error: "no action result in the response", thrown: false };
+    }
     return { result: revive(head.a) };
   } catch (e) {
     const row = (e as { row?: string }).row;
     if (row !== undefined) {
       const parsed = JSON.parse(row) as { digest?: string; message?: string };
-      return { result: undefined, error: parsed.digest ?? parsed.message ?? "error" };
+      return { result: undefined, error: parsed.digest ?? parsed.message ?? "error", thrown: true };
     }
     throw e;
   }

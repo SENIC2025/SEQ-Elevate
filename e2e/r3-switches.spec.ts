@@ -61,6 +61,14 @@ describe("Release 3 switches: partner access off", () => {
     }
     const people = await payload(request, world.people.PAA, "/en/admin/people");
     expect(seen(people, ["LA1", "LA2", "FA", "EA", "PAA2"]), "PAA's people").toEqual([]);
-    expect(seen(await payload(request, world.people.AS, "/en/facilitator"), LEARNERS)).toEqual(LEARNERS);
+    // The controls: the same pages show an ADMIN every learner, so "no one"
+    // above comes from the switch, not from pages that show no one. The
+    // statistics count from STATS_FROM once its date applies (spec 7.3); it
+    // is unset here (1 Dec 2026), so this then fails until the world's
+    // enrolments fall on or after it.
+    expect(seen(await payload(request, world.people.AS, "/en/facilitator"), LEARNERS), "AS's roster").toEqual(LEARNERS);
+    expect(seen(await payload(request, world.people.AS, "/en/analytics?live=1"), LEARNERS), "AS's statistics").toEqual(
+      LEARNERS
+    );
   });
 });

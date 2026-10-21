@@ -146,6 +146,13 @@ export interface CallRow extends Base {
    * and moves them into `refuse`.
    */
   pending?: { personas: readonly Persona[]; by: string };
+  /**
+   * For a read whose refusal looks like an empty answer (null): someone it
+   * serves, and what they get, so the refusals are shown to come from who
+   * calls and not from the data (a row that answers null to everyone can't
+   * fail).
+   */
+  control?: { as: Persona; answer: (result: unknown) => boolean; what: string };
 }
 
 /**
@@ -186,9 +193,18 @@ export type Row = CallRow | UnbuiltRow | OpenRow | RouteRow;
 /** A row's name: "file#export" for an action, the route for a route. */
 export const rowKey = (row: Row) => (row.kind === "route" ? row.route : `${row.file}#${row.name}`);
 
-/** Does the call's answer match the outcome? */
+/**
+ * Does the call's answer match the outcome? A throw is the action's own
+ * thrown error only: Next answers it with status 500 and an RSC payload
+ * whose result is an `E` row. A response with no action result in it (the
+ * page doesn't serve that action: Next's 404 "Server action not found.", an
+ * error page, an empty body) means the action never ran, so it is no throw.
+ */
 export function matches(answer: ActionAnswer, outcome: Outcome): { ok: boolean; got: unknown } {
-  if ("thrown" in outcome) return { ok: answer.error !== undefined, got: answer.error ?? answer.result };
+  if ("thrown" in outcome) {
+    const ok = answer.thrown === true && answer.status === 500 && answer.contentType.includes("text/x-component");
+    return { ok, got: answer.thrown ? `threw ${answer.error}` : `${answer.error ?? answer.result} (status ${answer.status})` };
+  }
   return {
     ok: answer.error === undefined && JSON.stringify(answer.result) === JSON.stringify(outcome.result),
     got: answer.error !== undefined ? `threw ${answer.error}` : answer.result,

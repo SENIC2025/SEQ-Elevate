@@ -60,6 +60,12 @@ test("decodes an action's answer, a void answer and a thrown error", () => {
   expect(decodeActionResponse('0:{"a":"$@1","f":"","b":"x"}\n1:E{"digest":"123"}\n')).toEqual({
     result: undefined,
     error: "123",
+    thrown: true,
+  });
+  expect(decodeActionResponse("Server action not found.")).toEqual({
+    result: undefined,
+    error: "no action result in the response",
+    thrown: false,
   });
 });
 

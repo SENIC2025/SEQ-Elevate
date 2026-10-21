@@ -32,7 +32,14 @@ import {
  * Personas: the world's FA, FB, FN, FI, PAA, EA and LA1 (e2e/fixtures/
  * people.ts), and someone with no session. On the old build the partner
  * admin holds no role (PARTNER_ADMIN doesn't exist there), so its rows are
- * guards.
+ * guards, titled so: most refuse it by role (an ADMIN-only action, someone
+ * else's own data), which the scope module's negative control (spec 18.3)
+ * doesn't reach either; their positive control is the partner admin's own
+ * in-scope people actions, once those are its (Stream A).
+ *
+ * A read whose refusal is an empty answer (null) has a control: the same
+ * call as someone it serves answers something, so a refusal can't come
+ * from the data alone.
  *
  * Requires a real database — gated on E2E_DB=1. Everything the run makes
  * is unique to it and removed afterwards.
@@ -77,6 +84,8 @@ describe("Every action refuses who it must, and changes nothing", () => {
     run: world.run,
   });
   const caller = (as: Persona) => (as === "anonymous" ? null : world.people[as]);
+  /** The partner admin's rows are guards: the role doesn't exist on the build before Release 3. */
+  const guard = (as: Persona) => (as === "PAA" ? " (guard)" : "");
 
   test("an export no page imports has no action id in the build", () => {
     for (const row of TABLE.filter((r) => r.kind === "unbuilt")) {
@@ -86,7 +95,7 @@ describe("Every action refuses who it must, and changes nothing", () => {
 
   for (const row of TABLE.filter((r): r is CallRow & { stream: Stream } => r.kind === "call")) {
     for (const as of row.refuse) {
-      test(`${row.name} (${row.file.replace("src/app/actions/", "")}) refuses ${as}`, async ({ request }) => {
+      test(`${row.name} (${row.file.replace("src/app/actions/", "")}) refuses ${as}${guard(as)}`, async ({ request }) => {
         const c = ctx(as);
         const before = await snapshot(prisma, world, row.tables);
         const answer = await callAction(request, {
@@ -108,11 +117,28 @@ describe("Every action refuses who it must, and changes nothing", () => {
     for (const as of row.pending?.personas ?? []) {
       test.fixme(`${row.name} (${row.file.replace("src/app/actions/", "")}) refuses ${as}: ${row.pending!.by}`, () => {});
     }
+    const control = row.control;
+    if (control) {
+      test(`${row.name} (${row.file.replace("src/app/actions/", "")}) answers ${control.as} (control)`, async ({ request }) => {
+        const c = ctx(control.as);
+        const before = await snapshot(prisma, world, row.tables);
+        const answer = await callAction(request, {
+          as: caller(control.as),
+          page: typeof row.page === "string" ? row.page : row.page(c),
+          file: row.file,
+          name: row.name,
+          args: row.args(c),
+        });
+        expect(answer.error, `${rowKey(row)} as ${control.as}: ${answer.raw.slice(0, 200)}`).toBeUndefined();
+        expect(control.answer(answer.result), `${rowKey(row)} as ${control.as} reads ${control.what}: got ${JSON.stringify(answer.result)}`).toBe(true);
+        expect(await snapshot(prisma, world, row.tables), `${rowKey(row)} as ${control.as} changed nothing`).toEqual(before);
+      });
+    }
   }
 
   for (const row of TABLE.filter((r): r is RouteRow & { stream: Stream } => r.kind === "route")) {
     for (const as of row.refuse) {
-      test(`${row.route} refuses ${as}`, async ({ request }) => {
+      test(`${row.route} refuses ${as}${guard(as)}`, async ({ request }) => {
         const c = ctx(as);
         const person = caller(as);
         const before = await snapshot(prisma, world, row.tables);

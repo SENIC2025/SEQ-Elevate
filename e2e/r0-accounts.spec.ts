@@ -59,13 +59,15 @@ const STAFF_ROLES: Role[] = ["ADMIN", "PARTNER_ADMIN", "FACILITATOR", "CONTENT_E
 
 /** A user holding `roles` in the project, plus a live session. */
 async function signedInUser(address: string, roles: Role[], name?: string) {
-  // A facilitator sees the learners of their own organisation (D74): A,
-  // where the people fixture puts learners.
+  // Everyone in organisation A, where the people fixture puts learners: a
+  // facilitator sees the learners of their own organisation (D74), and a
+  // staff member who still holds an old learner role is then left off the
+  // roster by D53's rule alone, not by belonging to no organisation.
   const { userId, sessionToken } = await createPerson(prisma, {
     email: address,
     roles,
     name,
-    organisation: roles.includes("FACILITATOR") ? "A" : undefined,
+    organisation: "A",
   });
   return { userId, sessionToken };
 }

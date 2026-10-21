@@ -308,6 +308,20 @@ export interface WorldCourse {
   partId: string;
 }
 
+/**
+ * A draft course of the world, for what only editors read: a quiz lesson of
+ * its own (an exercise, which the editor reads with getStructure) whose
+ * extra content is a quiz part (read with getPart). Learners never see it.
+ */
+export interface WorldDraftCourse {
+  id: string;
+  slug: string;
+  /** The quiz lesson ("s-…"). */
+  quizLessonId: string;
+  /** Its quiz part ("p-…"). */
+  quizPartId: string;
+}
+
 export interface World {
   run: string;
   organisations: Record<OrganisationKey, WorldOrganisation>;
@@ -315,6 +329,7 @@ export interface World {
   ownOrganisations: boolean;
   people: Record<WorldKey, Person>;
   course: WorldCourse;
+  draftCourse: WorldDraftCourse;
   /** The marker in the person's name and email. */
   marker: (key: WorldKey) => string;
   /** The marker in the learner's Comp Card text. */
@@ -438,6 +453,34 @@ export async function createWorld(
     },
     select: { id: true },
   });
+  // The draft course: a quiz lesson whose extra content is a quiz part,
+  // both still empty (null), as an editor's newly added ones are.
+  const draftSlug = `e2e-draft-${run}`;
+  const draftCourseId = `e2e-draft-course-${run}`;
+  const quizLessonId = `s-q${run.slice(-7).padStart(7, "0")}`;
+  const quizPartId = `p-q${run.slice(-7).padStart(7, "0")}`;
+  const draftOutline = JSON.stringify({ v: 1, sections: [{ id: quizLessonId, template: "quiz" }] });
+  const draftMeta = JSON.stringify({ en: { title: `E2E draft ${run}`, tagline: "E2E draft", clusterLabel: "Communication" } });
+  await prisma.$executeRaw`
+    INSERT INTO "Course" ("id","projectId","strapiId","slug","cluster","durationMinutes","status","outline","meta","updatedAt")
+    VALUES (${draftCourseId}, ${PROJECT}, ${`cms-${draftSlug}`}, ${draftSlug}, 'communication', 15, 'draft',
+            ${draftOutline}::jsonb, ${draftMeta}::jsonb, now())`;
+  await prisma.lesson.create({
+    data: {
+      projectId: PROJECT,
+      courseSlug: draftSlug,
+      stageKey: quizLessonId,
+      parts: {
+        v: 1,
+        items: [
+          { id: "main", type: "main" },
+          { id: quizPartId, type: "quiz", data: null, draft: null },
+        ],
+      },
+    },
+    select: { id: true },
+  });
+
   for (const key of ["LA1", "LA2", "LB1", "LD1", "LN"] as const) {
     await prisma.courseEnrollment.create({
       data: { userId: people[key].userId, courseId, stagesCompleted: [] },
@@ -451,6 +494,7 @@ export async function createWorld(
     ownOrganisations: own,
     people,
     course: { id: courseId, slug, lessonId, documentId: document.id, partId },
+    draftCourse: { id: draftCourseId, slug: draftSlug, quizLessonId, quizPartId },
     marker,
     cardMarker,
   };
@@ -471,8 +515,10 @@ export async function removeWorld(prisma: PrismaClient, world: World) {
     },
   });
   await prisma.user.deleteMany({ where: { id: { in: userIds } } });
-  await prisma.lesson.deleteMany({ where: { projectId: PROJECT, courseSlug: world.course.slug } });
-  await prisma.course.deleteMany({ where: { id: world.course.id } });
+  await prisma.lesson.deleteMany({
+    where: { projectId: PROJECT, courseSlug: { in: [world.course.slug, world.draftCourse.slug] } },
+  });
+  await prisma.course.deleteMany({ where: { id: { in: [world.course.id, world.draftCourse.id] } } });
   await prisma.badge.deleteMany({ where: { projectId: PROJECT, slug: { startsWith: world.course.slug } } });
   await prisma.cohort.deleteMany({ where: { id: { in: cohortIds } } });
   if (world.ownOrganisations) {

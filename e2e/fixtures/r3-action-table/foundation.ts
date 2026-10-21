@@ -28,6 +28,11 @@ const playerPage = (c: Ctx) => `/en/learner/course/${c.world.course.slug}`;
 /** The world course's own lesson and its extra content. */
 const lesson = (c: Ctx) => [c.world.course.slug, c.world.course.lessonId] as const;
 const part = (c: Ctx) => [...lesson(c), c.world.course.partId] as const;
+/** The world's draft course: an exercise lesson, and a question part of it, as editors read them. */
+const quizLesson = (c: Ctx) => [c.world.draftCourse.slug, c.world.draftCourse.quizLessonId] as const;
+const quizPart = (c: Ctx) => [...quizLesson(c), c.world.draftCourse.quizPartId] as const;
+/** What an editor reads of a new, empty exercise or question: both versions, none written yet. */
+const emptyForEditor = (result: unknown) => JSON.stringify(result) === JSON.stringify({ structure: null, draft: null });
 /** A refused editor action that answers `{ ok: false, error: "forbidden" }`. */
 const editorAction = (file: string, name: string, args: (c: Ctx) => unknown[], why: string): Row => ({
   kind: "call",
@@ -160,11 +165,12 @@ export const rows: Row[] = [
     file: PARTS,
     name: "getPart",
     page: coursePage,
-    args: (c) => [...part(c)],
+    args: (c) => [...quizPart(c)],
     refuse: NOT_EDITORS,
     outcome: () => answers(null),
     tables: COURSE_TABLES,
-    why: "editors only read a lesson's extra content in the editor",
+    control: { as: "EA", answer: emptyForEditor, what: "the question part, to an editor" },
+    why: "editors only read a lesson's question parts in the editor",
   },
   editorAction(PARTS, "addPart", (c) => [...lesson(c), "text", null, "base", true], "editors only add content"),
   editorAction(PARTS, "movePart", (c) => [...part(c), -1, "base", true], "editors only move content"),
@@ -185,10 +191,11 @@ export const rows: Row[] = [
     file: STRUCTURE,
     name: "getStructure",
     page: coursePage,
-    args: (c) => [...lesson(c)],
+    args: (c) => [...quizLesson(c)],
     refuse: NOT_EDITORS,
     outcome: () => answers(null),
     tables: COURSE_TABLES,
+    control: { as: "EA", answer: emptyForEditor, what: "the exercise, to an editor" },
     why: "editors only read an exercise in the editor",
   },
   editorAction(STRUCTURE, "saveStructure", (c) => [...lesson(c), {}, {}, true], "editors only change exercises"),
