@@ -318,9 +318,9 @@ function filterOf(table: TableName, world: World): { columns: string; where: str
       return { columns: all, where: `"slug" LIKE $1`, params: [like] };
     case "Project":
       // Only whether the run's marker landed in the project's settings (a
-      // refused Comp Card template save names it): other specs change the
-      // template at the same time.
-      return { columns: `(t."compCardTemplate"::text LIKE $1) AS marked`, where: `"id" = 'seq-elevate'`, params: [like] };
+      // refused Comp Card template or safeguarding save names it): other
+      // specs change them at the same time. Any column, on either build.
+      return { columns: `(to_jsonb(t)::text LIKE $1) AS marked`, where: `"id" = 'seq-elevate'`, params: [like] };
     case "VerificationToken":
       return { columns: all, where: `"identifier" = ANY($1::text[])`, params: [emails] };
   }
