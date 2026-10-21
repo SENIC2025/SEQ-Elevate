@@ -108,13 +108,13 @@ const LEGACY: Partial<Record<LegalDocId, LegacyText>> = {
       {
         heading: "Saved in your browser",
         body: [
-          "Your browser also keeps a few things for the platform, on your device. Only your guest work ever leaves it: when you add it to your account.",
+          "Your browser also keeps a few things for the platform, on your device. Some of them reach your account: your guest work when you add it, your reading help, and answers waiting to be saved.",
         ],
         list: [
           "Your work as a guest (seq-elevate-demo-state-v1): your progress, answers, reflections and Comp Card when you use a course without signing in. It stays in this browser until you add it to your account after signing in, remove it, or clear this site's data. On a shared computer, sign in first, or remove your work before you leave.",
-          "Your reading help (seq-elevate-a11y-v1): text size, easy-read font and contrast. It stays after you sign out, until you clear this site's data.",
+          "Your reading help (seq-elevate-a11y-v1): text size, easy-read font and contrast. While you are signed in, they are also saved in your account, so they follow you to your other devices. Settings you chose before signing in move into your account if it still has the standard settings. This browser's copy stays after you sign out, until you clear this site's data.",
           "The programme you use (seq-elevate-project-v1), until you clear this site's data.",
-          "Answers waiting to be saved (seq-elevate-outbox-v1): if the site is updated while you are signed in, answers it couldn't save yet are kept for that browser tab until they are saved, and removed when you close the tab.",
+          "Answers waiting to be saved (seq-elevate-outbox-v1): if the site is updated while you are signed in, answers it couldn't save yet are kept for that browser tab until they are sent to us and saved, and removed when you close the tab.",
         ],
       },
     ],
@@ -175,6 +175,7 @@ const LEGACY: Partial<Record<LegalDocId, LegacyText>> = {
           "What you tell us the first time you sign in: a first name or nickname, the country you take part from, when you accepted the Terms of use, and your confirmation of the age rule.",
           "Your course progress: the lessons you finished, your answers in exercises and quizzes, and what you write in reflections.",
           "Your Comp Card. It is private to you ('Only me') unless you choose to share it with the facilitators at your organisation, and you can switch back to 'Only me' at any time.",
+          "Your reading help: the text size, easy-read font and contrast your account keeps, so they follow you to your other devices. They include settings you chose before signing in, if your account still had the standard settings. They are in your data download.",
           "Activity records: when you open a course, how long you spend on each lesson, and your answers to questions in videos. They are used to support your learning.",
           "Notes that the staff who support you write about your learning. They are in your data download.",
         ],

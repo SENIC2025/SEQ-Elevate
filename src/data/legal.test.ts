@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { FINAL_TEXTS } from "@/content/legal";
+import { DEFAULT_A11Y_PREFS, prefsAfterLoad } from "@/lib/a11y-prefs";
 import { legalHref, legalPlaceholders, linkAddresses } from "@/lib/legal-markdown";
 import { ALL_LEGAL_DOCS, getLegal, hasLegalTranslation, LEGACY_VERSION, LEGAL_DOCS, type LegalText } from "./legal";
 
@@ -210,6 +211,26 @@ describe("the legacy texts (spec 12.2: made true to the platform)", () => {
       "seq-elevate-outbox-v1",
     ]) {
       expect(text, name).toContain(name);
+    }
+  });
+
+  it("say which of the browser's copies reach the account: guest work, reading help, answers waiting to be saved", () => {
+    // A guest's reading help moves into an account still on the standard settings.
+    expect(prefsAfterLoad(DEFAULT_A11Y_PREFS, { dyslexia: true }, {}).movedIn).toBe(true);
+    const cookies = getLegal("cookies", "en");
+    const privacy = getLegal("privacy", "en");
+    if (cookies?.kind === "legacy") {
+      const text = JSON.stringify(cookies);
+      expect(text).not.toMatch(/only your guest work/i);
+      const store = (name: string) => cookies.sections.flatMap((s) => s.list ?? []).find((item) => item.includes(name)) ?? "";
+      expect(store("seq-elevate-a11y-v1")).toMatch(/saved in your account/);
+      expect(store("seq-elevate-a11y-v1")).toMatch(/move into your account/);
+      expect(store("seq-elevate-outbox-v1")).toMatch(/sent to us/);
+    }
+    if (privacy?.kind === "legacy") {
+      // The easy-read font can say something about the person: the notice names it.
+      const collected = privacy.sections.find((s) => s.heading === "What we collect")?.list ?? [];
+      expect(collected.find((item) => /reading help/i.test(item))).toMatch(/text size, easy-read font and contrast/);
     }
   });
 });
