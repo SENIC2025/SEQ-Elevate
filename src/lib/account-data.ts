@@ -171,6 +171,26 @@ export async function recordDataExport(entry: { actorId: string; userId: string;
 
 export type AdminRefusal = "self" | "last-admin" | "admin-email";
 
+/** A person found by address on /admin/data (findPeople), member or not. */
+export interface FoundPerson {
+  id: string;
+  email: string;
+  name: string | null;
+  createdAt: string;
+  /** Has signed in by link at least once. */
+  signedIn: boolean;
+  roles: string[];
+  organisation: string | null;
+  profileComplete: boolean;
+  testAccount: boolean;
+  /** In StaffHistory: held a staff role in the project at some point. */
+  everStaff: boolean;
+  enrolments: number;
+  compCard: boolean;
+  /** Why this admin may not reset or erase them, if so. */
+  refusal: AdminRefusal | null;
+}
+
 /**
  * Why an ADMIN may not reset or erase `target`, or null: their own account,
  * the project's last ADMIN, or an ADMIN_EMAILS address (its roles come back
@@ -575,7 +595,7 @@ export async function runCleanupSteps(
 
 export type ReviewKey =
   | "no-profile"
-  | "demo"
+  | "showcase"
   | "before-stats"
   | "staff-with-data"
   | "member-targets"
@@ -642,7 +662,7 @@ async function reviewLists(): Promise<DataTools["review"]> {
     })
   ).flatMap((r) => (r.entityId ? [r.entityId] : []));
 
-  const [noProfile, demo, beforeStats, staffWithData, memberTargets] = await Promise.all([
+  const [noProfile, showcase, beforeStats, staffWithData, memberTargets] = await Promise.all([
     list({
       AND: [HAS_LEARNER_DATA, { profiles: { none: { projectId: PROJECT, profileCompletedAt: { not: null } } } }],
     }),
@@ -717,7 +737,7 @@ async function reviewLists(): Promise<DataTools["review"]> {
 
   return {
     "no-profile": noProfile.map((u) => row(u)),
-    demo: demo.map((u) => row(u)),
+    showcase: showcase.map((u) => row(u)),
     "before-stats": beforeStats.map((u) => row(u)),
     "staff-with-data": staffWithData.map((u) => row(u)),
     "member-targets": memberTargets.map((u) => row(u)),
