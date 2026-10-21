@@ -14,8 +14,9 @@ export function SignInForm({
   demoEnabled = false,
 }: {
   callbackUrl: string;
-  /** Server-derived: show the demo/client-access link only where demo login
-   * is on. In production (DEMO_LOGIN_DISABLED=true) it would be a dead end. */
+  /** Server-derived: show the demo/client-access link only where demo
+   * sign-in is allowed (demoLoginAllowed, D98). Elsewhere, production
+   * always, it would be a dead end. */
   demoEnabled?: boolean;
 }) {
   const t = useTranslations("auth");

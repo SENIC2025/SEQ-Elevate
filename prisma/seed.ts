@@ -11,6 +11,7 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { PROJECTS, DEFAULT_PROJECT_ID } from "../src/data/project";
 import { COURSE_DEFS, COURSE_ORDER } from "../src/data/course";
 import en from "../src/messages/en.json";
+import { seedCountryMapping, seedStaffProfile } from "./seed-r3";
 
 const adapter = new PrismaPg({
   connectionString: process.env.DATABASE_URL!,
@@ -80,6 +81,11 @@ async function main() {
   }
   console.log(`  ✓ Organisations: ${partnerOrgs.map((p) => p.shortName).join(", ")}`);
 
+  // Release 3 (D73): which organisation supports each country, Q24's
+  // default. Never changes a country an ADMIN has mapped.
+  await seedCountryMapping(prisma, project.id);
+  console.log("  ✓ Country mapping (default, where not set)");
+
   // 3. Demo cohort (Berlin Pilot — matches facilitator demo)
   const berlinCohort = await prisma.cohort.upsert({
     where: { id: "berlin-pilot-2026" },
@@ -143,12 +149,15 @@ async function main() {
 
   // 5. Optional staff account — grants FACILITATOR + ADMIN to SEED_STAFF_EMAIL
   //    so the facilitator/admin views can show real data. Set the env to
-  //    your email before seeding to provision yourself as staff.
+  //    your email before seeding to provision yourself as staff. It gets a
+  //    name (SEED_STAFF_NAME, default "Staff") and a complete profile, so it
+  //    isn't sent to the profile step on every visit (Release 3, spec 5.8).
   const staffEmail = process.env.SEED_STAFF_EMAIL;
+  const staffName = process.env.SEED_STAFF_NAME?.trim() || "Staff";
   if (staffEmail) {
     const staff = await prisma.user.upsert({
       where: { email: staffEmail },
-      create: { email: staffEmail, emailVerified: new Date() },
+      create: { email: staffEmail, name: staffName, emailVerified: new Date() },
       update: {},
     });
     for (const role of ["FACILITATOR", "ADMIN"] as const) {
@@ -164,7 +173,8 @@ async function main() {
         update: {},
       });
     }
-    console.log(`  ✓ Staff: ${staffEmail} (FACILITATOR + ADMIN)`);
+    await seedStaffProfile(prisma, staff, project.id, staffName);
+    console.log(`  ✓ Staff: ${staffEmail} (FACILITATOR + ADMIN, profile complete)`);
   }
 
   console.log("Seed complete.");

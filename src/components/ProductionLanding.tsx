@@ -1,8 +1,9 @@
 "use client";
 
 /**
- * The production front door. Shown at `/` when the launch switch
- * (DEMO_LOGIN_DISABLED=true) is on — see [locale]/page.tsx. Unlike the demo
+ * The production front door. Shown at `/` wherever demo sign-in isn't
+ * allowed (demoLoginAllowed, D98; production always) — see
+ * [locale]/page.tsx. Unlike the demo
  * LandingPage (role-picker into client-side demo state), this is a real
  * welcome whose single call-to-action is magic-link sign-in.
  *

@@ -12,15 +12,16 @@
  * Vercel. Idempotent: everything is upserted by its natural key, so redeploys
  * refresh the content in place rather than duplicating it.
  *
- * Guard: skipped when DEMO_LOGIN_DISABLED=true — the same kill-switch that
- * turns off the demo sign-in on a real production domain (see DECISIONS D16).
- * So the demo course rides along on the demo deploy and vanishes on real prod.
+ * Guard: runs only where demo sign-in may run (demoSeedAllowed, the
+ * conditions of src/lib/demo-gate.ts: opted in with DEMO_LOGIN_ENABLED and a
+ * private access code, never on production; D98). So the demo course rides
+ * along on a showcase deploy and is never seeded anywhere else.
  * Never fails the build: any error is logged and swallowed.
  */
 
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { hasEditorLessons } from "./seed-demo-guard.mjs";
+import { demoSeedAllowed, hasEditorLessons } from "./seed-demo-guard.mjs";
 
 const url = process.env.DATABASE_URL;
 const PROJECT = "seq-elevate";
@@ -30,8 +31,8 @@ if (!url || url.includes("placeholder")) {
   console.log("[seed-demo] no real DATABASE_URL — skipping");
   process.exit(0);
 }
-if (process.env.DEMO_LOGIN_DISABLED === "true") {
-  console.log("[seed-demo] demo access disabled — skipping demo course");
+if (!demoSeedAllowed(process.env)) {
+  console.log("[seed-demo] demo sign-in not enabled here — skipping demo course");
   process.exit(0);
 }
 

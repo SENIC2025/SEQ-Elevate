@@ -35,9 +35,12 @@ describe("dev CMS check page", () => {
     expect(hasRole).not.toHaveBeenCalled();
   });
 
-  it("is a 404 wherever test sign-in is switched off", async () => {
+  // Release 3 (D98): test sign-in is opt-in, so a deployment that hasn't
+  // opted in has no developer pages either.
+  it("is a 404 wherever test sign-in isn't switched on", async () => {
     vi.stubEnv("VERCEL_ENV", "");
-    vi.stubEnv("DEMO_LOGIN_DISABLED", "true");
+    vi.stubEnv("DEMO_LOGIN_ENABLED", "");
+    vi.stubEnv("DEMO_ACCESS_CODE", "a-private-code-1");
     const { default: Page } = await import("./page");
     await expect(
       Page({ params: Promise.resolve({ locale: "en" }) })

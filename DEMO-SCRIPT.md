@@ -4,7 +4,14 @@ _Presenter pack for the consortium kickoff (25–26 June 2026). One page to
 share + a step-by-step live demo. Decisions, scope and the 5-week plan are in
 `KICKOFF.md`; the full functionality map is in `PLATFORM-OVERVIEW.md`._
 
-**Live:** https://seq-elevate-demo.vercel.app · **Demo access:** `/en/demo` · code **`elevate-demo`**
+**Live:** https://seq-elevate-demo.vercel.app · **Demo access:** `/en/demo` · access code: ask SENIC
+
+> **Release 3 (D98):** one-click demo sign-in is opt-in. It runs only on a
+> showcase deployment with its own database that sets `DEMO_LOGIN_ENABLED=true`
+> and a private `DEMO_ACCESS_CODE` of at least 12 characters, and never on
+> production. The code is not written down here or anywhere in the repository:
+> ask SENIC for it before the demo. Each demo sign-in completes the demo
+> person's profile, so no one stops at the profile step.
 
 ---
 
@@ -48,7 +55,7 @@ Plus: production **domain**, **content + translation** plan, **pilot** plan, **D
 ## PART B — Demo script (live walkthrough, ~15 min)
 
 > **Before you start:** browser to **`seq-elevate-demo.vercel.app/en/demo`**,
-> code **`elevate-demo`** ready. Tip — open the four profiles in separate tabs
+> the access code from SENIC ready. Tip — open the four profiles in separate tabs
 > so you can switch instantly. (The learner journey also works as a guest, no
 > sign-in.)
 
@@ -72,14 +79,19 @@ Plus: production **domain**, **content + translation** plan, **pilot** plan, **D
    > "Accessibility and language are built in — and the reading settings follow the learner to any device."
 
 ### 2 · The teacher experience (4 min) — _Demo Teacher_
+> **Release 3:** a facilitator sees only the learners of their own
+> organisation, and only on a deployment with `R3_PARTNER_ACCESS=on` (D74, D77).
+> The Demo Learner gets the organisation its country (Germany) maps to; give
+> the Demo Teacher the same organisation on Manage people first, or show this
+> part as **Demo Admin**, who sees every learner but no Comp Card text.
 1. Switch to **Enter as Demo Teacher** → facilitator workspace.
-   > "The teacher sees their cohort: a **completion bar**, who's active, who needs attention."
-2. Open a learner → the **Comp Card** (note **privacy redaction**) and the **Activity & performance** panel — **current stage, time per lesson, last active, quiz results**. Mention **observe / validate a skill**.
+   > "The teacher sees their organisation's learners: a **completion bar**, who's active, who needs attention."
+2. Open a learner → the **Comp Card** (only what the learner chose to share with their facilitators) and the **Activity & performance** panel — **current stage, time per lesson, last active, quiz results**. Mention **observe / validate a skill**.
 3. Click **Statistics**.
    > "The full picture: a **completion funnel** showing **where learners drop off**, **time per lesson**, **when they tend to open** the course, a row per learner. Sample data today — it becomes your cohort's real analytics the moment a pilot runs."
 
-### 3 · The content author (3 min) — _Stefan or Demo Editor_
-1. Switch to **Enter as Stefan** → **Content editor** (`/content`).
+### 3 · The content author (3 min) — _Demo Admin or Demo Editor_
+1. Switch to **Enter as Demo Admin** → **Content editor** (`/content`).
 2. **Edit lesson narrative** → course + lesson + language → change the text → **Save**.
 3. **Add interactive video** → paste a URL or upload → add a quiz cue → **Save to a lesson**.
 4. **Lesson documents** → upload a PDF/Word/image → **reorder** (1.1, 1.2…) → toggle **Publish**.
@@ -99,8 +111,8 @@ Plus: production **domain**, **content + translation** plan, **pilot** plan, **D
 | | |
 |---|---|
 | **URL** | seq-elevate-demo.vercel.app/en/demo |
-| **Code** | `elevate-demo` |
-| **Profiles** | Stefan (Admin+Editor) · Demo Editor · Demo Teacher · Demo Learner |
+| **Code** | ask SENIC (private; never written down here) |
+| **Profiles** | Demo Admin (Admin+Editor) · Demo Editor · Demo Teacher · Demo Learner |
 | **Languages** | top-right switch (EN / DE / EL) |
 | **Guest path** | landing → pick a role (no sign-in needed for the learner journey) |
 

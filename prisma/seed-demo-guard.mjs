@@ -25,3 +25,20 @@ export async function hasEditorLessons(prisma, projectId, slug) {
   });
   return lessons.some((l) => l.parts != null || l.stageKey.startsWith("s-"));
 }
+
+/**
+ * Release 3 (D98, spec 13.8): may the build seed the demo course? Exactly
+ * where demo sign-in may run (src/lib/demo-gate.ts, demoLoginAllowed; the
+ * same conditions here because the build runs this file with plain node,
+ * and demo-gate.test.ts checks that both agree): DEMO_LOGIN_ENABLED=true,
+ * not Vercel's production environment, and an access code of at least 12
+ * characters. DEMO_LOGIN_DISABLED is not read.
+ */
+export function demoSeedAllowed(env) {
+  const code = (env.DEMO_ACCESS_CODE ?? "").trim();
+  return (
+    (env.DEMO_LOGIN_ENABLED ?? "").trim() === "true" &&
+    (env.VERCEL_ENV ?? "").trim() !== "production" &&
+    code.length >= 12
+  );
+}

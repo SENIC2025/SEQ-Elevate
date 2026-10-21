@@ -5,6 +5,7 @@ import { ProductionLanding } from "@/components/ProductionLanding";
 import { WorkspaceHub } from "@/components/WorkspaceHub";
 import { getCurrentUser, getProjectMemberships } from "@/lib/auth-helpers";
 import { workspacesFor } from "@/lib/workspaces";
+import { demoLoginAllowed } from "@/lib/demo-gate";
 
 export default async function Page({
   params,
@@ -34,8 +35,9 @@ export default async function Page({
     );
   }
 
-  // Signed out. The launch switch (GO-LIVE §2) flips the front door: real prod
-  // shows the welcome + magic-link sign-in; demo deploys keep the role picker.
-  const production = process.env.DEMO_LOGIN_DISABLED === "true";
+  // Signed out. The front door follows the demo switch (D98): wherever demo
+  // sign-in isn't allowed (production always) the welcome + magic-link
+  // sign-in; a deployment that opted in to demo sign-in keeps the role picker.
+  const production = !demoLoginAllowed();
   return production ? <ProductionLanding /> : <LandingPage />;
 }

@@ -1,5 +1,6 @@
 import { setRequestLocale } from "next-intl/server";
 import { SignInForm } from "@/components/auth/SignInForm";
+import { demoLoginAllowed } from "@/lib/demo-gate";
 
 export default async function Page({
   params,
@@ -11,8 +12,9 @@ export default async function Page({
   const { locale } = await params;
   const { callbackUrl } = await searchParams;
   setRequestLocale(locale);
-  // Demo link only where demo login is on; hidden on real prod (dead end there).
-  const demoEnabled = process.env.DEMO_LOGIN_DISABLED !== "true";
+  // Demo link only where demo sign-in is allowed (D98); elsewhere it would be
+  // a dead end.
+  const demoEnabled = demoLoginAllowed();
   // Land on "Your workspaces"; it forwards single-workspace users (most
   // learners) straight to their space, and shows staff every workspace.
   return (

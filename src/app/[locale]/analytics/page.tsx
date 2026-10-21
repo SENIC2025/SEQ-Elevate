@@ -1,6 +1,7 @@
 import { setRequestLocale } from "next-intl/server";
 import { getViewer } from "@/lib/scope";
 import { canSupportLearners } from "@/lib/permissions";
+import { demoLoginAllowed } from "@/lib/demo-gate";
 import { buildSampleAnalytics } from "@/lib/analytics-sample";
 import { buildRealAnalytics } from "@/lib/analytics-real";
 import { AnalyticsDashboard } from "@/components/analytics/AnalyticsDashboard";
@@ -13,8 +14,9 @@ import type { Locale } from "@/lib/cms/types";
 // Reads the viewer's roles + live data — never prerender.
 export const dynamic = "force-dynamic";
 
-// On test copies, how many started learners before live data replaces the
-// sample. `?live=1` / `?live=0` override. The live site never shows the sample.
+// On test copies (demo sign-in allowed, D98), how many started learners
+// before live data replaces the sample. `?live=1` / `?live=0` override.
+// Anywhere else, the live site included, the sample is never shown.
 const MIN_LIVE_TEST_COPY = 5;
 
 export default async function Page({
@@ -28,7 +30,7 @@ export default async function Page({
   const { live } = await searchParams;
   setRequestLocale(locale);
 
-  const production = process.env.DEMO_LOGIN_DISABLED === "true";
+  const production = !demoLoginAllowed();
   // Facilitators, partner admins and admins; whose learners is the scope's
   // to say (D74): an ADMIN the project, partner staff their organisation.
   const viewer = await getViewer();
