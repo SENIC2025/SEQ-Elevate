@@ -11,12 +11,6 @@ const GDPR = "src/app/actions/gdpr.ts";
 
 export const rows: Row[] = [
   {
-    kind: "unbuilt",
-    file: GDPR,
-    name: "logDataExport",
-    why: "only the export route imports it, on the server (Stream D stops exporting it, SP29)",
-  },
-  {
     kind: "call",
     file: GDPR,
     name: "deleteMyAccount",
