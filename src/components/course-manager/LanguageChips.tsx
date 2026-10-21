@@ -31,9 +31,10 @@ const STYLE: Record<LanguageState, string> = {
  * a course is written in it. Screen readers hear "German: 3 of 7 lessons".
  *
  * Release 3 (D90): with `ready` (a created course), German and Greek also
- * say whether they are live for learners: a broadcast mark on the chip of
- * a live language, and for each the sentence screen readers hear ("Live:
- * learners using German get this course in German.").
+ * say whether they are live for learners: a broadcast mark and a word
+ * ("live") on the chip of a live language, so it is clear without a guide,
+ * and for each the sentence screen readers hear ("Live: learners using
+ * German get this course in German.").
  */
 export async function LanguageChips({
   languages,
@@ -77,7 +78,13 @@ export async function LanguageChips({
             </span>
             {ready && locale !== "en" ? (
               <>
-                {ready[locale] ? <Radio className="h-3.5 w-3.5" aria-hidden /> : null}
+                {ready[locale] ? (
+                  <>
+                    <Radio className="h-3.5 w-3.5" aria-hidden />
+                    {/* Said in full to screen readers below. */}
+                    <span aria-hidden>{t("languageReady.liveMark")}</span>
+                  </>
+                ) : null}
                 <span className="sr-only">
                   {" "}
                   {sentenceStart(

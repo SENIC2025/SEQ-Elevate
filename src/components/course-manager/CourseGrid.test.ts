@@ -237,6 +237,14 @@ describe("CourseGrid: languages live for learners", () => {
     expect(html).toContain("lucide-radio");
   });
 
+  it("names a live language in a word on its chip, seen, not only by its mark", async () => {
+    const c = card(await render([{ ...CREATED, ready: { en: true, de: true, el: false } }]), CREATED.slug);
+    const chips = [...c.matchAll(/<li class="inline-flex[^"]*"[^>]*>(.*?)<\/li>/g)].map((m) => m[1]);
+    const seen = (chip: string) => chip.replace(/<span class="sr-only">.*?<\/span>/g, "").replace(/<[^>]+>/g, "");
+    expect(chips.map(seen)).toEqual(["EN1/4", "DE" + en.courseManager.languageReady.liveMark, "EL"]);
+    expect(en.courseManager.languageReady.liveMark).toBe("live");
+  });
+
   it("says nothing new for a built-in course", async () => {
     const html = await render([BUILT_IN]);
     expect(html).not.toContain("learners using");

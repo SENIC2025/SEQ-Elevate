@@ -78,7 +78,7 @@ What the switch's coverage checks, and what it doesn't:
 - It does **not** check added content, lesson names, video questions or documents. Check those yourself in **Preview as learner** before you switch the language on.
 - If the English changes after a language is live, the panel warns that some text is now missing in that language. The language stays on; translate the new text, and learners get English there until you do.
 
-Editors who can't switch a language see the panel read-only. On **Manage courses**, a language that is live for learners has a mark beside its name.
+Editors who can't switch a language see the panel read-only. On **Manage courses**, a language that is live for learners says "live" beside its name.
 
 ## Courses that have learners
 
