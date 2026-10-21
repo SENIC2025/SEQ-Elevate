@@ -27,18 +27,27 @@
     "a11yTitle": "Lesehilfe",
     "a11yBody": "Deine Textgröße, die leicht lesbare Schrift und der hohe Kontrast werden in deinem Konto gespeichert und begleiten dich auf jedem Gerät. Du kannst sie jederzeit über die Schaltfläche „Lesehilfe“ oben ändern.",
     "dataTitle": "Deine Daten",
-    "dataBody": "Lade eine Kopie aller Daten herunter, die SEQ Elevate über dich speichert – deinen Fortschritt, Abzeichen, deine Comp Card und Reflexionen – als Datei zum Behalten (DSGVO Art. 15 und 20).",
+    "dataBody": "Lade eine Kopie der Daten herunter, die SEQ Elevate über dich speichert: dein Konto, deinen Fortschritt, deine Antworten, deine Comp Card, deine Abzeichen, Aktivitätsaufzeichnungen und die Notizen, die Mitarbeitende über dich geschrieben haben.",
     "download": "Meine Daten herunterladen",
     "dangerTitle": "Konto löschen",
-    "dangerBody": "Lösche dein Konto und alle persönlichen Daten endgültig. Dies kann nicht rückgängig gemacht werden. Deine Begleitperson sieht deinen Fortschritt und deine Comp Card dann nicht mehr.",
+    "dangerBody": "Wenn du dein Konto löschst, werden dein Konto, dein Fortschritt, deine Antworten, deine Comp Card und deine Abzeichen endgültig entfernt. Ein Vermerk, dass ein Konto gelöscht wurde, bleibt erhalten, ohne deinen Namen oder deine E-Mail-Adresse. Sicherungskopien werden nach ihrem üblichen Zeitplan gelöscht.",
     "deleteButton": "Mein Konto löschen",
     "confirmTitle": "Bist du ganz sicher?",
-    "confirmBody": "Dadurch werden dein Konto, dein Fortschritt, deine Abzeichen und deine Comp Card endgültig gelöscht. Gib zur Bestätigung unten deine E-Mail-Adresse ein.",
+    "confirmBody": "Damit werden dein Konto, dein Fortschritt, deine Antworten, deine Comp Card und deine Abzeichen endgültig entfernt. Ein Vermerk, dass ein Konto gelöscht wurde, bleibt erhalten, ohne deinen Namen oder deine E-Mail-Adresse. Gib zur Bestätigung unten deine E-Mail-Adresse ein.",
     "confirmLabel": "E-Mail zur Bestätigung eingeben",
     "confirmCta": "Endgültig löschen",
     "deleting": "Wird gelöscht…",
     "cancel": "Abbrechen",
-    "deleteError": "Etwas ist schiefgelaufen. Bitte versuche es erneut."
+    "deleteError": "Etwas ist schiefgelaufen. Bitte versuche es erneut.",
+    "country": "Land",
+    "organisation": "Organisation",
+    "organisationNone": "Noch keiner Partnerorganisation zugeordnet.",
+    "termsAccepted": "Nutzungsbedingungen akzeptiert am {date} (Version {version}).",
+    "ageConfirmed": "Altersregel bestätigt am {date}.",
+    "changeDetails": "Deinen Namen und dein Land kannst du hier nicht ändern. Wenn du sie ändern möchtest, kontaktiere uns (siehe die <privacy>Datenschutzhinweise</privacy>) oder bitte deine Partnerorganisation, die Anfrage weiterzugeben.",
+    "notes": "Notizen, die Mitarbeitende über dich schreiben, sind in deinem Daten-Download.",
+    "alwaysSee": "Egal, was du wählst: Die Trainer:innen bei {organisation} und die Mitarbeitenden von DIESIS und SENIC, die die Plattform betreiben, sehen immer deinen Namen und deine E-Mail-Adresse, deinen Fortschritt, deine letzte Aktivität, wie lange du an jeder Lektion arbeitest, deine Ergebnisse in Quiz und Videofragen und deine Entscheidungen in den Übungen.",
+    "alwaysSeeNoOrganisation": "Egal, was du wählst: Die Mitarbeitenden von DIESIS und SENIC, die die Plattform betreiben, sehen immer deinen Namen und deine E-Mail-Adresse, deinen Fortschritt, deine letzte Aktivität, wie lange du an jeder Lektion arbeitest, deine Ergebnisse in Quiz und Videofragen und deine Entscheidungen in den Übungen. Sobald dein Konto einer Partnerorganisation zugeordnet ist, sehen das auch ihre Trainer:innen."
   },
   "system": {
     "notFoundTitle": "Diese Seite haben wir nicht gefunden",
@@ -141,7 +150,8 @@
     "comingSoonCourseTagline": "20 Minuten · etwas Schwieriges hören und es nutzen",
     "overallCompletion": "Gesamtfortschritt",
     "coursesCompletedOf": "{done} von {total} Kursen abgeschlossen",
-    "lessonsNotShown": "{count, plural, one {und # abgeschlossene Lektion, die nicht mehr im Kurs ist} other {und # abgeschlossene Lektionen, die nicht mehr im Kurs sind}}"
+    "lessonsNotShown": "{count, plural, one {und # abgeschlossene Lektion, die nicht mehr im Kurs ist} other {und # abgeschlossene Lektionen, die nicht mehr im Kurs sind}}",
+    "inEnglish": "Auf Englisch"
   },
   "mission": {
     "workplaceConflictTitle": "Probiere eine kleine, aber echte Situation",
@@ -515,7 +525,9 @@
     "charsLeft": "Noch {count, plural, one {# Zeichen} other {# Zeichen}}",
     "answerTooLong": "Diese Antwort ist zu lang zum Speichern. Kürze sie auf {max} Zeichen.",
     "earlierAnswers": "Deine früheren Antworten",
-    "notSaved": "Diese Antwort konnte nicht gespeichert werden. Du kannst weitermachen, aber nach dem Neuladen oder auf einem anderen Gerät ist sie nicht mehr da."
+    "notSaved": "Diese Antwort konnte nicht gespeichert werden. Du kannst weitermachen, aber nach dem Neuladen oder auf einem anderen Gerät ist sie nicht mehr da.",
+    "languageFallback": "Diesen Kurs gibt es noch nicht auf Deutsch. Er wird auf Englisch angezeigt.",
+    "languageNotLive": "Lernende mit {language} bekommen Englisch, bis {language} freigeschaltet ist."
   },
   "sectionPreview": {
     "skippedNote": "Für die Redaktion: {count, plural, one {Ein Inhalt wird} other {# Inhalte werden}} hier nicht gezeigt — bisher nur ein Entwurf oder noch nicht fertig.",
@@ -567,7 +579,21 @@
       "optFeel": "Was du gefühlt hast und was du dir wünschst",
       "optWho": "Wer schuld ist",
       "explanation": "Eine Ich-Botschaft benennt dein Erleben und dein Bedürfnis – sie ist kein Vorwurf."
-    }
+    },
+    "youtubeGate": {
+      "body": "Dieses Video liegt bei YouTube. Wenn du es abspielst, erhält YouTube (Google) deine IP-Adresse und Browserdaten und kann Cookies setzen.",
+      "play": "Video abspielen (lädt YouTube)",
+      "privacyLink": "Mehr in unseren Datenschutzhinweisen",
+      "watchOn": "Auf youtube.com ansehen (neuer Tab; die Fragen zum Video gibt es nur auf dieser Seite)",
+      "loading": "Video wird geladen … Falls es nicht startet, drück auf Abspielen.",
+      "failed": "Dieses Video kann hier nicht abgespielt werden."
+    },
+    "external": {
+      "body": "Dieses Video liegt auf einer anderen Website.",
+      "open": "Video öffnen (neuer Tab)"
+    },
+    "hostRefused": "Dieser Link kann nicht verwendet werden. Lade die Datei hoch oder füge einen YouTube-Link ein.",
+    "hostUnconfigured": "Hochgeladene Dateien können erst angehängt werden, wenn die Speicheradresse der Website eingestellt ist. Sag SENIC Bescheid."
   },
   "lessonLinks": {
     "newTab": "(öffnet in einem neuen Tab)"
@@ -607,7 +633,23 @@
       "3": "Etwas",
       "4": "Ziemlich",
       "5": "Sehr"
-    }
+    },
+    "sharing": {
+      "onlyMe": "Nur ich",
+      "facilitators": "Ich und die Trainer:innen bei {organisation}",
+      "always": "Egal, was du wählst: Die Trainer:innen bei {organisation} und die Mitarbeitenden von DIESIS und SENIC, die die Plattform betreiben, sehen immer deinen Namen und deine E-Mail-Adresse, deinen Fortschritt, deine letzte Aktivität, wie lange du an jeder Lektion arbeitest, deine Ergebnisse in Quiz und Videofragen und deine Entscheidungen in den Übungen.",
+      "alwaysNoOrganisation": "Egal, was du wählst: Die Mitarbeitenden von DIESIS und SENIC, die die Plattform betreiben, sehen immer deinen Namen und deine E-Mail-Adresse, deinen Fortschritt, deine letzte Aktivität, wie lange du an jeder Lektion arbeitest, deine Ergebnisse in Quiz und Videofragen und deine Entscheidungen in den Übungen. Sobald dein Konto einer Partnerorganisation zugeordnet ist, sehen das auch ihre Trainer:innen.",
+      "shareConfirm": "Comp Card teilen? Die Trainer:innen bei {organisation} sehen dann alles darauf. Du kannst jederzeit zu „Nur ich“ zurückwechseln.",
+      "share": "Teilen",
+      "cancel": "Abbrechen",
+      "sharedSince": "Geteilt seit {date}.",
+      "guest": "Melde dich an, um deine Comp Card mit deinen Trainer:innen zu teilen.",
+      "noOrganisation": "Teilen geht, sobald dein Konto einer Partnerorganisation zugeordnet ist.",
+      "guardianNeeded": "Du kannst deine Comp Card teilen, sobald {organisation} bestätigt, dass die Erlaubnis deiner Eltern oder deines Vormunds das abdeckt.",
+      "failed": "Deine Auswahl wurde nicht gespeichert. Bitte versuch es noch einmal."
+    },
+    "charsLeft": "Noch {count} Zeichen",
+    "tooLong": "Das ist zu lang zum Speichern. Kürze es auf {max} Zeichen."
   },
   "gamification": {
     "missionStarted": "Mission gestartet",
@@ -622,7 +664,7 @@
     "learnersLabel": "Lernende",
     "noLearners": "Noch keine Lernenden. Sobald Lernende SEQ Elevate beitreten, erscheint ihr Fortschritt hier.",
     "activeNow": "Aktiv in den letzten 24h",
-    "compCardSubmissions": "Eingereichte Comp Cards",
+    "compCardSubmissions": "Mit dir geteilte Comp Cards",
     "needsAttention": "Braucht Aufmerksamkeit",
     "viewLearner": "Lernende:n öffnen",
     "observationTitle": "Beobachtungsnotiz",
@@ -650,7 +692,12 @@
     "statisticsLink": "Statistiken",
     "cohortCompletion": "Fortschritt der Gruppe",
     "completedOf": "{done} von {total} Lernenden abgeschlossen",
-    "otherLessons": "Andere Lektionen"
+    "otherLessons": "Andere Lektionen",
+    "notShared": "Nichts mit dir geteilt.",
+    "noOrganisation": "Dein Konto ist noch keiner Organisation zugeordnet, deshalb werden keine Lernenden angezeigt. Bitte DIESIS, es zuzuordnen.",
+    "emptyOrganisation": "Noch keine Lernenden bei {organisation}.",
+    "testAccount": "Testkonto",
+    "formerStaff": "Ehemaliges Personal"
   },
   "admin": {
     "title": "Admin-Dashboard",
@@ -790,6 +837,17 @@
         "prompts": "Reflexionsfragen",
         "notAdded": "Noch nicht hinzugefügt — Lernende sehen diese Lektion nicht."
       }
+    },
+    "languageReady": {
+      "label": "{language} für Lernende",
+      "on": "Freigeschaltet: Lernende mit {language} bekommen diesen Kurs auf {language}.",
+      "off": "Nicht freigeschaltet: Lernende mit {language} bekommen diesen Kurs auf Englisch.",
+      "confirmTitle": "{language} für Lernende freischalten?",
+      "confirmBody": "Ein Teil dieses Kurses ist noch nicht auf {language}. Lernende mit {language} sehen Englisch überall dort, wo Text fehlt.",
+      "notChecked": "Die Abdeckung zählt nur den Haupttext und die Übungen. Prüfe zusätzliche Inhalte, Schrittnamen, Videofragen und Dokumente selbst.",
+      "readOnly": "Nur Partner-Admins oder Admins können eine Sprache für Lernende ein- oder ausschalten.",
+      "liveIncomplete": "{language} ist freigeschaltet, aber jetzt fehlt dort etwas Text (meist, weil sich das Englische geändert hat). Lernende sehen dort Englisch.",
+      "notLive": "Lernende mit {language} bekommen Englisch, bis {language} freigeschaltet ist."
     }
   },
   "lessonList": {
@@ -1280,5 +1338,80 @@
     },
     "lastLesson": "Ein veröffentlichter Kurs braucht mindestens eine Lektion, die Lernende sehen können.",
     "emptyNote": "Lernende bekommen diese Lektion, sobald sie Inhalt hat."
+  },
+  "profile": {
+    "title": "Bevor es losgeht",
+    "intro": "Wir brauchen einmalig ein paar Angaben.",
+    "name": {
+      "label": "Vorname oder Spitzname",
+      "hint": "Ein Vorname oder Spitzname reicht.",
+      "empty": "Gib einen Vornamen oder Spitznamen ein.",
+      "tooLong": "Höchstens {max} Zeichen.",
+      "invalid": "Verwende nur Buchstaben, Zahlen, Leerzeichen und übliche Satzzeichen."
+    },
+    "country": {
+      "legend": "Wo nimmst du teil?",
+      "DE": "Deutschland",
+      "CY": "Zypern",
+      "BE": "Belgien",
+      "GR": "Griechenland",
+      "OTHER": "Anderes Land",
+      "empty": "Wähle ein Land."
+    },
+    "whoSees": "Die Trainer:innen bei {organisation} und die Mitarbeitenden von DIESIS und SENIC, die die Plattform betreiben, sehen deinen Namen und deine E-Mail-Adresse, deinen Fortschritt, deine letzte Aktivität, wie lange du an jeder Lektion arbeitest, deine Ergebnisse in Quiz und Videofragen und deine Entscheidungen in den Übungen. Deine Comp Card bleibt privat, außer du teilst sie.",
+    "whoSeesNoOrganisation": "Die Mitarbeitenden von DIESIS und SENIC, die die Plattform betreiben, sehen deinen Namen und deine E-Mail-Adresse, deinen Fortschritt, deine letzte Aktivität, wie lange du an jeder Lektion arbeitest, deine Ergebnisse in Quiz und Videofragen und deine Entscheidungen in den Übungen. Sobald dein Konto einer Partnerorganisation zugeordnet ist, sehen das auch ihre Trainer:innen. Deine Comp Card bleibt privat, außer du teilst sie.",
+    "setUpBy": "Dein Konto wurde von {organisation} eingerichtet.",
+    "setUpByMismatch": "{organisation} begleitet Lernende in einem anderen Land. Wenn du mit {country} weitermachst, prüft DIESIS, welche Organisation dich begleitet; bis dahin sehen nur Mitarbeitende von DIESIS und SENIC deinen Fortschritt.",
+    "age": {
+      "self": "Ich bin {minAge} Jahre oder älter.",
+      "invited": "{organisation} hat mich eingeladen und hat die Erlaubnis meiner Eltern oder meines Vormunds.",
+      "required": "Du kannst nur weitermachen, wenn das stimmt.",
+      "younger": "Jünger als {minAge}? Du kannst teilnehmen, wenn eine Partnerorganisation dich einlädt. Frag die Organisation, mit der du arbeitest. Du kannst dieses Konto auch <account>löschen</account>.",
+      "notInvited": "Diese Angabe gilt nur für Lernende, die eine Partnerorganisation mit Erlaubnis ihrer Eltern oder ihres Vormunds eingeladen hat."
+    },
+    "terms": {
+      "label": "Ich akzeptiere die <terms>Nutzungsbedingungen</terms>.",
+      "required": "Akzeptiere die Nutzungsbedingungen, um weiterzumachen."
+    },
+    "privacy": "Wie wir deine Daten nutzen: <privacy>Datenschutzhinweise</privacy>.",
+    "termsChanged": "Unsere Nutzungsbedingungen haben sich geändert. Bitte lies sie und akzeptiere sie erneut.",
+    "submit": "Weiter",
+    "errors": "Bitte prüfe:",
+    "failed": "Das wurde nicht gespeichert. Bitte versuch es noch einmal.",
+    "consent": {
+      "label": "Ich bin einverstanden, dass SEQ Elevate meine Daten so nutzt, wie es in den <privacy>Datenschutzhinweisen</privacy> steht.",
+      "version": "draft-2026-10-21",
+      "required": "Setze das Häkchen, um weiterzumachen."
+    },
+    "notSaving": "Schließ dein Profil ab, damit dein Fortschritt gespeichert wird. <welcome>Jetzt abschließen</welcome>"
+  },
+  "guestWork": {
+    "title": "Auf diesem Browser gespeicherte Arbeit von vor deiner Anmeldung",
+    "summary": "{courses}. Comp Card: {compCard, select, true {ja} other {nein}}.",
+    "add": "Zu meinem Konto hinzufügen",
+    "remove": "Von diesem Browser entfernen",
+    "added": "Zu deinem Konto hinzugefügt.",
+    "removed": "Von diesem Browser entfernt.",
+    "clear": "Meine Arbeit von diesem Browser löschen",
+    "clearConfirm": "Damit werden dein Fortschritt, deine Antworten und deine Comp Card von diesem Browser entfernt. Das lässt sich nicht rückgängig machen."
+  },
+  "safeguarding": {
+    "title": "Brauchst du jemanden zum Reden?",
+    "emergency": "Im Notfall: Ruf 112 an.",
+    "contactFor": "Ansprechstelle für {country}:",
+    "helpline": "Hilfetelefon:",
+    "allContacts": "Ansprechstellen in allen Ländern",
+    "fallback": "Sprich mit einer Person deines Vertrauens bei deiner Partnerorganisation.",
+    "hint": "Machst du dir Sorgen um deine Sicherheit oder die von jemand anderem? <help>Hier gibt es Hilfe</help>.",
+    "hintReflection": "Die Trainer:innen lesen nicht, was du hier schreibst. Wenn du Hilfe brauchst, <help>wende dich direkt an jemanden</help>.",
+    "footerLink": "Hilfe",
+    "helpTitle": "Hilfe und Ansprechstellen"
+  },
+  "legal": {
+    "backHome": "Zurück zu SEQ Elevate",
+    "translationPending": "Die offizielle Übersetzung dieser Seite wird gerade fertiggestellt; bis dahin wird die englische Fassung angezeigt.",
+    "toBeCompleted": "Vor dem Start zu ergänzen —",
+    "version": "Version {version} · zuletzt aktualisiert am {date}",
+    "poweredBy": "SEQ Elevate · Entwickelt und betrieben von SENIC"
   }
 }

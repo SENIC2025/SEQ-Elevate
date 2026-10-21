@@ -27,18 +27,27 @@
     "a11yTitle": "Reading help",
     "a11yBody": "Your text size, easy-read font and high-contrast settings are saved to your account and follow you on every device. Change them any time from the “Reading help” button at the top.",
     "dataTitle": "Your data",
-    "dataBody": "Download a copy of everything SEQ Elevate holds about you — your progress, badges, Comp Card and reflections — as a file you can keep (GDPR Articles 15 and 20).",
+    "dataBody": "Download a copy of the data SEQ Elevate holds about you: your account, progress, answers, Comp Card, badges, activity records and the notes staff wrote about you.",
     "download": "Download my data",
     "dangerTitle": "Delete your account",
-    "dangerBody": "Permanently delete your account and all your personal data. This cannot be undone. Your facilitator will no longer see your progress or Comp Card.",
+    "dangerBody": "Deleting your account removes your account, progress, answers, Comp Card and badges for good. A record that an account was deleted is kept, without your name or email. Backup copies are deleted on their normal schedule.",
     "deleteButton": "Delete my account",
     "confirmTitle": "Are you absolutely sure?",
-    "confirmBody": "This permanently erases your account, progress, badges and Comp Card. To confirm, type your email address below.",
+    "confirmBody": "This removes your account, progress, answers, Comp Card and badges for good. A record that an account was deleted is kept, without your name or email. To confirm, type your email address below.",
     "confirmLabel": "Type your email to confirm",
     "confirmCta": "Permanently delete",
     "deleting": "Deleting…",
     "cancel": "Cancel",
-    "deleteError": "Something went wrong. Please try again."
+    "deleteError": "Something went wrong. Please try again.",
+    "country": "Country",
+    "organisation": "Organisation",
+    "organisationNone": "Not linked to a partner organisation yet.",
+    "termsAccepted": "Terms of use accepted on {date} (version {version}).",
+    "ageConfirmed": "Age rule confirmed on {date}.",
+    "changeDetails": "You can't change your name or country here. To change them, contact us (see the <privacy>privacy notice</privacy>) or ask your partner organisation to pass the request on.",
+    "notes": "Notes that staff write about you are in your data download.",
+    "alwaysSee": "Whatever you choose, the facilitators at {organisation} and the DIESIS and SENIC staff who run the platform always see your name and email, your progress, your last activity, the time you spend on each lesson, your quiz and video-question results and the choices you make in exercises.",
+    "alwaysSeeNoOrganisation": "Whatever you choose, the DIESIS and SENIC staff who run the platform always see your name and email, your progress, your last activity, the time you spend on each lesson, your quiz and video-question results and the choices you make in exercises. Once your account is linked to a partner organisation, its facilitators will see them too."
   },
   "system": {
     "notFoundTitle": "We couldn't find that page",
@@ -141,7 +150,8 @@
     "comingSoonCourseTagline": "20 minutes · being told something hard, and using it",
     "overallCompletion": "Overall completion",
     "coursesCompletedOf": "{done} of {total} courses completed",
-    "lessonsNotShown": "{count, plural, one {and # completed lesson no longer in the course} other {and # completed lessons no longer in the course}}"
+    "lessonsNotShown": "{count, plural, one {and # completed lesson no longer in the course} other {and # completed lessons no longer in the course}}",
+    "inEnglish": "In English"
   },
   "mission": {
     "workplaceConflictTitle": "Try a small but real situation",
@@ -515,7 +525,9 @@
     "charsLeft": "{count, plural, one {# character left} other {# characters left}}",
     "answerTooLong": "This answer is too long to save. Shorten it to {max} characters.",
     "earlierAnswers": "Your earlier answers",
-    "notSaved": "This answer couldn't be saved. You can carry on, but it won't be there after a reload or on another device."
+    "notSaved": "This answer couldn't be saved. You can carry on, but it won't be there after a reload or on another device.",
+    "languageFallback": "This course isn't available in your language yet, so it is shown in English.",
+    "languageNotLive": "Learners using {language} get English until {language} is switched on."
   },
   "sectionPreview": {
     "skippedNote": "For editors: {count, plural, one {one piece of content isn't shown} other {# pieces of content aren't shown}} here — only a draft so far, or not ready yet.",
@@ -567,7 +579,21 @@
       "optFeel": "What you felt and what you'd prefer",
       "optWho": "Whose fault it is",
       "explanation": "An I-statement names your experience and your need — it isn't an accusation."
-    }
+    },
+    "youtubeGate": {
+      "body": "This video is on YouTube. When you play it, YouTube (Google) receives your IP address and browser details and may set cookies.",
+      "play": "Play video (loads YouTube)",
+      "privacyLink": "More in our privacy notice",
+      "watchOn": "Watch on youtube.com (new tab; the video's questions appear only on this page)",
+      "loading": "Loading the video… If it doesn't start, press play.",
+      "failed": "This video can't be played here."
+    },
+    "external": {
+      "body": "This video is on another website.",
+      "open": "Open the video (new tab)"
+    },
+    "hostRefused": "This link can't be used. Upload the file, or paste a YouTube link.",
+    "hostUnconfigured": "Uploads can't be attached until the site's storage address is set. Tell SENIC."
   },
   "lessonLinks": {
     "newTab": "(opens in a new tab)"
@@ -607,7 +633,23 @@
       "3": "Somewhat",
       "4": "Quite",
       "5": "Very"
-    }
+    },
+    "sharing": {
+      "onlyMe": "Only me",
+      "facilitators": "Me and the facilitators at {organisation}",
+      "always": "Whatever you choose, the facilitators at {organisation} and the DIESIS and SENIC staff who run the platform always see your name and email, your progress, your last activity, the time you spend on each lesson, your quiz and video-question results and the choices you make in exercises.",
+      "alwaysNoOrganisation": "Whatever you choose, the DIESIS and SENIC staff who run the platform always see your name and email, your progress, your last activity, the time you spend on each lesson, your quiz and video-question results and the choices you make in exercises. Once your account is linked to a partner organisation, its facilitators will see them too.",
+      "shareConfirm": "Share your Comp Card? Facilitators at {organisation} will see everything on it. You can switch back to “Only me” at any time.",
+      "share": "Share",
+      "cancel": "Cancel",
+      "sharedSince": "Shared since {date}.",
+      "guest": "Sign in to share your Comp Card with your facilitators.",
+      "noOrganisation": "You can share once your account is linked to a partner organisation.",
+      "guardianNeeded": "You can share your Comp Card once {organisation} confirms that your parent's or guardian's permission covers it.",
+      "failed": "Your choice didn't save. Please try again."
+    },
+    "charsLeft": "{count} characters left",
+    "tooLong": "This is too long to save. Shorten it to {max} characters."
   },
   "gamification": {
     "missionStarted": "Mission started",
@@ -622,7 +664,7 @@
     "learnersLabel": "Learners",
     "noLearners": "No learners yet. When learners join SEQ Elevate, their progress appears here.",
     "activeNow": "Active in the last 24h",
-    "compCardSubmissions": "Comp Cards submitted",
+    "compCardSubmissions": "Comp Cards shared with you",
     "needsAttention": "Needs attention",
     "viewLearner": "Open learner",
     "observationTitle": "Observation note",
@@ -650,7 +692,12 @@
     "statisticsLink": "Statistics",
     "cohortCompletion": "Cohort completion",
     "completedOf": "{done} of {total} learners completed",
-    "otherLessons": "Other lessons"
+    "otherLessons": "Other lessons",
+    "notShared": "Nothing shared with you.",
+    "noOrganisation": "Your account isn't linked to an organisation yet, so no learners are shown. Ask DIESIS to link it.",
+    "emptyOrganisation": "No learners at {organisation} yet.",
+    "testAccount": "Test account",
+    "formerStaff": "Former staff"
   },
   "admin": {
     "title": "Admin dashboard",
@@ -790,6 +837,17 @@
         "prompts": "Reflection questions",
         "notAdded": "Not added yet — learners don't see this lesson."
       }
+    },
+    "languageReady": {
+      "label": "{language} for learners",
+      "on": "Live: learners using {language} get this course in {language}.",
+      "off": "Not live: learners using {language} get this course in English.",
+      "confirmTitle": "Switch {language} on for learners?",
+      "confirmBody": "Some of this course isn't in {language} yet. Learners using {language} will see English wherever text is missing.",
+      "notChecked": "Coverage counts the main text and exercises only. Check extra content, step names, video questions and documents yourself.",
+      "readOnly": "Only a partner admin or an admin can switch a language on or off for learners.",
+      "liveIncomplete": "{language} is live, but some text is missing in it now (usually because the English changed). Learners see English there.",
+      "notLive": "Learners using {language} get English until {language} is switched on."
     }
   },
   "lessonList": {
@@ -1280,5 +1338,80 @@
     },
     "lastLesson": "A published course needs at least one lesson learners can see.",
     "emptyNote": "Learners get this lesson as soon as it has content."
+  },
+  "profile": {
+    "title": "Before you start",
+    "intro": "We need a few details, once.",
+    "name": {
+      "label": "First name or nickname",
+      "hint": "A first name or a nickname is enough.",
+      "empty": "Enter a first name or nickname.",
+      "tooLong": "Use {max} characters or fewer.",
+      "invalid": "Use letters, numbers, spaces and ordinary punctuation only."
+    },
+    "country": {
+      "legend": "Where are you taking part?",
+      "DE": "Germany",
+      "CY": "Cyprus",
+      "BE": "Belgium",
+      "GR": "Greece",
+      "OTHER": "Other",
+      "empty": "Choose a country."
+    },
+    "whoSees": "Facilitators at {organisation} and the DIESIS and SENIC staff who run the platform will see your name and email, your progress, your last activity, the time you spend on each lesson, your quiz and video-question results and the choices you make in exercises. Your Comp Card stays private unless you share it.",
+    "whoSeesNoOrganisation": "The DIESIS and SENIC staff who run the platform will see your name and email, your progress, your last activity, the time you spend on each lesson, your quiz and video-question results and the choices you make in exercises. Once your account is linked to a partner organisation, its facilitators will too. Your Comp Card stays private unless you share it.",
+    "setUpBy": "Your account was set up by {organisation}.",
+    "setUpByMismatch": "{organisation} supports learners in another country. If you continue with {country}, DIESIS will check which organisation supports you; until then only DIESIS and SENIC staff see your progress.",
+    "age": {
+      "self": "I am {minAge} or older.",
+      "invited": "{organisation} invited me and has my parent's or guardian's permission.",
+      "required": "You can continue only if this is true.",
+      "younger": "Younger than {minAge}? You can join if a partner organisation invites you. Ask the organisation you work with. You can also <account>delete this account</account>.",
+      "notInvited": "This statement is only for learners a partner organisation invited with their parent's or guardian's permission."
+    },
+    "terms": {
+      "label": "I accept the <terms>Terms of use</terms>.",
+      "required": "Accept the Terms of use to continue."
+    },
+    "privacy": "How we use your data: <privacy>privacy notice</privacy>.",
+    "termsChanged": "Our Terms of use have changed. Please read them and accept them again.",
+    "submit": "Continue",
+    "errors": "Please check:",
+    "failed": "That didn't save. Please try again.",
+    "consent": {
+      "label": "I agree that SEQ Elevate may use my data as the <privacy>privacy notice</privacy> describes.",
+      "version": "draft-2026-10-21",
+      "required": "Tick this box to continue."
+    },
+    "notSaving": "Finish your profile to save your progress. <welcome>Finish it now</welcome>"
+  },
+  "guestWork": {
+    "title": "Work saved on this browser before you signed in",
+    "summary": "{courses}. Comp Card: {compCard, select, true {yes} other {no}}.",
+    "add": "Add it to my account",
+    "remove": "Remove it from this browser",
+    "added": "Added to your account.",
+    "removed": "Removed from this browser.",
+    "clear": "Clear my work from this browser",
+    "clearConfirm": "This removes your progress, answers and Comp Card from this browser. It can't be undone."
+  },
+  "safeguarding": {
+    "title": "Need to talk to someone?",
+    "emergency": "In an emergency, call 112.",
+    "contactFor": "Contact for {country}:",
+    "helpline": "Help line:",
+    "allContacts": "Contacts in every country",
+    "fallback": "Talk to someone you trust at your partner organisation.",
+    "hint": "Worried about your safety or someone else's? <help>Get help</help>.",
+    "hintReflection": "Facilitators don't read what you write here. If you need help, <help>contact someone directly</help>.",
+    "footerLink": "Need help?",
+    "helpTitle": "Help and safeguarding contacts"
+  },
+  "legal": {
+    "backHome": "Back to SEQ Elevate",
+    "translationPending": "The official translation of this page is being finalised; the English version is shown in the meantime.",
+    "toBeCompleted": "To be completed before launch —",
+    "version": "Version {version} · last updated {date}",
+    "poweredBy": "SEQ Elevate · Created and powered by SENIC"
   }
 }
