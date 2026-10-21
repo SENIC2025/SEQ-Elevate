@@ -326,11 +326,14 @@ describe("Release 3 profile step", () => {
 
   test("B-E4: a new Terms version asks for the Terms alone, and keeps every other answer", async ({ page, context }) => {
     const person = await createPerson(prisma, { email: address("terms"), roles: ["LEARNER"], organisation: "A", country: "DE" });
-    await prisma.projectProfile.update({
-      where: { userId_projectId: { userId: person.userId, projectId: PROJECT } },
-      data: { termsVersion: "2020-01-01" },
-    });
-    const before = await profileOf(person.userId);
+    // (Release 2's schema has no profiles: there the step never comes.)
+    if (profiles) {
+      await prisma.projectProfile.update({
+        where: { userId_projectId: { userId: person.userId, projectId: PROJECT } },
+        data: { termsVersion: "2020-01-01" },
+      });
+    }
+    const before = profiles ? await profileOf(person.userId) : null;
     await signIn(context, person.sessionToken);
     await page.goto("/en/learner");
     await expect(page).toHaveURL(/\/en\/welcome$/);

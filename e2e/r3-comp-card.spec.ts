@@ -100,8 +100,19 @@ describe("Release 3 Comp Card, learner side", () => {
     made.push(email);
     return email;
   };
-  const cardOf = (userId: string) =>
-    prisma.compCard.findUnique({ where: { userId_projectId: { userId, projectId: PROJECT } } });
+  /** The learner's card; its sharing columns only where they exist (not on Release 2's schema). */
+  const cardOf = async (userId: string) => {
+    const where = { userId_projectId: { userId, projectId: PROJECT } };
+    const card = await prisma.compCard.findUnique({
+      where,
+      select: { id: true, wentWell: true, difficult: true, improve: true, behaviour: true, confidence: true, privacy: true },
+    });
+    const sharing =
+      card && profiles
+        ? await prisma.compCard.findUnique({ where, select: { sharedAt: true, sharedWithOrganisationId: true } })
+        : null;
+    return card && { ...card, sharedAt: sharing?.sharedAt ?? null, sharedWithOrganisationId: sharing?.sharedWithOrganisationId ?? null };
+  };
   /** A learner of the world's organisation A, with a complete profile. */
   const learnerOfA = (who: string) =>
     createPerson(prisma, {
@@ -216,7 +227,7 @@ describe("Release 3 Comp Card, learner side", () => {
     const card = await cardOf(learner.userId);
     expect(card?.wentWell).toBe(`${marker} went well`);
     expect(await payload(request, world.people.FA, "/en/facilitator"), "A's facilitator gets none of it").not.toContain(marker);
-    expect(card?.sharedAt ?? null).toBeNull();
+    expect({ privacy: card?.privacy, sharedAt: card?.sharedAt ?? null }, "nothing shared").toEqual({ privacy: "SELF", sharedAt: null });
   });
 
   test("B-E8: a text over 2,000 characters is held back with a note, the others save, and its saved text stays; a longer saved text can be saved unchanged", async ({
@@ -231,7 +242,8 @@ describe("Release 3 Comp Card, learner side", () => {
     });
     await signIn(context, learner.sessionToken);
     await page.goto(CARD_PAGE);
-    const difficult = page.getByRole("main").getByLabel("What was difficult");
+    // The card's second field (its label is checked below).
+    const difficult = page.getByRole("main").getByRole("textbox").nth(1);
     await expect(difficult).toHaveValue(`stored difficult ${RUN}`);
 
     await typeInto(page, "Even small wins count.", `went well ${RUN}`);
@@ -250,6 +262,7 @@ describe("Release 3 Comp Card, learner side", () => {
     // Near the limit: how many are left.
     await difficult.fill("y".repeat(1900));
     await expect(page.getByRole("main").getByText("100 characters left")).toBeVisible();
+    await expect(difficult).toHaveAccessibleName("What was difficult");
     await expect.poll(async () => (await cardOf(learner.userId))?.difficult, { timeout: 15_000 }).toBe("y".repeat(1900));
 
     // A text saved before the limit, longer than it, saves unchanged.
