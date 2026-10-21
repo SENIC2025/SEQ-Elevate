@@ -33,15 +33,28 @@ export interface LegalSection {
 export interface LegalDoc {
   slug: LegalDocId;
   title: string;
+  /**
+   * The text's version: what a profile records when its holder accepts the
+   * English Terms (spec 5.2, 12.2). Today's texts, written before counsel's,
+   * are LEGACY_VERSION.
+   */
+  version: string;
+  /** When the text last changed, as YYYY-MM-DD. */
+  lastUpdated: string;
   intro?: string;
   sections: LegalSection[];
 }
+
+/** The version of every text written before counsel's (spec 12.2). */
+export const LEGACY_VERSION = "pre-counsel";
+const LEGACY = { version: LEGACY_VERSION, lastUpdated: "2026-10-21" } as const;
 
 const NEEDS = (what: string) => what;
 
 const EN: Record<LegalDocId, LegalDoc> = {
   cookies: {
     slug: "cookies",
+    ...LEGACY,
     title: "Cookies",
     intro:
       "SEQ Elevate is built to need as little of your data as possible. This page explains exactly what is stored in your browser and why.",
@@ -74,6 +87,7 @@ const EN: Record<LegalDocId, LegalDoc> = {
   },
   accessibility: {
     slug: "accessibility",
+    ...LEGACY,
     title: "Accessibility statement",
     intro:
       "SEQ Elevate is designed for young people with a wide range of needs. Accessibility is a core requirement, not an afterthought.",
@@ -114,6 +128,7 @@ const EN: Record<LegalDocId, LegalDoc> = {
   },
   privacy: {
     slug: "privacy",
+    ...LEGACY,
     title: "Privacy policy",
     intro:
       "This page describes how your personal data is handled on SEQ Elevate. The technical facts below are accurate for the platform; the parts marked in the highlighted boxes must be completed by the programme's data controller before launch.",
@@ -176,6 +191,7 @@ const EN: Record<LegalDocId, LegalDoc> = {
   },
   terms: {
     slug: "terms",
+    ...LEGACY,
     title: "Terms of use",
     intro:
       "These terms cover using the SEQ Elevate learning platform. The final wording is provided by the programme's legal counsel.",

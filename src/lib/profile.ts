@@ -16,7 +16,7 @@
  * it too. Answers per field and never throws.
  */
 
-import { getLegal, type LegalDoc } from "@/data/legal";
+import { getLegal } from "@/data/legal";
 import { isCountry, type Country } from "@/lib/countries";
 import { ageRuleSetting, profileConsent, type ProfileConsent } from "@/lib/r3-switches";
 
@@ -26,14 +26,14 @@ type Env = Record<string, string | undefined>;
 export const NAME_MAX = 50;
 
 /**
- * The version of the English Terms of use a person accepts. Translations
- * never change it; a new English version does, and asks everyone again.
- * Until the legal texts carry a version (spec 12.2), it is UNVERSIONED_TERMS.
+ * The version of the English Terms of use a person accepts: the English
+ * Terms text's own (spec 12.2), "pre-counsel" until counsel's text is in.
+ * Translations never change it; a new English version does, and asks
+ * everyone again. UNVERSIONED_TERMS only if the text had no version.
  */
 export const UNVERSIONED_TERMS = "unversioned";
 export function currentTermsVersion(): string {
-  const terms = getLegal("terms", "en") as (LegalDoc & { version?: unknown }) | null;
-  return typeof terms?.version === "string" && terms.version.trim() ? terms.version.trim() : UNVERSIONED_TERMS;
+  return getLegal("terms", "en")?.version.trim() || UNVERSIONED_TERMS;
 }
 
 /** What a complete profile is measured against. */
