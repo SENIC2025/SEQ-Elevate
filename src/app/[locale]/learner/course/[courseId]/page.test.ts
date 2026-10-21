@@ -201,3 +201,47 @@ describe("course route", () => {
     expect(getLearnerCourse).not.toHaveBeenCalled();
   });
 });
+
+/*
+ * Release 3 (D91, spec 10.3): a video or document stored on another host
+ * before Release 3 reaches the player marked `external`, so it is shown as
+ * a link out and never loaded in the page. Release 2 played it as it was.
+ */
+describe("media from another host", () => {
+  afterEach(() => vi.clearAllMocks());
+
+  it("is marked for the player; our own files and YouTube are not", async () => {
+    setup({ status: "published", editor: false });
+    const doc = (url: string) => ({ id: url, name: "d", url, mimeType: "application/pdf", sizeBytes: 1, published: true });
+    getLearnerCourse.mockResolvedValue({
+      ...flexible,
+      lessons: [
+        {
+          kind: "stage",
+          id: "context",
+          label: "Context",
+          stage: {
+            key: "context",
+            video: { provider: "file", src: "https://cdn.example.org/v.mp4" },
+            documents: [doc("/demo/sample.pdf"), doc("https://cdn.example.org/b.pdf")],
+          },
+        },
+        {
+          kind: "section",
+          id: "s-abcd1234",
+          label: "Warm-up",
+          section: { key: "s-abcd1234", parts: [], video: { provider: "youtube", src: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" } },
+        },
+      ],
+    });
+    const el = await visit();
+    const lessons = (el.props.course as LearnerCourse).lessons as unknown as {
+      stage?: { video: object; documents: object[] };
+      section?: { video: object };
+    }[];
+    expect(lessons[0].stage?.video).toMatchObject({ external: true });
+    expect(lessons[0].stage?.documents[0]).not.toHaveProperty("external");
+    expect(lessons[0].stage?.documents[1]).toMatchObject({ external: true });
+    expect(lessons[1].section?.video).not.toHaveProperty("external");
+  });
+});

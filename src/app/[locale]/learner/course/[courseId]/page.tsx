@@ -16,6 +16,7 @@ import { completedLessonIds } from "@/lib/learner-progress/enrolment-read";
 import { routing } from "@/i18n/routing";
 import { CoursePlayer } from "@/components/course/CoursePlayer";
 import { PreviewStateProvider } from "@/store/demo-state";
+import { isFirstPartyMediaUrl, markExternalMedia, serverAppOrigin } from "@/lib/media-url";
 
 const PROJECT = "seq-elevate";
 
@@ -136,7 +137,13 @@ export default async function Page({
       ? (ui as Locale)
       : undefined;
 
-  const learner = await getLearnerCourse(PROJECT, courseId, asLocale(locale), course, { editor: preview });
+  // A video or document stored on another host before Release 3 is shown
+  // as a link out, never loaded in the page (D91).
+  const origin = serverAppOrigin();
+  const learner = markExternalMedia(
+    await getLearnerCourse(PROJECT, courseId, asLocale(locale), course, { editor: preview }),
+    (url) => isFirstPartyMediaUrl(url, origin)
+  );
   const ids = learner.lessons.map((l) => l.id);
   // Any lesson learners get, in a preview only: a hidden or unknown one
   // opens the first.

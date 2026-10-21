@@ -17,7 +17,9 @@ import {
  * Guided "slides" viewer — steps through a lesson's documents one at a time
  * (1.1 → 1.2 …) with prev/next and keyboard arrows. Images and PDFs preview
  * inline; other formats (Office) show an open/download card — we deliberately
- * don't route documents through a third-party viewer (privacy).
+ * don't route documents through a third-party viewer (privacy). A document
+ * on another host (`external`, stored before Release 3, D91) gets that card
+ * too: it is never loaded inside the page.
  */
 export function LessonDocumentViewer({
   documents,
@@ -140,6 +142,7 @@ function DocPreview({
   doc: LessonDocumentRef;
   t: ReturnType<typeof useTranslations>;
 }) {
+  if (doc.external) return <OpenCard doc={doc} t={t} />;
   if (doc.mimeType.startsWith("image/")) {
     // Arbitrary author-uploaded images of unknown dimensions — a plain <img>
     // is correct here (next/image needs known sizes + configured domains).
@@ -156,6 +159,17 @@ function DocPreview({
     );
   }
   // Office / other — no safe inline preview; offer to open.
+  return <OpenCard doc={doc} t={t} />;
+}
+
+/** No preview in the page: open or download the document instead. */
+function OpenCard({
+  doc,
+  t,
+}: {
+  doc: LessonDocumentRef;
+  t: ReturnType<typeof useTranslations>;
+}) {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
       <FileText className="h-12 w-12 text-[var(--muted-foreground)]" />

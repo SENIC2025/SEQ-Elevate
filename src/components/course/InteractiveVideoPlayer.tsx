@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { useTranslations } from "next-intl";
+import { Link } from "@/i18n/navigation";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import type {
@@ -9,13 +10,20 @@ import type {
   VideoCue,
   VideoCaptionTrack,
 } from "@/lib/cms/types";
-import { dueCue, sortCues, formatTimecode, parseYouTubeId } from "@/lib/video";
+import {
+  dueCue,
+  sortCues,
+  formatTimecode,
+  parseYouTubeId,
+  youTubeWatchUrl,
+} from "@/lib/video";
 import {
   HelpCircle,
   CheckCircle2,
   XCircle,
   Film,
   PlayCircle,
+  ExternalLink,
 } from "lucide-react";
 
 /**
@@ -31,10 +39,45 @@ import {
  * question is shown below the video instead of over it — squeezed into the
  * frame, its answers didn't fit (consortium point 5). Focus goes to the
  * question when it opens and back to the video when it closes.
+ *
+ * Release 3 (D91, spec 10.2): nothing from YouTube loads until the viewer
+ * asks. A YouTube video shows a gate instead — what playing it sends to
+ * YouTube, the privacy notice, "Play video (loads YouTube)" and "Watch on
+ * youtube.com" — over a neutral placeholder (no thumbnail: that would be a
+ * request to Google). Its text and buttons sit inside the 16:9 box only
+ * when the player is at least NARROW_PLAYER_PX wide and the reading-help
+ * text size is the default (gateFits); otherwise below it, in the page's
+ * flow, where nothing is clipped. Pressing play loads the YouTube player
+ * from youtube-nocookie.com (youTubePlayerOptions) and moves focus to a
+ * status line that stays put; it is never moved into YouTube's frame. If
+ * the video can't be embedded, the status line says so, with the watch
+ * link. The choice isn't remembered: each video asks again. A file on
+ * another host (`external`, stored before Release 3) is never loaded in
+ * the page: it is offered as a link out. Continue never waits on a video.
  */
 
 /** Below this width (px) the question goes under the video, not over it. */
 export const NARROW_PLAYER_PX = 480;
+
+/**
+ * Do the gate's text and buttons fit inside the 16:9 box? Only in a player
+ * at least NARROW_PLAYER_PX wide, with the reading-help text size at its
+ * default (`fontSize`, html[data-font-size]: lg and xl make text up to
+ * 1.25 times larger). Until the player has been measured they go below.
+ */
+export function gateFits(width: number | null, fontSize: string | null | undefined): boolean {
+  return width !== null && width >= NARROW_PLAYER_PX && (!fontSize || fontSize === "md");
+}
+
+/** The YouTube player, once the viewer has asked for it: privacy-enhanced host, starting at once. */
+export function youTubePlayerOptions(videoId: string, events: Record<string, (event: { data?: unknown }) => void>) {
+  return {
+    host: "https://www.youtube-nocookie.com",
+    videoId,
+    playerVars: { rel: 0, playsinline: 1, autoplay: 1 },
+    events,
+  };
+}
 export function InteractiveVideoPlayer({
   video,
   onCueAnswered,
@@ -51,18 +94,43 @@ export function InteractiveVideoPlayer({
   const [duration, setDuration] = React.useState(0);
   const [currentTime, setCurrentTime] = React.useState(0);
 
-  // How wide the player is: under NARROW_PLAYER_PX the question goes below.
+  // How wide the player is: under NARROW_PLAYER_PX the question goes below,
+  // and so do the gate's text and buttons (also with larger reading-help
+  // text, which can change while the page is open).
   const sectionRef = React.useRef<HTMLElement>(null);
   const [narrow, setNarrow] = React.useState(false);
+  const [width, setWidth] = React.useState<number | null>(null);
+  const [fontSize, setFontSize] = React.useState<string | null>(null);
   React.useEffect(() => {
     const el = sectionRef.current;
     if (!el || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(([entry]) =>
-      setNarrow(entry.contentRect.width < NARROW_PLAYER_PX)
-    );
+    const observer = new ResizeObserver(([entry]) => {
+      setNarrow(entry.contentRect.width < NARROW_PLAYER_PX);
+      setWidth(entry.contentRect.width);
+    });
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
+  React.useEffect(() => {
+    const html = document.documentElement;
+    const read = () => setFontSize(html.getAttribute("data-font-size"));
+    read();
+    if (typeof MutationObserver === "undefined") return;
+    const observer = new MutationObserver(read);
+    observer.observe(html, { attributes: true, attributeFilter: ["data-font-size"] });
+    return () => observer.disconnect();
+  }, []);
+
+  // The YouTube gate: nothing from YouTube until the viewer presses play.
+  const [ytState, setYtState] = React.useState<"gate" | "loading" | "failed">("gate");
+  const statusRef = React.useRef<HTMLParagraphElement>(null);
+  const playYouTube = () => {
+    setYtState("loading");
+    // The status line stays where it is, so focus waits there (never in
+    // YouTube's frame) while the player loads.
+    window.setTimeout(() => statusRef.current?.focus(), 0);
+  };
+  const youTubeFailed = React.useCallback(() => setYtState("failed"), []);
 
   // Engine controls, set by whichever child engine mounts.
   const pauseRef = React.useRef<() => void>(() => {});
@@ -106,7 +174,11 @@ export function InteractiveVideoPlayer({
     [onCueAnswered]
   );
 
-  const ytId = video.provider === "youtube" ? parseYouTubeId(video.src) : null;
+  // A YouTube link plays behind the gate, whatever provider a row stored
+  // before Release 3 names; anything else from another host is a link out.
+  const ytId = parseYouTubeId(video.src);
+  const external = !ytId && (video.provider === "youtube" || video.external === true);
+  const inside = gateFits(width, fontSize);
 
   return (
     <section
@@ -128,14 +200,23 @@ export function InteractiveVideoPlayer({
       </div>
 
       <div className="relative bg-black aspect-video">
-        {video.provider === "youtube" && ytId ? (
+        {ytId && ytState === "gate" ? (
+          <GatePlaceholder>
+            {inside ? <YouTubeGate videoId={ytId} onPlay={playYouTube} inside /> : null}
+          </GatePlaceholder>
+        ) : ytId ? (
           <YouTubeEngine
             videoId={ytId}
             onTime={handleTime}
             onDuration={setDuration}
+            onError={youTubeFailed}
             pauseRef={pauseRef}
             playRef={playRef}
           />
+        ) : external ? (
+          <GatePlaceholder>
+            {inside ? <ExternalVideo src={video.src} inside /> : null}
+          </GatePlaceholder>
         ) : (
           <NativeEngine
             src={video.src}
@@ -157,6 +238,12 @@ export function InteractiveVideoPlayer({
           />
         ) : null}
       </div>
+
+      {ytId && ytState === "gate" && !inside ? (
+        <YouTubeGate videoId={ytId} onPlay={playYouTube} />
+      ) : null}
+      {external && !inside ? <ExternalVideo src={video.src} /> : null}
+      {ytId ? <VideoStatus ref={statusRef} state={ytState} videoId={ytId} /> : null}
 
       {activeCue && narrow ? (
         <QuizOverlay
@@ -208,6 +295,123 @@ export function InteractiveVideoPlayer({
         </p>
       ) : null}
     </section>
+  );
+}
+
+/* ------------------------- Click-to-load gate ------------------------- */
+
+/** The 16:9 box before anything loads: a neutral placeholder, never a thumbnail. */
+function GatePlaceholder({ children }: { children?: React.ReactNode }) {
+  return (
+    <div className="absolute inset-0 flex items-center justify-center bg-[var(--surface-muted)]">
+      {children ?? <Film className="h-10 w-10 text-[var(--muted-foreground)]" aria-hidden />}
+    </div>
+  );
+}
+
+/**
+ * What playing a YouTube video sends to YouTube, the privacy notice, the
+ * button that loads it and the watch link: inside the 16:9 box (`inside`)
+ * or below it, in the page's flow.
+ */
+export function YouTubeGate({
+  videoId,
+  onPlay,
+  inside = false,
+}: {
+  videoId: string;
+  onPlay: () => void;
+  inside?: boolean;
+}) {
+  const t = useTranslations("video.youtubeGate");
+  return (
+    <div
+      className={
+        inside
+          ? "flex max-h-full w-full flex-col items-center justify-center gap-2 overflow-y-auto p-4 text-center"
+          : "border-t border-[var(--border)] p-4"
+      }
+      data-testid="youtube-gate"
+    >
+      <p className="text-sm">{t("body")}</p>
+      <p className="text-sm">
+        <Link href="/legal/privacy" className="text-[var(--accent)] underline underline-offset-2">
+          {t("privacyLink")}
+        </Link>
+      </p>
+      <div className={`flex flex-wrap items-center gap-x-4 gap-y-2 ${inside ? "justify-center" : ""}`}>
+        {/* Wraps on a phone with large text rather than running off the page. */}
+        <Button size="sm" onClick={onPlay} className="h-auto min-h-9 whitespace-normal py-1.5 text-left">
+          <PlayCircle className="h-4 w-4 flex-shrink-0" aria-hidden />
+          {t("play")}
+        </Button>
+        <WatchLink videoId={videoId} />
+      </div>
+    </div>
+  );
+}
+
+/** "Watch on youtube.com": the video's watch page, in a new tab. */
+function WatchLink({ videoId }: { videoId: string }) {
+  const t = useTranslations("video.youtubeGate");
+  return (
+    <a
+      href={youTubeWatchUrl(videoId)}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="inline-flex items-center gap-1 text-sm text-[var(--accent)] underline underline-offset-2"
+    >
+      <ExternalLink className="h-3.5 w-3.5 flex-shrink-0" aria-hidden />
+      {t("watchOn")}
+    </a>
+  );
+}
+
+/**
+ * The line focus moves to when the viewer presses play: there from the
+ * first render, so it never moves, and announced as it changes. Says the
+ * video is loading, or that it can't be played here, with the watch link.
+ */
+export const VideoStatus = React.forwardRef<
+  HTMLParagraphElement,
+  { state: "gate" | "loading" | "failed"; videoId: string }
+>(function VideoStatus({ state, videoId }, ref) {
+  const t = useTranslations("video.youtubeGate");
+  return (
+    <p
+      ref={ref}
+      role="status"
+      tabIndex={-1}
+      className="px-4 py-2 text-sm outline-none empty:hidden focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
+    >
+      {state === "loading" ? t("loading") : null}
+      {state === "failed" ? (
+        <>
+          {t("failed")} <WatchLink videoId={videoId} />
+        </>
+      ) : null}
+    </p>
+  );
+});
+
+/** A file on another host (stored before Release 3): a link out, never loaded in the page. */
+export function ExternalVideo({ src, inside = false }: { src: string; inside?: boolean }) {
+  const t = useTranslations("video.external");
+  return (
+    <div
+      className={inside ? "flex flex-col items-center gap-2 p-4 text-center" : "border-t border-[var(--border)] p-4"}
+    >
+      <p className="text-sm">{t("body")}</p>
+      <a
+        href={src}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="inline-flex items-center gap-1 text-sm text-[var(--accent)] underline underline-offset-2"
+      >
+        <ExternalLink className="h-3.5 w-3.5 flex-shrink-0" aria-hidden />
+        {t("open")}
+      </a>
+    </div>
   );
 }
 
@@ -481,16 +685,24 @@ function loadYouTubeApi(): Promise<void> {
   return ytApiPromise;
 }
 
+/**
+ * The YouTube player: mounted only after the viewer pressed play behind
+ * the gate, so the API script and the frame load only then, from
+ * youtube-nocookie.com. Its errors (embedding switched off, 150 or 153)
+ * go to the status line.
+ */
 function YouTubeEngine({
   videoId,
   onTime,
   onDuration,
+  onError,
   pauseRef,
   playRef,
 }: {
   videoId: string;
   onTime: (t: number) => void;
   onDuration: (d: number) => void;
+  onError: () => void;
   pauseRef: React.RefObject<() => void>;
   playRef: React.RefObject<() => void>;
 }) {
@@ -503,10 +715,9 @@ function YouTubeEngine({
 
     loadYouTubeApi().then(() => {
       if (cancelled || !hostRef.current || !window.YT?.Player) return;
-      player = new window.YT.Player(hostRef.current, {
-        videoId,
-        playerVars: { rel: 0, modestbranding: 1, playsinline: 1 },
-        events: {
+      player = new window.YT.Player(
+        hostRef.current,
+        youTubePlayerOptions(videoId, {
           onReady: () => {
             pauseRef.current = () => player.pauseVideo?.();
             playRef.current = () => player.playVideo?.();
@@ -515,8 +726,9 @@ function YouTubeEngine({
               if (player.getCurrentTime) onTime(player.getCurrentTime());
             }, 250);
           },
-        },
-      });
+          onError: () => onError(),
+        })
+      );
     });
 
     return () => {
@@ -524,7 +736,7 @@ function YouTubeEngine({
       if (poll) clearInterval(poll);
       player?.destroy?.();
     };
-  }, [videoId, onTime, onDuration, pauseRef, playRef]);
+  }, [videoId, onTime, onDuration, onError, pauseRef, playRef]);
 
   return <div ref={hostRef} className="h-full w-full" />;
 }
