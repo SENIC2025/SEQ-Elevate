@@ -66,7 +66,7 @@ export const NARROW_PLAYER_PX = 480;
  * 1.25 times larger). Until the player has been measured they go below.
  */
 export function gateFits(width: number | null, fontSize: string | null | undefined): boolean {
-  return width !== null && width >= NARROW_PLAYER_PX && (!fontSize || fontSize === "md");
+  return width !== null && width >= NARROW_PLAYER_PX && (!fontSize || fontSize === "normal");
 }
 
 /** The YouTube player, once the viewer has asked for it: privacy-enhanced host, starting at once. */

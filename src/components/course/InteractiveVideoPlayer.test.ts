@@ -129,7 +129,7 @@ describe("the YouTube gate", () => {
     expect(gateFits(800, "lg")).toBe(false);
     expect(gateFits(800, "xl")).toBe(false);
     expect(gateFits(NARROW_PLAYER_PX, null)).toBe(true);
-    expect(gateFits(800, "md")).toBe(true);
+    expect(gateFits(800, "normal")).toBe(true);
   });
 
   it("renders the gate's own text and buttons wherever it is placed", () => {
