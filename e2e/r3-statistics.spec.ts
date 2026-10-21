@@ -262,7 +262,7 @@ describe("Release 3 statistics: who is counted, and what the roster says", () =>
     // The real learner's scenario choice is progress, under Activity; they
     // shared no card.
     await open(marker("LR"));
-    await expect(activity()).toContainText("Applied scenario:");
+    await expect(activity()).toContainText("Choice in the applied scenario:");
     await expect(activity()).toContainText(/talk to Sam privately → Tell Sam it.s fine/);
     await expect(card()).toHaveText("Nothing shared with you.");
   });

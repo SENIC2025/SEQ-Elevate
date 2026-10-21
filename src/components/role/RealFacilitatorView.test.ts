@@ -268,6 +268,15 @@ describe("RealFacilitatorView: the Comp Card, as shared with the viewer (UC1)", 
     expect(html).not.toContain(en.compCard.fieldWentWell);
   });
 
+  it("says a card shared with nothing filled in is shared, in words rather than a dash", () => {
+    // Review R5: it counts under "Comp Cards shared with you", and a lone
+    // "—" reads as "dash", or as nothing, to a screen reader.
+    const html = cardPanel({ fields: {}, confidence: null, sharedAt: SHARED.sharedAt });
+    expect(html).toContain("Shared with you. Nothing is filled in yet.");
+    expect(html).not.toContain("—");
+    expect(html).not.toContain(en.facilitator.notShared);
+  });
+
   it("never shows a field as redacted on screen", () => {
     for (const html of [cardPanel(SHARED), cardPanel(null)]) {
       expect(html).not.toMatch(/redacted|chose not to share/i);
@@ -283,12 +292,30 @@ describe("RealFacilitatorView: the scenario choice is in the Activity panel (D82
   it("shows the choice the learner made, with the quiz and practice results", () => {
     const html = panel({ scenario: [{ text: "Speak to Sam in private" }, { text: "Tell Sam it's fine" }] });
     const quiz = html.indexOf(`${en.facilitator.quizPractice}:`);
-    const scenario = html.indexOf(en.course.stageLabel.scenario);
+    const scenario = html.indexOf(`${en.facilitator.scenarioChoice}:`);
     expect(scenario).toBeGreaterThan(-1);
     expect(quiz).toBeGreaterThan(-1);
     expect(html.replace(/<!-- -->/g, "").replace(/<[^>]*>/g, "").replace(/&#x27;/g, "'")).toContain(
       "Speak to Sam in private → Tell Sam it's fine"
     );
+  });
+
+  it("labels it as the learner's choice, not by the step's name", () => {
+    // Review R7: "Anwendung:" / "Εφαρμογή:" name the step in German and
+    // Greek, not what the learner chose in it.
+    const html = panel({ scenario: [{ text: "Speak to Sam in private" }] });
+    expect(html).toContain(`>${en.facilitator.scenarioChoice}:</span>`);
+    expect(html).not.toContain(`>${en.course.stageLabel.scenario}:</span>`);
+    expect(de.facilitator.scenarioChoice).not.toBe(de.course.stageLabel.scenario);
+    expect(el.facilitator.scenarioChoice).not.toBe(el.course.stageLabel.scenario);
+  });
+
+  it("has no scenario row before the learner has made a choice", () => {
+    // Review R5: a dash on every course without an applied scenario, and on
+    // every learner who hasn't reached it.
+    const html = panel({ scenario: null });
+    expect(html).not.toContain(en.facilitator.scenarioChoice);
+    expect(html).not.toContain(`${en.course.stageLabel.scenario}:`);
   });
 
   it("marks a part of the choice written in another language than the page's (WCAG 3.1.2)", () => {
@@ -332,6 +359,13 @@ describe("RealFacilitatorView: the roster (spec 4.5, 7.4)", () => {
     expect(row(html, "Both")).toContain("Test account");
     expect(row(html, "Both")).toContain("Former staff");
     expect(row(html, "Rosa")).not.toMatch(/Test account|Former staff/);
+  });
+
+  it("labels one person, not a group, in German and Greek", () => {
+    // Review R7: "Ehemaliges Personal" and "Πρώην προσωπικό" mean "former
+    // personnel".
+    expect(de.facilitator.formerStaff).toBe("Früher im Team");
+    expect(el.facilitator.formerStaff).toBe("Πρώην μέλος προσωπικού");
   });
 
   it("gives the labels in the page's language", () => {

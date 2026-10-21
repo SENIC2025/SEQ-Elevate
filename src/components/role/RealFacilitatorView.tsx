@@ -530,8 +530,9 @@ const CARD_FIELDS: readonly [CompCardField, `field${Capitalize<CompCardField>}`]
  * A learner's Comp Card as it reached this viewer: only what the learner
  * shared with the viewer's organisation leaves the server
  * (compCardForViewer, D80, D81), without the empty fields and those the
- * card's template hides; null when nothing is shared with the viewer. The
- * scenario choice is progress, in the Activity panel (D82).
+ * card's template hides; null when nothing is shared with the viewer. A
+ * shared card with nothing on it says so. The scenario choice is progress,
+ * in the Activity panel (D82).
  * (Exported for its tests.)
  */
 export function CompCardPanel({ card }: { card: FacilitatorLearner["compCard"] }) {
@@ -541,8 +542,9 @@ export function CompCardPanel({ card }: { card: FacilitatorLearner["compCard"] }
     return <p className="text-sm text-[var(--muted-foreground)]">{t("notShared")}</p>;
   }
   const fields = CARD_FIELDS.filter(([field]) => card.fields[field]);
+  // Shared, and counted as shared, with nothing on it yet: said in words.
   if (!fields.length && !card.confidence) {
-    return <p className="text-sm text-[var(--muted-foreground)]">—</p>;
+    return <p className="text-sm text-[var(--muted-foreground)]">{t("sharedEmpty")}</p>;
   }
   return (
     <div className="space-y-3">
@@ -592,7 +594,8 @@ export function LearnerLabels({
 
 /**
  * Where the learner is, how long they've spent, how their quizzes went, and
- * the choice they made in the applied scenario. (Exported for its tests.)
+ * the choice they made in the applied scenario, once they have. (Exported
+ * for its tests.)
  */
 export function ActivityPanel({ learner }: { learner: FacilitatorLearner }) {
   const t = useTranslations("facilitator");
@@ -708,18 +711,19 @@ export function ActivityPanel({ learner }: { learner: FacilitatorLearner }) {
 
       {/* The choice made in the applied scenario: progress, which the
           learner's organisation always sees (D82), not Comp Card text. Each
-          part in the language it is written in (WCAG 3.1.2). */}
-      <p className="mt-3 text-xs text-[var(--muted-foreground)]">
-        <span className="font-medium text-[var(--foreground)]">{tStage("scenario")}:</span>{" "}
-        {learner.scenario
-          ? learner.scenario.map((part, i) => (
-              <Fragment key={i}>
-                {i ? " → " : null}
-                <span lang={part.lang}>{part.text}</span>
-              </Fragment>
-            ))
-          : "—"}
-      </p>
+          part in the language it is written in (WCAG 3.1.2). Only once a
+          choice is made: many courses have no applied scenario. */}
+      {learner.scenario ? (
+        <p className="mt-3 text-xs text-[var(--muted-foreground)]">
+          <span className="font-medium text-[var(--foreground)]">{t("scenarioChoice")}:</span>{" "}
+          {learner.scenario.map((part, i) => (
+            <Fragment key={i}>
+              {i ? " → " : null}
+              <span lang={part.lang}>{part.text}</span>
+            </Fragment>
+          ))}
+        </p>
+      ) : null}
     </div>
   );
 }
