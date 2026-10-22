@@ -114,6 +114,7 @@ const person = (
           testAccountAt: null,
           guardianConsentRecordedAt: null,
           guardianSharingConsentAt: null,
+          ageRule: "SELF_MIN_AGE",
           createdAt: new Date("2026-11-20T09:00:00Z"),
           organisation: { name: "Org A" },
           ...profile,
@@ -219,6 +220,19 @@ describe("getAdminMembers: what it says about each person", () => {
     expect(
       await one(ORG_A, person("a", ["LEARNER"], { guardianConsentRecordedAt: new Date(), guardianSharingConsentAt: null }))
     ).toMatchObject({ guardianConsent: true, guardianSharing: false });
+  });
+
+  it("says when an invited learner's guardian's permission isn't recorded by their organisation (it went with the old one)", async () => {
+    const invited = { ageRule: "INVITED_WITH_GUARDIAN_CONSENT" };
+    expect(await one(ORG_A, person("a", ["LEARNER"], { ...invited, guardianConsentRecordedAt: null }))).toMatchObject({
+      guardianConsent: false,
+      guardianNeeded: true,
+    });
+    expect(await one(ORG_A, person("b", ["LEARNER"], { ...invited, guardianConsentRecordedAt: new Date() }))).toMatchObject({
+      guardianConsent: true,
+      guardianNeeded: false,
+    });
+    expect((await one(ORG_A, person("c", ["LEARNER"]))).guardianNeeded).toBe(false);
   });
 
   it("lists, for an ADMIN, someone with a profile and no role", async () => {

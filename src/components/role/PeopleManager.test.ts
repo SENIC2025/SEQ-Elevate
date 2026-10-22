@@ -50,6 +50,7 @@ const member = (id: string, roles: AdminMember["roles"], over: Partial<AdminMemb
   formerStaff: false,
   guardianConsent: false,
   guardianSharing: false,
+  guardianNeeded: false,
   countryMismatch: false,
   joinedAt: "2026-10-20",
   status: "joined",
@@ -197,6 +198,13 @@ describe("PeopleManager for an ADMIN", () => {
   it("asks about a guardian's permission when adding a learner", () => {
     const html = render(asAdmin([member("me", ["ADMIN"])], { minAge: 16 }));
     expect(html).toContain("Under 16: our organisation holds a parent&#x27;s or guardian&#x27;s permission");
+  });
+
+  it("says when an invited learner's guardian's permission isn't recorded by this organisation, and how to record it", () => {
+    const html = render(asAdmin([member("me", ["ADMIN"]), member("ana", ["LEARNER"], { guardianNeeded: true })], { minAge: 16 }));
+    const ana = rowOf(html, "ana@example.org");
+    expect(ana).toContain("Under 16, guardian&#x27;s permission not recorded here (add them again with it ticked)");
+    expect(ana).not.toContain("permission also covers sharing");
   });
 
   it("names no single age when the learners' countries have different ones (AGE_RULE=digital-consent)", () => {

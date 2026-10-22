@@ -38,7 +38,8 @@ import { getCurrentUser } from "@/lib/auth-helpers";
 import { getAdminMembers, getAdminOrgs, getCountryMappings } from "@/lib/admin-queries";
 import { parseAdminEmails } from "@/lib/admin-bootstrap";
 import { isCountry } from "@/lib/countries";
-import { setPersonOrganisation, type OrganisationSource } from "@/lib/person-organisation";
+import { TELEMETRY_ACTIONS } from "@/lib/gdpr-export";
+import { releaseIfCountryElsewhere, setPersonOrganisation, type OrganisationSource } from "@/lib/person-organisation";
 import { canManagePeople, grantableRoles, seesWholeProject } from "@/lib/permissions";
 import { parseProfileInput } from "@/lib/profile";
 import { checkRateLimit } from "@/lib/rate-limit";
@@ -435,7 +436,9 @@ async function refuseAdd(m: Manager, reason: AddRefusal) {
  * May a partner admin take on this account (spec 3.4 SP19, 5.6)? Only one
  * that holds nothing yet: no organisation, a profile step never completed,
  * no role but LEARNER, never an ADMIN or ADMIN_EMAILS address, and no
- * learner data in the project (no course started, no Comp Card, no badge).
+ * learner data in the project (no course started, no Comp Card, no badge,
+ * no activity record — time on lessons, a course opened, a video answer —
+ * and no note or validation about them).
  */
 async function claimable(userId: string, email: string): Promise<boolean> {
   if (parseAdminEmails(process.env.ADMIN_EMAILS).has(email.trim().toLowerCase())) return false;
@@ -455,6 +458,9 @@ async function claimable(userId: string, email: string): Promise<boolean> {
         { enrollments: { none: { course: { projectId: PROJECT } } } },
         { compCards: { none: { projectId: PROJECT } } },
         { badges: { none: { badge: { projectId: PROJECT } } } },
+        { auditEvents: { none: { action: { in: [...TELEMETRY_ACTIONS] } } } },
+        { observedNotes: { none: {} } },
+        { validatedNotes: { none: {} } },
       ],
     },
   });
@@ -556,7 +562,7 @@ export async function addMember(
     ? await Promise.all([
         prisma.projectProfile.findUnique({
           where: { userId_projectId: { userId: existing.id, projectId: PROJECT } },
-          select: { organisationId: true, profileCompletedAt: true },
+          select: { organisationId: true, profileCompletedAt: true, ageRule: true },
         }),
         prisma.membership.findMany({ where: { userId: existing.id, projectId: PROJECT }, select: { role: true } }),
       ])
@@ -568,7 +574,13 @@ export async function addMember(
     return refuseAdd(m, "has-organisation");
   }
   if (guardian && held.some((h) => h.role !== "LEARNER")) return refuseAdd(m, "guardian-learner-only");
-  if (guardian && profile?.profileCompletedAt) return refuseAdd(m, "guardian-not-needed");
+  // After the profile step a guardian's permission is needed only by
+  // someone who confirmed it there: an invited learner whose record went
+  // with the organisation that made it (setPersonOrganisation) gets one
+  // from their organisation now.
+  if (guardian && profile?.profileCompletedAt && profile.ageRule !== "INVITED_WITH_GUARDIAN_CONSENT") {
+    return refuseAdd(m, "guardian-not-needed");
+  }
 
   const source: OrganisationSource = m.admin ? "admin" : "partner-admin";
   let userId: string;
@@ -615,6 +627,12 @@ export async function addMember(
           source,
           scope: scopeLabel(m.scope),
         });
+      }
+      // Someone removed (no role left) and added again as a learner: the
+      // profile step's organisation rule, as for anyone who becomes a
+      // learner after it (releaseIfCountryElsewhere).
+      if (existing && held.length === 0 && role === "LEARNER") {
+        await releaseIfCountryElsewhere(tx, id, { actorId: m.user.id, scope: scopeLabel(m.scope) });
       }
       if (guardian) {
         const now = new Date();
@@ -674,7 +692,11 @@ export async function resendInvitation(userId: string, locale?: string) {
  * to roles it may grant. Never one's own Admin role: the admin would lose
  * this screen at once, and only another admin could give it back (as
  * removeMember refuses removing oneself). New role rows get no organisation
- * (the profile holds it) and keep the person's cohort.
+ * (the profile holds it) and keep the person's cohort. Someone made a
+ * learner only (from a staff role, or from none) gets the profile step's
+ * organisation rule in the same transaction (releaseIfCountryElsewhere): a
+ * partner admin's organisation is released when the country they gave is
+ * another organisation's.
  */
 export async function setMemberRoles(userId: string, roles: Role[]) {
   const m = await requirePeopleManager();
@@ -710,6 +732,11 @@ export async function setMemberRoles(userId: string, roles: Role[]) {
         }
       }
       await audit(tx, m.user.id, "member.roles_changed", "User", userId, m.scope);
+      const becomesLearner =
+        wanted.every((r) => r === "LEARNER") && (existing.length === 0 || existing.some((r) => r.role !== "LEARNER"));
+      if (becomesLearner) {
+        await releaseIfCountryElsewhere(tx, userId, { actorId: m.user.id, scope: scopeLabel(m.scope) });
+      }
     });
   } catch (e) {
     if (e instanceof ChangedMeanwhile) return { ok: false as const, error: "not-grantable" as const };

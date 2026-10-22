@@ -255,11 +255,62 @@ function returnedBy(fn: FunctionNode): ts.Expression[] {
   return out;
 }
 
+/** What a variable is given after its declaration, in its own scope (see objectsOf). */
+const MUTATIONS = new WeakMap<ts.VariableDeclaration, ts.Expression[] | null>();
+
+/**
+ * The values a variable is given after its declaration, in the block that
+ * declares it: the sources of `Object.assign(v, …)` and the right side of
+ * `v = …`. Null — the object can't be followed — when a property of it is
+ * assigned (`v.key = …`, `v[key] = …`): the test would otherwise read only
+ * what the declaration wrote, and miss a key written into the object later.
+ */
+function mutationsOf(d: ts.VariableDeclaration): ts.Expression[] | null {
+  if (MUTATIONS.has(d)) return MUTATIONS.get(d)!;
+  const name = (d.name as ts.Identifier).text;
+  const scope = d.parent?.parent?.parent;
+  const out: ts.Expression[] = [];
+  let unfollowed = false;
+  const isIt = (e: ts.Expression) => {
+    const u = unwrap(e);
+    return ts.isIdentifier(u) && u.text === name && declarationOf(name, u) === d;
+  };
+  const visit = (n: ts.Node) => {
+    if (unfollowed) return;
+    if (
+      ts.isCallExpression(n) &&
+      ts.isPropertyAccessExpression(n.expression) &&
+      ts.isIdentifier(n.expression.expression) &&
+      n.expression.expression.text === "Object" &&
+      n.expression.name.text === "assign" &&
+      n.arguments.length > 0 &&
+      isIt(n.arguments[0])
+    ) {
+      out.push(...n.arguments.slice(1));
+    }
+    if (ts.isBinaryExpression(n) && n.operatorToken.kind >= ts.SyntaxKind.FirstAssignment && n.operatorToken.kind <= ts.SyntaxKind.LastAssignment) {
+      const left = unwrap(n.left);
+      if ((ts.isPropertyAccessExpression(left) || ts.isElementAccessExpression(left)) && isIt(left.expression)) {
+        unfollowed = true;
+        return;
+      }
+      if (isIt(left)) out.push(n.right);
+    }
+    ts.forEachChild(n, visit);
+  };
+  if (scope) visit(scope);
+  const result = unfollowed ? null : out;
+  MUTATIONS.set(d, result);
+  return result;
+}
+
 /**
  * The object literals an expression can be, following identifiers to
- * same-file constants, calls of same-file functions to what they return,
- * both arms of a condition, and spreads. Null when some part can't be
- * followed (a parameter, an import, a call to elsewhere).
+ * same-file constants (and what is assigned into them later, mutationsOf),
+ * calls of same-file functions to what they return, both arms of a
+ * condition, and spreads. Null when some part can't be followed (a
+ * parameter, an import, a call to elsewhere, a property written into the
+ * object after its declaration).
  */
 function objectsOf(e: ts.Expression, seen = new Set<ts.Node>()): ts.ObjectLiteralExpression[] | null {
   e = unwrap(e);
@@ -275,7 +326,15 @@ function objectsOf(e: ts.Expression, seen = new Set<ts.Node>()): ts.ObjectLitera
   if (ts.isIdentifier(e)) {
     const d = declarationOf(e.text, e);
     if (d && ts.isVariableDeclaration(d) && d.initializer && ts.isIdentifier(d.name)) {
-      return objectsOf(d.initializer, seen);
+      const later = mutationsOf(d);
+      if (!later) return null;
+      const all: ts.ObjectLiteralExpression[] = [];
+      for (const v of [d.initializer, ...later]) {
+        const objs = objectsOf(v, seen);
+        if (!objs) return null;
+        all.push(...objs);
+      }
+      return all;
     }
     return null;
   }
@@ -1009,6 +1068,7 @@ const ALLOW: AllowList = {
   "src/lib/scope.ts#getViewer": system("the scope module reads the viewer's own profile"),
   "src/lib/scope.ts#inScope": system("the scope module's own count (peopleInScope)"),
   "src/lib/person-organisation.ts#setPersonOrganisation": system("the one writer of a person's organisation (D101); called only by guarded actions and the profile step"),
+  "src/lib/person-organisation.ts#releaseIfCountryElsewhere": system("the profile step's organisation rule for someone who becomes a learner after it (spec 5.4 (c)); writes through setPersonOrganisation; called by setMemberRoles and addMember after their scope checks, and by ensureLearnerMembership and completeProfile for the signed-in person"),
   "src/lib/gdpr-export.ts#collectUserData": system("a person's data export: the session's own id (/api/me/export, SP27)"),
   "src/lib/account-data.ts#lockUser": system("locks the user row an erasure or reset is about, inside its transaction (D86)"),
   "src/lib/account-data.ts#eraseAccount": system("erasure: called only by deleteMyAccount (the session's own account, SP28) and by ADMIN-only paths (eraseAccountByAdmin, the clean-up run, SP31)"),
@@ -1376,6 +1436,22 @@ describe("the scope guard refuses (FD-U15 meta-test)", () => {
       "src/lib/new-activity.ts#everyonesTime: auditLog.findMany — not on the allow-list",
       "src/lib/new-activity.ts#grouped: auditLog.groupBy — not on the allow-list",
     ]);
+  });
+
+  it("a person's organisation written into a data object after its declaration: by Object.assign or by a property", () => {
+    const D101 = "only setPersonOrganisation writes a person's organisation (D101)";
+    const PROFILE = "src/app/actions/profile.ts";
+    expect(
+      failuresInjected(PROFILE, "        Object.assign(data, {\n          country: value.country,", `          organisationId: "seq-elevate-synthesis",`)
+    ).toEqual([`src/app/actions/profile.ts#completeProfile: projectProfile.update writes organisationId — ${D101}`]);
+    expect(
+      failuresInjected(PROFILE, "      const name = value.name;", `      data.organisationId = "seq-elevate-synthesis";`)
+    ).toEqual([`src/app/actions/profile.ts#completeProfile: projectProfile.update writes organisationId — ${D101}`]);
+    expect(
+      failuresInjected(PROFILE, "      const name = value.name;", `      data["organisation"] = { connect: { id: "seq-elevate-synthesis" } };`)
+    ).toEqual([`src/app/actions/profile.ts#completeProfile: projectProfile.update writes organisationId — ${D101}`]);
+    // The control: what the profile step writes there today passes.
+    expect(failuresInjected(PROFILE, "      const name = value.name;", "")).toEqual([]);
   });
 
   it("a person's organisation written through a relation, even on the list", () => {

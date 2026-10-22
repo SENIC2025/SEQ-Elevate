@@ -85,6 +85,8 @@ const auditLog = { create: vi.fn(async () => ({})) };
 Object.assign(prisma, { projectProfile, compCard, auditLog });
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/prisma", () => ({ prisma }));
+const releaseIfCountryElsewhere = vi.fn(async () => ({ released: false }));
+vi.mock("@/lib/person-organisation", () => ({ releaseIfCountryElsewhere }));
 vi.mock("@/lib/cms", () => ({ getCourse: vi.fn() }));
 
 const {
@@ -157,6 +159,33 @@ describe("ensureLearnerMembership", () => {
     expect(rows).toEqual([
       { userId: "u1", projectId: "seq-elevate", role: "LEARNER" },
     ]);
+  });
+
+  it("someone given LEARNER back (after Remove) gets the profile step's organisation rule first (spec 5.4 (c))", async () => {
+    getCurrentUser.mockResolvedValue(USER);
+    getProjectMemberships.mockResolvedValue([]);
+    isBootstrapAdmin.mockReturnValue(false);
+    membership.findFirst.mockResolvedValue(null);
+    membership.findMany.mockResolvedValue([]);
+    membership.upsert.mockResolvedValue({});
+    membership.create.mockResolvedValue({});
+    await expect(ensureLearnerMembership()).resolves.toBe(true);
+    expect(releaseIfCountryElsewhere).toHaveBeenCalledWith(prisma, "u1", { actorId: "u1" });
+    const released = releaseIfCountryElsewhere.mock.invocationCallOrder[0];
+    const granted = [...membership.upsert.mock.invocationCallOrder, ...membership.create.mock.invocationCallOrder][0];
+    expect(released).toBeLessThan(granted);
+  });
+
+  it("leaves the organisation of someone who holds a role, learners included", async () => {
+    for (const held of [["LEARNER"], ["FACILITATOR"]]) {
+      vi.clearAllMocks();
+      getCurrentUser.mockResolvedValue(USER);
+      getProjectMemberships.mockResolvedValue(roles(...held));
+      isBootstrapAdmin.mockReturnValue(false);
+      membership.findMany.mockResolvedValue(roles(...held));
+      await expect(ensureLearnerMembership()).resolves.toBe(true);
+      expect(releaseIfCountryElsewhere, held.join()).not.toHaveBeenCalled();
+    }
   });
 
   it("doesn't make an ADMIN_EMAILS address a learner while its roles are still on their way", async () => {

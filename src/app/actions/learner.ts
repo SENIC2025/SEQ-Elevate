@@ -24,6 +24,7 @@ import {
 } from "@/lib/comp-card-visibility";
 import { isProfileComplete, profileRules } from "@/lib/profile";
 import { needsLearnerMembership } from "@/lib/learner-membership";
+import { releaseIfCountryElsewhere } from "@/lib/person-organisation";
 import { ensureProjectRoles } from "@/lib/role-grants";
 import { prisma } from "@/lib/prisma";
 import type { BadgeAwardResult } from "@/lib/badge-award";
@@ -175,6 +176,12 @@ async function ownProfile(userId: string) {
  * loads, moves and saves nothing (the next full page load goes to the
  * profile step). Whatever R3_PROFILE_GATE says: with the gate off, people
  * without a complete profile browse, and nothing of theirs is saved.
+ *
+ * Someone given LEARNER here after the profile step (a person "Removed"
+ * who comes back, Q29) gets the profile step's organisation rule first
+ * (releaseIfCountryElsewhere, spec 5.4 (c)): an organisation a partner
+ * admin set is released when the country they gave is another
+ * organisation's.
  */
 export async function ensureLearnerMembership(): Promise<true | "profile-incomplete"> {
   const user = await requireLearner();
@@ -186,6 +193,7 @@ export async function ensureLearnerMembership(): Promise<true | "profile-incompl
       bootstrapAdmin: isBootstrapAdmin(user.email),
     })
   ) {
+    await prisma.$transaction((tx) => releaseIfCountryElsewhere(tx, user.id, { actorId: user.id }));
     // Two tabs loading at once can both get here; the upsert (and its
     // unique-constraint guard) makes the second one a no-op.
     await ensureProjectRoles(user.id, PROJECT, ["LEARNER"]);
