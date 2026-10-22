@@ -5,7 +5,7 @@
  *   DATABASE_URL=<the rehearsal branch, or production right after the deploy> npx tsx scripts/r3-check.ts
  *
  * Run after migrate-deploy.mjs. It checks, and fails on:
- *   - migrations B and C have finished, and everyone with a membership made
+ *   - migrations B, C and D have finished, and everyone with a membership made
  *     before B started has a profile. A membership made while B ran may
  *     have none: Release 2 keeps writing while the build migrates, and a
  *     membership that waited for B's lock commits after B with the time the
@@ -13,9 +13,11 @@
  *     minute before B started (the app's clock, and a write queued in its
  *     pool) are judged; the others are counted;
  *   - every current staff membership has a staff-history row;
- *   - both triggers exist, and a smoke test in a transaction that is rolled
- *     back shows them working: a staff membership writes a history row, and
- *     an organisation change unshares a Comp Card;
+ *   - the four triggers exist, and a smoke test in a transaction that is
+ *     rolled back shows them working: a staff membership writes a history
+ *     row; an organisation change unshares a Comp Card and clears the old
+ *     organisation's record of a guardian's permission; a privacy written as
+ *     anything but FACILITATOR unshares a card;
  *   - the Role enum has PARTNER_ADMIN.
  * And prints, without judging (they may legitimately move): memberships made
  * while B ran and since, profiles with an organisation and complete, staff history by
@@ -34,13 +36,14 @@ import { PrismaPg } from "@prisma/adapter-pg";
 const PROJECT = "seq-elevate";
 const MIGRATION_B = "20261120090100_r3_people_privacy_content";
 const MIGRATION_C = "20261120090200_r3_course_project_columns";
+const MIGRATION_D = "20261120090300_r3_sharing_and_guardian_triggers";
 const TAG = "[r3-check]";
 
 type Count = { n: number };
 
 /** Thrown to roll the smoke test's transaction back, carrying what it saw. */
 class Rollback extends Error {
-  constructor(readonly seen: { history: boolean; unshared: boolean }) {
+  constructor(readonly seen: { history: boolean; unshared: boolean; guardianCleared: boolean; privacyUnshared: boolean }) {
     super("rollback");
   }
 }
@@ -59,13 +62,14 @@ async function main(): Promise<number> {
   };
   const info = (line: string) => console.log(`${TAG}      ${line}`);
   try {
-    // Migrations B and C, and when B ran.
+    // Migrations B, C and D, and when B ran.
     const applied = await prisma.$queryRaw<{ migration_name: string; started_at: Date; finished_at: Date }[]>`
       SELECT migration_name, started_at, finished_at FROM "_prisma_migrations"
-      WHERE migration_name IN (${MIGRATION_B}, ${MIGRATION_C}) AND finished_at IS NOT NULL AND rolled_back_at IS NULL`;
+      WHERE migration_name IN (${MIGRATION_B}, ${MIGRATION_C}, ${MIGRATION_D}) AND finished_at IS NOT NULL AND rolled_back_at IS NULL`;
     const b = applied.find((m) => m.migration_name === MIGRATION_B);
     check(!!b, `migration ${MIGRATION_B} applied`);
     check(applied.some((m) => m.migration_name === MIGRATION_C), `migration ${MIGRATION_C} applied`);
+    check(applied.some((m) => m.migration_name === MIGRATION_D), `migration ${MIGRATION_D} applied`);
     if (!b) return 1;
     // Judged from a minute before B started: see the header.
     const judgedBefore = new Date(b.started_at.getTime() - 60_000);
@@ -126,10 +130,16 @@ async function main(): Promise<number> {
       WHERE t.tgenabled <> 'D' AND (
         (t.tgrelid = '"Membership"'::regclass AND t.tgname = 'Membership_record_staff_history' AND p.proname = 'record_staff_history')
         OR (t.tgrelid = '"ProjectProfile"'::regclass AND t.tgname = 'ProjectProfile_unshare_on_organisation_change'
-            AND p.proname = 'unshare_comp_card_on_organisation_change'))`;
+            AND p.proname = 'unshare_comp_card_on_organisation_change')
+        OR (t.tgrelid = '"ProjectProfile"'::regclass AND t.tgname = 'ProjectProfile_clear_guardian_permission_on_move'
+            AND p.proname = 'clear_guardian_permission_on_move')
+        OR (t.tgrelid = '"CompCard"'::regclass AND t.tgname = 'CompCard_unshare_on_privacy_change'
+            AND p.proname = 'unshare_comp_card_on_privacy_change'))`;
     const names = new Set(triggers.map((t) => t.tgname));
     check(names.has("Membership_record_staff_history"), "staff-history trigger on Membership present");
     check(names.has("ProjectProfile_unshare_on_organisation_change"), "unshare trigger on ProjectProfile present");
+    check(names.has("ProjectProfile_clear_guardian_permission_on_move"), "guardian-permission trigger on ProjectProfile present");
+    check(names.has("CompCard_unshare_on_privacy_change"), "unshare-on-privacy trigger on CompCard present");
 
     // Smoke test, rolled back: nothing it writes stays. It needs the project.
     const [project] = await prisma.$queryRaw<Count[]>`SELECT count(*)::int AS n FROM "Project" WHERE "id" = ${PROJECT}`;
@@ -138,6 +148,8 @@ async function main(): Promise<number> {
       const seen = await smoke(prisma);
       check(seen.history, "smoke: a staff membership wrote a staff-history row (rolled back)");
       check(seen.unshared, "smoke: an organisation change unshared the Comp Card (rolled back)");
+      check(seen.guardianCleared, "smoke: a move cleared the organisation's record of a guardian's permission (rolled back)");
+      check(seen.privacyUnshared, "smoke: a privacy written as anything but FACILITATOR unshared the Comp Card (rolled back)");
     }
 
     // Roles.
@@ -171,11 +183,16 @@ async function main(): Promise<number> {
 /**
  * In one transaction that is always rolled back: a made-up person gets a
  * staff membership (the history trigger must write a row), a profile in an
- * organisation and a card shared with it; the organisation then changes (the
- * unshare trigger must put the card back to "Only me"). Uses an existing
- * organisation of the project, or makes one inside the transaction.
+ * organisation, with a guardian's permission recorded, and a card shared
+ * with it; the organisation then changes (the unshare trigger must put the
+ * card back to "Only me", and the guardian trigger clear the record). Then
+ * the card is shared again and its privacy alone written "SELF" (the
+ * privacy trigger must clear its sharing). Uses an existing organisation of
+ * the project, or makes one inside the transaction.
  */
-async function smoke(prisma: PrismaClient): Promise<{ history: boolean; unshared: boolean }> {
+async function smoke(
+  prisma: PrismaClient
+): Promise<{ history: boolean; unshared: boolean; guardianCleared: boolean; privacyUnshared: boolean }> {
   const id = `r3-check-${randomUUID()}`;
   try {
     await prisma.$transaction(async (tx) => {
@@ -193,16 +210,24 @@ async function smoke(prisma: PrismaClient): Promise<{ history: boolean; unshared
         await tx.$executeRaw`INSERT INTO "Organisation" ("id", "projectId", "name", "shortName", "updatedAt")
           VALUES (${id}, ${PROJECT}, 'r3-check', 'r3-check', now())`;
       }
-      await tx.$executeRaw`INSERT INTO "ProjectProfile" ("id", "userId", "projectId", "organisationId", "updatedAt")
-        VALUES (${id}, ${id}, ${PROJECT}, ${organisationId}, now())`;
+      await tx.$executeRaw`INSERT INTO "ProjectProfile" ("id", "userId", "projectId", "organisationId", "guardianConsentRecordedAt", "guardianSharingConsentAt", "updatedAt")
+        VALUES (${id}, ${id}, ${PROJECT}, ${organisationId}, now(), now(), now())`;
       await tx.$executeRaw`INSERT INTO "CompCard" ("id", "userId", "projectId", "privacy", "sharedAt", "sharedWithOrganisationId", "updatedAt")
         VALUES (${id}, ${id}, ${PROJECT}, 'FACILITATOR', now(), ${organisationId}, now())`;
       await tx.$executeRaw`UPDATE "ProjectProfile" SET "organisationId" = NULL WHERE "id" = ${id}`;
       const [card] = await tx.$queryRaw<{ privacy: string; sharedAt: Date | null; sharedWith: string | null }[]>`
         SELECT "privacy"::text AS privacy, "sharedAt", "sharedWithOrganisationId" AS "sharedWith" FROM "CompCard" WHERE "id" = ${id}`;
+      const [guardian] = await tx.$queryRaw<{ recorded: Date | null; sharing: Date | null }[]>`
+        SELECT "guardianConsentRecordedAt" AS recorded, "guardianSharingConsentAt" AS sharing FROM "ProjectProfile" WHERE "id" = ${id}`;
+      await tx.$executeRaw`UPDATE "CompCard" SET "privacy" = 'FACILITATOR', "sharedAt" = now(), "sharedWithOrganisationId" = ${organisationId} WHERE "id" = ${id}`;
+      await tx.$executeRaw`UPDATE "CompCard" SET "privacy" = 'SELF' WHERE "id" = ${id}`;
+      const [again] = await tx.$queryRaw<{ sharedAt: Date | null; sharedWith: string | null }[]>`
+        SELECT "sharedAt", "sharedWithOrganisationId" AS "sharedWith" FROM "CompCard" WHERE "id" = ${id}`;
       throw new Rollback({
         history: history.n === 1,
         unshared: card?.privacy === "SELF" && card.sharedAt === null && card.sharedWith === null,
+        guardianCleared: guardian?.recorded === null && guardian.sharing === null,
+        privacyUnshared: again?.sharedAt === null && again.sharedWith === null,
       });
     });
   } catch (e) {
