@@ -33,20 +33,80 @@ const TYPED_DOTS = new Set(["\u3002", "\uFF0E", "\uFF61"]);
 const LETTER_MARK_DIGIT = /^[\p{L}\p{M}\p{N}]$/u;
 const INVISIBLE = /\p{Default_Ignorable_Code_Point}/u;
 
+/** A web address's authority as typed: after "https:" or "http:" and the slashes, up to the path, query or fragment. */
+function typedAuthority(address: string): string {
+  const colon = address.indexOf(":");
+  let from = colon + 1;
+  while (from < address.length && (address[from] === "/" || address[from] === "\\")) from++;
+  let to = from;
+  while (to < address.length && !"/\\?#".includes(address[to])) to++;
+  return address.slice(from, to);
+}
+
 /**
  * The host of a web address as typed: after "https:" or "http:" and the
  * slashes, up to the path, query or fragment, without a port. Null when it
  * holds a user name (an "@").
  */
 export function typedHost(address: string): string | null {
-  const colon = address.indexOf(":");
-  let from = colon + 1;
-  while (from < address.length && (address[from] === "/" || address[from] === "\\")) from++;
-  let to = from;
-  while (to < address.length && !"/\\?#".includes(address[to])) to++;
-  const authority = address.slice(from, to);
+  const authority = typedAuthority(address);
   if (authority.includes("@")) return null;
   return authority.replace(/:\d*$/, "");
+}
+
+/** The host the URL parser reads in a web address as typed: as typedHost, after a user name if it holds one. */
+export function hostAfterUser(address: string): string {
+  const authority = typedAuthority(address);
+  return authority.slice(authority.lastIndexOf("@") + 1).replace(/:\d*$/, "");
+}
+
+/** DNS's limits (RFC 1035): a label of at most 63 characters, a host of at most 253 (without a final dot), as DNS writes them (in punycode). */
+export const MAX_LABEL_CHARS = 63;
+export const MAX_HOST_CHARS = 253;
+
+const LETTER_OR_DIGIT = /^[\p{L}\p{N}]$/u;
+/** Letters that join the letter before them in normal form: Hangul vowels and finals, Kirat Rai's vowel sign E. */
+const joinsLetterBefore = (cp: number) => (cp >= 0x1160 && cp <= 0x11ff) || (cp >= 0xd7b0 && cp <= 0xd7ff) || cp === 0x16d67;
+
+/**
+ * Does `char` stay a character of its own in a host, whatever the URL
+ * parser makes of the host? Letters and digits do: none is dropped, and
+ * none joins the one before it in normal form but those joinsLetterBefore
+ * names. A mark may join the letter before it, and other characters are
+ * left uncounted.
+ */
+export function staysInHost(char: string): boolean {
+  const cp = char.codePointAt(0) as number;
+  if (cp < 0x80) return (cp >= 0x30 && cp <= 0x39) || ((cp | 0x20) >= 0x61 && (cp | 0x20) <= 0x7a);
+  return LETTER_OR_DIGIT.test(char) && !joinsLetterBefore(cp);
+}
+
+/** Is `char` a full stop the URL parser reads as a dot? */
+const isFullStop = (char: string) => char === "." || TYPED_DOTS.has(char);
+
+/**
+ * Does a host, as written, hold more than DNS can (RFC 1035): a label of
+ * more than MAX_LABEL_CHARS characters, or more than MAX_HOST_CHARS in all
+ * with its dots? Only the characters that stay its own (staysInHost) are
+ * counted, between full stops; as DNS writes the host (in punycode) it is
+ * longer still, so such a host is no host. Read once, without parsing,
+ * and only up to the first label too long.
+ */
+export function beyondDns(host: string): boolean {
+  let label = 0;
+  let letters = 0;
+  let stops = 0;
+  let endsWithStop = false;
+  for (const char of host) {
+    endsWithStop = isFullStop(char);
+    if (endsWithStop) {
+      stops++;
+      label = 0;
+    } else if (staysInHost(char) && (++label > MAX_LABEL_CHARS || ++letters > MAX_HOST_CHARS)) {
+      return true;
+    }
+  }
+  return letters + stops - (endsWithStop ? 1 : 0) > MAX_HOST_CHARS;
 }
 
 /** Letters whose lower case is their own, kept as they are by every engine (ß, final ς, dotless ı). */
