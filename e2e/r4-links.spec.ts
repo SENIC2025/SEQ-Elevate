@@ -697,6 +697,8 @@ describe("Release 4 — links in lesson text", () => {
         /Block 1 \(Paragraph\): the link text “p\u0430ypal\.com” looks like a web address, but the link opens another one\./,
       "a label that shows another site as an email address's first part":
         /Block 1 \(Paragraph\): the link text “paypal\.com@evil\.example” shows a different address than the link opens\./,
+      "a label that shows another site through a Roman numeral letter":
+        /Block 1 \(Paragraph\): the link text “paypal\.ⅽom” looks like a web address, but the link opens another one\./,
     };
     for (const row of WORD_MARKS) {
       named[row.name] = new RegExp(
