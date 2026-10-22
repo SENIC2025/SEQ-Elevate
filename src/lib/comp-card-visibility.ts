@@ -163,30 +163,3 @@ export function parseCompCardInput(
   }
   return { ok: true, value };
 }
-
-/** A Comp Card's texts and confidence, as fill mode reads and writes them. */
-export type CompCardValues = Partial<Record<CompCardField, string>> & { confidence?: 1 | 2 | 3 | 4 | 5 };
-
-/**
- * What a guest's Comp Card (`value`, checked by parseCompCardInput) adds to
- * the stored card in fill mode (D79: "Add it to my account" fills what the
- * account lacks, field by field): each text where the stored card has none
- * (nothing but whitespace), and the confidence only where there is no card
- * or a card with nothing in it (no text, the blank confidence) — a card in
- * use has a confidence of its own, even the default. Never who sees it.
- */
-export function compCardFill(
-  stored: (Record<CompCardField, string> & { confidence: number }) | null,
-  value: CompCardValues
-): CompCardValues {
-  const written = (text: unknown) => typeof text === "string" && text.trim() !== "";
-  const out: CompCardValues = {};
-  for (const field of COMP_CARD_FIELDS) {
-    if (written(value[field]) && !written(stored?.[field])) out[field] = value[field];
-  }
-  const blank = !stored || (COMP_CARD_FIELDS.every((f) => !written(stored[f])) && stored.confidence === COMP_CARD_BLANK_CONFIDENCE);
-  if (value.confidence !== undefined && blank && value.confidence !== (stored?.confidence ?? COMP_CARD_BLANK_CONFIDENCE)) {
-    out.confidence = value.confidence;
-  }
-  return out;
-}

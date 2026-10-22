@@ -13,8 +13,10 @@ import {
   saveCompCard,
   setCompCardSharing,
   awardBadgeAction,
+  claimGuestWork as claimGuestWorkAction,
 } from "@/app/actions/learner";
 import { COMP_CARD_FIELDS, type CompCardField, type Sharing } from "@/lib/comp-card-visibility";
+import type { ClaimCardOutcome, ClaimCourseOutcome, GuestClaimResult } from "@/lib/guest-claim";
 import type { Locale } from "@/lib/cms/types";
 import {
   answerQuestion,
@@ -45,7 +47,7 @@ import {
   mergeCompCardOnHydrate,
   storedGuestState,
 } from "./progress-merge";
-import { cardToSave, guestStoreLeft, guestWorkOf, migrateGuest, type GuestWork } from "./guest-migration";
+import { cardToSave, guestClaimOf, guestWorkOf, storeAfterClaim, type GuestWork } from "./guest-migration";
 import { courseChanged, courseSaveRefs, saveCourse } from "./course-save";
 import { clearEveryOutbox, restoreOutbox } from "./outbox";
 import { pendingSave } from "./pending-save";
@@ -264,43 +266,36 @@ function readGuestWork(): GuestWork | null {
 
 /**
  * What became of the guest store's work on this page (GuestWorkPrompt):
- *   added        all of it is in the account, and the browser's copy is gone;
- *   addedOwn     the same, where the account kept an answer of its own over
- *                a different one of the guest's (D37, D69);
- *   addedMore    what was read is in the account, and a tab still a guest
- *                saved more meanwhile: that stays, offered again;
- *   cardShared   all but the Comp Card is in the account: the account's card
- *                is shared, so nothing moved into it (D80); it alone stays
- *                here;
- *   cardTooLong  all but a Comp Card text too long to move is in the
- *                account: that text alone stays here, to be shortened and
- *                added (GuestCardTooLong says which);
- *   nothing      nothing was added: the browser held no work any more (added
- *                or removed in another tab meanwhile, or not readable);
- *   removed      removed from this browser, nothing sent;
- *   failed       a write that didn't get through, or another account's
- *                session on this browser: what didn't move stays, offered
- *                again.
+ *   claimed      the server answered "Add it to my account" part by part
+ *                (src/lib/guest-claim.ts): each part the claim had, and how
+ *                many of its badges are in the account (moved there, or
+ *                there already) or can't be given there; `more`: the
+ *                browser holds work now that the claim didn't read (a tab
+ *                still a guest saved more meanwhile);
+ *   tooLong      nothing was written: `count` texts are too long to add,
+ *                and are offered to be shortened;
+ *   tooLarge     nothing was written: the work is too big to add;
+ *   otherAccount nothing was written: another account is signed in on this
+ *                browser now;
+ *   unconfirmed  no answer came back, after every try: the work stays here,
+ *                and adding it again changes nothing twice;
+ *   failed       the server refused it as no claim at all;
+ *   nothing      the browser held no work any more (added or removed in
+ *                another tab meanwhile, or not readable);
+ *   removed      removed from this browser, nothing sent.
  */
 export type GuestWorkDone =
-  | "added"
-  | "addedOwn"
-  | "addedMore"
-  | "cardShared"
-  | "cardTooLong"
-  | "nothing"
-  | "removed"
-  | "failed";
-
-/**
- * With "cardTooLong": the Comp Card texts the move left in this browser as
- * too long to add (migrateGuest's cardTooLong), and whether anything else
- * was written to the account.
- */
-export interface GuestCardTooLong {
-  fields: CompCardField[];
-  added: boolean;
-}
+  | { kind: "nothing" | "removed" | "failed" | "unconfirmed" | "otherAccount" | "tooLarge" }
+  | { kind: "tooLong"; count: number }
+  | {
+      kind: "claimed";
+      course?: { outcome: ClaimCourseOutcome; title: string; locale: Locale | null };
+      compCard?: ClaimCardOutcome;
+      badgesMoved: number;
+      badgesAlready: number;
+      badgesRefused: number;
+      more: boolean;
+    };
 
 /**
  * Removes the guest store if it still holds `read`, the text the move read
@@ -317,24 +312,6 @@ function removeGuestStoreIf(read: string): "removed" | "gone" | "changed" {
     return "removed";
   } catch {
     return "gone"; // the browser's storage can't be reached: nothing to remove or offer
-  }
-}
-
-/**
- * Puts `rest` (what a move left, guestStoreLeft) in place of the guest
- * store if it still holds `read`, the text the move read (compare and
- * swap): "replaced", "gone" (removed in another tab meanwhile: it stays
- * removed) or "changed" (a tab still a guest saved more: that stays).
- */
-function replaceGuestStoreIf(read: string, rest: string): "replaced" | "gone" | "changed" {
-  try {
-    const now = window.localStorage.getItem(STORAGE_KEY);
-    if (now === null) return "gone";
-    if (now !== read) return "changed";
-    window.localStorage.setItem(STORAGE_KEY, rest);
-    return "replaced";
-  } catch {
-    return "gone";
   }
 }
 
@@ -701,8 +678,6 @@ interface ContextValue {
   guestWork: GuestWork | null;
   /** What became of it on this page (GuestWorkDone). */
   guestWorkDone: GuestWorkDone | null;
-  /** With guestWorkDone "cardTooLong": which texts stayed, and whether anything else was added. */
-  guestCardTooLong: GuestCardTooLong | null;
   /**
    * A Comp Card text of the guest store, too long to add, as the learner
    * shortens it in the offer (GuestWorkPrompt): written into the guest
@@ -710,7 +685,7 @@ interface ContextValue {
    * "Add" moves it. False when the guest store isn't there to write to.
    */
   shortenGuestCard: (field: CompCardField, text: string) => boolean;
-  /** "Add it to my account": the guest store moves into the account (guest-migration.ts), then is removed. */
+  /** "Add it to my account": the guest store's work goes to the server once, and what is in the account leaves the browser. */
   claimGuestWork: () => Promise<void>;
   /** "Remove it from this browser": the guest store is removed; nothing is sent. */
   discardGuestWork: () => void;
@@ -818,7 +793,6 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
   const [profileIncomplete, setProfileIncomplete] = React.useState(false);
   const [guestWork, setGuestWork] = React.useState<GuestWork | null>(null);
   const [guestWorkDone, setGuestWorkDone] = React.useState<GuestWorkDone | null>(null);
-  const [guestCardTooLong, setGuestCardTooLong] = React.useState<GuestCardTooLong | null>(null);
   // A guest's work just cleared: the guest write-through doesn't write the
   // empty store back.
   const clearedGuest = React.useRef(false);
@@ -876,7 +850,6 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
     setProfileIncomplete(false);
     setGuestWork(null);
     setGuestWorkDone(null);
-    setGuestCardTooLong(null);
     dispatch({ type: "forgetLearner" });
     setGeneration((g) => g + 1);
   }, [courseSave, cardSave, setDbOwner]);
@@ -1290,47 +1263,36 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
   );
 
   // ---- The guest store's work (spec 5.5) ----
-  // "Add it to my account": what this page has waiting to be saved is sent
-  // first, what the account holds now is read (the guest store stays if
-  // that fails), then the guest store is moved in under the account-wins
-  // rules (guest-migration.ts: the server fills what the account lacks,
-  // answer by answer and field by field, as the account is when each write
-  // lands), each write tried again. Nothing to move — the guest store gone
-  // or emptied in another tab, or unreadable — and the page says nothing
-  // was added. A write refused as another account's (someone else signed
-  // in on this browser) stops the move: the guest store stays as it is,
-  // and this page reads its session again, lets go of this account's data
-  // and offers the work to whoever is signed in. Otherwise the guest store
-  // keeps only what didn't move (guestStoreLeft: a Comp Card held back from
-  // a card the account shares, D80; a Comp Card text too long to move,
-  // alone, to be shortened in the offer, D80; a write that never got
-  // through), as it was read: a tab still a guest may have saved more
-  // meanwhile, which stays and is offered again; it goes once all of it is
-  // in the account.
-  // The page then shows only what the server confirmed: the Comp Card as
-  // the server holds it (fields changed here meanwhile kept), and the
-  // course being played read again (courseReread) — never this page's
-  // older copy, or the guest's, saved over the account's. The page says it
-  // was added only once every write is through: someone who signs out on a
-  // shared computer when told so leaves nothing of theirs behind; and that
-  // the account kept an answer of its own only where it did.
+  // "Add it to my account" (D37, D69, D79, D80): what this page has
+  // waiting to be saved is sent first, so the account is judged with it.
+  // Then the guest store, as it is read now, goes to the server once
+  // (claimGuestWork in learner.ts), which decides each part in one
+  // transaction: the course only into an account with no progress in it,
+  // the Comp Card only into none or a blank one not shared, badges as a
+  // union. A try that fails (a dropped connection, a session lookup that
+  // failed) is sent again; a part already in the account is answered
+  // "already", never added twice. Nothing to send — the guest store gone or
+  // emptied in another tab, or unreadable — and the page says nothing was
+  // added. A refusal (another account's session, a text too long to add)
+  // leaves the guest store as it is; for another account the page reads
+  // its session again, lets go of this account's data and offers the work
+  // to whoever is signed in. Otherwise the guest store loses what the
+  // server says is in the account, and only as it was read
+  // (storeAfterClaim) — whoever is signed in by then: it is in the account
+  // it was sent for. What a tab still a guest saved meanwhile stays, and is
+  // offered again.
+  // The page then shows what the server holds: the Comp Card as answered
+  // (fields changed here meanwhile kept), the course being played read
+  // again (courseReread), the account's badges; and says what became of
+  // each part.
   const claimGuestWork = React.useCallback(async () => {
     const forUser = dbOwnerRef.current;
     if (!forUser) return;
-    setGuestCardTooLong(null);
     courseSave.flush();
     cardSave.flush();
     // The Comp Card as this page holds it now: a field changed from it while
-    // the work moves was changed here, and stays.
+    // the work is added was changed here, and stays.
     const cardBefore = stateRef.current.compCard;
-    let saved: Awaited<ReturnType<typeof loadLearnerGlobal>>;
-    try {
-      saved = await withRetry(() => loadLearnerGlobal());
-    } catch {
-      setGuestWorkDone("failed");
-      return;
-    }
-    if (dbOwnerRef.current !== forUser) return;
     let read: string | null = null;
     try {
       read = window.localStorage.getItem(STORAGE_KEY);
@@ -1344,42 +1306,75 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
     } catch {
       unreadable = true;
     }
-    if (read === null || !guest || !guestWorkOf(guest)) {
+    const claim = guest ? guestClaimOf(guest) : null;
+    if (read === null || !guest || !claim) {
       if (unreadable && read !== null) removeGuestStoreIf(read);
       setGuestWork(null);
-      setGuestWorkDone("nothing");
+      setGuestWorkDone({ kind: "nothing" });
       return;
     }
-    const migrated = await migrateGuest(
-      guest,
-      { compCard: saved.compCard as CompCardData | null, badges: saved.badges, enrollments: saved.enrollments },
-      {
-        awardBadge: (slug) => awardBadgeAction(slug, forUser),
-        saveCompCard: (input) => saveCompCard(input, forUser),
-        saveCourse: (slug, patch) => saveCourseProgressPatch(slug, patch, forUser),
+    let answer: GuestClaimResult;
+    try {
+      answer = await withRetry(() => claimGuestWorkAction(claim, forUser));
+    } catch {
+      if (dbOwnerRef.current === forUser) {
+        setGuestWork(readGuestWork());
+        setGuestWorkDone({ kind: "unconfirmed" });
       }
-    );
-    // The account let go of meanwhile (signed out, another account): none
-    // of it goes to the next one, and nothing is taken from this browser.
-    if (dbOwnerRef.current !== forUser) return;
-    if (migrated.otherAccount) {
-      setGuestWork(guestWorkOf(guest));
-      setGuestWorkDone("failed");
-      void updateSession.current();
       return;
     }
-    const rest = guestStoreLeft(guest, migrated.left, DEFAULT_STATE);
-    const store = rest ? replaceGuestStoreIf(read, JSON.stringify(rest)) : removeGuestStoreIf(read);
-    dispatch({ type: "hydrateGlobal", compCard: null, badges: migrated.badges });
-    for (const slug of migrated.awarded) persistedBadges.current.add(slug);
-    if (migrated.cardMoved && migrated.compCard) {
-      // Not saved again: it is what the server holds (the write-through
-      // sends only a field changed here meanwhile).
-      cardScheduled.current = migrated.compCard;
-      dispatch({ type: "cardAfterClaim", card: migrated.compCard, before: cardBefore });
+    if (!answer.ok) {
+      if (dbOwnerRef.current !== forUser) return;
+      setGuestWork(readGuestWork());
+      if (answer.error === "other-account") {
+        setGuestWorkDone({ kind: "otherAccount" });
+        void updateSession.current();
+      } else if (answer.error === "too-long") {
+        setGuestWorkDone({ kind: "tooLong", count: answer.texts.length });
+      } else if (answer.error === "too-large") {
+        setGuestWorkDone({ kind: "tooLarge" });
+      } else {
+        setGuestWorkDone({ kind: "failed" });
+      }
+      return;
     }
-    const slug = migrated.courseMoved ? migrated.course?.courseSlug : null;
-    if (migrated.course && slug) {
+    // In the account it was sent for: it leaves this browser, as it was read.
+    const inAccount = (outcome: string | undefined) => outcome === "moved" || outcome === "already";
+    let more = false;
+    try {
+      const after = storeAfterClaim(
+        read,
+        window.localStorage.getItem(STORAGE_KEY),
+        {
+          course: inAccount(answer.course),
+          compCard: inAccount(answer.compCard),
+          badges: [...answer.badges.moved, ...answer.badges.already],
+        },
+        DEFAULT_STATE
+      );
+      more = after.more;
+      if (after.store === null) window.localStorage.removeItem(STORAGE_KEY);
+      else if (after.store !== undefined) window.localStorage.setItem(STORAGE_KEY, after.store);
+    } catch {
+      /* the browser's storage can't be reached: nothing to remove */
+    }
+    // The account let go of meanwhile (signed out, another account): nothing
+    // of it is shown to the next one.
+    if (dbOwnerRef.current !== forUser) return;
+    dispatch({ type: "hydrateGlobal", compCard: null, badges: answer.accountBadges });
+    for (const slug of answer.accountBadges) persistedBadges.current.add(slug);
+    if (answer.card && inAccount(answer.compCard)) {
+      // Not saved again: it is what the server holds (the write-through
+      // sends only a field changed here meanwhile). Moved, it is Only me.
+      const card: CompCardData =
+        answer.compCard === "moved"
+          ? { ...cardBefore, ...answer.card, sharing: "onlyMe", sharedAt: null, organisationName: null }
+          : { ...cardBefore, ...answer.card };
+      cardScheduled.current = card;
+      dispatch({ type: "cardAfterClaim", card, before: cardBefore });
+    }
+    const slug = claim.course?.slug;
+    if (answer.course === "moved" && slug) {
       if (stateRef.current.course.courseSlug === slug) {
         // The course being played moved under this page: it is read again,
         // and what was done here that the server didn't have goes on top
@@ -1392,30 +1387,23 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
         // Shown when no course is being played, and loaded like any other
         // when it is opened: what the server holds then, the guest's copy
         // on the page left out (courseAfterLoad).
-        migratedRef.current = migrated.course;
-        dispatch({ type: "guestCourseMigrated", course: migrated.course });
+        migratedRef.current = guest.course;
+        dispatch({ type: "guestCourseMigrated", course: guest.course });
       }
     }
     // Server-rendered parts (the dashboard) show what was just written.
-    if (migrated.wrote) router.refresh();
-    if (!migrated.settled) {
-      // What didn't move is offered again: a second move sends only that.
-      setGuestWork(readGuestWork());
-      setGuestWorkDone("failed");
-    } else if (migrated.cardHeldBack || store === "changed") {
-      // What stays in this browser is offered again, as it is now: a Comp
-      // Card text too long to add with a way to shorten it (cardTooLong).
-      setGuestWork(readGuestWork());
-      if (migrated.cardTooLong.length) {
-        setGuestCardTooLong({ fields: migrated.cardTooLong, added: migrated.wrote });
-        setGuestWorkDone("cardTooLong");
-      } else {
-        setGuestWorkDone(migrated.cardHeldBack ? "cardShared" : "addedMore");
-      }
-    } else {
-      setGuestWork(null);
-      setGuestWorkDone(migrated.accountFirst ? "addedOwn" : "added");
-    }
+    if (answer.course === "moved" || answer.compCard === "moved" || answer.badges.moved.length) router.refresh();
+    const title = guestWorkOf(guest)?.courses[0];
+    setGuestWork(readGuestWork());
+    setGuestWorkDone({
+      kind: "claimed",
+      ...(answer.course ? { course: { outcome: answer.course, title: title?.title ?? slug ?? "", locale: title?.locale ?? null } } : {}),
+      ...(answer.compCard ? { compCard: answer.compCard } : {}),
+      badgesMoved: answer.badges.moved.length,
+      badgesAlready: answer.badges.already.length,
+      badgesRefused: answer.badges.refused.length,
+      more,
+    });
   }, [router, courseSave, cardSave]);
 
   // "Remove it from this browser": nothing is sent.
@@ -1426,8 +1414,7 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
       /* nothing to remove */
     }
     setGuestWork(null);
-    setGuestWorkDone("removed");
-    setGuestCardTooLong(null);
+    setGuestWorkDone({ kind: "removed" });
   }, []);
 
   // A Comp Card text of the guest store too long to add, shortened in the
@@ -1508,7 +1495,6 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
       profileIncomplete,
       guestWork,
       guestWorkDone,
-      guestCardTooLong,
       shortenGuestCard,
       claimGuestWork,
       discardGuestWork,
@@ -1524,7 +1510,6 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
       profileIncomplete,
       guestWork,
       guestWorkDone,
-      guestCardTooLong,
       shortenGuestCard,
       claimGuestWork,
       discardGuestWork,
@@ -1609,7 +1594,6 @@ const NOTHING_SAVED = {
   profileIncomplete: false,
   guestWork: null,
   guestWorkDone: null,
-  guestCardTooLong: null,
   shortenGuestCard: () => false,
   claimGuestWork: async () => {},
   discardGuestWork: () => {},

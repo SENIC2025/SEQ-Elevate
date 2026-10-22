@@ -5,7 +5,7 @@ import { useLocale, useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { COMP_CARD_FIELDS, COMP_CARD_TEXT_MAX, type CompCardField } from "@/lib/comp-card-visibility";
-import { useDemoState } from "@/store/demo-state";
+import { useDemoState, type GuestWorkDone } from "@/store/demo-state";
 
 /**
  * Release 3 (D79, spec 5.5): work saved on this browser before the person
@@ -17,21 +17,21 @@ import { useDemoState } from "@/store/demo-state";
  *
  * A labelled region with a heading at the top of the learner pages and the
  * hub; focus isn't moved to it. While the work is being added it says so;
- * once a choice is made, what became of the work takes its place, and
- * focus goes there (the button pressed is gone). "Added" is said only once
- * all of it is in the account, and that the account kept its own answers
- * only where it kept one over a different one of the guest's (D37, D69).
- * A move that didn't get through says so, and what didn't move is offered
- * again; so is what a tab still a guest saved meanwhile, and a Comp Card
- * held back from a card the account shares (D80), with what to do to add
- * it. Work gone from the browser meanwhile (added or removed in another
- * tab) is said too: nothing was added.
+ * once a choice is made, what became of the work is said, and focus goes
+ * there. The server answers each part (src/lib/guest-claim.ts): when all
+ * of it is in the account, "Added" (or "already", when none of it needed
+ * adding); otherwise one sentence per part — the course, the Comp Card, the
+ * badges — each in the account or not and why (D37, D69, D80), and that
+ * what wasn't added stays on this browser. More saved on this browser while
+ * it was being added is said too, and offered again with whatever stays.
+ * A refusal says that nothing was added, and why: a text too long to add,
+ * another account signed in on this browser, no answer back. Work gone
+ * from the browser meanwhile (added or removed in another tab) is said too.
  * A Comp Card text longer than a card holds can't be added as it is (D80:
  * a longer text is refused, never cut): it is offered here to be
  * shortened, each in a labelled box with its length, and what is typed is
  * written to this browser's guest store at once (shortenGuestCard); the
- * next "Add" moves it. After an "Add", the rest moved and only that text
- * stays, and the outcome names it and says what to do.
+ * next "Add" moves it.
  * Nothing is shown when there is no such work (and never in the recorded
  * walk, which signs in with no guest store).
  *
@@ -45,8 +45,7 @@ export function GuestWorkPrompt() {
   const locale = useLocale();
   const tProfile = useTranslations("profile");
   const tCompCard = useTranslations("compCard");
-  const { guestWork, guestWorkDone, guestCardTooLong, claimGuestWork, discardGuestWork, shortenGuestCard, signedInElsewhere } =
-    useDemoState();
+  const { guestWork, guestWorkDone, claimGuestWork, discardGuestWork, shortenGuestCard, signedInElsewhere } = useDemoState();
   const ids = React.useId();
   const [busy, setBusy] = React.useState(false);
   const done = React.useRef<HTMLParagraphElement>(null);
@@ -78,31 +77,13 @@ export function GuestWorkPrompt() {
   if (!guestWork && !(guestWorkDone && chosen)) return null;
 
   const fieldName = (field: CompCardField) => tCompCard(FIELD_LABEL[field]);
-  // Which Comp Card texts stayed as too long to add, named in the card's own
-  // words, each quoted, as a list in the page's language.
-  const tooLongOutcome =
-    guestWorkDone === "cardTooLong" && guestCardTooLong
-      ? t("cardTooLong", {
-          added: guestCardTooLong.added ? "true" : "false",
-          count: guestCardTooLong.fields.length,
-          fields: new Intl.ListFormat(locale, { type: "conjunction" }).format(
-            guestCardTooLong.fields.map((f) => t("quoted", { text: fieldName(f) }))
-          ),
-          max: COMP_CARD_TEXT_MAX,
-        })
-      : null;
-  const outcome = busy
-    ? tCompCard("saving")
-    : guestWorkDone === "failed"
-      ? tProfile("failed")
-      : guestWorkDone === "cardTooLong"
-        ? tooLongOutcome
-        : guestWorkDone
-          ? t(guestWorkDone)
-          : null;
-  // Nothing left in this browser to choose about.
-  const finished =
-    guestWorkDone === "added" || guestWorkDone === "addedOwn" || guestWorkDone === "nothing" || guestWorkDone === "removed";
+  const outcome = busy ? (
+    tCompCard("saving")
+  ) : guestWorkDone?.kind === "failed" ? (
+    tProfile("failed")
+  ) : guestWorkDone ? (
+    <Outcome done={guestWorkDone} pageLocale={locale} />
+  ) : null;
   // The Comp Card texts too long to add, as the guest store holds them, and
   // those shortened here meanwhile, in the card's order.
   const tooLong = guestWork?.cardTooLong ?? [];
@@ -117,7 +98,7 @@ export function GuestWorkPrompt() {
         <h2 id={`${ids}-title`} className="text-base font-semibold">
           {t("title")}
         </h2>
-        {guestWork && !finished ? (
+        {guestWork ? (
           <>
             <p className="mt-1 text-sm">
               <CoursesIn
@@ -193,6 +174,61 @@ export function GuestWorkPrompt() {
         </p>
       </div>
     </section>
+  );
+}
+
+/** Each part's outcome, by its message (guestWork.*). */
+const COURSE_SAID = {
+  moved: "courseAdded",
+  already: "courseAlready",
+  kept: "courseKept",
+  unavailable: "courseUnavailable",
+} as const;
+const CARD_SAID = { moved: "cardAdded", already: "cardAlready", kept: "cardKept", shared: "cardKeptShared" } as const;
+
+/**
+ * What became of the work, in sentences. All of it in the account: "Added"
+ * (or "already", when none of it needed adding). Otherwise one sentence
+ * per part, and that what wasn't added stays. More saved meanwhile is said
+ * after either. The course is named as it was recorded, marked with its
+ * language when that isn't the page's (WCAG 3.1.2).
+ */
+function Outcome({ done, pageLocale }: { done: Exclude<GuestWorkDone, { kind: "failed" }>; pageLocale: string }) {
+  const t = useTranslations("guestWork");
+  if (done.kind === "tooLong") return <>{t("tooLong", { count: done.count })}</>;
+  if (done.kind !== "claimed") return <>{t(done.kind)}</>;
+  const inAccount = (outcome: string | undefined) => outcome === undefined || outcome === "moved" || outcome === "already";
+  const badgesIn = done.badgesMoved + done.badgesAlready;
+  const sentences: React.ReactNode[] = [];
+  if (inAccount(done.course?.outcome) && inAccount(done.compCard) && done.badgesRefused === 0) {
+    const added = done.course?.outcome === "moved" || done.compCard === "moved" || done.badgesMoved > 0;
+    sentences.push(t(added ? "added" : "already"));
+  } else {
+    if (done.course) {
+      sentences.push(
+        <CoursesIn
+          key="course"
+          summary={t(COURSE_SAID[done.course.outcome], { course: COURSES })}
+          courses={[done.course]}
+          pageLocale={pageLocale}
+        />
+      );
+    }
+    if (done.compCard) sentences.push(t(CARD_SAID[done.compCard]));
+    if (badgesIn) sentences.push(t("badgesIn", { count: badgesIn }));
+    if (done.badgesRefused) sentences.push(t("badgesRefused", { count: done.badgesRefused }));
+    sentences.push(t("keptStays"));
+  }
+  if (done.more) sentences.push(t("changedMeanwhile"));
+  return (
+    <>
+      {sentences.map((sentence, i) => (
+        <React.Fragment key={i}>
+          {i > 0 ? " " : null}
+          {sentence}
+        </React.Fragment>
+      ))}
+    </>
   );
 }
 
