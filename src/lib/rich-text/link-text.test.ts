@@ -490,6 +490,15 @@ describe("linkTextProblem", () => {
     }
     expect(linkTextProblem("paypal.cᵒm", "https://www.paypal.com/")).toBeNull();
     expect(linkTextProblem("www.senic.org¹", "https://senic.org/")).toBeNull();
+    // Inside a name, a raised digit or a sign of letters is read as nothing too.
+    for (const text of ["PayPal™.com", "paypal¹.com", "™paypal.com"]) expect(linkTextProblem(text, EVIL), text).toBe("misleading");
+    for (const [text, href] of [
+      ["paypal¹.com", "https://www.paypal.com/"],
+      ["¹paypal.com", "https://www.paypal.com/"],
+      ["Moodle™.org", "https://moodle.org/"],
+    ]) {
+      expect(linkTextProblem(text, href), `${text} over ${href}`).toBeNull();
+    }
     for (const text of ["CO₂-Bilanz", "H₂O", "10 m²", "№ 5", "Mag.ª Huber"]) expect(linkTextProblem(text, EVIL), text).toBeNull();
   });
 
