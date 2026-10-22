@@ -304,6 +304,48 @@ describe("sanitizeNarrativeBlocks", () => {
   });
 });
 
+describe("sanitizeNarrativeBlocks: a reflection lesson's introduction", () => {
+  const long = "x".repeat(10_001);
+
+  it("names the introduction and asks to shorten it, with no block wording, as its editor does", () => {
+    for (const block of [
+      { kind: "paragraph", text: long },
+      { kind: "paragraph", text: "", rich: rich(p(t(long))) },
+    ]) {
+      expect(sanitizeNarrativeBlocks([block], "reflection-intro")).toEqual({
+        ok: false,
+        issues: ["The introduction is too long — at most 10,000 characters. Shorten it."],
+      });
+    }
+    expect(sanitizeNarrativeBlocks([{ kind: "paragraph", rich: { v: 1 } }], "reflection-intro")).toEqual({
+      ok: false,
+      issues: ["The introduction couldn't be read. Reload the page, then make your change again."],
+    });
+    for (const issue of refusedIntro([{ kind: "paragraph", text: long }])) expect(issue).not.toMatch(/block/i);
+  });
+
+  it("saves an introduction within the limits as a lesson's blocks are saved", () => {
+    const intro = [{ kind: "paragraph", text: "Before you reflect", rich: rich(p(t("Before you "), t("reflect", { type: "italic" }))) }];
+    expect(sanitizeNarrativeBlocks(intro, "reflection-intro")).toEqual(sanitizeNarrativeBlocks(intro));
+  });
+
+  it("leaves a lesson's blocks named by their number and kind", () => {
+    expect(refused([{ kind: "paragraph", text: long }])).toEqual([
+      "Block 1 (Paragraph) is too long — at most 10,000 characters. Split it into two blocks.",
+    ]);
+    expect(sanitizeNarrativeBlocks([{ kind: "paragraph", text: long }], "blocks")).toEqual({
+      ok: false,
+      issues: ["Block 1 (Paragraph) is too long — at most 10,000 characters. Split it into two blocks."],
+    });
+  });
+
+  function refusedIntro(input: unknown) {
+    const result = sanitizeNarrativeBlocks(input, "reflection-intro");
+    if (result.ok) throw new Error("accepted");
+    return result.issues;
+  }
+});
+
 describe("blockPlainText", () => {
   it("is the block's text when there is one", () => {
     expect(blockPlainText({ text: "Stored", rich: rich(p(t("Other"))) })).toBe("Stored");

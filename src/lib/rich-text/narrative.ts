@@ -79,7 +79,19 @@ function plainWithin(value: unknown, max: number): string | null {
 
 const count = (n: number) => n.toLocaleString("en");
 
-export function sanitizeNarrativeBlocks(input: unknown): NarrativeBlocksResult {
+/**
+ * What the blocks are, for the messages that name them: a lesson's blocks
+ * ("Block 2 (Paragraph) is too long … Split it into two blocks."), or a
+ * reflection lesson's introduction, its one paragraph, a text of its own
+ * ("The introduction is too long … Shorten it.", as its editor says;
+ * RT_ADVICE). Wording only: the blocks are rebuilt alike.
+ */
+export type NarrativeText = "blocks" | "reflection-intro";
+
+/** How a reflection lesson's introduction is named in a save's refusal. */
+const INTRO_NAME = "The introduction";
+
+export function sanitizeNarrativeBlocks(input: unknown, text: NarrativeText = "blocks"): NarrativeBlocksResult {
   if (!Array.isArray(input)) {
     return {
       ok: false,
@@ -100,7 +112,7 @@ export function sanitizeNarrativeBlocks(input: unknown): NarrativeBlocksResult {
   const blocks: NarrativeBlock[] = [];
   const issues: string[] = [];
   input.forEach((raw, i) => {
-    const block = sanitizeBlock(raw, i + 1, issues);
+    const block = sanitizeBlock(raw, i + 1, issues, text);
     if (block) blocks.push(block);
   });
   return issues.length ? { ok: false, issues } : { ok: true, blocks };
@@ -109,7 +121,8 @@ export function sanitizeNarrativeBlocks(input: unknown): NarrativeBlocksResult {
 function sanitizeBlock(
   raw: unknown,
   n: number,
-  issues: string[]
+  issues: string[],
+  text: NarrativeText
 ): NarrativeBlock | null {
   if (!isRecord(raw)) return null;
   const kind = raw.kind;
@@ -124,23 +137,27 @@ function sanitizeBlock(
   const name = `Block ${n} (${KIND_LABEL[kind]})`;
 
   if (kind === "paragraph" || kind === "callout") {
+    // A reflection lesson's introduction is named as its editor names it.
+    const intro = text === "reflection-intro" && kind === "paragraph";
+    const subject = intro ? INTRO_NAME : name;
+    const advice: RtAdvice = intro ? "text" : "block";
     // Anything but an envelope of a version a save reads — none, or a newer
     // version sent back by an older page — is kept as the plain text beside
     // it.
     if (isSavedEnvelope(raw.rich)) {
-      const saved = richTextForSave(raw.rich, name);
+      const saved = richTextForSave(raw.rich, subject, advice);
       if (!saved.ok) {
         issues.push(...saved.issues);
         return null;
       }
       return { kind, rich: saved.rich, text: saved.text };
     }
-    const text = plainWithin(raw.text, NARRATIVE_LIMITS.maxTextChars);
-    if (text === null) {
-      issues.push(RT_PROBLEM["too-much-text"](name));
+    const plainText = plainWithin(raw.text, NARRATIVE_LIMITS.maxTextChars);
+    if (plainText === null) {
+      issues.push(RT_PROBLEM["too-much-text"](subject, advice));
       return null;
     }
-    return { kind, text };
+    return { kind, text: plainText };
   }
 
   if (kind === "list") {
