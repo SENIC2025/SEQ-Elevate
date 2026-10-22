@@ -64,6 +64,23 @@ describe("titleMisleads: a title is compared as it reads", () => {
     }
   });
 
+  it("refuses a host read as it shows, once cleaned: a Roman numeral or a raised letter that ends a name, a top-level domain and a hyphen, a name the URL parser refuses, a character of a newer Unicode", () => {
+    for (const title of [
+      "rabobank.n\u217C",
+      "www.example.n\u217C",
+      "Log in at irs.go\u2174 to confirm",
+      "paypal.c\u1D52\u1D50",
+      "paypal.com-login",
+      "Log in at paypal.com-secure to confirm",
+      "xn--a.paypal.com",
+      "paypal.\u1AD0com",
+    ]) {
+      const clean = cleanLinkLine(title, 200);
+      expect(clean, JSON.stringify(title)).not.toBeNull();
+      expect(titleMisleads(clean!, EVIL), JSON.stringify(title)).toBe(true);
+    }
+  });
+
   it("accepts a title that names the link's own site, however it is written", () => {
     expect(titleMisleads("www.bpb.de", "https://www.bpb.de/")).toBe(false);
     expect(titleMisleads("www.bpb.de", "https://bpb.de/themen")).toBe(false);
@@ -75,6 +92,12 @@ describe("titleMisleads: a title is compared as it reads", () => {
     expect(titleMisleads("Gov.gr Wallet", "https://wallet.gov.gr/")).toBe(false);
     expect(titleMisleads("Υπεύθυνη Δήλωση μέσω gov.gr", "https://dilosi.services.gov.gr/")).toBe(false);
     expect(titleMisleads("Dr.in Maria Huber", "https://www.univie.ac.at/personen/huber")).toBe(false);
+    // A title and its feminine ending; the link's own site, ending in a Roman numeral letter or before a hyphen.
+    for (const title of ["Dir.\u2071\u207F Mag.\u00AA Huber", "Dir.in Mag.a Huber", "Bgm.\u2071\u207F Maria Muster"]) {
+      expect(titleMisleads(cleanLinkLine(title, 200)!, "https://www.schule.example.at/team"), title).toBe(false);
+    }
+    expect(titleMisleads("rabobank.n\u217C", "https://www.rabobank.nl/")).toBe(false);
+    expect(titleMisleads("Booking.com-Konto", "https://www.booking.com/")).toBe(false);
   });
 
   it("accepts words, in English, German and Greek, emoji with joiners included", () => {
