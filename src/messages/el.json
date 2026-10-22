@@ -613,6 +613,8 @@
     "privacyLabel": "Ποιος μπορεί να δει αυτή την Comp Card",
     "downloadPdf": "Κατέβασμα ως PDF",
     "printPdf": "Εκτύπωση Comp Card",
+    "printMadeBy": "Δημιουργήθηκε και υποστηρίζεται από τη SENIC · senic.world",
+    "printBelongs": "Αυτή η Comp Card ανήκει στον/στην εκπαιδευόμενο/η.",
     "saved": "Αποθηκεύτηκε",
     "saving": "Αποθηκεύεται…",
     "placeholder": {

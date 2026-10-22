@@ -613,6 +613,8 @@
     "privacyLabel": "Who can see this Comp Card",
     "downloadPdf": "Download as PDF",
     "printPdf": "Print Comp Card",
+    "printMadeBy": "Created and Powered by SENIC · senic.world",
+    "printBelongs": "This Comp Card belongs to the learner.",
     "saved": "Saved",
     "saving": "Saving…",
     "placeholder": {

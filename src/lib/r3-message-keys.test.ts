@@ -19,6 +19,9 @@ const KEYS = [
     "sharedSince", "guest", "noOrganisation", "guardianNeeded", "failed",
   ].map((k) => `compCard.sharing.${k}`),
   ...["charsLeft", "tooLong"].map((k) => `compCard.${k}`),
+  // The integrator's contract commit: the Comp Card printout's footer, in
+  // the page's language like the rest of the printout.
+  ...["printMadeBy", "printBelongs"].map((k) => `compCard.${k}`),
   ...[
     "notShared", "compCardSubmissions", "noOrganisation", "emptyOrganisation", "testAccount",
     "formerStaff",
