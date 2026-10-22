@@ -381,9 +381,16 @@ describe("Release 3 profile step", () => {
     expect(after?.termsAcceptedAt?.getTime()).toBeGreaterThan(before!.termsAcceptedAt!.getTime());
   });
 
-  test("B-E5 (guard): a staff member's organisation doesn't change with the country they pick", async ({ page, context }) => {
+  test("B-E5 (guard): a staff member's organisation doesn't change with the country they pick, nor whose learners they see", async ({
+    page,
+    context,
+    request,
+  }) => {
     const inA = await createPerson(prisma, { email: address("staff-a"), roles: ["FACILITATOR"], profile: "none", organisation: "A" });
     const none = await createPerson(prisma, { email: address("staff-none"), roles: ["FACILITATOR"], profile: "none", organisation: null });
+    // A learner of each organisation the two countries map to.
+    const learnerA = await createPerson(prisma, { email: address("staff-learner-a"), name: `B-E5 learner A ${RUN}`, roles: ["LEARNER"], organisation: "A" });
+    const learnerB = await createPerson(prisma, { email: address("staff-learner-b"), name: `B-E5 learner B ${RUN}`, roles: ["LEARNER"], organisation: "B" });
     for (const [person, country] of [
       [inA, "Cyprus"],
       [none, "Germany"],
@@ -398,6 +405,24 @@ describe("Release 3 profile step", () => {
     expect(await profileOf(inA.userId)).toMatchObject({ country: "CY", organisationId: ORGANISATIONS.A });
     expect(await profileOf(none.userId)).toMatchObject({ country: "DE", organisationId: null });
     expect(await learnerRoles(none.userId)).toBe(0);
+
+    // Whose learners each sees follows the organisation, not the country:
+    // A's facilitator who picked Cyprus still sees A's learner and not B's;
+    // the facilitator with no organisation who picked Germany sees neither.
+    const roster = async (person: { sessionToken: string; email: string }) => {
+      const response = await request.get("/en/facilitator", {
+        headers: { Cookie: `authjs.session-token=${person.sessionToken}` },
+        maxRedirects: 0,
+      });
+      expect(response.status(), `/en/facilitator as ${person.email}`).toBe(200);
+      return response.text();
+    };
+    const ofA = await roster(inA);
+    expect(ofA, "A's facilitator sees A's learner").toContain(learnerA.name);
+    expect(ofA, "and not B's, whatever country it picked").not.toContain(learnerB.name);
+    const ofNone = await roster(none);
+    expect(ofNone, "no organisation: not A's learner, though it picked Germany").not.toContain(learnerA.name);
+    expect(ofNone, "nor B's").not.toContain(learnerB.name);
   });
 
   test("B-E10: the profile step has its own title, passes axe and fits a 320px screen, in English, German and Greek", async ({ page, context }) => {

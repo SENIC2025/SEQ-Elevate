@@ -33,8 +33,11 @@ import { currentTermsVersion } from "../src/lib/profile";
  *
  * Guards can't be shown red on the old build: it has no partner admin
  * (the world's partner admins hold no role there). Each test that is a
- * guard says so; the others fail on the old build for the reason the spec
- * names.
+ * guard says so, and which negative control (spec 18.3) shows it red:
+ * "(guard)" when the scope refuses (red when every staff role gets the
+ * whole project), "(role guard)" when the role does (red when a partner
+ * admin holds ADMIN's powers). The others fail on the old build for the
+ * reason the spec names.
  *
  * The steps of A-E9, A-E11 and A-E12 that happen on the profile step
  * (Stream B's /welcome and completeProfile) are walked as the person would.
@@ -771,7 +774,7 @@ describe("Release 3 people and organisations", () => {
     expect((await profileOf(elsewhere.userId))?.organisationId).toBe(world.organisations.B.id);
   });
 
-  test("A-E11 (guard): a claim at the moment the person finishes the profile step leaves the organisation the profile step set", async ({
+  test("A-E11 (guard): a claim at the moment the person finishes the profile step leaves the organisation the profile step set; a claim after it is refused", async ({
     request,
   }) => {
     // Signed up on their own, no profile row yet: claimable when checked.
@@ -817,6 +820,14 @@ describe("Release 3 people and organisations", () => {
     });
     expect(await profileOf(person.userId)).toMatchObject({ organisationId: B.id, organisationSource: "country" });
     expect((await profileOf(person.userId))?.organisationId).not.toBe(A.id);
+    expect(await rolesOf(person.userId)).toEqual([]);
+    expect(await nameOf(person.userId)).toBeNull();
+
+    // From then on they are B's: the partner admin of A asks again and is
+    // refused, and nothing about them changes.
+    const later = await call(request, world.people.PAA, "addMember", [person.email, "LEARNER", `Mine ${RUN}`]);
+    expect(later.result, later.raw.slice(0, 300)).toEqual({ ok: false, error: "out-of-scope" });
+    expect(await profileOf(person.userId)).toMatchObject({ organisationId: B.id, organisationSource: "country" });
     expect(await rolesOf(person.userId)).toEqual([]);
     expect(await nameOf(person.userId)).toBeNull();
   });
@@ -899,7 +910,7 @@ describe("Release 3 people and organisations", () => {
     expect(await rolesOf(ad.userId)).toEqual(["ADMIN"]);
   });
 
-  test("A-E12 (guard): a partner admin can't change the country or organisation of its own learner, called directly", async ({
+  test("A-E12 (role guard): a partner admin can't change the country or organisation of its own learner, called directly", async ({
     request,
   }) => {
     const paa = world.people.PAA;
@@ -927,18 +938,27 @@ describe("Release 3 people and organisations", () => {
     expect(await nameOf(learner.userId)).toBe(`Renamed ${RUN}`);
   });
 
-  test("Organisations & cohorts fit a 320px phone, for an ADMIN and a partner admin (WCAG 1.4.10; guard: the people count is new)", async ({
+  test("Organisations & cohorts fit a 320px phone, for an ADMIN and a partner admin, who is shown its own organisation only (WCAG 1.4.10; guard: the people count is new)", async ({
     page,
     context,
   }) => {
     await page.setViewportSize({ width: 320, height: 800 });
-    for (const [who, heading] of [
-      ["AS", "Organisations & cohorts"],
-      ["PAA", "Cohorts"],
-    ] as const) {
+    const { A, B } = world.organisations;
+    const screens: { who: "AS" | "PAA"; heading: string; shown: string[] }[] = [
+      { who: "AS", heading: "Organisations & cohorts", shown: [A.id, B.id] },
+      { who: "PAA", heading: "Cohorts", shown: [A.id] },
+    ];
+    for (const { who, heading, shown } of screens) {
       await signIn(context, world.people[who].sessionToken);
       await page.goto(COHORTS_PAGE);
       await expect(page.getByRole("heading", { level: 1, name: heading })).toBeVisible();
+      // The organisations on the screen: every one for an ADMIN, its own for a partner admin.
+      for (const organisation of [A, B]) {
+        await expect(
+          page.getByRole("region", { name: organisation.name, exact: true }).filter({ visible: true }),
+          `${who}: ${organisation.name}`
+        ).toHaveCount(shown.includes(organisation.id) ? 1 : 0);
+      }
       // Each organisation's name, counts and bin wrap onto the screen.
       const overflow = await page.evaluate(
         () => document.documentElement.scrollWidth - document.documentElement.clientWidth
@@ -988,7 +1008,7 @@ describe("Release 3 people and organisations", () => {
     await expect(region.locator("li", { hasText: cohort.name })).toContainText("1 member");
   });
 
-  test("a partner admin's screens, and an ADMIN's country mapping and change form, have no serious accessibility violations (guard)", async ({
+  test("a partner admin's screens, which hold its own organisation's people only, and an ADMIN's country mapping and change form, have no serious accessibility violations (guard)", async ({
     page,
     context,
   }) => {
@@ -1001,6 +1021,10 @@ describe("Release 3 people and organisations", () => {
     // A partner admin's learner's "Change details" form, open.
     const learner = world.people.LA2;
     await page.goto(PEOPLE_PAGE);
+    // What was checked is the partner admin's own list: its learner is on
+    // it, another organisation's isn't.
+    await expect(page.locator("tr", { hasText: learner.email }).filter({ visible: true })).toHaveCount(1);
+    await expect(page.locator("tr", { hasText: world.people.LB1.email })).toHaveCount(0);
     await page
       .locator("tr", { hasText: learner.email })
       .first()
@@ -1148,7 +1172,7 @@ describe("Release 3 people and organisations", () => {
     expect(await payload(request, world.people.FA, "/en/facilitator")).not.toContain(timed.email);
   });
 
-  test("A-E10 (guard): a guardian's permission goes with the organisation that recorded it: moved, an invited learner shares with the new one only once it records its own", async ({
+  test("A-E10 (guard): a guardian's permission goes with the organisation that recorded it: moved, an invited learner leaves the old one's roster and shares with the new one only once it records its own", async ({
     page,
     context,
     request,
@@ -1191,7 +1215,11 @@ describe("Release 3 people and organisations", () => {
     });
     const again = await share();
     expect(again.result, again.raw.slice(0, 200)).toEqual({ ok: false, error: "guardian-consent-needed" });
-    expect(await payload(request, world.people.FB, "/en/facilitator")).not.toContain(marker);
+    // Moved: on B's roster without the card, and off A's.
+    const rosterB = await payload(request, world.people.FB, "/en/facilitator");
+    expect(rosterB, "on B's roster").toContain(young.name);
+    expect(rosterB, "the card isn't shared with B").not.toContain(marker);
+    expect(await payload(request, world.people.FA, "/en/facilitator"), "off A's roster").not.toContain(young.name);
     // Nobody ticks "covers sharing" on a record that isn't theirs.
     const tick = await call(request, world.people.AS, "setGuardianSharing", [young.userId, true]);
     expect(tick.result).toEqual({ ok: false, error: "no-guardian-consent" });
