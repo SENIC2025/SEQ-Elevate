@@ -302,6 +302,72 @@ a.seq-link:focus-visible {
     text-decoration-thickness: 2px;
   }
 
+  /* The site a named link opens (RichTextView, link-site.ts; the owner's
+     decision of 22 October 2026): after the link's words, inside the link,
+     a small box that author formatting (bold and italic) can't draw.
+     - .seq-link-sep: the ", " screen readers hear between the words and
+       the site ("the guide, example.org (opens in a new tab)"). Clipped
+       where it stands, not .sr-only: an absolutely positioned element
+       counts as a block in a link's name, and browsers would put a space
+       before the comma. Its width is the gap before the box, and its space
+       the place a line may break.
+     - .seq-link-site: an inline box, so the link's underline stops before
+       it and a line breaks before it, never inside it, unless the site
+       alone is longer than the line: then it wraps inside its box rather
+       than widening a phone screen (320 px). Isolated and left to right,
+       so right-to-left words can't reorder it. A monospace face tells
+       "rn" from "m" and "l" from "I"; the dyslexia font, when chosen,
+       stays. Its own background keeps its contrast on any tint (muted
+       text 8.2:1 on white); no hanging indent (the references list) moves
+       its text. */
+  .seq-link-sep {
+    clip-path: inset(50%);
+    white-space: normal;
+  }
+  .seq-link-site {
+    display: inline-block;
+    max-width: 100%;
+    padding: 0 0.35em;
+    border: 1px solid currentColor;
+    border-radius: 0.3em;
+    background: var(--surface);
+    color: var(--muted-foreground);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    font-size: 0.8em;
+    font-style: normal;
+    font-weight: 400;
+    line-height: 1.3;
+    text-indent: 0;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    unicode-bidi: isolate;
+    direction: ltr;
+  }
+  html[data-dyslexic="true"] .seq-link-site {
+    font-family: var(--font-sans);
+  }
+  html[data-contrast="true"] .seq-link-site {
+    color: var(--foreground);
+    border-width: 2px;
+  }
+  /* Forced colours (Windows contrast themes): the theme's link colour on
+     its background, the border kept. */
+  @media (forced-colors: active) {
+    .seq-link-site {
+      forced-color-adjust: none;
+      background: Canvas;
+      color: LinkText;
+      border-color: LinkText;
+    }
+  }
+  @media print {
+    .seq-link-site {
+      background: transparent;
+      color: #000;
+      border-color: #000;
+    }
+  }
+
   /* The lesson editor. Its editable root carries the same seq-prose
      classes as the learner's element, so every rule above applies to both
      and authors see the spacing, markers and indents learners get. The
