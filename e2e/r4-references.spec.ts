@@ -21,6 +21,8 @@ import {
   linkedParagraph,
   overLimitDoc,
 } from "./fixtures/r4-hostile-links";
+import * as sanitize from "../src/lib/rich-text/sanitize";
+import { richTextForSave } from "../src/lib/rich-text/narrative";
 import { callAction, type ActionAnswer, type ActionCaller } from "./fixtures/server-action";
 import { rows as referenceRows } from "./fixtures/r3-action-table/r4r";
 import {
@@ -58,10 +60,20 @@ import de from "../src/messages/de.json";
  *           and changes nothing (the references row included); bad
  *           arguments are refused for editors and partner admins; editors,
  *           partner admins and ADMINs can save (positive controls)
- *   R4-E7   (guard) hostile lists written straight into the database: no
- *           unsafe link on the page or in the editor, and the page renders
- *   R4-E6   (guard) the hostile links sent through saveCourseReferences:
- *           refused by name, nothing stored
+ *   R4-E7   (guard) hostile lists written straight into the database, in
+ *           version 2 and as version-1 copies: no unsafe link on the page or
+ *           in the editor, and the page renders
+ *   R4-E6   (guard) the hostile links sent through saveCourseReferences, in
+ *           version 2 and as version-1 copies: refused by name (or, version
+ *           1 on a branch that can't save links yet, stored without any
+ *           link), nothing stored with a link; a control row (a valid link
+ *           in version 2) shows the version-2 rows are refused for their
+ *           links, and they run only where links can be saved
+ *
+ * The guards' meaning depends on whether this branch saves links (Part A,
+ * D104): without it every version-2 list is refused for its version, so
+ * the version-2 rows can't tell a hostile link from a safe one, and spec
+ * 10.4's negative control is run on the branch that merges both.
  *
  * Each R4-E12 test is red on the old build (Release 3), which has no
  * references page, editor or action: the page answers "not found" and the
@@ -87,6 +99,19 @@ const RUN = runId();
 const FILE = "src/app/actions/course-references.ts";
 const BUILT_IN = "workplace-conflict";
 const HEADING = en.courseReading.references.heading;
+/** The status line's words once a list is saved: learners get it at once, or not yet. */
+const SAVED_LIVE = en.courseReading.references.saved;
+const SAVED = en.lessonBlocks.textEditor.saved;
+
+/**
+ * Whether this branch saves links in rich text (Part A, D104), told by its
+ * code (the sanitizer names a refused link by its words), not by what a
+ * save does: R4-E6's control row then checks that a valid link is saved
+ * exactly here, by richTextForSave and by the server, so a branch whose
+ * link saving breaks fails the control rather than skipping the rows.
+ */
+const LINKS_SAVED = "linkProblemMessage" in sanitize;
+const VALID_LINK = linkedParagraph("https://example.org/guide");
 
 /* ------------------------------------------------------------ helpers --- */
 
@@ -181,6 +206,74 @@ async function hanging(entry: Locator) {
   });
 }
 
+/**
+ * Where an entry's lines start, in px from its list's content edge: its
+ * first line, and the leftmost of its other lines (null: one line only),
+ * with the entry's font size (1em).
+ */
+async function lineStarts(entry: Locator): Promise<{ first: number; rest: number | null; em: number }> {
+  return entry.evaluate((el) => {
+    const list = el.parentElement!;
+    const ls = getComputedStyle(list);
+    const edge = list.getBoundingClientRect().left + parseFloat(ls.borderLeftWidth) + parseFloat(ls.paddingLeft);
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    const rects = [...range.getClientRects()].filter((r) => r.width > 0 && r.height > 0);
+    const em = parseFloat(getComputedStyle(el).fontSize);
+    const top = Math.min(...rects.map((r) => r.top));
+    const first = rects.filter((r) => r.top < top + em / 2);
+    const rest = rects.filter((r) => r.top >= top + em / 2);
+    return {
+      first: Math.round(Math.min(...first.map((r) => r.left)) - edge),
+      rest: rest.length ? Math.round(Math.min(...rest.map((r) => r.left)) - edge) : null,
+      em,
+    };
+  });
+}
+
+/** Every entry of a list is set alike: its first line at the list's edge, its other lines 2em in. */
+async function expectHangingEntries(list: Locator, where: string) {
+  const entries = list.locator(":scope > p");
+  const count = await entries.count();
+  expect(count, `${where}: entries`).toBeGreaterThan(1);
+  for (let i = 0; i < count; i++) {
+    const { first, rest, em } = await lineStarts(entries.nth(i));
+    expect(Math.abs(first), `${where}, entry ${i + 1}: its first line starts at the list's edge (${first} px)`).toBeLessThanOrEqual(1);
+    expect(rest, `${where}, entry ${i + 1}: it wraps`).not.toBeNull();
+    expect(Math.abs(rest! - 2 * em), `${where}, entry ${i + 1}: its other lines start 2em in (${rest} px)`).toBeLessThanOrEqual(1);
+  }
+}
+
+/** Keyboard focus is inside `region`, not fallen to the page. */
+const focusIn = (region: Locator) => region.evaluate((el) => el.contains(document.activeElement));
+
+/** Paste into an editor as the browser would, with this clipboard data. */
+async function paste(target: Locator, data: Record<string, string>) {
+  await target.evaluate((el, entries) => {
+    const clipboardData = new DataTransfer();
+    for (const [type, value] of Object.entries(entries)) clipboardData.setData(type, value);
+    el.dispatchEvent(new ClipboardEvent("paste", { clipboardData, bubbles: true, cancelable: true }));
+  }, data);
+}
+
+/**
+ * A reference list copied from Word, as its clipboard holds it: Word's
+ * Bibliography style, which sets each entry's hanging indent with a
+ * half-inch left margin (APA's own layout). Long enough entries to wrap.
+ */
+const WORD_ENTRIES = [
+  "Author, A. A., &amp; Author, B. B. (2020). <i>Title of the work: A subtitle long enough to carry this entry onto a second line of the list</i>. Publisher Name. https://doi.org/10.1000/r4-word-1",
+  "Second, C. (2021). Title of an article in a journal whose name is also rather long. <i>Journal of Long Reference Entries, 12</i>(3), 45–67. https://doi.org/10.1000/r4-word-2",
+  "Third, D. D. (2019). <i>A book whose title is long enough to wrap on every screen the course page is read on</i> (2nd ed.). Another Publisher.",
+];
+const WORD_BIBLIOGRAPHY =
+  `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">` +
+  `<head><meta name=ProgId content=Word.Document><meta name=Generator content="Microsoft Word 15">` +
+  `<style><!--p.MsoBibliography{margin:0in 0in 0in .5in;text-indent:-.5in;font-size:12.0pt;font-family:"Calibri",sans-serif;}--></style></head>` +
+  `<body lang=EN-US><!--StartFragment-->` +
+  WORD_ENTRIES.map((e) => `<p class=MsoBibliography style='margin-left:.5in;text-indent:-.5in'><span lang=EN-US>${e}</span></p>`).join("") +
+  `<!--EndFragment--></body></html>`;
+
 /* ------------------------------------------------------------- courses --- */
 
 const SLUGS = {
@@ -193,12 +286,30 @@ const SLUGS = {
   stale: `e2e-r4r-stale-${RUN}`,
   race: `e2e-r4r-race-${RUN}`,
   hostile: `e2e-r4r-hostile-${RUN}`,
+  hostileV1: `e2e-r4r-hostile1-${RUN}`,
+  word: `e2e-r4r-word-${RUN}`,
+  notLive: `e2e-r4r-notlive-${RUN}`,
+  draftWrite: `e2e-r4r-draftw-${RUN}`,
 };
+/** Published unless said otherwise; German and Greek not switched on. */
+const PLAIN = [
+  SLUGS.none,
+  SLUGS.write,
+  SLUGS.unsaved,
+  SLUGS.stale,
+  SLUGS.race,
+  SLUGS.hostile,
+  SLUGS.hostileV1,
+  SLUGS.word,
+  SLUGS.notLive,
+  SLUGS.draftWrite,
+];
 /** A created course with one lesson of its own and no list. */
 const plainCourse = (slug: string) =>
   seedECourse(prisma, {
     slug,
     title: { en: `E2E R4 ${slug}`, de: `E2E R4 ${slug} (de)` },
+    status: slug === SLUGS.draftWrite ? "draft" : "published",
     lessons: [{ id: ownLessonId(), label: { en: "One" }, narrative: narrative({ en: { title: "One", text: "E2E: one." } }) }],
   });
 
@@ -220,9 +331,7 @@ describe("Release 4: references & bibliography, part 1 (spec 5, D109)", () => {
     published = await seedR4Course(prisma, { slug: SLUGS.published });
     draft = await seedR4Course(prisma, { slug: SLUGS.draft, status: "draft" });
     german = await seedR4Course(prisma, { slug: SLUGS.german, ready: ["de"] });
-    for (const slug of [SLUGS.none, SLUGS.write, SLUGS.unsaved, SLUGS.stale, SLUGS.race, SLUGS.hostile]) {
-      await plainCourse(slug);
-    }
+    for (const slug of PLAIN) await plainCourse(slug);
   });
 
   test.afterAll(async () => {
@@ -230,9 +339,7 @@ describe("Release 4: references & bibliography, part 1 (spec 5, D109)", () => {
     await prisma.auditLog.deleteMany({ where: { OR: [{ actorId: { in: ids } }, { entityId: { in: Object.values(SLUGS) } }] } });
     await removePeople(prisma, Object.values(emails));
     for (const slug of [SLUGS.published, SLUGS.draft, SLUGS.german]) await removeR4Course(prisma, slug);
-    for (const slug of [SLUGS.none, SLUGS.write, SLUGS.unsaved, SLUGS.stale, SLUGS.race, SLUGS.hostile]) {
-      await removeECourse(prisma, slug);
-    }
+    for (const slug of PLAIN) await removeECourse(prisma, slug);
     await prisma.$disconnect();
   });
 
@@ -350,8 +457,11 @@ describe("Release 4: references & bibliography, part 1 (spec 5, D109)", () => {
     // The editor sets each entry as the learner's page does.
     expect(await hanging(box.locator(":scope > p").first())).toEqual({ indent: -2, padding: 2 });
 
-    await region.getByRole("button", { name: en.courseReading.references.save }).click();
-    await expect(statusOf(region)).toHaveText(en.courseReading.references.saved);
+    // Saved from the keyboard: Save goes disabled with nothing left to save, and focus stays in the editor.
+    await region.getByRole("button", { name: en.courseReading.references.save }).focus();
+    await page.keyboard.press("Enter");
+    await expect(statusOf(region)).toHaveText(SAVED_LIVE);
+    await expect.poll(() => focusIn(region), "focus stays in the editor after Save").toBe(true);
     await expect(region.getByText(en.courseReading.references.empty)).toHaveCount(0);
 
     // Stored: the English list, version 1, its text derived on the server.
@@ -383,6 +493,92 @@ describe("Release 4: references & bibliography, part 1 (spec 5, D109)", () => {
     } finally {
       await reader.context.close();
     }
+  });
+
+  test("R4-E12: a list pasted from Word is set as a reference list, every entry alike, in the editor and for learners", async ({
+    page,
+    context,
+    browser,
+  }) => {
+    await signIn(context, editor.sessionToken);
+    const { region, box } = await referencesEditor(page, SLUGS.word);
+    await box.click();
+    await paste(box, {
+      "text/html": WORD_BIBLIOGRAPHY,
+      "text/plain": WORD_ENTRIES.map((e) => e.replace(/<[^>]+>/g, "").replace("&amp;", "&")).join("\n"),
+    });
+    await expect(box.locator(":scope > p")).toHaveCount(WORD_ENTRIES.length);
+    await expectHangingEntries(box, "the editor");
+
+    await region.getByRole("button", { name: en.courseReading.references.save }).click();
+    await expect(statusOf(region)).toHaveText(SAVED_LIVE);
+    // Word's half-inch margin arrives as an indent step on the entries after the first.
+    const stored = (await bibliographyOf((await courseIdOf(SLUGS.word))!)) as {
+      locales: { en: { rich: { doc: { content: { attrs?: { indent?: number } }[] } } } };
+    };
+    const indents = stored.locales.en.rich.doc.content.map((b) => b.attrs?.indent ?? 0);
+    expect(indents.some((i) => i >= 1), `indent steps as pasted: ${JSON.stringify(indents)}`).toBe(true);
+
+    const reader = await as(browser, learner);
+    try {
+      await reader.page.goto(`/en/learner/course/${SLUGS.word}/references`);
+      const list = listOn(reader.page);
+      await expect(list.locator(":scope > p")).toHaveCount(WORD_ENTRIES.length, { timeout: 15_000 });
+      await expectHangingEntries(list, "the learner's page");
+    } finally {
+      await reader.context.close();
+    }
+  });
+
+  test("R4-E12: the editor says when learners get a saved list: not before its language is switched on, nor on a draft", async ({
+    page,
+    context,
+    browser,
+  }) => {
+    await signIn(context, editor.sessionToken);
+    const notLive = (messages: typeof en, language: string) =>
+      messages.courseManager.languageReady.notLive.replaceAll("{language}", language);
+    const { region, box } = await referencesEditor(page, SLUGS.notLive);
+    // English, on a published course: learners get it as soon as it is saved.
+    await expect(region).not.toContainText(notLive(en, "German"));
+    await box.click();
+    await page.keyboard.type("Author, A. A. (2020). In English.");
+    await region.getByRole("button", { name: en.courseReading.references.save }).click();
+    await expect(statusOf(region)).toHaveText(SAVED_LIVE);
+
+    // German, not switched on for this course: its learners get English until it is, and the screen says so.
+    const languages = page.getByRole("group", { name: en.courseManager.page.contentLanguage });
+    await languages.getByRole("button", { name: /^german/i }).click();
+    const germanBox = region.getByRole("textbox", { name: HEADING, exact: true });
+    await expect(germanBox).toHaveAttribute("lang", "de", { timeout: 15_000 });
+    await expect(region).toContainText(notLive(en, "German"));
+    await germanBox.click();
+    await page.keyboard.type("Autorin, A. (2021). Auf Deutsch.");
+    await region.getByRole("button", { name: en.courseReading.references.save }).click();
+    await expect(statusOf(region)).toHaveText(SAVED);
+
+    // As said: a German learner gets the English list.
+    const reader = await as(browser, learner);
+    try {
+      await reader.page.goto(`/de/learner/course/${SLUGS.notLive}/references`);
+      const list = listOn(reader.page);
+      await expect(list).toHaveAttribute("lang", "en", { timeout: 15_000 });
+      await expect(list).toContainText("In English.");
+      await expect(reader.page.getByText("Auf Deutsch.")).toHaveCount(0);
+    } finally {
+      await reader.context.close();
+    }
+    // The editor's preview of the German list says the same.
+    await page.goto(`/de/learner/course/${SLUGS.notLive}/references?preview=1`);
+    await expect(listOn(page)).toContainText("Auf Deutsch.", { timeout: 15_000 });
+    await expect(visible(page.getByText(de.coursePlayer.languageNotLive.replaceAll("{language}", "Deutsch")))).toBeVisible();
+
+    // A draft: saved, and nobody but its editors sees it until it is published.
+    const draftEditor = await referencesEditor(page, SLUGS.draftWrite);
+    await draftEditor.box.click();
+    await page.keyboard.type("Draft, D. (2022).");
+    await draftEditor.region.getByRole("button", { name: en.courseReading.references.save }).click();
+    await expect(statusOf(draftEditor.region)).toHaveText(SAVED);
   });
 
   test("R4-E12: switching the content language with an unsaved list asks first, and Cancel keeps it", async ({
@@ -424,6 +620,22 @@ describe("Release 4: references & bibliography, part 1 (spec 5, D109)", () => {
     await expect(germanBox).not.toContainText("Unsaved");
     await expect(region.getByText(en.courseReading.references.empty)).toBeVisible();
     expect(await bibliographyOf((await courseIdOf(SLUGS.unsaved))!), "nothing was written").toBeNull();
+
+    // Discard changes, from the keyboard: it asks first, the box is as stored, and focus stays in the editor.
+    await germanBox.click();
+    await page.keyboard.type("Zu verwerfen (2020).");
+    await expect(statusOf(region)).toHaveText(en.lessonBlocks.textEditor.unsaved);
+    asked = "";
+    page.once("dialog", (dialog) => {
+      asked = dialog.message();
+      void dialog.accept();
+    });
+    await region.getByRole("button", { name: en.courseReading.references.discard }).focus();
+    await page.keyboard.press("Enter");
+    await expect(statusOf(region)).toHaveText(en.lessonBlocks.textEditor.discarded);
+    expect(asked).toBe(en.lessonBlocks.textEditor.discardConfirm);
+    await expect(region.getByRole("textbox", { name: HEADING, exact: true })).not.toContainText("Zu verwerfen");
+    await expect.poll(() => focusIn(region), "focus stays in the editor after Discard changes").toBe(true);
   });
 
   test("R4-E12: a colleague's save in between is never overwritten: the editor offers their version", async ({
@@ -442,9 +654,11 @@ describe("Release 4: references & bibliography, part 1 (spec 5, D109)", () => {
 
     await b.box.click();
     await mine.keyboard.type("Mine, M. (2021).");
-    await b.region.getByRole("button", { name: en.courseReading.references.save }).click();
+    await b.region.getByRole("button", { name: en.courseReading.references.save }).focus();
+    await mine.keyboard.press("Enter");
     const conflict = b.region.getByRole("alert").filter({ hasText: en.courseReading.references.changedElsewhere });
     await expect(conflict).toBeVisible();
+    await expect.poll(() => focusIn(b.region), "focus stays in the editor when the save is refused").toBe(true);
     // Nothing of mine was written; my words are still on screen.
     const courseId = (await courseIdOf(SLUGS.stale))!;
     expect(((await bibliographyOf(courseId)) as { locales: { en: { text: string } } }).locales.en.text).toBe(
@@ -454,11 +668,14 @@ describe("Release 4: references & bibliography, part 1 (spec 5, D109)", () => {
 
     // Load their version (my unsaved words: it asks first), then my change goes on top.
     mine.once("dialog", (dialog) => void dialog.accept());
-    await conflict.getByRole("button", { name: en.courseReading.references.reload }).click();
+    await conflict.getByRole("button", { name: en.courseReading.references.reload }).focus();
+    await mine.keyboard.press("Enter");
     await expect(statusOf(b.region)).toHaveText(en.lessonBlocks.textEditor.reloaded);
     const box = b.region.getByRole("textbox", { name: HEADING, exact: true });
     await expect(box).toHaveText("Theirs, T. (2020).");
     await expect(conflict).toHaveCount(0);
+    // "Load their version" went with the alert: focus stays in the editor.
+    await expect.poll(() => focusIn(b.region), "focus stays in the editor after Load their version").toBe(true);
     await box.click();
     await mine.keyboard.press("ControlOrMeta+a");
     await mine.keyboard.type("Theirs, T. (2020).");
@@ -513,7 +730,6 @@ describe("Release 4: references & bibliography, part 1 (spec 5, D109)", () => {
     request,
   }) => {
     expect((await r4Tables(prisma)).bibliography, "the database has the references table").toBe(true);
-    const courseId = (await courseIdOf(SLUGS.hostile))!;
     const million = HOSTILE_ADDRESSES.find((r) => r.name === "1,000,000 characters")!;
     // Postgres's jsonb can't hold a NUL character: no database row can carry that address.
     const storable = HOSTILE_ADDRESSES.filter((r) => r !== million && !(typeof r.href === "string" && r.href.includes("\u0000")));
@@ -523,27 +739,50 @@ describe("Release 4: references & bibliography, part 1 (spec 5, D109)", () => {
       ...RENDER_ONLY_MARKS.map((m) => m.rich),
     ].flatMap((d) => d.doc.content);
     const over = overLimitDoc();
-    const content = {
-      v: 1,
-      locales: {
-        en: { text: "Read the guide today. Hostile in English.", rich: { v: 2, doc: { type: "doc", content: paragraphs } } },
-        de: { text: over.text, rich: over.rich },
-        el: { text: "Read the guide today. Hostile in Greek.", rich: linkedParagraph(million.href) },
+    /**
+     * Each course's lists, and the words each language's list still shows.
+     * Version 2 as the format stores links; and version-1 copies of the same
+     * rows, the shape that reaches the mark filter on a branch that can't
+     * save links yet (an older reader drops every link mark from it).
+     */
+    const lists: { slug: string; content: unknown; words: Partial<Record<"en" | "de" | "el", string>> }[] = [
+      {
+        slug: SLUGS.hostile,
+        content: {
+          v: 1,
+          locales: {
+            en: { text: "Read the guide today. Hostile in English.", rich: { v: 2, doc: { type: "doc", content: paragraphs } } },
+            de: { text: over.text, rich: over.rich },
+            el: { text: "Read the guide today. Hostile in Greek.", rich: linkedParagraph(million.href) },
+          },
+        },
+        words: { en: "the guide", de: over.text, el: "the guide" },
       },
-    };
-    await prisma.$executeRaw`
-      INSERT INTO "CourseBibliography" ("courseId", "content", "updatedAt")
-      VALUES (${courseId}, ${JSON.stringify(content)}::jsonb, now())
-      ON CONFLICT ("courseId") DO UPDATE SET "content" = EXCLUDED."content", "updatedAt" = now()`;
+      {
+        slug: SLUGS.hostileV1,
+        content: {
+          v: 1,
+          locales: {
+            en: { text: "Read the guide today. Version 1.", rich: { v: 1, doc: { type: "doc", content: paragraphs } } },
+            el: { text: "Read the guide today. Version 1, Greek.", rich: { ...linkedParagraph(million.href), v: 1 } },
+          },
+        },
+        words: { en: "the guide", el: "the guide" },
+      },
+    ];
+    for (const { slug, content } of lists) {
+      await prisma.$executeRaw`
+        INSERT INTO "CourseBibliography" ("courseId", "content", "updatedAt")
+        VALUES (${(await courseIdOf(slug))!}, ${JSON.stringify(content)}::jsonb, now())
+        ON CONFLICT ("courseId") DO UPDATE SET "content" = EXCLUDED."content", "updatedAt" = now()`;
+    }
 
     // The learner's page and an editor's preview in each language: it renders, the
     // text shows, and no href but a content link or the app's own.
     await signIn(context, learner.sessionToken);
-    /** What each language's list still shows: its words, links or none. */
-    const words: Record<string, string> = { en: "the guide", de: over.text, el: "the guide" };
-    const check = async (p: Page, address: string, cookie: string, locale = "en") => {
+    const check = async (p: Page, address: string, cookie: string, words: string) => {
       await p.goto(address);
-      await expect(listOn(p), address).toContainText(words[locale], { timeout: 15_000 });
+      await expect(listOn(p), address).toContainText(words, { timeout: 15_000 });
       await expect(notFoundOn(p)).toHaveCount(0);
       for (const href of await p.locator(".seq-references a").evaluateAll((as) => as.map((a) => a.getAttribute("href") ?? ""))) {
         expect(href, `${address}: a link in the list`).toMatch(/^(https?:\/\/|mailto:)/i);
@@ -554,22 +793,26 @@ describe("Release 4: references & bibliography, part 1 (spec 5, D109)", () => {
       for (const href of hrefsIn(raw)) expect(href, `${address}: an href in the HTML or its payload`).toMatch(SAFE_HREF);
       expect(raw).not.toMatch(/javascript:alert|vbscript:|data:text\/html/i);
     };
-    await check(page, `/en/learner/course/${SLUGS.hostile}/references`, learner.sessionToken);
     const staff = await as(browser, editor);
     try {
-      for (const locale of ["en", "de", "el"]) {
-        await check(staff.page, `/${locale}/learner/course/${SLUGS.hostile}/references?preview=1`, editor.sessionToken, locale);
-      }
-      // The references editor: each language opens without an unsafe link in its box.
-      const { region } = await referencesEditor(staff.page, SLUGS.hostile);
-      const languages = staff.page.getByRole("group", { name: en.courseManager.page.contentLanguage });
-      for (const [locale, name] of [["en", /^english/i], ["de", /^german/i], ["el", /^greek/i]] as const) {
-        await languages.getByRole("button", { name }).click();
-        const box = region.getByRole("textbox", { name: HEADING, exact: true });
-        await expect(box).toHaveAttribute("lang", locale, { timeout: 15_000 });
-        await expect(box).toContainText(words[locale]);
-        for (const href of await region.locator("a").evaluateAll((as) => as.map((a) => a.getAttribute("href")))) {
-          if (href !== null) expect(href, "a link in the editor").toMatch(/^(https?:\/\/|mailto:)/i);
+      for (const { slug, words } of lists) {
+        await check(page, `/en/learner/course/${slug}/references`, learner.sessionToken, words.en!);
+        for (const [locale, shown] of Object.entries(words)) {
+          await check(staff.page, `/${locale}/learner/course/${slug}/references?preview=1`, editor.sessionToken, shown);
+        }
+        // The references editor: each language opens without an unsafe link in its box.
+        const { region } = await referencesEditor(staff.page, slug);
+        const languages = staff.page.getByRole("group", { name: en.courseManager.page.contentLanguage });
+        for (const [locale, name] of [["en", /^english/i], ["de", /^german/i], ["el", /^greek/i]] as const) {
+          const shown = words[locale];
+          if (!shown) continue;
+          await languages.getByRole("button", { name }).click();
+          const box = region.getByRole("textbox", { name: HEADING, exact: true });
+          await expect(box).toHaveAttribute("lang", locale, { timeout: 15_000 });
+          await expect(box, `${slug}, ${locale}`).toContainText(shown);
+          for (const href of await region.locator("a").evaluateAll((as) => as.map((a) => a.getAttribute("href")))) {
+            if (href !== null) expect(href, `${slug}, ${locale}: a link in the editor`).toMatch(/^(https?:\/\/|mailto:)/i);
+          }
         }
       }
     } finally {
@@ -670,42 +913,93 @@ describe("Release 4: the references actions refuse who they must, and change not
     }
   });
 
-  test("R4-E6 (guard): the hostile links are refused by name through saveCourseReferences, and nothing is stored", async ({
-    request,
-  }) => {
-    const page = `/en/content/courses/${R4_SLUG}`;
-    const loaded = await callAction(request, {
-      as: world.people.EA,
-      page,
-      file: FILE,
-      name: "loadCourseReferencesForEditor",
-      args: [R4_SLUG],
-    });
-    let base = (loaded.result as { locales: { en?: { base: string } } }).locales.en?.base ?? null;
-    const sent = [
+  /** The current base of the R4 course's English list, as its editor would send it. */
+  async function englishBase(request: APIRequestContext, page: string): Promise<string | null> {
+    const loaded = await callAction(request, { as: world.people.EA, page, file: FILE, name: "loadCourseReferencesForEditor", args: [R4_SLUG] });
+    return (loaded.result as { locales: { en?: { base: string } } }).locales.en?.base ?? null;
+  }
+
+  /** The hostile rows, as a version-2 list (as the format stores links) or as version-1 copies. */
+  const hostileRows = (version: 1 | 2) =>
+    [
       ...HOSTILE_ADDRESSES.map((r) => ({ name: r.name, rich: linkedParagraph(r.href), save: "refused" as const })),
       ...HOSTILE_MARKS.map((m) => ({ name: m.name, rich: m.rich, save: m.save })),
-    ];
-    for (const row of sent) {
+    ].map((row) => ({ ...row, rich: { ...row.rich, v: version } }));
+
+  /** The refusal names the link by its words, or, for an address too long to look at, the list's length. */
+  const NAMED = (name: string) =>
+    name === "1,000,000 characters" ? /^The references list is too long/ : /^The references list: the link (text )?“[^”]+”/;
+
+  /**
+   * Sends each row as EA and checks what is stored. `links`: whether links
+   * can be saved here; without them (version 1 only) a row may be stored,
+   * but never with a link.
+   */
+  async function sendHostile(request: APIRequestContext, rows: ReturnType<typeof hostileRows>, links: boolean) {
+    const page = `/en/content/courses/${R4_SLUG}`;
+    let base = await englishBase(request, page);
+    for (const row of rows) {
       const before = await bibliographySum([r4.courseId]);
       const started = Date.now();
       const answer = await save(request, world.people.EA, [R4_SLUG, "en", { rich: row.rich }, base], page);
       expect(answer.error, `${row.name}: ${answer.raw.slice(0, 200)}`).toBeUndefined();
       const result = answer.result as { ok: boolean; error?: string; issues?: string[]; base?: string | null };
+      expect(Date.now() - started, `${row.name}: answered in the action's normal time`).toBeLessThan(10_000);
       if (result.ok) {
         base = result.base ?? null;
-        // Only extra attributes may be saved, and then without them: the link holds its href only.
-        expect(row.save, `${row.name} was saved`).toBe("attributes-dropped");
-        const stored = (await bibliographyOf(r4.courseId)) as { locales: { en: { rich: unknown } } };
-        expect(JSON.stringify(stored.locales.en.rich)).toContain('"attrs":{"href":"https://example.org/guide"}');
-        expect(JSON.stringify(stored.locales.en.rich)).not.toMatch(/onclick|style|_self|opener|evil/);
+        const stored = JSON.stringify(((await bibliographyOf(r4.courseId)) as { locales: { en: { rich: unknown } } }).locales.en.rich);
+        expect(stored, `${row.name}: no hostile address or attribute is stored`).not.toMatch(
+          /javascript|vbscript|data:|file:|evil|onclick|style|_self|opener|safelinks|blob\.vercel/i
+        );
+        if (links) {
+          // Only extra attributes may be saved, and then without them: the link holds its href only.
+          expect(row.save, `${row.name} was saved`).toBe("attributes-dropped");
+          expect(stored).toContain('"attrs":{"href":"https://example.org/guide"}');
+        } else {
+          // A branch that can't save links stores the words without any link.
+          expect(stored, `${row.name}: stored without a link`).not.toContain('"type":"link"');
+          expect(row.rich.v, `${row.name}: only version 1 is stored without links`).toBe(1);
+        }
         continue;
       }
       expect(result.error, row.name).toBe("invalid");
-      expect(result.issues?.[0], `${row.name}: the refusal names the list`).toMatch(/^The references list/);
+      if (links) expect(result.issues?.[0], `${row.name}: the refusal names the link`).toMatch(NAMED(row.name));
+      else expect(result.issues?.[0], `${row.name}: the refusal names the list`).toMatch(/^The references list/);
       expect(await bibliographySum([r4.courseId]), `${row.name}: nothing stored`).toEqual(before);
-      expect(Date.now() - started, `${row.name}: answered in the action's normal time`).toBeLessThan(10_000);
     }
+  }
+
+  test("R4-E6 (guard): a valid link in a version-2 list is saved exactly where links can be saved (the guard's control)", async ({
+    request,
+  }) => {
+    const page = `/en/content/courses/${R4_SLUG}`;
+    expect(richTextForSave(VALID_LINK, "The references list").ok, "this branch's own save agrees").toBe(LINKS_SAVED);
+    const base = await englishBase(request, page);
+    const answer = await save(request, world.people.EA, [R4_SLUG, "en", { rich: VALID_LINK }, base], page);
+    expect(answer.error, answer.raw.slice(0, 200)).toBeUndefined();
+    const result = answer.result as { ok: boolean; error?: string; base?: string | null };
+    if (LINKS_SAVED) {
+      // So the version-2 hostile rows below are refused for their links, not for their version.
+      expect(result, "a valid link is saved").toMatchObject({ ok: true });
+      const stored = (await bibliographyOf(r4.courseId)) as { locales: { en: { rich: unknown } } };
+      expect(JSON.stringify(stored.locales.en.rich)).toContain('"attrs":{"href":"https://example.org/guide"}');
+    } else {
+      // Every version-2 list is refused for its version here, links or none: the version-2 rows are skipped.
+      expect(result, "version 2 is refused for its version").toMatchObject({ ok: false, error: "invalid" });
+    }
+  });
+
+  test("R4-E6 (guard): the hostile links in a version-2 list are refused by name through saveCourseReferences, and nothing is stored", async ({
+    request,
+  }) => {
+    test.skip(!LINKS_SAVED, "Without links in rich text (Part A) every version-2 list is refused for its version: these rows would check nothing about links.");
+    await sendHostile(request, hostileRows(2), true);
+  });
+
+  test("R4-E6 (guard): version-1 copies of the hostile links never store a link: refused by name, or (where links can't be saved) stored without one", async ({
+    request,
+  }) => {
+    await sendHostile(request, hostileRows(1), LINKS_SAVED);
   });
 
   test("editors, partner admins and ADMINs save and clear a course's list (positive controls), each audited", async ({
