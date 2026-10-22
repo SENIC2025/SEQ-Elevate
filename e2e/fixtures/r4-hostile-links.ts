@@ -13,10 +13,13 @@ import type { LinkRefusal } from "@/lib/rich-text/link-url";
  * - HOSTILE_MARKS: link marks that are wrong in their shape rather than
  *   their address (two on one text, extra attributes, a misleading label,
  *   a bare host of another site as the label, written with look-alike
- *   letters, wrapped for emphasis or in front of the link's site, touching
- *   links that together show another address), as rich text.
+ *   letters, wrapped for emphasis, after two slashes, with a raised sign or
+ *   a hair space, under Co. and a country, in front of the link's site, or
+ *   as an email address's first part, touching links that together show
+ *   another address), as rich text.
  * - ACCEPTED_LABELS: link text with a dot that shows no other site than
- *   the link's (an abbreviation, the link's registrable domain): kept.
+ *   the link's (an abbreviation, a title, a Greek word, an email address of
+ *   a person, the link's registrable domain): kept.
  * - RENDER_ONLY_MARKS: shapes only a direct database write can make
  *   (nested objects, unknown mark types), for the pages that draw them.
  * - overLimitDoc: a version-2 block over the node limit holding hostile
@@ -181,6 +184,41 @@ export const HOSTILE_MARKS: readonly HostileMarks[] = [
     save: "refused",
   },
   {
+    name: "a label that shows another site after two slashes",
+    rich: linkedParagraph("https://evil.example/login", "//paypal.com"),
+    save: "refused",
+  },
+  {
+    name: "a label that shows another site with a raised sign after it",
+    rich: linkedParagraph("https://evil.example/login", "PayPal.com\u2122"),
+    save: "refused",
+  },
+  {
+    name: "a label that shows another site through a hair space",
+    rich: linkedParagraph("https://evil.example/login", "paypal\u200A.com"),
+    save: "refused",
+  },
+  {
+    name: "a label that shows another site under Co. and a country",
+    rich: linkedParagraph("https://evil.example/login", "Amazon.Co.UK"),
+    save: "refused",
+  },
+  {
+    name: "a label that shows another site in front of the link's, a hyphen after it",
+    rich: linkedParagraph("https://evil.example/login", "paypal.com-login.evil.example"),
+    save: "refused",
+  },
+  {
+    name: "a label that shows another site through look-alike letters, over its own address",
+    rich: linkedParagraph("https://xn--pypal-4ve.com/", "p\u0430ypal.com"),
+    save: "refused",
+  },
+  {
+    name: "a label that shows another site as an email address's first part",
+    rich: linkedParagraph("https://evil.example/login", "paypal.com@evil.example"),
+    save: "refused",
+  },
+  {
     name: "two touching links that together show another address",
     rich: paragraphDoc([
       { type: "text", text: "Log in at " },
@@ -206,6 +244,11 @@ export const ACCEPTED_LABELS: readonly { label: string; href: string }[] = [
   { label: "Müller GmbH & Co.KG", href: "https://mueller.example/" },
   { label: "europa.eu", href: "https://ec.europa.eu/info/index_en" },
   { label: "bank.example", href: "https://login.bank.example/" },
+  { label: "gov.gr", href: "https://www.gov.gr/" },
+  { label: "bücher.de", href: "https://xn--bcher-kva.de/" },
+  { label: "Jun.Prof.", href: "https://uni.example/staff" },
+  { label: "ΑΘΗΝΑ.ΤΟ", href: "https://athens.example/" },
+  { label: "anna.schmidt@uni.example", href: "https://uni.example/people" },
 ];
 
 /** Link marks only a direct database write can make: each must be drawn as text, without a link. */
@@ -252,4 +295,14 @@ export const MISLEADING_TITLES: readonly string[] = [
   "Log in at _www.paypal.com_",
   "~paypal.com~",
   "paypal.com.evil.example",
+  // After two slashes, with a raised sign or a hair space, under Co. and a country,
+  // a hyphen after it, inner look-alikes, an email address's first part.
+  "//paypal.com",
+  "https\uA789//paypal.com",
+  "PayPal.com\u2122",
+  "paypal\u200A.com",
+  "Paypal.Co.Uk",
+  "paypal.com-login.evil.example",
+  "paypal.\u0441\u043Em.evil.example",
+  "paypal.com@evil.example",
 ];

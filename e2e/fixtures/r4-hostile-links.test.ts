@@ -34,7 +34,7 @@ describe("the hostile link table", () => {
 
   it("shows another address in each misleading label and title", () => {
     const labels = HOSTILE_MARKS.filter((m) => m.name.startsWith("a label"));
-    expect(labels.length).toBe(8);
+    expect(labels.length).toBe(15);
     for (const label of labels) {
       const node = label.rich.doc.content[0].content[1] as unknown as { text: string; marks: { attrs: { href: string } }[] };
       expect(linkTextProblem(node.text, node.marks[0].attrs.href), label.name).toBe("misleading");
@@ -49,7 +49,7 @@ describe("the hostile link table", () => {
   });
 
   it("shows no other site in each accepted label, whose address the check accepts", () => {
-    expect(ACCEPTED_LABELS.length).toBeGreaterThan(5);
+    expect(ACCEPTED_LABELS.length).toBeGreaterThan(10);
     for (const { label, href } of ACCEPTED_LABELS) {
       expect(checkLinkHref(href, { ownFileHost: null }).ok, href).toBe(true);
       expect(linkTextProblem(label, href), label).toBeNull();

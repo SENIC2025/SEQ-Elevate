@@ -383,6 +383,163 @@ describe("linkTextProblem", () => {
     }
   });
 
+  // §3.2: one leading "www." is removed before a host's site is told, so a
+  // public suffix's own site (gov.uk, gov.gr) and its www. host are one.
+  it("takes a host and its www. host as one site, a public suffix's own site too", () => {
+    for (const [text, href] of [
+      ["GOV.UK", "https://www.gov.uk/guidance/x"],
+      ["gov.gr", "https://www.gov.gr/"],
+      ["gov.ie", "https://www.gov.ie/"],
+      ["gov.cy", "https://www.gov.cy/"],
+      ["gv.at", "https://www.gv.at/"],
+      ["https://gov.uk/guidance/x", "https://www.gov.uk/guidance/x"],
+      ["gov.uk/guidance/x", "https://www.gov.uk/guidance/x"],
+      ["www.gov.uk", "https://gov.uk/x"],
+    ]) {
+      expect(linkTextProblem(text, href), `${text} over ${href}`).toBeNull();
+    }
+    for (const [text, href] of [
+      ["gov.uk", "https://evil.gov.uk/"],
+      ["www.gov.uk", "https://evil.gov.uk/"],
+      ["https://www.gov.gr", "https://minedu.gov.gr/"],
+    ]) {
+      expect(linkTextProblem(text, href), `${text} over ${href}`).toBe("misleading");
+    }
+  });
+
+  it("reads a host after two slashes, after a slash at a word's start, and after a colon that starts no port", () => {
+    for (const text of [
+      "//paypal.com",
+      "//www.paypal.com",
+      "ftp://paypal.com",
+      "https꞉//paypal.com", // a modifier letter colon
+      "https∶//paypal.com", // a ratio sign
+      "https//paypal.com",
+      "hxxps://paypal.com",
+      "Login: /paypal.com",
+      "evil.example:paypal.com",
+    ]) {
+      expect(linkTextProblem(text, EVIL), JSON.stringify(text)).toBe("misleading");
+    }
+    expect(linkTextProblem("//paypal.com", "https://www.paypal.com/")).toBeNull();
+    // Inside a path, a name still belongs to it.
+    for (const text of ["docs/report.de", "files/v2/report.de"]) expect(linkTextProblem(text, EVIL), text).toBeNull();
+  });
+
+  it("ends a host where a raised or lowered character, a modifier letter or a mark of its own follows it", () => {
+    for (const text of [
+      "paypal.com¹",
+      "paypal.com²",
+      "PayPal.com™",
+      "paypal.comʼs login", // a modifier letter apostrophe
+      "paypal.comˈs",
+      "paypal.com̲", // a combining low line, unseen under a link's underline
+      "paypal.co̲m",
+      "paypal.com₂",
+    ]) {
+      expect(linkTextProblem(text, EVIL), JSON.stringify(text)).toBe("misleading");
+    }
+    expect(linkTextProblem("senic.org¹", "https://senic.org/")).toBeNull();
+    expect(linkTextProblem("PayPal.com™", "https://www.paypal.com/")).toBeNull();
+    // A footnote's mark, or a word with one, shows no address.
+    for (const text of ["¹", "the guide²", "Acme™"]) expect(linkTextProblem(text, EVIL), text).toBeNull();
+  });
+
+  it("reads a host through a hair space, which shows nothing", () => {
+    for (const text of ["paypal .com", "paypal.c om", "https://bank .example"]) {
+      expect(linkTextProblem(text, EVIL), JSON.stringify(text)).toBe("misleading");
+    }
+    expect(linkTextProblem(" ", EVIL)).toBe("empty");
+    // A narrow or a thin space shows: "z. B." stays an abbreviation.
+    for (const text of ["z. B.", "z. B.", "d. h."]) expect(linkTextProblem(text, EVIL), JSON.stringify(text)).toBeNull();
+  });
+
+  it("reads Co. before a public suffix as part of a host, and a title only at a name's start", () => {
+    for (const text of ["Amazon.Co.UK", "Barclays.Co.UK", "Paypal.Co.Uk", "mail.Co.UK", "Co.UK", "paypal.Co.UK.evil.example"]) {
+      expect(linkTextProblem(text, EVIL), text).toBe("misleading");
+    }
+    for (const [text, href] of [
+      ["Müller GmbH & Co.KG", "https://mueller.example/"],
+      ["Samsung Co.Ltd.", "https://samsung.example/"],
+      ["Ao.Univ.Prof.", "https://uni.example/"],
+      ["a.o.Univ.Prof.", "https://uni.example/"],
+    ]) {
+      expect(linkTextProblem(text, href), text).toBeNull();
+    }
+  });
+
+  it("reads a name of another site in front of the link's, a hyphen after its top-level domain", () => {
+    for (const text of ["paypal.com-login.evil.example", "paypal.com-secure.login.evil.example", "https://paypal.com-login.evil.example/login"]) {
+      expect(linkTextProblem(text, EVIL), text).toBe("misleading");
+    }
+    expect(linkTextProblem("paypal.com-login.evil.example", "https://paypal.com-login.evil.example/")).toBeNull();
+  });
+
+  it("reads look-alike letters in every label of a name written in Latin letters, or in look-alikes only", () => {
+    for (const [text, href] of [
+      ["pаypal.com", "https://xn--pypal-4ve.com/"], // Cyrillic а
+      ["https://pаypal.com/login", "https://xn--pypal-4ve.com/login"],
+      ["аррӏе.com", "https://xn--80ak6aa92e.com/"], // аррӏе
+      ["аррӏе.сом", EVIL], // аррӏе.сом, Cyrillic only
+      ["paypal.соm.evil.example", EVIL],
+    ]) {
+      expect(linkTextProblem(text, href), `${text} over ${href}`).toBe("misleading");
+    }
+    const own = (address: string) => {
+      const check = checkLinkHref(address);
+      if (!check.ok) throw new Error("refused");
+      return check.href;
+    };
+    for (const [text, href] of [
+      ["bücher.de", "https://xn--bcher-kva.de/"],
+      ["сбербанк.рф", own("https://сбербанк.рф/")],
+      ["кот.укр", own("https://кот.укр/")],
+      ["pаypal.com", "https://paypal.com/"],
+    ]) {
+      expect(linkTextProblem(text, href), `${text} over ${href}`).toBeNull();
+    }
+  });
+
+  // The owner's rule awaited (link-rules check, item 8): until then, an email
+  // address's first part is read as a host over a web link when it starts
+  // with "www." or ends in a country's or a generic top-level domain (com,
+  // net, org, edu, gov, mil, int, info, biz); a surname such as "schmidt" or
+  // "kim", which are top-level domains too, isn't one.
+  it("reads an email address's first part as a host over a web link when it starts with www. or ends in a country's or a generic top-level domain", () => {
+    for (const text of ["paypal.com@evil.example", "www.paypal.com@evil.example", "Write to sparkasse.de@evil.example"]) {
+      expect(linkTextProblem(text, EVIL), text).toBe("misleading");
+    }
+    for (const [text, href] of [
+      ["anna.schmidt@uni.example", "https://uni.example/"],
+      ["anna.kim@uni.example", "https://uni.example/people"],
+      ["paypal.com@evil.example", "mailto:paypal.com@evil.example"],
+      ["Kontakt: info@verein.de", "https://verein.de/kontakt"],
+    ]) {
+      expect(linkTextProblem(text, href), `${text} over ${href}`).toBeNull();
+    }
+  });
+
+  it("doesn't read Greek words as look-alike top-level domains", () => {
+    for (const text of ["…στην Αθήνα.Το", "προσπάθεια.να", "ΑΘΗΝΑ.ΤΟ", "Αθήνα.ΝΑ", "ΚΑΙ.ΤΟ", "και.να"]) {
+      expect(linkTextProblem(text, EVIL), text).toBeNull();
+    }
+    for (const text of ["paypal.соm", "PAYPAL.СОМ", "paypal.cοm"]) {
+      expect(linkTextProblem(text, EVIL), text).toBe("misleading");
+    }
+  });
+
+  it("doesn't read a title or a company form after short words as a host", () => {
+    for (const text of ["apl.Prof. Dr. Weber", "Jun.Prof.", "em.Prof.", "Asst.Prof.", "Adj.Prof.", "Pty.Ltd.", "Acme Pte.Ltd."]) {
+      expect(linkTextProblem(text, "https://uni.example/"), text).toBeNull();
+    }
+    for (const text of ["paypal.prof", "Barclays.Ltd", "barclays.ltd", "www.Jun.Prof"]) {
+      expect(linkTextProblem(text, EVIL), text).toBe("misleading");
+    }
+    // A sentence's end with no space before a word that is a top-level
+    // domain reads as a host (§12, fails safe).
+    expect(linkTextProblem("…in Brussels.It", "https://uni.example/")).toBe("misleading");
+  });
+
   it("reads the addresses a text shows once, for as many links as need comparing", () => {
     const shown = addressesShown("https://example.org and help@example.org");
     expect(showsAnotherAddress(shown, "https://example.org/a")).toBe(false);
