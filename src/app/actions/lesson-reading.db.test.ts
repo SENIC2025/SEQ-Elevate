@@ -15,7 +15,9 @@ import { HOSTILE_ADDRESSES } from "../../../e2e/fixtures/r4-hostile-links";
  * it was.
  *
  * Needs a database: R4_READING_DATABASE_URL=<an EMPTY throwaway database>.
- * Without it the test is skipped (the unit suite never touches a database).
+ * A database that isn't empty is refused and left exactly as it was
+ * (lesson-reading.db-guard.test.ts). Without the variable the test is
+ * skipped (the unit suite never touches a database).
  */
 
 const url = process.env.R4_READING_DATABASE_URL;
@@ -42,10 +44,15 @@ describe.skipIf(!url)("the further-reading actions on a real database", () => {
     return JSON.stringify(out);
   };
 
+  /** Set once the database was found empty; nothing is dropped from a database the test refused. */
+  let claimed = false;
+
   beforeAll(async () => {
     await db.connect();
     const { rows } = await db.query(`SELECT count(*)::int AS n FROM pg_tables WHERE schemaname = 'public'`);
     if (rows[0].n > 0) throw new Error("R4_READING_DATABASE_URL must be an empty throwaway database");
+    // Found empty: from here on the database is this test's, and only then is its schema dropped afterwards.
+    claimed = true;
     execFileSync(`${ROOT}node_modules/.bin/prisma`, ["migrate", "deploy"], {
       cwd: ROOT,
       env: { ...process.env, DATABASE_URL: url },
@@ -88,7 +95,8 @@ describe.skipIf(!url)("the further-reading actions on a real database", () => {
   afterAll(async () => {
     const { prisma } = await import("@/lib/prisma").catch(() => ({ prisma: null }));
     await prisma?.$disconnect();
-    await db.query(`DROP SCHEMA public CASCADE; CREATE SCHEMA public;`).catch(() => {});
+    // A database the test refused is left exactly as it was.
+    if (claimed) await db.query(`DROP SCHEMA public CASCADE; CREATE SCHEMA public;`).catch(() => {});
     await db.end();
   });
 
