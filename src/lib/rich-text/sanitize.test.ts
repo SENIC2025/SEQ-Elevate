@@ -813,16 +813,23 @@ describe("sanitizeRichText: links (D104)", () => {
       ["a mark starting the text touching a link", [link("paypal.", "https://evil.example/a"), link("̲com", "https://evil.example/b")], "paypal.̲com"],
       ["a Roman numeral letter", [link("paypal.ⅽom", EVIL)], "paypal.ⅽom"],
       ["a raised letter inside a name", [link("paypal.cᵒm", EVIL)], "paypal.cᵒm"],
+      ["a Roman numeral letter that ends a name", [t("Log in at "), link("example.n\u217C", EVIL)], "example.n\u217C"],
+      ["a top-level domain and a hyphen", [link("paypal.com-login", EVIL)], "paypal.com-login"],
+      ["a name the URL parser refuses", [link("xn--a.paypal.com", EVIL)], "xn--a.paypal.com"],
+      ["a character Unicode 16 doesn't assign", [link("paypal.\u1AD0com", EVIL)], "paypal.\u1AD0com"],
     ];
     for (const [name, content, shown] of cases) {
       const result = sanitizeRichText(envelope(p(...content)));
       expect(result.issues, name).toEqual(["dropped-link"]);
       expect(result.linkProblems.map((problem) => problem.text), name).toEqual([shown]);
     }
-    // An abbreviation, and a public suffix named by itself over a site under it, keep their links.
+    // An abbreviation, a title and its feminine ending, a public suffix named by itself over a site
+    // under it, and a host with a word after a hyphen over its own site keep their links.
     for (const [text, href] of [
       ["Dr.in Maria Huber", "https://www.univie.ac.at/personen/huber"],
+      ["Dir.\u2071\u207F Mag.\u00AA Huber", "https://www.schule.example.at/team"],
       ["Gov.gr Wallet", "https://wallet.gov.gr/"],
+      ["Booking.com-Konto", "https://www.booking.com/"],
     ]) {
       const result = sanitizeRichText(envelope(p(link(text, href))));
       expect(result.issues, text).toEqual([]);

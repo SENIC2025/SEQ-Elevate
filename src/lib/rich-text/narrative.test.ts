@@ -581,6 +581,20 @@ describe("richTextForSave: links are refused by name, never cut (D104)", () => {
     }
   });
 
+  it("refuses link text that shows another site as it reads, in a block and in the references list", () => {
+    const looks = (name: string, text: string) =>
+      `${name}: the link text “${text}” looks like a web address, but the link opens another one. Use a few words instead, or show the real address.`;
+    for (const text of ["rabobank.n\u217C", "paypal.com-login", "xn--a.paypal.com"]) {
+      const raw = v2(p(linked(text, "https://evil.example/login")));
+      expect(richTextForSave(raw, "Block 2 (Paragraph)"), text).toEqual({ ok: false, issues: [looks("Block 2 (Paragraph)", text)] });
+      expect(richTextForSave(raw, "The references list", "list"), text).toEqual({ ok: false, issues: [looks("The references list", text)] });
+    }
+    // A title and its feminine ending is no address.
+    const title = v2(p(linked("Dir.\u2071\u207F Mag.\u00AA Huber", "https://www.schule.example.at/team")));
+    expect(richTextForSave(title, "Block 2 (Paragraph)")).toMatchObject({ ok: true, rich: title });
+    expect(richTextForSave(title, "The references list", "list")).toMatchObject({ ok: true, rich: title });
+  });
+
   it("names every link it refuses, in a lesson's blocks too", () => {
     expect(
       refused([

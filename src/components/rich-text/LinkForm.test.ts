@@ -102,7 +102,7 @@ describe("checkLinkForm", () => {
   });
 
   it("says text of names that end in a top-level domain looks like a web address, a file's name too", () => {
-    for (const text of ["course-materials.zip", "intro.mov", "paypal.com", "paypal.ⅽom", "paypal.cᵒm"]) {
+    for (const text of ["course-materials.zip", "intro.mov", "paypal.com", "paypal.ⅽom", "paypal.cᵒm", "rabobank.n\u217C", "paypal.com-login", "xn--a.paypal.com"]) {
       expect(checkLinkForm({ text, address: "https://example.org/files/x" }), text).toEqual({
         ok: false,
         field: "text",
@@ -114,6 +114,7 @@ describe("checkLinkForm", () => {
       ["europa.eu", "https://ec.europa.eu/info"],
       ["M.Sc. programme", "https://uni.example/msc"],
       ["Dr.in Maria Huber", "https://www.univie.ac.at/personen/huber"],
+      ["Dir.\u2071\u207F Mag.\u00AA Huber", "https://www.schule.example.at/team"],
       ["Gov.gr Wallet", "https://wallet.gov.gr/"],
     ]) {
       expect(checkLinkForm({ text, address }), text).toMatchObject({ ok: true, text });
