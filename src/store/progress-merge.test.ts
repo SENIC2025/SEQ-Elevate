@@ -785,6 +785,20 @@ describe("storedGuestState", () => {
     expect(after.compCard).toEqual(blank.compCard);
   });
 
+  it("reads a guest store written before Release 3 with its title's language unknown, never guessed", () => {
+    const before = { ...blank, course: { ...progress({ stagesCompleted: ["context"] }), courseSlug: SLUG, courseTitle: "Nein sagen" } };
+    delete (before.course as { courseLocale?: unknown }).courseLocale;
+    const after = storedGuestState(JSON.parse(JSON.stringify(before)), blank);
+    expect(after.course.courseTitle).toBe("Nein sagen");
+    expect(after.course.courseLocale).toBeUndefined();
+    // Claimed into an account whose own copy of the course is in English:
+    // the guest's title is shown, and its language stays unknown rather
+    // than taking the account's (which would mark "Nein sagen" as English).
+    const claimed = mergeCourseProgress(after.course, progress({ courseSlug: SLUG, courseTitle: "Saying no", courseLocale: "en" }));
+    expect(claimed).toMatchObject({ courseTitle: "Nein sagen" });
+    expect(claimed.courseLocale).toBeUndefined();
+  });
+
   it("reads a Release 1 guest store, which has no lessons of the course's own or answers per item", () => {
     const release1 = {
       ...blank,

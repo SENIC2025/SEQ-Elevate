@@ -205,6 +205,28 @@ describe("the course's own text on the Comp Card carries its language (D90, spec
     expect(tagOf(html, "Ask to finish → Thank them")).not.toContain("lang=");
   });
 
+  it("a guest store written before Release 3 (its title's language unknown) is shown unmarked, in the form and the printout", () => {
+    // Decided (integration): unmarked, not marked as the course's English.
+    // Such a title was stored as the page showed it, in the language the
+    // guest played in, which is the language this browser most likely
+    // shows now; marking it "en" would make a screen reader read a German
+    // or Greek title with an English voice. The next time the course is
+    // opened the player records the language and the title is marked.
+    pageLocale = "de";
+    played = {
+      courseSlug: "workplace-conflict",
+      courseTitle: "Konflikte am Arbeitsplatz",
+      scenario: { root: "c1", followup: "f1", rootLabel: "Ruhig ansprechen", followupLabel: "Danken" },
+    };
+    const { html } = render(MEMBER);
+    const holders = [...html.matchAll(/(<[a-z0-9]+[^>]*>)Konflikte am Arbeitsplatz</g)].map((m) => m[1]);
+    expect(holders.length, "the form and the printout").toBe(2);
+    for (const tag of holders) expect(tag).not.toContain("lang=");
+    const choices = [...html.matchAll(/(<[a-z0-9]+[^>]*>)Ruhig ansprechen → Danken</g)].map((m) => m[1]);
+    expect(choices.length).toBe(2);
+    for (const tag of choices) expect(tag).not.toContain("lang=");
+  });
+
   it("marks nothing for a course whose language the store doesn't know, nor the dash of no course", () => {
     pageLocale = "de";
     played = { ...ENGLISH_COURSE, courseLocale: undefined };
