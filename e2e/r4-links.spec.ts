@@ -59,6 +59,13 @@ import { addressProblem } from "@/lib/rich-text/sanitize";
  *          a character of Unicode 17) is read alike: no link from the server
  *          nor after hydration; the address check answers alike in the
  *          browser (the Link form) and on the server.
+ *   R4-E15 the site each named link opens, in a box after its words and
+ *          inside the link: heard as "words, site (opens in a new tab)",
+ *          left out only when the words are the link's address, none for
+ *          email links; on one line beside right-to-left words and after
+ *          long ones, never past the edge at 320 px (zoomed 200 %), in
+ *          forced colours, with the platform's high contrast and large
+ *          text, and with text zoomed 200 %; axe-clean.
  * R4-E4 (pasting) is in rich-text-editor.spec.ts.
  *
  * Requires a real database (E2E_DB=1). Seeds a course of its own, removed
@@ -371,7 +378,8 @@ describe("Release 4 — links in lesson text", () => {
     await signIn(context, learner.sessionToken);
     await page.goto(`/en/learner/course/${SLUG}`);
     await expect(main(page).getByRole("heading", { level: 2, name: "R4 links lesson" })).toBeVisible({ timeout: 20_000 });
-    const link = main(page).getByRole("link", { name: `the guide ${NEW_TAB}`, exact: true });
+    // The site it opens follows its words, inside the link (R4-E15).
+    const link = main(page).getByRole("link", { name: `the guide, example.org ${NEW_TAB}`, exact: true });
     await expect(link).toHaveAttribute("href", GUIDE);
     await expect(link).toHaveAttribute("target", "_blank");
     await expect(link).toHaveAttribute("rel", "noopener noreferrer");
@@ -431,7 +439,7 @@ describe("Release 4 — links in lesson text", () => {
     // Release 3's headers: its content security policy, which upgrades only same-origin requests.
     const csp = (await response?.allHeaders())?.["content-security-policy"] ?? "";
     expect(csp).toContain("upgrade-insecure-requests");
-    const link = main(page).getByRole("link", { name: `the old site ${NEW_TAB}`, exact: true });
+    const link = main(page).getByRole("link", { name: `the old site, example.org ${NEW_TAB}`, exact: true });
     await expect(link).toHaveAttribute("href", "http://example.org/old");
     const popup = page.waitForEvent("popup");
     await link.click();
@@ -1008,5 +1016,197 @@ describe("Release 4 — links in lesson text", () => {
     }
     expect(differ).toEqual([]);
     await page.keyboard.press("Escape");
+  });
+
+  test("R4-E15: each named link shows the site it opens, after its words: heard, on one line, at 320 px, in forced colours and zoomed", async ({
+    browser,
+    baseURL,
+  }) => {
+    const link = (href: string) => ({ type: "link", attrs: { href } });
+    const RTL = "\u05D4\u05DE\u05D3\u05E8\u05D9\u05DA"; // "the guide", in Hebrew
+    const LONG_WORDS = "the guide to every step of the application, from the first form to the last interview ".repeat(3).trim();
+    // A site longer than a phone's line: the most DNS holds in one label.
+    const LONG_SITE = `${"a".repeat(63)}.example`;
+    await setNarrative(
+      EDITED,
+      narrative("R4 links lesson", [
+        richBlock(
+          paragraphDoc([
+            { type: "text", text: "Read " },
+            { type: "text", text: "the guide", marks: [link(GUIDE)] },
+            { type: "text", text: ", then " },
+            { type: "text", text: "example.org/tips", marks: [link("https://example.org/tips")] },
+            { type: "text", text: " and " },
+            { type: "text", text: "the ministry's page", marks: [link("https://www.minedu.gov.gr/guidance")] },
+            { type: "text", text: "." },
+          ]),
+          "Read the guide, then example.org/tips and the ministry's page."
+        ),
+        richBlock(
+          paragraphDoc([
+            { type: "text", text: "In Hebrew: " },
+            { type: "text", text: RTL, marks: [link("https://example.org/he")] },
+            { type: "text", text: " today." },
+          ]),
+          `In Hebrew: ${RTL} today.`
+        ),
+        richBlock(paragraphDoc([{ type: "text", text: LONG_WORDS, marks: [link("https://evil.example/apply")] }]), LONG_WORDS),
+        richBlock(
+          paragraphDoc([
+            { type: "text", text: "A long name: " },
+            { type: "text", text: "this one", marks: [link(`https://www.${LONG_SITE}/x`)] },
+            { type: "text", text: " or " },
+            { type: "text", text: "our team", marks: [link("mailto:help@example.org?subject=Course")] },
+            { type: "text", text: "." },
+          ]),
+          "A long name: this one or our team."
+        ),
+      ])
+    );
+    // 320 CSS pixels as a 640-pixel window shows them at 200 % zoom. Reduced
+    // motion: a setting switched below takes effect at once, with no
+    // colours caught halfway through a transition.
+    const context = await browser.newContext({
+      baseURL,
+      viewport: { width: 320, height: 640 },
+      deviceScaleFactor: 2,
+      reducedMotion: "reduce",
+    });
+    try {
+      await context.route(/^https?:\/\/(?:[a-z0-9-]+\.)*(?:example\.org|bpb\.de|verein\.de)\//, (route) =>
+        route.fulfill({ contentType: "text/html", body: "<!doctype html><title>Elsewhere</title><p>Another site</p>" })
+      );
+      await signIn(context, learner.sessionToken);
+      const page = await context.newPage();
+      await page.goto(`/en/learner/course/${SLUG}`);
+      await expect(main(page).getByRole("heading", { level: 2, name: "R4 links lesson" })).toBeVisible({ timeout: 20_000 });
+      const lesson = main(page);
+
+      // What screen readers hear: the words, the site, then that it opens a new tab.
+      const named: [string, string | null][] = [
+        ["the guide", "example.org"],
+        ["example.org/tips", null], // the words are the address: no box
+        ["the ministry's page", "minedu.gov.gr"],
+        [RTL, "example.org"],
+        [LONG_WORDS, "evil.example"],
+        ["this one", LONG_SITE],
+        ["our team", null], // an email link
+      ];
+      for (const [words, site] of named) {
+        const name = site ? `${words}, ${site} ${NEW_TAB}` : `${words} ${NEW_TAB}`;
+        const one = lesson.getByRole("link", { name, exact: true });
+        await expect(one, name.slice(0, 60)).toHaveCount(1);
+        if (site) await expect(one.locator(".seq-link-site")).toHaveText(site);
+        else await expect(one.locator(".seq-link-site")).toHaveCount(0);
+      }
+      // The browser's own accessibility tree names the link the same way.
+      const cdp = await context.newCDPSession(page);
+      const { nodes } = (await cdp.send("Accessibility.getFullAXTree")) as { nodes: { role?: { value?: string }; name?: { value?: string } }[] };
+      const names = nodes.filter((node) => node.role?.value === "link").map((node) => node.name?.value ?? "");
+      expect(names).toContain(`the guide, example.org ${NEW_TAB}`);
+      expect(names).toContain(`${RTL}, example.org ${NEW_TAB}`);
+      await cdp.detach();
+
+      // Where each box sits, and how it is drawn.
+      const layout = () =>
+        page.evaluate(() => {
+          const shown = (el: Element) => el.getClientRects().length > 0;
+          const boxes = [...document.querySelectorAll("main .seq-link-site")].filter(shown).map((box) => {
+            const a = box.closest("a")!;
+            const words = document.createRange();
+            words.setStart(a.firstChild!, 0);
+            words.setEndBefore(a.querySelector(".seq-link-sep")!);
+            const wordRects = [...words.getClientRects()];
+            const last = wordRects[wordRects.length - 1];
+            const r = box.getBoundingClientRect();
+            const style = getComputedStyle(box);
+            const sep = getComputedStyle(a.querySelector(".seq-link-sep")!);
+            // The width of the line the box sits in: its paragraph's, less its padding (an indent).
+            const block = box.closest("p, li")!;
+            const blockStyle = getComputedStyle(block);
+            return {
+              site: box.textContent ?? "",
+              left: r.left,
+              right: r.right,
+              top: r.top,
+              width: r.width,
+              height: r.height,
+              lineWidth: block.clientWidth - parseFloat(blockStyle.paddingLeft) - parseFloat(blockStyle.paddingRight),
+              line: parseFloat(style.lineHeight) + parseFloat(style.paddingTop) + parseFloat(style.paddingBottom) + 2 * parseFloat(style.borderTopWidth),
+              wordsRight: last.right,
+              wordsTop: last.top,
+              wordsBottom: last.bottom,
+              insideLink: a.contains(box),
+              bidi: style.unicodeBidi,
+              direction: style.direction,
+              border: `${style.borderTopStyle} ${parseFloat(style.borderTopWidth) >= 1}`,
+              sepHidden: sep.clipPath !== "none" && sep.position === "static",
+            };
+          });
+          const prose = [...document.querySelectorAll("main .seq-prose")].filter(shown);
+          return {
+            view: document.documentElement.clientWidth,
+            scroll: document.scrollingElement!.scrollWidth,
+            proseFits: prose.length > 0 && prose.every((el) => el.scrollWidth <= el.clientWidth),
+            boxes,
+          };
+        });
+      /** `page`: the whole page has no sideways scroll; else only the lesson's text (text zoomed 200 % on a phone widens the header's controls). */
+      const check = async (mode: string, { page: wholePage = true } = {}) => {
+        const { view, scroll, proseFits, boxes } = await layout();
+        if (wholePage) expect(scroll, `${mode}: no sideways scroll`).toBeLessThanOrEqual(view);
+        expect(proseFits, `${mode}: the lesson's text fits its column`).toBe(true);
+        expect(boxes.map((box) => box.site).sort(), mode).toEqual(["evil.example", "example.org", "example.org", LONG_SITE, "minedu.gov.gr"].sort());
+        for (const box of boxes) {
+          const what = `${mode}: ${box.site.slice(0, 20)}`;
+          expect(box.insideLink, what).toBe(true);
+          expect(box.left, what).toBeGreaterThanOrEqual(0);
+          expect(box.right, what).toBeLessThanOrEqual(view);
+          // On one line, unless the site alone is longer than the line: then it fills the line and wraps inside its box.
+          const oneLine = box.height < box.line * 1.5;
+          expect(oneLine || box.width >= box.lineWidth - 1, `${what}: ${box.width} of ${box.lineWidth}`).toBe(true);
+          if (box.site === LONG_SITE && mode === "320 px") expect(oneLine, what).toBe(false);
+          // After the words: beside their last line, or on the next.
+          expect(box.left >= box.wordsRight - 1 || box.top >= box.wordsBottom - 1, what).toBe(true);
+          expect(box.top, what).toBeGreaterThanOrEqual(box.wordsTop - 2);
+          // Right-to-left words never reorder it; it reads left to right.
+          expect([box.bidi, box.direction], what).toEqual(["isolate", "ltr"]);
+          expect(box.border, what).toBe("solid true");
+          expect(box.sepHidden, what).toBe(true);
+        }
+      };
+      const axe = async (mode: string) => {
+        const result = await new AxeBuilder({ page })
+          .include("main")
+          .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"])
+          .analyze();
+        expect(result.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target).join(", ")}`), mode).toEqual([]);
+      };
+
+      await check("320 px");
+      await axe("320 px");
+
+      await page.emulateMedia({ forcedColors: "active" });
+      await check("forced colours");
+      await page.emulateMedia({ forcedColors: "none" });
+
+      // The platform's own high contrast and large text (125 %).
+      await page.evaluate(() => {
+        document.documentElement.dataset.contrast = "true";
+        document.documentElement.dataset.fontSize = "xl";
+      });
+      await check("high contrast, large text");
+      await axe("high contrast, large text");
+      await page.evaluate(() => {
+        delete document.documentElement.dataset.contrast;
+        delete document.documentElement.dataset.fontSize;
+      });
+
+      // Text zoomed 200 % as well.
+      await page.evaluate(() => (document.documentElement.style.fontSize = "200%"));
+      await check("text 200 %", { page: false });
+    } finally {
+      await context.close();
+    }
   });
 });
