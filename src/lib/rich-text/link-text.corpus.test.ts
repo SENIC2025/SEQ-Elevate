@@ -1,6 +1,5 @@
 import { describe, it, expect } from "vitest";
 import { linkTextProblem } from "./link-text";
-import { sanitizeRichText } from "./sanitize";
 import corpus from "./link-text.corpus.json";
 
 /*
@@ -19,7 +18,9 @@ import corpus from "./link-text.corpus.json";
  *   this repository, which keeps no list of them.
  *
  * A change to the rule that changes any answer here shows up as a diff of
- * this file's rows, never silently.
+ * this file's rows, never silently. The rule alone is asked here, so the
+ * same test holds on every branch; where the sanitizer keeps links (Part
+ * A), its own test saves the same rows.
  */
 
 type Honest = { text: string; href: string; answer: "misleading" | null; shows?: string };
@@ -44,14 +45,6 @@ describe("the honest writing corpus", () => {
     const differ = honest.filter((row) => linkTextProblem(row.text, row.href) !== row.answer);
     expect(differ.map((row) => `${JSON.stringify(row.text)} over ${row.href}: ${row.answer ?? "accepted"}`)).toEqual([]);
   });
-
-  it("keeps each accepted text's link on save, and drops each refused one", () => {
-    for (const row of honest) {
-      const rich = { v: 2, doc: { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: row.text, marks: [{ type: "link", attrs: { href: row.href } }] }] }] } };
-      const dropped = sanitizeRichText(rich).issues.includes("dropped-link");
-      expect(dropped, `${row.text} over ${row.href}`).toBe(row.answer === "misleading");
-    }
-  });
 });
 
 describe("the refused phishing probes", () => {
@@ -59,12 +52,5 @@ describe("the refused phishing probes", () => {
     expect(refusedHostile.length).toBe(563);
     const accepted = refusedHostile.filter(([text, href]) => linkTextProblem(text, href) !== "misleading");
     expect(accepted.map(([text, href]) => `${JSON.stringify(text)} over ${href}`)).toEqual([]);
-  });
-
-  it("lose their link on save", () => {
-    for (const [text, href] of refusedHostile) {
-      const rich = { v: 2, doc: { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text, marks: [{ type: "link", attrs: { href } }] }] }] } };
-      expect(sanitizeRichText(rich).issues, `${text} over ${href}`).toContain("dropped-link");
-    }
   });
 });
