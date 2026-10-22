@@ -393,6 +393,30 @@ describe("linkTextProblem", () => {
     for (const text of ["x.com", "X.com", "t.co", "Paypal.com", "PAYPAL.COM", "PayPal.COM", "www.Bank.example", "Booking.com", "Bank.Example/Login"]) {
       expect(linkTextProblem(text, EVIL), JSON.stringify(text)).toBe("misleading");
     }
+    // A title and its feminine ending, as Austrian usage writes them, raised or not.
+    const SCHOOL = "https://www.schule.example.at/team";
+    for (const text of [
+      "Dir.in Mag.a Huber",
+      "Bgm.in Maria Muster",
+      "Doz.in Muster",
+      "StR.in",
+      "Dir.ⁱⁿ Mag.ª Huber",
+      "Bgm.ⁱⁿ Maria Muster",
+      "Vzbgm.ⁱⁿ Muster",
+      "OStR.ⁱⁿ Mag.ª Huber",
+      "DDr.ⁱⁿ Muster",
+      "HR.ⁱⁿ Dr.ⁱⁿ Muster",
+      "BEd.ⁱⁿ Muster",
+      "GR.ⁱⁿ",
+      "LAbg.ⁱⁿ",
+      "Abg.ⁱⁿ z. NR Muster",
+    ]) {
+      expect(linkTextProblem(text, SCHOOL), JSON.stringify(text)).toBeNull();
+    }
+    expect(linkTextProblem("E-Mail an Dir.ⁱⁿ Huber", "mailto:direktion@schule.example.at")).toBeNull();
+    for (const text of ["Amazon.in", "paypal.in", "dir.in", "Dir.example.com/login", "HR.com", "GR.de", "Prim.com", "Doz.at/login"]) {
+      expect(linkTextProblem(text, EVIL), JSON.stringify(text)).toBe("misleading");
+    }
   });
 
   it("reads a file's name that ends in a top-level domain as a host (it fails safe)", () => {
@@ -519,7 +543,32 @@ describe("linkTextProblem", () => {
     }
     expect(linkTextProblem("support@paypal.ⅽom", "mailto:support@evil.example")).toBe("misleading");
     expect(linkTextProblem("paypal.ⅽom", "https://www.paypal.com/")).toBeNull();
-    for (const text of ["Ludwig Ⅻ.", "Kapitel Ⅲ.2", "Teil Ⅱ"]) expect(linkTextProblem(text, EVIL), text).toBeNull();
+    // As a name's last letter too (ⅼ U+217C, ⅰ U+2170, ⅴ U+2174, Ⅼ U+216C), and a raised letter so.
+    for (const text of [
+      "example.nⅼ",
+      "example.nⅼ/login",
+      "www.example.nⅼ",
+      "example.nⅼ:443",
+      "example.aⅰ",
+      "example.goⅴ",
+      "EXAMPLE.NⅬ",
+      "rabobank.nⅼ",
+      "rabobank.nⅼ/login",
+      "www.rabobank.nⅼ/login",
+      "www.mbank.pⅼ",
+      "rabobank.nⅼ:443",
+      "(digid.nⅼ)",
+      "Log in at irs.goⅴ to confirm",
+      "RABOBANK.NⅬ",
+      "paypal.cᵒᵐ",
+      "sparkasse.dᵉ",
+    ]) {
+      expect(linkTextProblem(text, EVIL), JSON.stringify(text)).toBe("misleading");
+    }
+    expect(linkTextProblem("info@example.nⅼ", "mailto:info@evil.example")).toBe("misleading");
+    expect(linkTextProblem("rabobank.nⅼ", "https://www.rabobank.nl/")).toBeNull();
+    expect(linkTextProblem("senic.org¹", "https://senic.org/")).toBeNull();
+    for (const text of ["Ludwig Ⅻ.", "Kapitel Ⅲ.2", "Teil Ⅱ", "Louis.ⅩⅣ", "Mag.ª Huber"]) expect(linkTextProblem(text, EVIL), text).toBeNull();
   });
 
   it("drops a mark that follows no letter or digit, at a name's start or a label's", () => {
@@ -572,6 +621,36 @@ describe("linkTextProblem", () => {
       expect(linkTextProblem(text, EVIL), text).toBe("misleading");
     }
     expect(linkTextProblem("paypal.com-login.evil.example", "https://paypal.com-login.evil.example/")).toBeNull();
+  });
+
+  it("a label that starts with a top-level domain and a hyphen shows that name", () => {
+    for (const text of ["paypal.com-login", "PayPal.com-Login", "Log in at paypal.com-secure to confirm", "amazon.de-bestellung", "www.paypal.com-login/"]) {
+      expect(linkTextProblem(text, EVIL), text).toBe("misleading");
+    }
+    expect(linkTextProblem("Booking.com-Konto", "https://www.booking.com/")).toBeNull();
+    expect(linkTextProblem("ams.at-Jobbörse", "https://jobs.ams.at/")).toBeNull();
+    for (const text of ["bzw.Online-Kurs", "1.IT-Sicherheit", "e.V.-Mitglied"]) expect(linkTextProblem(text, "https://uni.example/"), text).toBeNull();
+  });
+
+  // The URL parsers of the server (Node) and the browsers differ at the
+  // edges: the same text gets the same answer in the editor and on the server.
+  it("reads a name the URL parser refuses as written, when it ends in a top-level domain", () => {
+    for (const text of ["xn--a.paypal.com", "Log in at xn--a.paypal.com", "https://xn--a.paypal.com/login", "Write to help@xn--a.paypal.com"]) {
+      expect(linkTextProblem(text, EVIL), text).toBe("misleading");
+    }
+    expect(linkTextProblem("xn--a.paypal.com", "https://www.paypal.com/")).toBeNull();
+    expect(linkTextProblem("xn--abc-.paypal.com", "https://www.paypal.com/")).toBeNull();
+  });
+
+  it("reads a character Unicode 16 doesn't assign (a newer browser may know it) as a space and as nothing", () => {
+    // U+1AD0, a combining mark of Unicode 17; U+16FF4, a number letter of
+    // Unicode 17; U+0378, unassigned.
+    for (const text of ["paypal.᫐com", "paypal.co\u{16FF4}m", "paypal\u{16FF4}.com", "paypal.com\u{16FF4}", "pay͸pal.com", "https://paypal.co\u{16FF4}m/login"]) {
+      expect(linkTextProblem(text, EVIL), JSON.stringify(text)).toBe("misleading");
+    }
+    expect(linkTextProblem("paypal.com\u{16FF4}", "https://www.paypal.com/")).toBeNull();
+    expect(linkTextProblem("Studie\u{16FF4}", EVIL)).toBeNull();
+    expect(linkTextProblem("\u{16FF4}", EVIL)).toBeNull();
   });
 
   it("reads look-alike letters in every label of a name written in Latin letters, or in look-alikes only", () => {
@@ -665,6 +744,8 @@ describe("linkTextProblem", () => {
     ["an email address of thousands of commas", (n: number) => `mailto:a@b${",".repeat(n - 11)}c`],
     ["an address of thousands of dots", (n: number) => `https://a${".".repeat(n - 10)}b`],
     ["a name of thousands of hyphens", (n: number) => `a${"-".repeat(n - 2)}a`],
+    ["thousands of characters Unicode 16 doesn't assign", (n: number) => "a.\u{16FF4}".repeat(Math.floor(n / 4))],
+    ["thousands of names the URL parser refuses", (n: number) => "xn--a.com ".repeat(Math.floor(n / 10))],
   ])("reads %s in time proportional to its length", (_, make) => {
     const time = (texts: string[]) => {
       let best = Infinity;
