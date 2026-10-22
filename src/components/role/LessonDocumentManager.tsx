@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useLocale } from "next-intl";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -104,6 +105,8 @@ export function LessonDocumentManager({
   const [docs, setDocs] = React.useState<LessonDocumentRef[]>(
     initialDocuments ?? []
   );
+  // The page's language: a document's name keeps it (see the render).
+  const pageLang = useLocale();
   const upload = useBlobUpload(DOCUMENT_UPLOAD);
   const [attach, setAttach] = React.useState<AttachState>({ phase: "idle" });
   const [listError, setListError] = React.useState("");
@@ -295,8 +298,12 @@ export function LessonDocumentManager({
     );
   }
 
+  // Its own words are English on every locale's page: marked lang="en"
+  // (WCAG 3.1.2). A document's name is in a language no one has recorded,
+  // so it keeps the page's, as the lesson's read view and learners' pages
+  // show it.
   return (
-    <Card className={cn(embedded && "shadow-none")}>
+    <Card lang="en" className={cn(embedded && "shadow-none")}>
       <CardContent className="p-5">
         <div className="flex items-center gap-2 mb-3">
           <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[var(--accent)]/10 text-[var(--accent)]">
@@ -388,6 +395,7 @@ export function LessonDocumentManager({
                       href={d.url}
                       target="_blank"
                       rel="noopener noreferrer"
+                      lang={pageLang}
                       className={`min-w-0 flex-1 truncate hover:underline ${
                         d.published ? "" : "text-[var(--muted-foreground)]"
                       }`}

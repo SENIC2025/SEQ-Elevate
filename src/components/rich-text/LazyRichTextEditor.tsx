@@ -39,6 +39,7 @@ function EditorStarting() {
   return (
     <div
       aria-busy="true"
+      lang="en"
       className="min-h-[8.5rem] animate-pulse rounded-md border border-[var(--border)] bg-[var(--surface-muted)] px-3 py-2 text-xs text-[var(--muted-foreground)]"
     >
       Opening the text editor…
@@ -50,6 +51,7 @@ function EditorUnavailable() {
   return (
     <p
       role="alert"
+      lang="en"
       className="rounded-md border border-[var(--danger)] bg-[var(--danger)]/10 px-3 py-2 text-sm"
     >
       The text editor couldn&rsquo;t load. Check your connection, then reload

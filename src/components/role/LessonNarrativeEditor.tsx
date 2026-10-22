@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -193,6 +193,9 @@ export function LessonNarrativeEditor({
   const blocksOnly = fields === "blocks";
   const tBlocks = useTranslations("lessonBlocks");
   const tLanguage = useTranslations("courseManager.languageName");
+  // The page's language, for the translated words inside the lesson text's
+  // English editor (below).
+  const pageLang = useLocale();
   // In the menu language for added content, English otherwise (see LANGUAGE).
   const languageName = (l: Locale) => (blocksOnly ? tLanguage(l) : LANGUAGE[l]);
   const lang = LANGUAGE[locale];
@@ -493,8 +496,13 @@ export function LessonNarrativeEditor({
     </Badge>
   );
 
+  // The lesson's main text (not blocks mode) keeps Release 0's English
+  // words on every locale's page: they are marked lang="en" (WCAG 3.1.2).
+  // In blocks mode the words are the page's own. Either way the text being
+  // written is marked with its language (contentLang), and BlockList marks
+  // its own English words.
   const body = (
-    <section aria-labelledby={`${ids}-h`}>
+    <section aria-labelledby={`${ids}-h`} lang={blocksOnly ? undefined : "en"}>
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[var(--accent)]/10 text-[var(--accent)]">
           <PenSquare className="h-5 w-5" aria-hidden />
@@ -547,6 +555,7 @@ export function LessonNarrativeEditor({
             <input
               id={`${ids}-title`}
               value={title}
+              lang={contentLang}
               maxLength={200}
               onChange={(e) => {
                 setTitle(e.target.value);
@@ -570,6 +579,7 @@ export function LessonNarrativeEditor({
                 rich={intro.rich}
                 text={intro.text}
                 variant="reflection-intro"
+                lang={contentLang}
                 labelledBy={`${ids}-intro`}
                 onChange={(rich, text) => {
                   setIntro({ text, rich });
@@ -588,6 +598,7 @@ export function LessonNarrativeEditor({
               <input
                 id={`${ids}-subtitle`}
                 value={subtitle}
+                lang={contentLang}
                 maxLength={200}
                 aria-describedby={`${ids}-subtitle-hint`}
                 onChange={(e) => {
@@ -609,7 +620,7 @@ export function LessonNarrativeEditor({
 
       {reflection ? (
         promptsNote ? (
-          <p className="mt-4 rounded-md bg-[var(--surface-muted)] px-3 py-2 text-sm">
+          <p lang={pageLang} className="mt-4 rounded-md bg-[var(--surface-muted)] px-3 py-2 text-sm">
             {promptsNote}
           </p>
         ) : prompts.length ? (
@@ -620,7 +631,7 @@ export function LessonNarrativeEditor({
             <p className="text-xs text-[var(--muted-foreground)]">
               The same for every course, so they can&rsquo;t be changed here.
             </p>
-            <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm">
+            <ol lang={locale} className="mt-2 list-decimal space-y-1 pl-5 text-sm">
               {prompts.map((p, i) => (
                 <li key={i}>{p}</li>
               ))}
@@ -637,6 +648,7 @@ export function LessonNarrativeEditor({
               edited();
             }}
             resetKey={resetKey}
+            contentLang={contentLang}
           />
         </div>
       )}
