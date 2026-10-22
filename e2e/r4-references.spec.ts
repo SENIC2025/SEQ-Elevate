@@ -55,7 +55,8 @@ import de from "../src/messages/de.json";
  *           language with an unsaved list asks first; a colleague's save
  *           in between is never overwritten (in the editor, and two saves
  *           sent at once); a built-in course has no editor, and a direct
- *           save is refused
+ *           save is refused; the editor advises shortening a list over a
+ *           limit, and offers no indent, which the list's layout sets
  *   10.5    every export of course-references.ts refuses the non-editors
  *           and changes nothing (the references row included); bad
  *           arguments are refused for editors and partner admins; editors,
@@ -290,6 +291,7 @@ const SLUGS = {
   word: `e2e-r4r-word-${RUN}`,
   notLive: `e2e-r4r-notlive-${RUN}`,
   draftWrite: `e2e-r4r-draftw-${RUN}`,
+  limits: `e2e-r4r-limits-${RUN}`,
 };
 /** Published unless said otherwise; German and Greek not switched on. */
 const PLAIN = [
@@ -303,6 +305,7 @@ const PLAIN = [
   SLUGS.word,
   SLUGS.notLive,
   SLUGS.draftWrite,
+  SLUGS.limits,
 ];
 /** A created course with one lesson of its own and no list. */
 const plainCourse = (slug: string) =>
@@ -512,12 +515,12 @@ describe("Release 4: references & bibliography, part 1 (spec 5, D109)", () => {
 
     await region.getByRole("button", { name: en.courseReading.references.save }).click();
     await expect(statusOf(region)).toHaveText(SAVED_LIVE);
-    // Word's half-inch margin arrives as an indent step on the entries after the first.
+    // Word's half-inch margin isn't kept as an indent step: the list's layout hangs every entry alike.
     const stored = (await bibliographyOf((await courseIdOf(SLUGS.word))!)) as {
       locales: { en: { rich: { doc: { content: { attrs?: { indent?: number } }[] } } } };
     };
     const indents = stored.locales.en.rich.doc.content.map((b) => b.attrs?.indent ?? 0);
-    expect(indents.some((i) => i >= 1), `indent steps as pasted: ${JSON.stringify(indents)}`).toBe(true);
+    expect(indents, "no indent step is kept from the paste").toEqual(WORD_ENTRIES.map(() => 0));
 
     const reader = await as(browser, learner);
     try {
@@ -528,6 +531,35 @@ describe("Release 4: references & bibliography, part 1 (spec 5, D109)", () => {
     } finally {
       await reader.context.close();
     }
+  });
+
+  test("R4-E12: the list's editor offers no indent: every entry hangs alike, by the list's layout", async ({ page, context }) => {
+    await signIn(context, editor.sessionToken);
+    const { region, box } = await referencesEditor(page, SLUGS.limits);
+    const toolbar = region.getByRole("toolbar", { name: "References formatting" });
+    await expect(toolbar.getByRole("button", { name: /^italic$/i })).toBeVisible();
+    await expect(toolbar.getByRole("button", { name: /^bulleted list$/i })).toBeVisible();
+    await expect(toolbar.getByRole("button", { name: /indent/i })).toHaveCount(0);
+    // Nor by its shortcut: Ctrl+] (⌘] on a Mac) leaves an entry as it is.
+    await box.click();
+    await page.keyboard.type("Author, A. A. (2020). Title of the work. Publisher.");
+    await page.keyboard.press("ControlOrMeta+]");
+    await page.keyboard.press("End");
+    await page.keyboard.type(" Indented?");
+    await expect(box.locator(":scope > p")).toHaveCount(1);
+    await expect(box.locator(":scope > p").first()).toHaveText("Author, A. A. (2020). Title of the work. Publisher. Indented?");
+    await expect(box.locator(":scope > p").first()).not.toHaveAttribute("style", /padding/);
+    expect(await hanging(box.locator(":scope > p").first())).toEqual({ indent: -2, padding: 2 });
+  });
+
+  test("R4-E12: the list's editor advises shortening a list over a limit, as the list's save does", async ({ page, context }) => {
+    await signIn(context, editor.sessionToken);
+    const { region, box } = await referencesEditor(page, SLUGS.limits);
+    await box.click();
+    await page.keyboard.insertText(`Author, A. A. (2020). ${"x".repeat(10_000)}`);
+    const problem = region.getByRole("alert");
+    await expect(problem).toHaveText("The references list is too long — at most 10,000 characters. Shorten the list.");
+    await expect(problem).not.toContainText("block");
   });
 
   test("R4-E12: the editor says when learners get a saved list: not before its language is switched on, nor on a draft", async ({
