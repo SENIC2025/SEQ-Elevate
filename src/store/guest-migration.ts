@@ -26,12 +26,7 @@ import { hasCourseProgress, storedGuestState } from "./progress-merge";
 import { CLAIM_LIMITS, type GuestClaim, type GuestText } from "@/lib/guest-claim";
 import type { CompCardInput } from "@/app/actions/learner";
 import type { Locale } from "@/lib/cms/types";
-import {
-  COMP_CARD_BLANK_CONFIDENCE,
-  COMP_CARD_FIELDS,
-  COMP_CARD_TEXT_MAX,
-  type CompCardField,
-} from "@/lib/comp-card-visibility";
+import { COMP_CARD_BLANK_CONFIDENCE, COMP_CARD_FIELDS, COMP_CARD_TEXT_MAX } from "@/lib/comp-card-visibility";
 import { EMPTY_PROGRESS, patchSince } from "@/lib/learner-progress/patch";
 
 /**
@@ -59,11 +54,6 @@ export interface GuestWork {
   /** A Comp Card filled in. */
   compCard: boolean;
   /**
-   * Its texts over COMP_CARD_TEXT_MAX, in the card's order: they can't be
-   * added as they are, and are offered to be shortened (GuestWorkPrompt).
-   */
-  cardTooLong: { field: CompCardField; text: string }[];
-  /**
    * Every answer written in the course's reflections, in order, then every
    * Comp Card answer: what can be shortened on the offer when the work is
    * too big to add (GuestWorkPrompt).
@@ -90,12 +80,6 @@ export function guestWorkOf(guest: DemoState): GuestWork | null {
   const card = guest.compCard;
   const compCard = !!card.updatedAt && COMP_CARD_FIELDS.some((f) => answered(card[f]));
   if (!inCourse && !compCard && !(guest.badges ?? []).length) return null;
-  const cardTooLong = compCard
-    ? COMP_CARD_FIELDS.filter((f) => answered(card[f]) && card[f].length > COMP_CARD_TEXT_MAX).map((field) => ({
-        field,
-        text: card[field],
-      }))
-    : [];
   const reflections = inCourse
     ? [course.reflection.p1, course.reflection.p2, course.reflection.p3].filter(answered).length +
       Object.values(course.responses).filter(
@@ -112,7 +96,6 @@ export function guestWorkOf(guest: DemoState): GuestWork | null {
         ]
       : [],
     compCard,
-    cardTooLong,
     texts,
     tooLong: texts.filter((t) => t.text.length > t.max),
     reflections,

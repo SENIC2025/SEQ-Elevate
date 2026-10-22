@@ -76,7 +76,6 @@ describe("guestWorkOf: what a guest store holds, offered after sign-in (spec 5.5
     expect(work).toEqual({
       courses: [{ title: "Workplace conflict", locale: course.courseLocale ?? null }],
       compCard: true,
-      cardTooLong: [],
       texts: [
         { ref: { part: "course", key: "reflection/main", prompt: "p1" }, text: "One", max: 5000, n: 1 },
         { ref: { part: "course", key: "reflection/main", prompt: "p3" }, text: "Three", max: 5000, n: 2 },
@@ -101,7 +100,6 @@ describe("guestWorkOf: what a guest store holds, offered after sign-in (spec 5.5
     expect(guestWorkOf({ ...empty, compCard: card })).toMatchObject({
       courses: [],
       compCard: true,
-      cardTooLong: [],
       tooLong: [],
       reflections: 0,
       badges: 0,
@@ -109,7 +107,6 @@ describe("guestWorkOf: what a guest store holds, offered after sign-in (spec 5.5
     expect(guestWorkOf({ ...empty, badges: ["voice-without-edges", "listening-first"] })).toEqual({
       courses: [],
       compCard: false,
-      cardTooLong: [],
       texts: [],
       tooLong: [],
       reflections: 0,

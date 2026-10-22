@@ -4,7 +4,8 @@ import * as React from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { COMP_CARD_FIELDS, COMP_CARD_TEXT_MAX, type CompCardField } from "@/lib/comp-card-visibility";
+import type { CompCardField } from "@/lib/comp-card-visibility";
+import type { GuestText } from "@/lib/guest-claim";
 import { useDemoState, type GuestWorkDone } from "@/store/demo-state";
 
 /**
@@ -27,11 +28,16 @@ import { useDemoState, type GuestWorkDone } from "@/store/demo-state";
  * A refusal says that nothing was added, and why: a text too long to add,
  * another account signed in on this browser, no answer back. Work gone
  * from the browser meanwhile (added or removed in another tab) is said too.
- * A Comp Card text longer than a card holds can't be added as it is (D80:
- * a longer text is refused, never cut): it is offered here to be
- * shortened, each in a labelled box with its length, and what is typed is
- * written to this browser's guest store at once (shortenGuestCard); the
- * next "Add" moves it.
+ * The offer says to add it before anything else is started in the account:
+ * a course the account has progress in, or a Comp Card of its own, keeps
+ * the account's, and the browser's can't be added then (D69, D80).
+ * A text too long to add — a Comp Card answer over 2,000 characters, a
+ * reflection answer over 5,000 — can't be added as it is (D80, D62.d:
+ * refused, never cut), and while there is one nothing is: each is offered
+ * here to be shortened, in a labelled box with its length, and what is
+ * typed is written to this browser's guest store at once
+ * (shortenGuestText); the next "Add" sends it. Work too big to add offers
+ * every answer it holds to be shortened the same way.
  * Nothing is shown when there is no such work (and never in the recorded
  * walk, which signs in with no guest store).
  *
@@ -45,15 +51,15 @@ export function GuestWorkPrompt() {
   const locale = useLocale();
   const tProfile = useTranslations("profile");
   const tCompCard = useTranslations("compCard");
-  const { guestWork, guestWorkDone, claimGuestWork, discardGuestWork, shortenGuestCard, signedInElsewhere } = useDemoState();
+  const { guestWork, guestWorkDone, claimGuestWork, discardGuestWork, shortenGuestText, signedInElsewhere } = useDemoState();
   const ids = React.useId();
   const [busy, setBusy] = React.useState(false);
   const done = React.useRef<HTMLParagraphElement>(null);
   // A choice made here (not in another tab): what became of it is shown.
   const [chosen, setChosen] = React.useState(false);
-  // Comp Card texts shortened here since the last choice: still shown once
-  // short enough, until "Add" moves them.
-  const [edited, setEdited] = React.useState<Partial<Record<CompCardField, string>>>({});
+  // Texts shortened here since the last choice, by where they are: still
+  // shown once short enough, until "Add" sends them.
+  const [edited, setEdited] = React.useState<Record<string, string>>({});
 
   React.useEffect(() => {
     if (guestWorkDone && chosen) done.current?.focus();
@@ -84,13 +90,17 @@ export function GuestWorkPrompt() {
   ) : guestWorkDone ? (
     <Outcome done={guestWorkDone} pageLocale={locale} />
   ) : null;
-  // The Comp Card texts too long to add, as the guest store holds them, and
-  // those shortened here meanwhile, in the card's order.
-  const tooLong = guestWork?.cardTooLong ?? [];
-  const shortening = COMP_CARD_FIELDS.flatMap((field) => {
-    const text = edited[field] ?? tooLong.find((l) => l.field === field)?.text;
-    return text === undefined ? [] : [{ field, text }];
-  });
+  // The texts to shorten, as the guest store holds them (or as shortened
+  // here meanwhile): those too long to add, or, for work too big to add,
+  // every answer it holds.
+  const tooBig = guestWorkDone?.kind === "tooLarge";
+  const shortening = ((tooBig ? guestWork?.texts : guestWork?.tooLong) ?? []).map((t) => ({
+    ...t,
+    key: keyOf(t.ref),
+    value: edited[keyOf(t.ref)] ?? t.text,
+  }));
+  const labelOf = (text: (typeof shortening)[number]) =>
+    text.ref.part === "compCard" ? fieldName(text.ref.field) : t("reflectionLabel", { n: text.n ?? 1 });
 
   return (
     <section aria-labelledby={`${ids}-title`} className="mx-auto max-w-6xl px-4 pt-6">
@@ -112,22 +122,24 @@ export function GuestWorkPrompt() {
                 pageLocale={locale}
               />
             </p>
+            <p className="mt-1 text-sm">{t("addFirst")}</p>
             {shortening.length ? (
               <div className="mt-3 space-y-3">
                 <p id={`${ids}-shorten`} className="text-sm">
-                  {t("shortenIntro", { count: shortening.length, max: COMP_CARD_TEXT_MAX })}
+                  {tooBig ? t("shortenLarge") : t("shortenIntro", { count: shortening.length })}
                 </p>
-                {shortening.map(({ field, text }) => (
+                {shortening.map((text, i) => (
                   <ShortenField
-                    key={field}
-                    id={`${ids}-${field}`}
+                    key={text.key}
+                    id={`${ids}-text-${i}`}
                     introId={`${ids}-shorten`}
-                    label={fieldName(field)}
-                    value={text}
+                    label={labelOf(text)}
+                    value={text.value}
+                    max={text.max}
                     readOnly={busy}
                     onChange={(value) => {
-                      setEdited((now) => ({ ...now, [field]: value }));
-                      shortenGuestCard(field, value);
+                      setEdited((now) => ({ ...now, [text.key]: value }));
+                      shortenGuestText(text.ref, value);
                     }}
                   />
                 ))}
@@ -176,6 +188,9 @@ export function GuestWorkPrompt() {
     </section>
   );
 }
+
+/** Where a text of the guest work is, as one string. */
+const keyOf = (ref: GuestText) => (ref.part === "compCard" ? `compCard/${ref.field}` : `${ref.key}#${ref.prompt}`);
 
 /** Each part's outcome, by its message (guestWork.*). */
 const COURSE_SAID = {
@@ -241,16 +256,17 @@ const FIELD_LABEL: Record<CompCardField, "fieldWentWell" | "fieldDifficult" | "f
 };
 
 /**
- * A Comp Card text too long to add, to be shortened: a labelled box, and
- * its length under it — how many characters too many, or that it is short
- * enough to add — read with the box. That it became short enough is said
- * once (a polite live region), not every character typed.
+ * A text of the guest work to be shortened: a labelled box, and its length
+ * under it — how many characters too many for its limit (`max`), or that
+ * it is short enough to add — read with the box. That it became short
+ * enough is said once (a polite live region), not every character typed.
  */
 function ShortenField({
   id,
   introId,
   label,
   value,
+  max,
   readOnly,
   onChange,
 }: {
@@ -258,11 +274,12 @@ function ShortenField({
   introId: string;
   label: string;
   value: string;
+  max: number;
   readOnly: boolean;
   onChange: (value: string) => void;
 }) {
   const t = useTranslations("guestWork");
-  const over = value.length - COMP_CARD_TEXT_MAX;
+  const over = value.length - max;
   return (
     <div>
       <label htmlFor={id} className="mb-1.5 block text-sm font-medium">
@@ -281,9 +298,7 @@ function ShortenField({
         id={`${id}-length`}
         className={over > 0 ? "mt-1 text-sm font-medium text-[var(--danger)]" : "mt-1 text-sm text-[var(--muted-foreground)]"}
       >
-        {over > 0
-          ? t("lengthOver", { count: value.length, over })
-          : t("lengthOk", { count: value.length, max: COMP_CARD_TEXT_MAX })}
+        {over > 0 ? t("lengthOver", { count: value.length, over, max }) : t("lengthOk", { count: value.length, max })}
       </p>
       {/* Polite, and not a status: the offer's one status is what became of the work. */}
       <span aria-live="polite" className="sr-only">

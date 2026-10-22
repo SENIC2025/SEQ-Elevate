@@ -15,8 +15,8 @@ import {
   awardBadgeAction,
   claimGuestWork as claimGuestWorkAction,
 } from "@/app/actions/learner";
-import { COMP_CARD_FIELDS, type CompCardField, type Sharing } from "@/lib/comp-card-visibility";
-import type { ClaimCardOutcome, ClaimCourseOutcome, GuestClaimResult } from "@/lib/guest-claim";
+import { COMP_CARD_FIELDS, type Sharing } from "@/lib/comp-card-visibility";
+import type { ClaimCardOutcome, ClaimCourseOutcome, GuestClaimResult, GuestText } from "@/lib/guest-claim";
 import type { Locale } from "@/lib/cms/types";
 import {
   answerQuestion,
@@ -47,7 +47,7 @@ import {
   mergeCompCardOnHydrate,
   storedGuestState,
 } from "./progress-merge";
-import { cardToSave, guestClaimOf, guestWorkOf, storeAfterClaim, type GuestWork } from "./guest-migration";
+import { cardToSave, guestClaimOf, guestWorkOf, storeAfterClaim, withText, type GuestWork } from "./guest-migration";
 import { courseChanged, courseSaveRefs, saveCourse } from "./course-save";
 import { clearEveryOutbox, restoreOutbox } from "./outbox";
 import { pendingSave } from "./pending-save";
@@ -679,12 +679,13 @@ interface ContextValue {
   /** What became of it on this page (GuestWorkDone). */
   guestWorkDone: GuestWorkDone | null;
   /**
-   * A Comp Card text of the guest store, too long to add, as the learner
-   * shortens it in the offer (GuestWorkPrompt): written into the guest
-   * store at once, that field only, so it outlives a reload and the next
-   * "Add" moves it. False when the guest store isn't there to write to.
+   * A text of the guest store's work (a Comp Card answer, a reflection
+   * answer), too long to add, as the learner shortens it in the offer
+   * (GuestWorkPrompt): written into the guest store at once, that text
+   * only, so it outlives a reload and the next "Add" sends it. False when
+   * the guest store doesn't hold it.
    */
-  shortenGuestCard: (field: CompCardField, text: string) => boolean;
+  shortenGuestText: (ref: GuestText, text: string) => boolean;
   /** "Add it to my account": the guest store's work goes to the server once, and what is in the account leaves the browser. */
   claimGuestWork: () => Promise<void>;
   /** "Remove it from this browser": the guest store is removed; nothing is sent. */
@@ -1417,17 +1418,15 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
     setGuestWorkDone({ kind: "removed" });
   }, []);
 
-  // A Comp Card text of the guest store too long to add, shortened in the
-  // offer: that field of the guest store, and its time, change; nothing
-  // else of it, and nothing is sent (the next "Add" moves it).
-  const shortenGuestCard = React.useCallback((field: CompCardField, text: string): boolean => {
+  // A text of the guest store too long to add, shortened in the offer: that
+  // text of the guest store changes (a Comp Card answer with its time);
+  // nothing else of it, and nothing is sent (the next "Add" sends it).
+  const shortenGuestText = React.useCallback((ref: GuestText, text: string): boolean => {
     try {
       const raw = window.localStorage.getItem(STORAGE_KEY);
-      if (raw === null) return false;
-      const stored = JSON.parse(raw) as { compCard?: Record<string, unknown> } | null;
-      if (!stored || typeof stored.compCard?.[field] !== "string") return false;
-      stored.compCard = { ...stored.compCard, [field]: text, updatedAt: new Date().toISOString() };
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
+      const next = raw === null ? null : withText(raw, ref, text);
+      if (next === null) return false;
+      window.localStorage.setItem(STORAGE_KEY, next);
       return true;
     } catch {
       return false;
@@ -1495,7 +1494,7 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
       profileIncomplete,
       guestWork,
       guestWorkDone,
-      shortenGuestCard,
+      shortenGuestText,
       claimGuestWork,
       discardGuestWork,
       clearGuestWork,
@@ -1510,7 +1509,7 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
       profileIncomplete,
       guestWork,
       guestWorkDone,
-      shortenGuestCard,
+      shortenGuestText,
       claimGuestWork,
       discardGuestWork,
       clearGuestWork,
@@ -1594,7 +1593,7 @@ const NOTHING_SAVED = {
   profileIncomplete: false,
   guestWork: null,
   guestWorkDone: null,
-  shortenGuestCard: () => false,
+  shortenGuestText: () => false,
   claimGuestWork: async () => {},
   discardGuestWork: () => {},
   clearGuestWork: () => {},

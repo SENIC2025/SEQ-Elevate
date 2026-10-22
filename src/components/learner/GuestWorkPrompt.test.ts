@@ -27,7 +27,7 @@ vi.mock("@/store/demo-state", () => ({
 const { GuestWorkPrompt } = await import("./GuestWorkPrompt");
 
 const offer = (courses: GuestWork["courses"], locale: "en" | "de" | "el") => {
-  work = { courses, compCard: false, cardTooLong: [], texts: [], tooLong: [], reflections: 0, badges: 0 };
+  work = { courses, compCard: false, texts: [], tooLong: [], reflections: 0, badges: 0 };
   return renderIn(createElement(GuestWorkPrompt), locale);
 };
 
@@ -58,28 +58,57 @@ describe("GuestWorkPrompt: the courses' titles", () => {
 });
 
 /*
- * Release 3 polish (D80): a Comp Card text longer than a card holds can't
- * be added as it is; the offer shows it to be shortened, with its length,
- * and after an "Add" says which text stayed and what to do.
+ * Release 3 (D79, D80, D62.d): a text too long to add — a Comp Card answer
+ * over 2,000 characters, a reflection answer over 5,000 — can't be added as
+ * it is, and nothing is while there is one: the offer shows each to be
+ * shortened, with its length against its own limit. Work too big to add
+ * offers every answer it holds.
  */
-describe("GuestWorkPrompt: a Comp Card text too long to add", () => {
-  const long = "x".repeat(2001);
-  const offerLong = (locale: "en" | "de" | "el") => {
-    work = { courses: [], compCard: true, cardTooLong: [{ field: "difficult", text: long }], texts: [], tooLong: [], reflections: 0, badges: 0 };
+describe("GuestWorkPrompt: texts too long to add", () => {
+  const card = "x".repeat(2001);
+  const reflection = "y".repeat(5003);
+  const at = {
+    card: { ref: { part: "compCard", field: "difficult" }, text: card, max: 2000 },
+    reflection: { ref: { part: "course", key: "reflection/main", prompt: "p2" }, text: reflection, max: 5000, n: 2 },
+    short: { ref: { part: "course", key: "s-abcdefgh/p-abcdefgh", prompt: "q1" }, text: "fine", max: 5000, n: 3 },
+  } as const;
+  const offer = (locale: "en" | "de" | "el", outcome: GuestWorkDone | null = null) => {
+    work = {
+      courses: [{ title: "Workplace conflict", locale: "en" }],
+      compCard: true,
+      texts: [at.reflection, at.short, at.card],
+      tooLong: [at.reflection, at.card],
+      reflections: 2,
+      badges: 0,
+    };
+    done = outcome;
     const html = renderIn(createElement(GuestWorkPrompt), locale);
     work = null;
+    done = null;
     return html;
   };
 
-  it("offers it to be shortened: a box labelled with the card's own words, its text, and how many characters too many", () => {
-    const html = offerLong("en");
+  it("says to add it before anything else is started in the account", () => {
+    expect(textOf(offer("en"))).toContain(
+      "Add it before you start anything else in your account: where your account already has its own progress in the course, or its own Comp Card, it keeps its own, and this can't be added."
+    );
+    expect(textOf(offer("de"))).toContain("Füge es hinzu, bevor du in deinem Konto etwas anderes anfängst");
+    expect(textOf(offer("el"))).toContain("Πρόσθεσέ την πριν ξεκινήσεις οτιδήποτε άλλο στον λογαριασμό σου");
+  });
+
+  it("offers each to be shortened: a labelled box, its text, and how many characters too many for its limit", () => {
+    const html = offer("en");
     const text = textOf(html);
-    expect(text).toContain("This Comp Card answer is too long to add: an answer can have up to 2,000 characters.");
+    expect(text).toContain("These answers are too long to add. Shorten them here, then add your work to your account.");
     expect(text).toContain("What you change here is saved on this browser only.");
+    expect(html).toMatch(/<label for="([^"]+)"[^>]*>Reflection answer 2<\/label><textarea[^>]*id="\1"/);
     expect(html).toMatch(/<label for="([^"]+)"[^>]*>What was difficult<\/label><textarea[^>]*id="\1"/);
-    expect(html).toContain(`>${long}</textarea>`);
-    expect(html).toMatch(/aria-invalid="true"/);
-    expect(text).toContain("2,001 characters: 1 character too many.");
+    expect(html).toContain(`>${reflection}</textarea>`);
+    expect(html).toContain(`>${card}</textarea>`);
+    expect(html).not.toContain(">fine</textarea>");
+    expect(html.match(/aria-invalid="true"/g)).toHaveLength(2);
+    expect(text).toContain("5,003 of at most 5,000 characters: 3 characters too many.");
+    expect(text).toContain("2,001 of at most 2,000 characters: 1 character too many.");
     // One status in the offer, what became of the work; the length is said
     // politely once it fits, not as a second status.
     expect(html.match(/role="status"/g)).toHaveLength(1);
@@ -87,13 +116,22 @@ describe("GuestWorkPrompt: a Comp Card text too long to add", () => {
   });
 
   it("in German and Greek too", () => {
-    const de = textOf(offerLong("de"));
-    expect(de).toContain("Diese Antwort in der Comp Card ist zu lang zum Hinzufügen");
+    const de = textOf(offer("de"));
+    expect(de).toContain("Diese Antworten sind zu lang zum Hinzufügen");
+    expect(de).toContain("Reflexionsantwort 2");
     expect(de).toContain("Was schwer war");
-    expect(de).toContain("2.001 Zeichen: 1 Zeichen zu viel.");
-    const el = textOf(offerLong("el"));
-    expect(el).toContain("Αυτή η απάντηση στην Comp Card είναι πολύ μεγάλη για να προστεθεί");
-    expect(el).toContain("2.001 χαρακτήρες: 1 χαρακτήρας παραπάνω.");
+    expect(de).toContain("2.001 von höchstens 2.000 Zeichen: 1 Zeichen zu viel.");
+    const el = textOf(offer("el"));
+    expect(el).toContain("Αυτές οι απαντήσεις είναι πολύ μεγάλες για να προστεθούν");
+    expect(el).toContain("Απάντηση αναστοχασμού 2");
+    expect(el).toContain("2.001 από το πολύ 2.000 χαρακτήρες: 1 χαρακτήρας παραπάνω.");
+  });
+
+  it("work too big to add offers every answer it holds", () => {
+    const html = offer("en", { kind: "tooLarge" });
+    expect(textOf(html)).toContain("Shorten some of these answers here, then add your work to your account.");
+    expect(html).toMatch(/<label for="([^"]+)"[^>]*>Reflection answer 3<\/label><textarea[^>]*id="\1"[^>]*>fine<\/textarea>/);
+    expect(textOf(html)).toContain("4 of 5,000 characters: short enough to add.");
   });
 });
 
@@ -104,7 +142,7 @@ describe("GuestWorkPrompt: a Comp Card text too long to add", () => {
  */
 describe("GuestWorkPrompt: what became of the work", () => {
   const said = (outcome: GuestWorkDone, locale: "en" | "de" | "el" = "en") => {
-    work = { courses: [{ title: "Workplace conflict", locale: "en" }], compCard: true, cardTooLong: [], texts: [], tooLong: [], reflections: 0, badges: 1 };
+    work = { courses: [{ title: "Workplace conflict", locale: "en" }], compCard: true, texts: [], tooLong: [], reflections: 0, badges: 1 };
     done = outcome;
     const html = renderIn(createElement(GuestWorkPrompt), locale);
     work = null;
