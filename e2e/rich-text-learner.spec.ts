@@ -117,12 +117,13 @@ const BLOCKS: Json[] = [
       { type: "heading", attrs: { level: 1 }, content: [t("Hostile heading")] }
     ),
   },
-  // A format version this deployment doesn't know: its plain text shows.
+  // A format version this deployment doesn't know (2 holds links, Release
+  // 4's): its plain text shows.
   {
     kind: "paragraph",
     text: "Newer format fallback",
     rich: {
-      v: 2,
+      v: 3,
       doc: { type: "doc", content: [p(t("Only a newer version shows this"))] },
     },
   },
