@@ -39,26 +39,31 @@ import { addressProblem } from "@/lib/rich-text/sanitize";
  *   R4-E6  (guard) every hostile address and mark sent straight to
  *          saveLessonNarrative and savePartText is refused by name (extra
  *          attributes: stored without them), and nothing changes; so are
- *          links read with the text touching them (WORD_MARKS).
+ *          links read with the text touching them (WORD_MARKS). Each
+ *          misleading label is one D104 refuses as narrowed on 22 October
+ *          2026; the box after a link's words covers the rest (R4-E15).
  *   R4-E6c link text with a dot that shows no other site (ACCEPTED_LABELS:
  *          an abbreviation or a title, a Greek word, a person's email
- *          address, the link's registrable domain or its www. host) is
- *          saved with its link, through both actions.
+ *          address, the link's registrable domain or its www. host), and
+ *          link text D104 no longer refuses (NARROWED_LABELS: a file's name,
+ *          a name in capitals), is saved with its link, through both
+ *          actions.
  *   R4-E7  (guard) hostile links written straight into the database: no page
  *          draws an href outside https, http and mailto, nor one whose text
  *          shows another address; the text of every refused link shows; the
  *          editor opens them safely and names the links it left out. The
- *          ACCEPTED_LABELS are drawn as links.
+ *          ACCEPTED_LABELS and NARROWED_LABELS are drawn as links, the
+ *          latter with the site they open.
  *   R4-E7b editing a link's text into another address: named at once, Save
  *          refused by name, nothing stored without the link; the words go
  *          to Save beside the text, so an older save keeps them.
  *   R4-E8  international and percent-encoded addresses: the same href from
  *          the server and after hydration, no hydration warning, hosts the
- *          engines read differently never a link; link text the engines'
- *          URL parsers or Unicode versions read differently ("xn--a.paypal.com",
- *          a character of Unicode 17) is read alike: no link from the server
- *          nor after hydration; the address check answers alike in the
- *          browser (the Link form) and on the server.
+ *          engines read differently never a link; link text whose name the
+ *          engines' URL parsers read differently ("xn--a.paypal.com") is
+ *          read alike: no link from the server nor after hydration; the
+ *          address check answers alike in the browser (the Link form) and on
+ *          the server.
  *   R4-E15 the site each named link opens, in a box after its words and
  *          inside the link: heard as "words, site (opens in a new tab)",
  *          left out only when the words are the link's address, none for
@@ -174,8 +179,18 @@ const OWN_QUICK_LINKS: ReadonlySet<string> = new Set(
 const HOSTILE_SHAPES = [...HOSTILE_MARKS, ...RENDER_ONLY_MARKS, ...WORD_MARKS].map((row, i) =>
   richBlock(row.rich, `Shape ${i}`)
 );
+/**
+ * Link text D104 no longer refuses since the owner's decision of 22 October
+ * 2026 (the box after its words shows where the link goes): a file's name
+ * ending in a top-level domain, a name in capitals, of another site.
+ */
+const NARROWED_LABELS: readonly { label: string; href: string }[] = [
+  { label: "course-materials.zip", href: "https://example.org/files/course-materials.zip" },
+  { label: "README.md", href: "https://example.org/project/readme" },
+  { label: "ASP.NET Core", href: "https://example.org/aspnet/core" },
+];
 /** Link text with a dot that shows no other site, each its own paragraph: kept as a link. */
-const ACCEPTED_BLOCKS = ACCEPTED_LABELS.map(({ label, href }) => richBlock(linkedParagraph(href, label), `Read ${label} today.`));
+const ACCEPTED_BLOCKS = [...ACCEPTED_LABELS, ...NARROWED_LABELS].map(({ label, href }) => richBlock(linkedParagraph(href, label), `Read ${label} today.`));
 
 async function setNarrative(stageKey: string, value: unknown) {
   await prisma.lesson.updateMany({
@@ -517,13 +532,15 @@ describe("Release 4 — links in lesson text", () => {
     await expect(form.getByRole("alert")).toHaveText(
       "The text shows a different address than the link opens. Show the real address, or use a few words."
     );
-    // A file's name that ends in a top-level domain looks like a web address
-    // (refused all the same: it fails safe), and the form says so.
-    await text.fill("course-materials.zip");
+    // A bare name of another site, in lower case and ending in a common
+    // top-level domain, is an address too (D104): the browser reads it as
+    // the server does.
+    await text.fill("paypal.com");
     await address.fill("https://example.org/files/course-materials");
     await text.press("Enter");
+    await expect(text).toHaveAttribute("aria-invalid", "true");
     await expect(form.getByRole("alert")).toHaveText(
-      "The text looks like a web address, but the link opens another one. Use a few words instead, or show the real address."
+      "The text shows a different address than the link opens. Show the real address, or use a few words."
     );
 
     // The form, open and refusing, passes axe.
@@ -687,31 +704,20 @@ describe("Release 4 — links in lesson text", () => {
         /Block 1 \(Paragraph\): the link text “www\.bank\.example” shows a different address than the link opens\./,
       "two touching links that together show another address":
         /Block 1 \(Paragraph\): the link text “https:\/\/bank\.example” shows a different address than the link opens\./,
-      // Names read only by the top-level domain they end in look like a web address.
       "a label that shows another site through look-alike letters":
-        /Block 1 \(Paragraph\): the link text “paypal\.соm” looks like a web address, but the link opens another one\./,
+        /Block 1 \(Paragraph\): the link text “paypal\.соm” shows a different address than the link opens\./,
       "a label that shows another site as a host wrapped for emphasis":
-        /Block 1 \(Paragraph\): the link text “_paypal\.com_” looks like a web address, but the link opens another one\./,
-      "a label that shows another site in front of the link's":
-        /Block 1 \(Paragraph\): the link text “paypal\.com\.evil\.example” looks like a web address, but the link opens another one\./,
+        /Block 1 \(Paragraph\): the link text “_paypal\.com_” shows a different address than the link opens\./,
       "a label that shows another site after two slashes":
         /Block 1 \(Paragraph\): the link text “\/\/paypal\.com” shows a different address than the link opens\./,
       "a label that shows another site with a raised sign after it":
-        /Block 1 \(Paragraph\): the link text “PayPal\.com\u2122” looks like a web address, but the link opens another one\./,
-      "a label that shows another site through a hair space":
-        /Block 1 \(Paragraph\): the link text “paypal\u200A\.com” looks like a web address, but the link opens another one\./,
-      "a label that shows another site under Co. and a country":
-        /Block 1 \(Paragraph\): the link text “Amazon\.Co\.UK” looks like a web address, but the link opens another one\./,
-      "a label that shows another site in front of the link's, a hyphen after it":
-        /Block 1 \(Paragraph\): the link text “paypal\.com-login\.evil\.example” looks like a web address, but the link opens another one\./,
+        /Block 1 \(Paragraph\): the link text “PayPal\.com\u2122” shows a different address than the link opens\./,
       "a label that shows another site through look-alike letters, over its own address":
-        /Block 1 \(Paragraph\): the link text “p\u0430ypal\.com” looks like a web address, but the link opens another one\./,
-      "a label that shows another site as an email address's first part":
-        /Block 1 \(Paragraph\): the link text “paypal\.com@evil\.example” shows a different address than the link opens\./,
+        /Block 1 \(Paragraph\): the link text “p\u0430ypal\.com” shows a different address than the link opens\./,
       "a label that shows another site through a Roman numeral letter":
-        /Block 1 \(Paragraph\): the link text “paypal\.ⅽom” looks like a web address, but the link opens another one\./,
+        /Block 1 \(Paragraph\): the link text “paypal\.ⅽom” shows a different address than the link opens\./,
       "a label that shows another site through a Roman numeral letter that ends it":
-        /Block 1 \(Paragraph\): the link text “rabobank\.n\u217C” looks like a web address, but the link opens another one\./,
+        /Block 1 \(Paragraph\): the link text “rabobank\.n\u217C” shows a different address than the link opens\./,
     };
     for (const row of WORD_MARKS) {
       named[row.name] = new RegExp(
@@ -747,7 +753,8 @@ describe("Release 4 — links in lesson text", () => {
       data: { parts: { v: 1, items: [{ id: "main", type: "main" }, parts.text({ de: "Nur Deutsch." }, PIECE)] } as unknown as Json },
     });
     const page = `/en/content/courses/${SLUG}`;
-    const accepted = ACCEPTED_LABELS.map(({ label, href }) => richBlock(linkedParagraph(href, label), `Read ${label} today.`));
+    const labels = [...ACCEPTED_LABELS, ...NARROWED_LABELS];
+    const accepted = labels.map(({ label, href }) => richBlock(linkedParagraph(href, label), `Read ${label} today.`));
     const textAnswer = await callAction(request, {
       as: editor,
       page,
@@ -757,8 +764,8 @@ describe("Release 4 — links in lesson text", () => {
     });
     expect(textAnswer.result, textAnswer.raw.slice(0, 300)).toMatchObject({ ok: true });
     const kept = await storedBlocks(SAVES);
-    expect(kept.map((block) => block.rich)).toEqual(ACCEPTED_LABELS.map(({ label, href }) => linkedParagraph(href, label)));
-    for (const [i, { href }] of ACCEPTED_LABELS.entries()) expect(kept[i].text, href).toContain(`(${href})`);
+    expect(kept.map((block) => block.rich)).toEqual(labels.map(({ label, href }) => linkedParagraph(href, label)));
+    for (const [i, { href }] of labels.entries()) expect(kept[i].text, href).toContain(`(${href})`);
     const pieceAnswer = await callAction(request, {
       as: editor,
       page,
@@ -771,7 +778,7 @@ describe("Release 4 — links in lesson text", () => {
       where: { projectId: PROJECT, courseSlug: SLUG, stageKey: PIECES },
       select: { parts: true },
     });
-    for (const { href } of ACCEPTED_LABELS) expect(JSON.stringify(piece.parts), href).toContain(`"attrs":{"href":"${href}"}`);
+    for (const { href } of labels) expect(JSON.stringify(piece.parts), href).toContain(`"attrs":{"href":"${href}"}`);
   });
 
   // A reflection lesson's introduction is saved by saveLessonNarrative, which
@@ -833,9 +840,12 @@ describe("Release 4 — links in lesson text", () => {
       for (let i = 0; i < HOSTILE_BLOCKS.length; i++) {
         await expect(scope.getByText(`the guide ${i}`, { exact: false }).first(), `${name}: row ${i}`).toBeVisible();
       }
-      // Link text with a dot that shows no other site is drawn as a link.
-      for (const { label, href } of ACCEPTED_LABELS) {
+      // Link text with a dot that shows no other site is drawn as a link, with the site it opens.
+      for (const { label, href } of [...ACCEPTED_LABELS, ...NARROWED_LABELS]) {
         await expect(scope.locator(`a[href="${href}"]`, { hasText: label }).first(), `${name}: ${label}`).toBeVisible();
+      }
+      for (const { label, href } of NARROWED_LABELS) {
+        await expect(scope.locator(`a[href="${href}"]`, { hasText: label }).locator(".seq-link-site").first(), `${name}: ${label}`).toHaveText("example.org");
       }
       const hrefs = await scope.locator("a[href]").evaluateAll((links) => links.map((a) => a.getAttribute("href") ?? ""));
       for (const href of hrefs) {
@@ -933,11 +943,11 @@ describe("Release 4 — links in lesson text", () => {
       ["https://a\u1806b.example/", "xn--ab-h0o.example"],
       ["https://a.\u0661\u0662/", "a.xn--9hbc"],
     ] as const;
-    // Link text the server and the browser read through different URL parsers
-    // (Node refuses the punycode label "xn--a", Chrome keeps it) or Unicode
-    // versions (U+1AD0 and U+16FF4 are Unicode 17's, Chrome's and not Node 22's),
-    // over another site: no link from the server, nor after hydration.
-    const READ_ALIKE = ["xn--a.paypal.com", "paypal.\u1AD0com", "paypal.co\u{16FF4}m"];
+    // Link text over another site whose name the engines' URL parsers read
+    // differently (Node refuses the punycode label "xn--a", Chrome keeps it):
+    // D104 reads a name without parsing it, so neither the server nor the
+    // browser after hydration draws a link.
+    const READ_ALIKE = ["xn--a.paypal.com"];
     const OTHER_SITE = "https://evil.example/login";
     await setNarrative(
       EDITED,
