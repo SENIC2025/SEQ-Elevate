@@ -21,8 +21,9 @@ import {
 describe("the hostile link table", () => {
   it.each(HOSTILE_ADDRESSES.map((row) => [row.name, row] as const))("%s: refused for its reason", (_, row) => {
     const check = checkLinkHref(row.href, { ownFileHost: null });
-    if (row.reason === "own-file") expect(check).toMatchObject({ ok: true, ownFile: true });
-    else expect(check).toEqual({ ok: false, reason: row.reason });
+    // Compared without the address, so a failure on a huge row stays quick to show.
+    const seen = check.ok ? { ok: true, ownFile: check.ownFile } : check;
+    expect(seen).toEqual(row.reason === "own-file" ? { ok: true, ownFile: true } : { ok: false, reason: row.reason });
   });
 
   it("stores only addresses the check refuses, never our own file store's", () => {
