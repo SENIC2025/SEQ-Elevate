@@ -54,8 +54,11 @@ import { addressProblem } from "@/lib/rich-text/sanitize";
  *          to Save beside the text, so an older save keeps them.
  *   R4-E8  international and percent-encoded addresses: the same href from
  *          the server and after hydration, no hydration warning, hosts the
- *          engines read differently never a link; the address check answers
- *          alike in the browser (the Link form) and on the server.
+ *          engines read differently never a link; link text the engines'
+ *          URL parsers or Unicode versions read differently ("xn--a.paypal.com",
+ *          a character of Unicode 17) is read alike: no link from the server
+ *          nor after hydration; the address check answers alike in the
+ *          browser (the Link form) and on the server.
  * R4-E4 (pasting) is in rich-text-editor.spec.ts.
  *
  * Requires a real database (E2E_DB=1). Seeds a course of its own, removed
@@ -699,6 +702,8 @@ describe("Release 4 — links in lesson text", () => {
         /Block 1 \(Paragraph\): the link text “paypal\.com@evil\.example” shows a different address than the link opens\./,
       "a label that shows another site through a Roman numeral letter":
         /Block 1 \(Paragraph\): the link text “paypal\.ⅽom” looks like a web address, but the link opens another one\./,
+      "a label that shows another site through a Roman numeral letter that ends it":
+        /Block 1 \(Paragraph\): the link text “rabobank\.n\u217C” looks like a web address, but the link opens another one\./,
     };
     for (const row of WORD_MARKS) {
       named[row.name] = new RegExp(
@@ -920,6 +925,12 @@ describe("Release 4 — links in lesson text", () => {
       ["https://a\u1806b.example/", "xn--ab-h0o.example"],
       ["https://a.\u0661\u0662/", "a.xn--9hbc"],
     ] as const;
+    // Link text the server and the browser read through different URL parsers
+    // (Node refuses the punycode label "xn--a", Chrome keeps it) or Unicode
+    // versions (U+1AD0 and U+16FF4 are Unicode 17's, Chrome's and not Node 22's),
+    // over another site: no link from the server, nor after hydration.
+    const READ_ALIKE = ["xn--a.paypal.com", "paypal.\u1AD0com", "paypal.co\u{16FF4}m"];
+    const OTHER_SITE = "https://evil.example/login";
     await setNarrative(
       EDITED,
       narrative("R4 links lesson", [
@@ -928,6 +939,9 @@ describe("Release 4 — links in lesson text", () => {
         ),
         ...DIVERGENT.map(([href], i) =>
           richBlock(paragraphDoc([{ type: "text", text: `Divergent ${i}`, marks: [{ type: "link", attrs: { href } }] }]), `Divergent ${i}`)
+        ),
+        ...READ_ALIKE.map((text, i) =>
+          richBlock(paragraphDoc([{ type: "text", text: `Alike ${i}: ` }, { type: "text", text, marks: [{ type: "link", attrs: { href: OTHER_SITE } }] }]), `Alike ${i}: ${text}`)
         ),
         plain(`Typed: ${DIVERGENT.map(([href]) => href).join(" and ")} today.`),
       ])
@@ -955,6 +969,10 @@ describe("Release 4 — links in lesson text", () => {
       for (const href of [...htmlHrefs, ...after]) expect(href, host).not.toContain(host);
     }
     await expect(main(page).getByText("Divergent 4", { exact: true })).toBeVisible();
+    // Link text read alike: its words show, without the link, from the server and after hydration.
+    for (const [i, text] of READ_ALIKE.entries()) await expect(main(page).getByText(`Alike ${i}: ${text}`, { exact: true })).toBeVisible();
+    for (const href of [...htmlHrefs, ...after]) expect(href, "link text read alike").not.toContain("evil.example");
+    expect(await main(page).locator('a[href*="evil.example"]').count()).toBe(0);
     expect(warnings).toEqual([]);
 
     // The address check answers alike in the browser (the Link form's "Will
