@@ -172,10 +172,14 @@ describe("checkLinkForm", () => {
     expect(checkLinkForm({ ...values, title: "www.bpb.de", url: "https://www.bpb.de/" }).problems).toEqual({});
   });
 
-  it("says a title of names that end in a top-level domain looks like a web address, a file's name too (refused all the same)", () => {
-    const LOOKS_LIKE = "The title looks like a web address, but the link opens another one. Use a few words instead, or the real address.";
-    for (const title of ["course-materials.zip", "intro.mov", "paypal.com", "paypal.соm"]) {
-      expect(checkLinkForm({ ...values, title, url: "https://example.org/files/x" }).problems.title, title).toBe(LOOKS_LIKE);
+  it("names every title that shows another address one way, and keeps a file's name or a name in capitals (D104 as narrowed on 22 October 2026)", () => {
+    const MISLEADING = "The title shows a different address than the link opens. Use the real address, or a few words.";
+    for (const title of ["paypal.com", "paypal.соm", "Visit PayPal.com", "www.bank.example/login"]) {
+      expect(checkLinkForm({ ...values, title, url: "https://example.org/files/x" }).problems.title, title).toBe(MISLEADING);
+    }
+    // No address by its look: learners see the link's site beside the title.
+    for (const title of ["course-materials.zip", "intro.mov", "PAYPAL.COM", "Amazon.Co.UK"]) {
+      expect(checkLinkForm({ ...values, title, url: "https://example.org/files/x" }).problems, title).toEqual({});
     }
     // The link's own site, by its registrable domain, and an abbreviation are fine.
     expect(checkLinkForm({ ...values, title: "europa.eu", url: "https://ec.europa.eu/info" }).problems).toEqual({});
