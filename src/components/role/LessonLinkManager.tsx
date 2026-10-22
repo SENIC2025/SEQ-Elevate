@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { flushSync } from "react-dom";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { InlineConfirm } from "@/components/ui/inline-confirm";
@@ -12,11 +13,18 @@ import {
   setLessonLinkPublished,
   updateLessonLink,
 } from "@/app/actions/lesson-reading";
-import { LINK_LIMITS, linkPlace, type StaffLessonLink } from "@/lib/cms/lesson-links";
+import {
+  LINK_LIMITS,
+  cleanLinkLine,
+  linkPlace,
+  titleMisleads,
+  titleShowsNothing,
+  type StaffLessonLink,
+} from "@/lib/cms/lesson-links";
 import type { ItemLanguages } from "@/lib/cms/reading-types";
 import type { LessonDocumentRef, Locale } from "@/lib/cms/types";
 import { checkLinkHref, type LinkRefusal } from "@/lib/rich-text/link-url";
-import { linkTextProblem, toLinkInput } from "@/lib/rich-text/link-text";
+import { toLinkInput } from "@/lib/rich-text/link-text";
 import { ownFileHost } from "@/lib/rich-text/own-file-host";
 import { AlertTriangle, BookOpen, ChevronDown, ChevronUp, Eye, EyeOff, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 
@@ -66,14 +74,18 @@ export function addressMessage(reason: LinkRefusal | "own-file"): string {
 const MISLEADING_TITLE = "The title shows a different address than the link opens. Use the real address, or a few words.";
 const HTTP_WARNING = "This address isn't secure (http). Use https:// if the site offers it.";
 const UNUSABLE = "This address can't be used. Edit it or remove the link.";
+/** What screen readers hear after a staff list's link, as QuickLink says it (English, like this screen, D106). */
+const NEW_TAB = "(opens in a new tab)";
 const ADDED = "Added as a draft — learners can't see it until you choose “Show to learners”.";
 
 /**
  * The form's own check, before anything is sent: the server's rules (spec
- * 4.2), with what an author types completed first (toLinkInput: a bare
- * email address gains mailto:, a bare host https://, an Outlook safe link
- * or a Google redirect becomes its target). Returns the problems by field,
- * the address that will be stored, and whether it uses http.
+ * 4.2), on the title and description cleaned as the server cleans them
+ * (cleanLinkLine), with what an author types as the address completed
+ * first (toLinkInput: a bare email address gains mailto:, a bare host
+ * https://, an Outlook safe link or a Google redirect becomes its target).
+ * Returns the problems by field, the address that will be stored, and
+ * whether it uses http.
  */
 export function checkLinkForm(values: LinkFormValues): {
   problems: LinkFormProblems;
@@ -81,9 +93,9 @@ export function checkLinkForm(values: LinkFormValues): {
   insecure: boolean;
 } {
   const problems: LinkFormProblems = {};
-  const title = values.title.replace(/\s+/g, " ").trim();
-  if (!title) problems.title = "Give the link a title.";
-  else if (title.length > LINK_LIMITS.title) problems.title = `The title is too long (at most ${LINK_LIMITS.title} characters).`;
+  const title = cleanLinkLine(values.title, LINK_LIMITS.title);
+  if (title === null) problems.title = `The title is too long (at most ${LINK_LIMITS.title} characters).`;
+  else if (titleShowsNothing(title)) problems.title = "Give the link a title.";
 
   const check = checkLinkHref(toLinkInput(values.url), { ownFileHost: ownFileHost() });
   let href: string | null = null;
@@ -91,10 +103,10 @@ export function checkLinkForm(values: LinkFormValues): {
   else if (check.ownFile) problems.url = addressMessage("own-file");
   else {
     href = check.href;
-    if (!problems.title && linkTextProblem(title, href) === "misleading") problems.title = MISLEADING_TITLE;
+    if (!problems.title && title !== null && titleMisleads(title, href)) problems.title = MISLEADING_TITLE;
   }
 
-  if (values.description.replace(/\s+/g, " ").trim().length > LINK_LIMITS.description) {
+  if (cleanLinkLine(values.description, LINK_LIMITS.description) === null) {
     problems.description = `The description is too long (at most ${LINK_LIMITS.description} characters).`;
   }
   if (!values.languages.length) problems.languages = "Choose at least one language.";
@@ -162,6 +174,24 @@ export function linkHints(lesson: {
   return hints;
 }
 
+/** The controls of a link's row, as their ids name them. */
+export type RowControl = "up" | "down" | "edit" | "remove";
+
+/**
+ * Which arrow of a moved link keeps focus: the one just pressed, or the
+ * other at either end, where the one pressed is unavailable. `position` is
+ * where the link is now (from 0), of `count`.
+ */
+export function arrowAfterMove(position: number, count: number, dir: -1 | 1): "up" | "down" {
+  if (dir < 0) return position === 0 ? "down" : "up";
+  return position === count - 1 ? "up" : "down";
+}
+
+/** What the status line says after a move: where the link is now (from 1). */
+export function movedNotice(title: string, position: number, count: number): string {
+  return `Moved “${title}” to position ${position} of ${count}.`;
+}
+
 const EMPTY: LinkFormValues = { title: "", url: "", description: "", languages: ["en", "de", "el"] };
 const formOf = (link: StaffLessonLink): LinkFormValues => ({
   title: link.title,
@@ -218,9 +248,12 @@ export function LessonLinkManager({
   const [editing, setEditing] = React.useState<string | null>(null);
   const [removing, setRemoving] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
+  /** A change is running: a second press of any row's button does nothing (busy, without waiting for a render). */
+  const working = React.useRef(false);
   const [notice, setNotice] = React.useState("");
   const [listError, setListError] = React.useState("");
   const headingRef = React.useRef<HTMLHeadingElement>(null);
+  const idOf = React.useCallback((what: RowControl, linkId: string) => `${ids}-${what}-${linkId}`, [ids]);
   /**
    * Once a form closes, focus goes back to where it was opened from: the
    * row's Edit button, or "Add a link" (the heading when the page holds that
@@ -228,19 +261,35 @@ export function LessonLinkManager({
    */
   const focusAfterForm = (linkId?: string) =>
     requestAnimationFrame(() => {
-      const edit = linkId ? document.getElementById(`${ids}-edit-${linkId}`) : null;
+      const edit = linkId ? document.getElementById(idOf("edit", linkId)) : null;
       const add = addingProp === undefined ? document.getElementById(`${ids}-add`) : null;
       (edit ?? add ?? headingRef.current)?.focus();
     });
+  /**
+   * After a move, focus stays on the moved link's arrow where the link now
+   * is (arrowAfterMove), or goes to the heading when the link is gone. Only
+   * when focus was on that link's arrows or lost: never taken from where
+   * the keyboard went meanwhile.
+   */
+  const focusArrow = (list: readonly StaffLessonLink[], linkId: string, dir: -1 | 1) => {
+    const now = document.activeElement;
+    const mine = [idOf("up", linkId), idOf("down", linkId)];
+    if (now && now !== document.body && !mine.includes(now.id)) return;
+    const at = list.findIndex((x) => x.id === linkId);
+    const target = at < 0 ? null : document.getElementById(idOf(arrowAfterMove(at, list.length, dir), linkId));
+    (target ?? headingRef.current)?.focus();
+  };
   const report = React.useRef(onLinksChanged);
   React.useEffect(() => {
     report.current = onLinksChanged;
   });
 
+  /** Reads the list back and draws it at once (so focus can follow), then reports it up. */
   const reread = React.useCallback(async () => {
     const { links: fresh } = await getLessonLinks(courseSlug, stageKey);
-    setLinks(fresh);
+    flushSync(() => setLinks(fresh));
     report.current?.(fresh);
+    return fresh;
   }, [courseSlug, stageKey]);
 
   // The page handed the links over: no first load.
@@ -263,7 +312,19 @@ export function LessonLinkManager({
     };
   }, [seeded, courseSlug, stageKey]);
 
-  async function change(what: string, run: () => Promise<{ ok: boolean }>, done?: string) {
+  /**
+   * One change to the list, then the list read back; `done` goes to the
+   * status line once it is saved. While it runs, the rows' buttons say they
+   * are unavailable but keep focus (LinkRow), and a second change waits for
+   * none: it does nothing. Returns the list as read back, or null.
+   */
+  async function change(
+    what: string,
+    run: () => Promise<{ ok: boolean }>,
+    done?: string
+  ): Promise<StaffLessonLink[] | null> {
+    if (working.current) return null;
+    working.current = true;
     setBusy(true);
     setListError("");
     setNotice("");
@@ -274,21 +335,32 @@ export function LessonLinkManager({
       } else {
         setListError(`${what}: ${refusalMessage(answer as Exclude<ActionAnswer, { ok: true }>).text}`);
       }
-      await reread();
+      return await reread();
     } catch {
       setListError(`${what}: the connection was interrupted or the server ran into a problem. Try again.`);
+      return null;
     } finally {
+      working.current = false;
       setBusy(false);
     }
   }
 
+  /** Moves a link one place up or down; focus stays on its arrow, and the status line says where it went. */
   async function move(index: number, dir: -1 | 1) {
     const j = index + dir;
-    if (j < 0 || j >= links.length) return;
+    if (working.current || j < 0 || j >= links.length) return;
+    const moved = links[index];
     const next = [...links];
     [next[index], next[j]] = [next[j], next[index]];
-    setLinks(next);
-    await change("Couldn't save the new order", () => setLessonLinkOrder(courseSlug, stageKey, next.map((l) => l.id)));
+    flushSync(() => setLinks(next));
+    focusArrow(next, moved.id, dir);
+    const fresh = await change(
+      "Couldn't save the new order",
+      () => setLessonLinkOrder(courseSlug, stageKey, next.map((l) => l.id)),
+      movedNotice(moved.title, j + 1, next.length)
+    );
+    // Read back: refused, or changed by a colleague meanwhile, the link may sit elsewhere.
+    if (fresh) focusArrow(fresh, moved.id, dir);
   }
 
   return (
@@ -377,7 +449,7 @@ export function LessonLinkManager({
                   error={null}
                   onKeep={() => {
                     setRemoving(null);
-                    requestAnimationFrame(() => document.getElementById(`${ids}-remove-${l.id}`)?.focus());
+                    requestAnimationFrame(() => document.getElementById(idOf("remove", l.id))?.focus());
                   }}
                   onConfirm={async () => {
                     headingRef.current?.focus();
@@ -388,97 +460,27 @@ export function LessonLinkManager({
                   <p className="mt-1 text-xs">Learners will no longer see it.</p>
                 </InlineConfirm>
               ) : (
-                <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
-                  <div className="flex flex-col flex-shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => move(i, -1)}
-                      disabled={i === 0 || busy}
-                      aria-label={`Move “${l.title}” up`}
-                      className="text-[var(--muted-foreground)] hover:text-[var(--accent)] disabled:opacity-30"
-                    >
-                      <ChevronUp className="h-3.5 w-3.5" aria-hidden />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => move(i, 1)}
-                      disabled={i === links.length - 1 || busy}
-                      aria-label={`Move “${l.title}” down`}
-                      className="text-[var(--muted-foreground)] hover:text-[var(--accent)] disabled:opacity-30"
-                    >
-                      <ChevronDown className="h-3.5 w-3.5" aria-hidden />
-                    </button>
-                  </div>
-                  <div className="min-w-[10rem] flex-1">
-                    {l.unusable ? (
-                      <>
-                        <span className="font-medium">{l.title}</span>
-                        <p className="break-all text-xs text-[var(--muted-foreground)]">{l.url}</p>
-                        <p className="flex items-start gap-1 text-xs text-[var(--danger)]">
-                          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" aria-hidden />
-                          {UNUSABLE}
-                        </p>
-                      </>
-                    ) : (
-                      <>
-                        <a href={l.url} target="_blank" rel="noopener noreferrer" className="font-medium hover:underline">
-                          {l.title}
-                        </a>
-                        <p className="break-all text-xs text-[var(--muted-foreground)]">{linkPlace(l)}</p>
-                      </>
-                    )}
-                  </div>
-                  <div className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
-                    <Badge variant="muted" className="text-[10px]">
-                      {languagesBadge(l.languages)}
-                    </Badge>
-                    {l.published ? (
-                      <Badge variant="success" className="text-[10px]">
-                        Published
-                      </Badge>
-                    ) : (
-                      <Badge variant="muted" className="text-[10px]">
-                        Draft — hidden from learners
-                      </Badge>
-                    )}
-                    <button
-                      id={`${ids}-edit-${l.id}`}
-                      type="button"
-                      disabled={busy}
-                      onClick={() => setEditing(l.id)}
-                      aria-label={`Edit: ${l.title}`}
-                      className="inline-flex items-center gap-1 rounded-md border border-[var(--border)] px-2 py-1 text-xs hover:bg-[var(--surface-muted)]"
-                    >
-                      <Pencil className="h-3.5 w-3.5" aria-hidden />
-                      Edit
-                    </button>
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={() =>
-                        change(
-                          l.published ? `Couldn't hide “${l.title}” from learners` : `Couldn't show “${l.title}” to learners`,
-                          () => setLessonLinkPublished(l.id, !l.published)
-                        )
-                      }
-                      aria-label={l.published ? `Hide from learners: ${l.title}` : `Show to learners: ${l.title}`}
-                      className="inline-flex items-center gap-1 rounded-md border border-[var(--border)] px-2 py-1 text-xs hover:bg-[var(--surface-muted)]"
-                    >
-                      {l.published ? <EyeOff className="h-3.5 w-3.5" aria-hidden /> : <Eye className="h-3.5 w-3.5" aria-hidden />}
-                      {l.published ? "Hide from learners" : "Show to learners"}
-                    </button>
-                    <button
-                      id={`${ids}-remove-${l.id}`}
-                      type="button"
-                      disabled={busy}
-                      onClick={() => setRemoving(l.id)}
-                      aria-label={`Remove: ${l.title}`}
-                      className="rounded-md p-1 text-[var(--muted-foreground)] hover:text-[var(--danger)]"
-                    >
-                      <Trash2 className="h-4 w-4" aria-hidden />
-                    </button>
-                  </div>
-                </div>
+                <LinkRow
+                  link={l}
+                  index={i}
+                  count={links.length}
+                  busy={busy}
+                  idOf={idOf}
+                  onMove={(dir) => void move(i, dir)}
+                  onEdit={() => {
+                    if (!working.current) setEditing(l.id);
+                  }}
+                  onToggle={() =>
+                    void change(
+                      l.published ? `Couldn't hide “${l.title}” from learners` : `Couldn't show “${l.title}” to learners`,
+                      () => setLessonLinkPublished(l.id, !l.published),
+                      l.published ? `“${l.title}” is hidden from learners.` : `“${l.title}” is shown to learners.`
+                    )
+                  }
+                  onRemove={() => {
+                    if (!working.current) setRemoving(l.id);
+                  }}
+                />
               )}
             </li>
           ))}
@@ -495,6 +497,136 @@ export function LessonLinkManager({
         </p>
       ) : null}
     </section>
+  );
+}
+
+/**
+ * One link of the list as staff see it: the arrows that move it, its title
+ * (a link that opens in a new tab, and says so to screen readers; or, when
+ * its stored address can't be used, text with what to do), where it goes,
+ * its badges, Edit, Show to learners or Hide from learners, and Remove.
+ *
+ * While a change runs (`busy`) every button says it is unavailable
+ * (aria-disabled) and does nothing, but stays focusable, so focus stays
+ * where the keyboard left it. Only the arrows at either end are disabled.
+ * Each arrow is a 24 × 24 pixel target (WCAG 2.5.8).
+ */
+export function LinkRow({
+  link: l,
+  index,
+  count,
+  busy,
+  idOf,
+  onMove,
+  onEdit,
+  onToggle,
+  onRemove,
+}: {
+  link: StaffLessonLink;
+  index: number;
+  count: number;
+  busy: boolean;
+  idOf: (what: RowControl, linkId: string) => string;
+  onMove: (dir: -1 | 1) => void;
+  onEdit: () => void;
+  onToggle: () => void;
+  onRemove: () => void;
+}) {
+  const unavailable = busy || undefined;
+  const arrow =
+    "inline-flex h-6 w-6 items-center justify-center rounded text-[var(--muted-foreground)] hover:text-[var(--accent)] disabled:opacity-30 aria-disabled:opacity-30";
+  return (
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
+      <div className="flex flex-col flex-shrink-0">
+        <button
+          id={idOf("up", l.id)}
+          type="button"
+          onClick={() => onMove(-1)}
+          disabled={index === 0}
+          aria-disabled={unavailable}
+          aria-label={`Move “${l.title}” up`}
+          className={arrow}
+        >
+          <ChevronUp className="h-3.5 w-3.5" aria-hidden />
+        </button>
+        <button
+          id={idOf("down", l.id)}
+          type="button"
+          onClick={() => onMove(1)}
+          disabled={index === count - 1}
+          aria-disabled={unavailable}
+          aria-label={`Move “${l.title}” down`}
+          className={arrow}
+        >
+          <ChevronDown className="h-3.5 w-3.5" aria-hidden />
+        </button>
+      </div>
+      <div className="min-w-[10rem] flex-1">
+        {l.unusable ? (
+          <>
+            <span className="font-medium">{l.title}</span>
+            <p className="break-all text-xs text-[var(--muted-foreground)]">{l.url}</p>
+            <p className="flex items-start gap-1 text-xs text-[var(--danger)]">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" aria-hidden />
+              {UNUSABLE}
+            </p>
+          </>
+        ) : (
+          <>
+            <a href={l.url} target="_blank" rel="noopener noreferrer" className="font-medium hover:underline">
+              {l.title}
+              <span className="sr-only"> {NEW_TAB}</span>
+            </a>
+            <p className="break-all text-xs text-[var(--muted-foreground)]">{linkPlace(l)}</p>
+          </>
+        )}
+      </div>
+      <div className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
+        <Badge variant="muted" className="text-[10px]">
+          {languagesBadge(l.languages)}
+        </Badge>
+        {l.published ? (
+          <Badge variant="success" className="text-[10px]">
+            Published
+          </Badge>
+        ) : (
+          <Badge variant="muted" className="text-[10px]">
+            Draft — hidden from learners
+          </Badge>
+        )}
+        <button
+          id={idOf("edit", l.id)}
+          type="button"
+          aria-disabled={unavailable}
+          onClick={onEdit}
+          aria-label={`Edit: ${l.title}`}
+          className="inline-flex items-center gap-1 rounded-md border border-[var(--border)] px-2 py-1 text-xs hover:bg-[var(--surface-muted)]"
+        >
+          <Pencil className="h-3.5 w-3.5" aria-hidden />
+          Edit
+        </button>
+        <button
+          type="button"
+          aria-disabled={unavailable}
+          onClick={onToggle}
+          aria-label={l.published ? `Hide from learners: ${l.title}` : `Show to learners: ${l.title}`}
+          className="inline-flex items-center gap-1 rounded-md border border-[var(--border)] px-2 py-1 text-xs hover:bg-[var(--surface-muted)]"
+        >
+          {l.published ? <EyeOff className="h-3.5 w-3.5" aria-hidden /> : <Eye className="h-3.5 w-3.5" aria-hidden />}
+          {l.published ? "Hide from learners" : "Show to learners"}
+        </button>
+        <button
+          id={idOf("remove", l.id)}
+          type="button"
+          aria-disabled={unavailable}
+          onClick={onRemove}
+          aria-label={`Remove: ${l.title}`}
+          className="rounded-md p-1 text-[var(--muted-foreground)] hover:text-[var(--danger)]"
+        >
+          <Trash2 className="h-4 w-4" aria-hidden />
+        </button>
+      </div>
+    </div>
   );
 }
 

@@ -22,7 +22,7 @@ vi.mock("@/app/actions/lesson-reading", () => ({
   updateLessonLink: vi.fn(),
 }));
 
-const { LessonLinkManager, checkLinkForm, linkHints, refusalMessage } = await import("./LessonLinkManager");
+const { LessonLinkManager, LinkRow, arrowAfterMove, checkLinkForm, linkHints, movedNotice, refusalMessage } = await import("./LessonLinkManager");
 
 beforeEach(() => {
   vi.stubEnv("BLOB_PUBLIC_HOST", "");
@@ -45,6 +45,8 @@ describe("the list", () => {
   it("shows each link with where it goes, its languages and whether learners see it", () => {
     const html = render();
     expect(html).toContain('<a href="https://example.org/guide" target="_blank" rel="noopener noreferrer"');
+    // A new tab, and screen readers hear so (as QuickLink says it).
+    expect(html).toContain('class="font-medium hover:underline">The guide<span class="sr-only"> (opens in a new tab)</span></a>');
     expect(html).toContain(">example.org</p>");
     expect(html).toContain(">All languages</span>");
     expect(html).toContain(">German</span>");
@@ -83,6 +85,57 @@ describe("the list", () => {
   });
 });
 
+describe("a link's row", () => {
+  const row = (props: Partial<Parameters<typeof LinkRow>[0]> = {}) =>
+    renderToStaticMarkup(
+      createElement(LinkRow, {
+        link: LINKS[0],
+        index: 1,
+        count: 3,
+        busy: false,
+        idOf: (what: string, id: string) => `m-${what}-${id}`,
+        onMove: () => {},
+        onEdit: () => {},
+        onToggle: () => {},
+        onRemove: () => {},
+        ...props,
+      })
+    );
+  const buttons = (html: string) => [...html.matchAll(/<button[^>]*>/g)].map((m) => m[0]);
+
+  it("keeps every button focusable while a change runs, and says it's unavailable", () => {
+    const busy = buttons(row({ busy: true }));
+    expect(busy).toHaveLength(5);
+    for (const b of busy) {
+      expect(b, b).not.toMatch(/ disabled=""/);
+      expect(b, b).toContain('aria-disabled="true"');
+    }
+    for (const b of buttons(row())) expect(b, b).not.toMatch(/ (aria-)?disabled="/);
+  });
+
+  it("offers no move past either end", () => {
+    const [up, down] = buttons(row({ index: 0 }));
+    expect(up).toContain('id="m-up-l1"');
+    expect(up).toContain(' disabled=""');
+    expect(down).toContain('id="m-down-l1"');
+    expect(down).not.toMatch(/ (aria-)?disabled="/);
+    expect(buttons(row({ index: 2 }))[1]).toContain(' disabled=""');
+  });
+
+  it("gives each arrow a target of at least 24 by 24 pixels (WCAG 2.5.8)", () => {
+    const [up, down] = buttons(row());
+    for (const b of [up, down]) expect(b).toMatch(/class="[^"]*\bh-6 w-6\b/);
+  });
+
+  it("keeps focus on the moved link's arrow: the same one, or the other at either end", () => {
+    expect(arrowAfterMove(1, 3, -1)).toBe("up");
+    expect(arrowAfterMove(0, 3, -1)).toBe("down");
+    expect(arrowAfterMove(1, 3, 1)).toBe("down");
+    expect(arrowAfterMove(2, 3, 1)).toBe("up");
+    expect(movedNotice("The guide", 1, 3)).toBe("Moved “The guide” to position 1 of 3.");
+  });
+});
+
 describe("checkLinkForm", () => {
   const values = { title: "The guide", url: "https://example.org/guide", description: "", languages: ["en", "de", "el"] as ("en" | "de" | "el")[] };
 
@@ -109,6 +162,22 @@ describe("checkLinkForm", () => {
     expect(checkLinkForm({ ...values, title: "x".repeat(201) }).problems.title).toMatch(/at most 200/);
     expect(checkLinkForm({ ...values, description: "x".repeat(301) }).problems.description).toMatch(/at most 300/);
     expect(checkLinkForm({ ...values, languages: [] }).problems.languages).toBe("Choose at least one language.");
+  });
+
+  it("refuses a title that shows another address however it is written, as the server does", () => {
+    const MISLEADING = "The title shows a different address than the link opens. Use the real address, or a few words.";
+    for (const title of ["https://bank\u200b.example/login", "https:\u200b//bank.example", "https://bank.example\u2024login", "www.bank.example/login"]) {
+      expect(checkLinkForm({ ...values, title, url: "https://evil.example/" }).problems.title, JSON.stringify(title)).toBe(MISLEADING);
+    }
+    expect(checkLinkForm({ ...values, title: "www.bpb.de", url: "https://www.bpb.de/" }).problems).toEqual({});
+  });
+
+  it("measures and empties a title and description as the server stores them", () => {
+    // Spaces typed stay (the server keeps them), so 201 characters with a double space are too many.
+    expect(checkLinkForm({ ...values, title: `${"x".repeat(100)}  ${"x".repeat(99)}` }).problems.title).toMatch(/at most 200/);
+    expect(checkLinkForm({ ...values, description: `${"y".repeat(150)}  ${"y".repeat(149)}` }).problems.description).toMatch(/at most 300/);
+    // Characters that show nothing make no title.
+    expect(checkLinkForm({ ...values, title: "\u3164\u200b" }).problems.title).toBe("Give the link a title.");
   });
 
   it("unwraps an Outlook safe link whose target can be used", () => {
