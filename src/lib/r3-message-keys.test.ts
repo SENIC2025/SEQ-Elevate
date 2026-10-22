@@ -74,11 +74,17 @@ const KEYS = [
 ];
 
 /** The English the spec gives (German and Greek are drafts for partner review). */
+/*
+ * Spec 4.6 and 5.9's English, as built. One change at integration: the
+ * lists of what staff always see also name the country and whether a
+ * guardian's permission is recorded, which people managers see on Manage
+ * people (the spec's lists left them out).
+ */
 const SPEC_ENGLISH: Record<string, string> = {
   "compCard.sharing.onlyMe": "Only me",
   "compCard.sharing.facilitators": "Me and the facilitators at {organisation}",
-  "compCard.sharing.always": "Whatever you choose, the facilitators at {organisation} and the DIESIS and SENIC staff who run the platform always see your name and email, your progress, your last activity, the time you spend on each lesson, your quiz and video-question results and the choices you make in exercises.",
-  "compCard.sharing.alwaysNoOrganisation": "Whatever you choose, the DIESIS and SENIC staff who run the platform always see your name and email, your progress, your last activity, the time you spend on each lesson, your quiz and video-question results and the choices you make in exercises. Once your account is linked to a partner organisation, its facilitators will see them too.",
+  "compCard.sharing.always": "Whatever you choose, the facilitators at {organisation} and the DIESIS and SENIC staff who run the platform always see your name and email, your country, your progress, your last activity, the time you spend on each lesson, your quiz and video-question results, the choices you make in exercises, and whether a parent's or guardian's permission is recorded for you.",
+  "compCard.sharing.alwaysNoOrganisation": "Whatever you choose, the DIESIS and SENIC staff who run the platform always see your name and email, your country, your progress, your last activity, the time you spend on each lesson, your quiz and video-question results, the choices you make in exercises, and whether a parent's or guardian's permission is recorded for you. Once your account is linked to a partner organisation, its facilitators will see them too.",
   "compCard.sharing.shareConfirm": "Share your Comp Card? Facilitators at {organisation} will see everything on it. You can switch back to “Only me” at any time.",
   "compCard.sharing.share": "Share",
   "compCard.sharing.cancel": "Cancel",
@@ -111,8 +117,8 @@ const SPEC_ENGLISH: Record<string, string> = {
   "profile.country.GR": "Greece",
   "profile.country.OTHER": "Other",
   "profile.country.empty": "Choose a country.",
-  "profile.whoSees": "Facilitators at {organisation} and the DIESIS and SENIC staff who run the platform will see your name and email, your progress, your last activity, the time you spend on each lesson, your quiz and video-question results and the choices you make in exercises. Your Comp Card stays private unless you share it.",
-  "profile.whoSeesNoOrganisation": "The DIESIS and SENIC staff who run the platform will see your name and email, your progress, your last activity, the time you spend on each lesson, your quiz and video-question results and the choices you make in exercises. Once your account is linked to a partner organisation, its facilitators will too. Your Comp Card stays private unless you share it.",
+  "profile.whoSees": "Facilitators at {organisation} and the DIESIS and SENIC staff who run the platform will see your name and email, your country, your progress, your last activity, the time you spend on each lesson, your quiz and video-question results, the choices you make in exercises, and whether a parent's or guardian's permission is recorded for you. Your Comp Card stays private unless you share it.",
+  "profile.whoSeesNoOrganisation": "The DIESIS and SENIC staff who run the platform will see your name and email, your country, your progress, your last activity, the time you spend on each lesson, your quiz and video-question results, the choices you make in exercises, and whether a parent's or guardian's permission is recorded for you. Once your account is linked to a partner organisation, its facilitators will too. Your Comp Card stays private unless you share it.",
   "profile.setUpBy": "Your account was set up by {organisation}.",
   // The country is named by its code (DE, CY, BE, GR, OTHER), each in the
   // words the sentence needs in every language (a select, not a name put in).
@@ -222,6 +228,31 @@ describe("Release 3's message keys", () => {
     for (const messages of [en, de, el]) {
       expect(at(messages, "account.alwaysSee")).toBe(at(messages, "compCard.sharing.always"));
       expect(at(messages, "account.alwaysSeeNoOrganisation")).toBe(at(messages, "compCard.sharing.alwaysNoOrganisation"));
+    }
+  });
+
+  it("list everything staff always see: the country and a guardian's permission too, as Manage people shows them", () => {
+    const words = { en: ["your country", "guardian"], de: ["dein Land", "Vormund"], el: ["τη χώρα σου", "κηδεμόνα"] } as const;
+    for (const [lang, messages] of Object.entries({ en, de, el }) as ["en" | "de" | "el", typeof en][]) {
+      for (const key of [
+        "compCard.sharing.always",
+        "compCard.sharing.alwaysNoOrganisation",
+        "profile.whoSees",
+        "profile.whoSeesNoOrganisation",
+        "account.alwaysSee",
+        "account.alwaysSeeNoOrganisation",
+      ]) {
+        for (const word of words[lang]) expect(at(messages, key), `${lang} ${key}`).toContain(word);
+      }
+    }
+  });
+
+  it("say who made the platform in the same words everywhere, in each language", () => {
+    for (const messages of [en, de, el]) {
+      const credit = (at(messages, "invite.footer") as string).replace(/ · senic\.world$/, "");
+      expect(at(messages, "legal.poweredBy")).toBe(`SEQ Elevate · ${credit}`);
+      expect(at(messages, "compCard.printMadeBy")).toBe(at(messages, "invite.footer"));
+      expect(at(messages, "landing.scaffoldNote")).toContain(credit);
     }
   });
 

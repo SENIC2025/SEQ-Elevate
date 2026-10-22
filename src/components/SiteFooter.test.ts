@@ -85,15 +85,15 @@ describe("SiteFooter", () => {
 
   it("says who made the platform in the page's language (legal.poweredBy), SENIC linked (WCAG 3.1.2)", () => {
     for (const [locale, words] of [
-      ["en", "SEQ Elevate · Created and powered by "],
-      ["de", "SEQ Elevate · Entwickelt und betrieben von "],
-      ["el", "SEQ Elevate · Δημιουργήθηκε και λειτουργεί από τη "],
-      ["fr", "SEQ Elevate · Created and powered by "],
+      ["en", "SEQ Elevate · Created and Powered by "],
+      ["de", "SEQ Elevate · Erstellt und betrieben von "],
+      ["el", "SEQ Elevate · Δημιουργήθηκε και υποστηρίζεται από τη "],
+      ["fr", "SEQ Elevate · Created and Powered by "],
     ] as const) {
       const html = render(locale);
       expect(html, locale).toContain(`>${words}<a href="https://senic.world"`);
       expect(html, locale).toMatch(/<a href="https:\/\/senic.world"[^>]*>SENIC<\/a><\/p>/);
-      if (locale === "de" || locale === "el") expect(html, locale).not.toContain("Created and powered by");
+      if (locale === "de" || locale === "el") expect(html, locale).not.toContain("Created and Powered by");
     }
   });
 });

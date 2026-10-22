@@ -14,8 +14,11 @@ import "server-only";
  * badges, the activity records, the log entries about the person (action
  * and date, never who), sessions and pending sign-in links (count and
  * expiry, never a token), the notes staff wrote about the person (signed
- * "a facilitator at ‹organisation›", never by name) and, for staff, how
- * many notes they wrote (not the text: it is about other people).
+ * "a facilitator at ‹organisation›", never by name, and only while the
+ * author is still in the organisation they wrote it in) and, for staff, how
+ * many notes they wrote (not the text: it is about other people). An
+ * organisation recorded on a membership before Release 3 is labelled as
+ * such: the person's organisation is the profile's (D72).
  */
 
 import { prisma } from "@/lib/prisma";
@@ -33,17 +36,31 @@ const metadataOf = (value: unknown): Metadata =>
   value && typeof value === "object" && !Array.isArray(value) ? (value as Metadata) : {};
 const text = (value: unknown) => (typeof value === "string" ? value : null);
 
-/** Who wrote a note about the person, as the file says it: their organisation, never their name. */
-function signature(author: { profiles: { organisation: { name: string } | null }[] } | null): string {
-  const organisation = author?.profiles[0]?.organisation?.name;
-  return organisation ? `a facilitator at ${organisation}` : "a member of staff";
+type Author = { profiles: { id?: string; organisation: { name: string } | null }[] } | null;
+
+/**
+ * Who wrote a note about the person, as the file says it: their
+ * organisation, never their name. Only the organisation they were in when
+ * they wrote it: an author whose organisation changed since (`movedAt`, the
+ * last change of their profile's organisation) signs as "a member of
+ * staff".
+ */
+function signature(author: Author, writtenAt: Date, movedAt: ReadonlyMap<string, Date>): string {
+  const profile = author?.profiles[0];
+  const organisation = profile?.organisation?.name;
+  const moved = profile?.id ? movedAt.get(profile.id) : undefined;
+  return organisation && !(moved && moved > writtenAt) ? `a facilitator at ${organisation}` : "a member of staff";
 }
 
 const AUTHOR = {
   select: {
-    profiles: { where: { projectId: PROJECT }, select: { organisation: { select: { name: true } } } },
+    profiles: { where: { projectId: PROJECT }, select: { id: true, organisation: { select: { name: true } } } },
   },
 } as const;
+
+/** What an organisation recorded on a membership before Release 3 is (D72): kept, labelled, not used. */
+const EARLIER_ORGANISATION_NOTE =
+  "Recorded on this membership before 20 November 2026 and no longer used: your organisation is the one in your profile.";
 
 export async function collectUserData(userId: string) {
   const user = await prisma.user.findUnique({
@@ -88,6 +105,24 @@ export async function collectUserData(userId: string) {
     }),
   ]);
   const staff = user.staffHistory[0] ?? null;
+  // When each note author's organisation last changed (setPersonOrganisation
+  // logs every change by the profile's id).
+  const authorProfiles = [
+    ...user.observedNotes.map((o) => o.observer?.profiles[0]?.id),
+    ...user.validatedNotes.map((v) => v.validator?.profiles[0]?.id),
+  ].filter((id): id is string => typeof id === "string");
+  const movedAt = new Map<string, Date>();
+  if (authorProfiles.length) {
+    const moves = await prisma.auditLog.findMany({
+      where: { action: "person.organisation_changed", entityId: { in: [...new Set(authorProfiles)] } },
+      select: { entityId: true, createdAt: true },
+    });
+    for (const m of moves) {
+      if (!m.entityId) continue;
+      const last = movedAt.get(m.entityId);
+      if (!last || m.createdAt > last) movedAt.set(m.entityId, m.createdAt);
+    }
+  }
 
   return {
     exportedAt: new Date().toISOString(),
@@ -135,7 +170,8 @@ export async function collectUserData(userId: string) {
     memberships: user.memberships.map((m) => ({
       project: m.project.name,
       role: m.role,
-      organisation: m.organisation?.name ?? null,
+      // Release 3 (D72): the person's organisation is the profile's.
+      earlierOrganisation: m.organisation ? { name: m.organisation.name, note: EARLIER_ORGANISATION_NOTE } : null,
       cohort: m.cohort?.name ?? null,
       joinedAt: m.createdAt.toISOString(),
     })),
@@ -171,6 +207,8 @@ export async function collectUserData(userId: string) {
         sharing,
         sharedAt: sharing === "facilitators" ? iso(c.sharedAt) : null,
         sharedWith: sharing === "facilitators" ? (c.sharedWithOrganisation?.name ?? null) : null,
+        // The version of the sharing wording the learner shared under (D80).
+        sharingVersion: sharing === "facilitators" ? (c.sharingVersion ?? null) : null,
         updatedAt: c.updatedAt.toISOString(),
         entries: c.entries.map((en) => ({
           wentWell: en.wentWell,
@@ -230,13 +268,13 @@ export async function collectUserData(userId: string) {
     facilitatorObservationsAboutYou: user.observedNotes.map((o) => ({
       note: o.note,
       createdAt: o.createdAt.toISOString(),
-      by: signature(o.observer),
+      by: signature(o.observer, o.createdAt, movedAt),
     })),
     skillValidationsAboutYou: user.validatedNotes.map((v) => ({
       cluster: v.cluster,
       evidence: v.evidence,
       createdAt: v.createdAt.toISOString(),
-      by: signature(v.validator),
+      by: signature(v.validator, v.createdAt, movedAt),
     })),
     // Staff: how many notes and validations they wrote about learners. Not
     // the text, which is about other people.

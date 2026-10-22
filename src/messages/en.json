@@ -46,8 +46,12 @@
     "ageConfirmed": "{rule, select, invited {You confirmed on {date} that you have your parent's or guardian's permission.} other {You confirmed your age on {date}.}}",
     "changeDetails": "You can't change your name or country here. To change them, contact us (see the <privacy>privacy notice</privacy>) or ask your partner organisation to pass the request on.",
     "notes": "Notes that staff write about you are in your data download.",
-    "alwaysSee": "Whatever you choose, the facilitators at {organisation} and the DIESIS and SENIC staff who run the platform always see your name and email, your progress, your last activity, the time you spend on each lesson, your quiz and video-question results and the choices you make in exercises.",
-    "alwaysSeeNoOrganisation": "Whatever you choose, the DIESIS and SENIC staff who run the platform always see your name and email, your progress, your last activity, the time you spend on each lesson, your quiz and video-question results and the choices you make in exercises. Once your account is linked to a partner organisation, its facilitators will see them too."
+    "alwaysSee": "Whatever you choose, the facilitators at {organisation} and the DIESIS and SENIC staff who run the platform always see your name and email, your country, your progress, your last activity, the time you spend on each lesson, your quiz and video-question results, the choices you make in exercises, and whether a parent's or guardian's permission is recorded for you.",
+    "alwaysSeeNoOrganisation": "Whatever you choose, the DIESIS and SENIC staff who run the platform always see your name and email, your country, your progress, your last activity, the time you spend on each lesson, your quiz and video-question results, the choices you make in exercises, and whether a parent's or guardian's permission is recorded for you. Once your account is linked to a partner organisation, its facilitators will see them too.",
+    "compCardTitle": "Your Comp Card",
+    "compCardShared": "Your Comp Card is shared with the facilitators at {organisation}.",
+    "compCardStop": "Switch to “Only me”",
+    "compCardOnlyMe": "Your Comp Card is set to “Only me”: only you see it."
   },
   "system": {
     "notFoundTitle": "We couldn't find that page",
@@ -634,8 +638,8 @@
     "sharing": {
       "onlyMe": "Only me",
       "facilitators": "Me and the facilitators at {organisation}",
-      "always": "Whatever you choose, the facilitators at {organisation} and the DIESIS and SENIC staff who run the platform always see your name and email, your progress, your last activity, the time you spend on each lesson, your quiz and video-question results and the choices you make in exercises.",
-      "alwaysNoOrganisation": "Whatever you choose, the DIESIS and SENIC staff who run the platform always see your name and email, your progress, your last activity, the time you spend on each lesson, your quiz and video-question results and the choices you make in exercises. Once your account is linked to a partner organisation, its facilitators will see them too.",
+      "always": "Whatever you choose, the facilitators at {organisation} and the DIESIS and SENIC staff who run the platform always see your name and email, your country, your progress, your last activity, the time you spend on each lesson, your quiz and video-question results, the choices you make in exercises, and whether a parent's or guardian's permission is recorded for you.",
+      "alwaysNoOrganisation": "Whatever you choose, the DIESIS and SENIC staff who run the platform always see your name and email, your country, your progress, your last activity, the time you spend on each lesson, your quiz and video-question results, the choices you make in exercises, and whether a parent's or guardian's permission is recorded for you. Once your account is linked to a partner organisation, its facilitators will see them too.",
       "shareConfirm": "Share your Comp Card? Facilitators at {organisation} will see everything on it. You can switch back to “Only me” at any time.",
       "share": "Share",
       "cancel": "Cancel",
@@ -1360,8 +1364,8 @@
       "OTHER": "Other",
       "empty": "Choose a country."
     },
-    "whoSees": "Facilitators at {organisation} and the DIESIS and SENIC staff who run the platform will see your name and email, your progress, your last activity, the time you spend on each lesson, your quiz and video-question results and the choices you make in exercises. Your Comp Card stays private unless you share it.",
-    "whoSeesNoOrganisation": "The DIESIS and SENIC staff who run the platform will see your name and email, your progress, your last activity, the time you spend on each lesson, your quiz and video-question results and the choices you make in exercises. Once your account is linked to a partner organisation, its facilitators will too. Your Comp Card stays private unless you share it.",
+    "whoSees": "Facilitators at {organisation} and the DIESIS and SENIC staff who run the platform will see your name and email, your country, your progress, your last activity, the time you spend on each lesson, your quiz and video-question results, the choices you make in exercises, and whether a parent's or guardian's permission is recorded for you. Your Comp Card stays private unless you share it.",
+    "whoSeesNoOrganisation": "The DIESIS and SENIC staff who run the platform will see your name and email, your country, your progress, your last activity, the time you spend on each lesson, your quiz and video-question results, the choices you make in exercises, and whether a parent's or guardian's permission is recorded for you. Once your account is linked to a partner organisation, its facilitators will too. Your Comp Card stays private unless you share it.",
     "setUpBy": "Your account was set up by {organisation}.",
     "setUpByMismatch": "{organisation} supports learners in another country. If you continue with {country, select, DE {Germany} CY {Cyprus} BE {Belgium} GR {Greece} other {another country}}, DIESIS will check which organisation supports you; until then only DIESIS and SENIC staff see your progress.",
     "age": {
@@ -1415,6 +1419,6 @@
     "toBeCompleted": "To be completed before launch —",
     "version": "Version {version} · last updated {date}",
     "versionInterim": "Interim version · last updated {date}",
-    "poweredBy": "SEQ Elevate · Created and powered by SENIC"
+    "poweredBy": "SEQ Elevate · Created and Powered by SENIC"
   }
 }

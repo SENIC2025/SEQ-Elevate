@@ -46,8 +46,12 @@
     "ageConfirmed": "{rule, select, invited {Du hast am {date} bestätigt, dass du die Erlaubnis deiner Eltern oder deines Vormunds hast.} other {Du hast am {date} dein Alter bestätigt.}}",
     "changeDetails": "Deinen Namen und dein Land kannst du hier nicht ändern. Wenn du sie ändern möchtest, kontaktiere uns (siehe die <privacy>Datenschutzhinweise</privacy>) oder bitte deine Partnerorganisation, die Anfrage weiterzugeben.",
     "notes": "Notizen, die Mitarbeitende über dich schreiben, sind in deinem Daten-Download.",
-    "alwaysSee": "Egal, was du wählst: Die Trainer:innen bei {organisation} und die Mitarbeitenden von DIESIS und SENIC, die die Plattform betreiben, sehen immer deinen Namen und deine E-Mail-Adresse, deinen Fortschritt, deine letzte Aktivität, wie lange du an jeder Lektion arbeitest, deine Ergebnisse in Quiz und Videofragen und deine Entscheidungen in den Übungen.",
-    "alwaysSeeNoOrganisation": "Egal, was du wählst: Die Mitarbeitenden von DIESIS und SENIC, die die Plattform betreiben, sehen immer deinen Namen und deine E-Mail-Adresse, deinen Fortschritt, deine letzte Aktivität, wie lange du an jeder Lektion arbeitest, deine Ergebnisse in Quiz und Videofragen und deine Entscheidungen in den Übungen. Sobald dein Konto einer Partnerorganisation zugeordnet ist, sehen das auch ihre Trainer:innen."
+    "alwaysSee": "Egal, was du wählst: Die Trainer:innen bei {organisation} und die Mitarbeitenden von DIESIS und SENIC, die die Plattform betreiben, sehen immer deinen Namen und deine E-Mail-Adresse, dein Land, deinen Fortschritt, deine letzte Aktivität, wie lange du an jeder Lektion arbeitest, deine Ergebnisse in Quiz und Videofragen, deine Entscheidungen in den Übungen und ob für dich die Erlaubnis deiner Eltern oder deines Vormunds vermerkt ist.",
+    "alwaysSeeNoOrganisation": "Egal, was du wählst: Die Mitarbeitenden von DIESIS und SENIC, die die Plattform betreiben, sehen immer deinen Namen und deine E-Mail-Adresse, dein Land, deinen Fortschritt, deine letzte Aktivität, wie lange du an jeder Lektion arbeitest, deine Ergebnisse in Quiz und Videofragen, deine Entscheidungen in den Übungen und ob für dich die Erlaubnis deiner Eltern oder deines Vormunds vermerkt ist. Sobald dein Konto einer Partnerorganisation zugeordnet ist, sehen das auch ihre Trainer:innen.",
+    "compCardTitle": "Deine Comp Card",
+    "compCardShared": "Deine Comp Card ist mit den Trainer:innen bei {organisation} geteilt.",
+    "compCardStop": "Zu „Nur ich“ wechseln",
+    "compCardOnlyMe": "Deine Comp Card steht auf „Nur ich“: Nur du siehst sie."
   },
   "system": {
     "notFoundTitle": "Diese Seite haben wir nicht gefunden",
@@ -634,8 +638,8 @@
     "sharing": {
       "onlyMe": "Nur ich",
       "facilitators": "Ich und die Trainer:innen bei {organisation}",
-      "always": "Egal, was du wählst: Die Trainer:innen bei {organisation} und die Mitarbeitenden von DIESIS und SENIC, die die Plattform betreiben, sehen immer deinen Namen und deine E-Mail-Adresse, deinen Fortschritt, deine letzte Aktivität, wie lange du an jeder Lektion arbeitest, deine Ergebnisse in Quiz und Videofragen und deine Entscheidungen in den Übungen.",
-      "alwaysNoOrganisation": "Egal, was du wählst: Die Mitarbeitenden von DIESIS und SENIC, die die Plattform betreiben, sehen immer deinen Namen und deine E-Mail-Adresse, deinen Fortschritt, deine letzte Aktivität, wie lange du an jeder Lektion arbeitest, deine Ergebnisse in Quiz und Videofragen und deine Entscheidungen in den Übungen. Sobald dein Konto einer Partnerorganisation zugeordnet ist, sehen das auch ihre Trainer:innen.",
+      "always": "Egal, was du wählst: Die Trainer:innen bei {organisation} und die Mitarbeitenden von DIESIS und SENIC, die die Plattform betreiben, sehen immer deinen Namen und deine E-Mail-Adresse, dein Land, deinen Fortschritt, deine letzte Aktivität, wie lange du an jeder Lektion arbeitest, deine Ergebnisse in Quiz und Videofragen, deine Entscheidungen in den Übungen und ob für dich die Erlaubnis deiner Eltern oder deines Vormunds vermerkt ist.",
+      "alwaysNoOrganisation": "Egal, was du wählst: Die Mitarbeitenden von DIESIS und SENIC, die die Plattform betreiben, sehen immer deinen Namen und deine E-Mail-Adresse, dein Land, deinen Fortschritt, deine letzte Aktivität, wie lange du an jeder Lektion arbeitest, deine Ergebnisse in Quiz und Videofragen, deine Entscheidungen in den Übungen und ob für dich die Erlaubnis deiner Eltern oder deines Vormunds vermerkt ist. Sobald dein Konto einer Partnerorganisation zugeordnet ist, sehen das auch ihre Trainer:innen.",
       "shareConfirm": "Comp Card teilen? Die Trainer:innen bei {organisation} sehen dann alles darauf. Du kannst jederzeit zu „Nur ich“ zurückwechseln.",
       "share": "Teilen",
       "cancel": "Abbrechen",
@@ -1360,8 +1364,8 @@
       "OTHER": "Anderes Land",
       "empty": "Wähle ein Land."
     },
-    "whoSees": "Die Trainer:innen bei {organisation} und die Mitarbeitenden von DIESIS und SENIC, die die Plattform betreiben, sehen deinen Namen und deine E-Mail-Adresse, deinen Fortschritt, deine letzte Aktivität, wie lange du an jeder Lektion arbeitest, deine Ergebnisse in Quiz und Videofragen und deine Entscheidungen in den Übungen. Deine Comp Card bleibt privat, außer du teilst sie.",
-    "whoSeesNoOrganisation": "Die Mitarbeitenden von DIESIS und SENIC, die die Plattform betreiben, sehen deinen Namen und deine E-Mail-Adresse, deinen Fortschritt, deine letzte Aktivität, wie lange du an jeder Lektion arbeitest, deine Ergebnisse in Quiz und Videofragen und deine Entscheidungen in den Übungen. Sobald dein Konto einer Partnerorganisation zugeordnet ist, sehen das auch ihre Trainer:innen. Deine Comp Card bleibt privat, außer du teilst sie.",
+    "whoSees": "Die Trainer:innen bei {organisation} und die Mitarbeitenden von DIESIS und SENIC, die die Plattform betreiben, sehen deinen Namen und deine E-Mail-Adresse, dein Land, deinen Fortschritt, deine letzte Aktivität, wie lange du an jeder Lektion arbeitest, deine Ergebnisse in Quiz und Videofragen, deine Entscheidungen in den Übungen und ob für dich die Erlaubnis deiner Eltern oder deines Vormunds vermerkt ist. Deine Comp Card bleibt privat, außer du teilst sie.",
+    "whoSeesNoOrganisation": "Die Mitarbeitenden von DIESIS und SENIC, die die Plattform betreiben, sehen deinen Namen und deine E-Mail-Adresse, dein Land, deinen Fortschritt, deine letzte Aktivität, wie lange du an jeder Lektion arbeitest, deine Ergebnisse in Quiz und Videofragen, deine Entscheidungen in den Übungen und ob für dich die Erlaubnis deiner Eltern oder deines Vormunds vermerkt ist. Sobald dein Konto einer Partnerorganisation zugeordnet ist, sehen das auch ihre Trainer:innen. Deine Comp Card bleibt privat, außer du teilst sie.",
     "setUpBy": "Dein Konto wurde von {organisation} eingerichtet.",
     "setUpByMismatch": "{organisation} begleitet Lernende in einem anderen Land. Wenn du mit {country, select, DE {Deutschland} CY {Zypern} BE {Belgien} GR {Griechenland} other {einem anderen Land}} weitermachst, prüft DIESIS, welche Organisation dich begleitet; bis dahin sehen nur Mitarbeitende von DIESIS und SENIC deinen Fortschritt.",
     "age": {
@@ -1415,6 +1419,6 @@
     "toBeCompleted": "Vor dem Start zu ergänzen —",
     "version": "Version {version} · zuletzt aktualisiert am {date}",
     "versionInterim": "Vorläufige Fassung · zuletzt aktualisiert am {date}",
-    "poweredBy": "SEQ Elevate · Entwickelt und betrieben von SENIC"
+    "poweredBy": "SEQ Elevate · Erstellt und betrieben von SENIC"
   }
 }

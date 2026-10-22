@@ -183,7 +183,7 @@ const LEGACY: Partial<Record<LegalDocId, LegacyText>> = {
       {
         heading: "Who can see it",
         body: [
-          "The facilitators at your organisation, and the DIESIS and SENIC staff who run the platform, see your name and email, your progress, your last activity, the time you spend on each lesson, your quiz and video-question results and the choices you make in exercises. They see your Comp Card only if you share it. Facilitators don't read what you write in a course's reflections.",
+          "The facilitators at your organisation, and the DIESIS and SENIC staff who run the platform, see your name and email, your country, your progress, your last activity, the time you spend on each lesson, your quiz and video-question results, the choices you make in exercises, and whether a parent's or guardian's permission is recorded for you. Your Comp Card is seen only if you share it, and then only by the facilitators at your organisation. Facilitators don't read what you write in a course's reflections.",
         ],
       },
       {
