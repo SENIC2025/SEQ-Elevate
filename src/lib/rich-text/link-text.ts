@@ -1,6 +1,7 @@
 import { findLinks, type FoundLink } from "./linkify";
 import { checkLinkHref, emailAddressOf, isEmailAddress, isSafeLinkHost } from "./link-url";
 import { MOST_SUFFIX_LABELS, PUBLIC_SUFFIX_RULES, TOP_LEVEL_DOMAINS, publicSuffixLength } from "./top-level-domains";
+import { UNASSIGNED_CLASS } from "./unassigned";
 
 /**
  * What a link's words say, against where it goes (D104, D107): the text a
@@ -24,9 +25,15 @@ import { MOST_SUFFIX_LABELS, PUBLIC_SUFFIX_RULES, TOP_LEVEL_DOMAINS, publicSuffi
  * characters that show nothing (a hair space among them) don't split an
  * address, compatibility forms (fullwidth letters, a one dot leader, a
  * Roman numeral, a raised or circled letter) read as the characters they
- * show, a raised sign or a modifier letter after a name ("paypal.com¹",
- * "PayPal.com™", "paypal.comʼs") ends it, and a mark that follows no letter
- * or digit belongs to none and is read as nothing ("paypal.̲com"). An address
+ * show, inside a name or ending it ("rabobank.nⅼ"), a raised sign or a
+ * modifier letter after a name ("paypal.com¹", "PayPal.com™",
+ * "paypal.comʼs") ends it, and a mark that follows no letter or digit
+ * belongs to none and is read as nothing ("paypal.̲com"). A character that
+ * Unicode 16 (the server's) doesn't assign is read as a space and as
+ * nothing, as a browser of a newer Unicode reads it too (unassigned.ts); a
+ * name the URL parser refuses that ends in a top-level domain is read as
+ * written ("xn--a.paypal.com"; hostnameOf). So the editor, the save and the
+ * page a learner gets give one answer. An address
  * is read wherever a quick link would find one, and also wherever a text
  * shows "https:" or "http:" followed by a host with a dot, whether or not
  * it could be a link (with a user name, as an Outlook safe link, over 2,048
@@ -123,21 +130,34 @@ function endsName(text: string, at: number, length: number): boolean {
 const asShown = (text: string) => text.normalize("NFKC").replace(SHOWS_NOTHING, "").replace(MODIFIER_LETTER, " ").replace(MARKS_OF_NONE, "$1");
 
 /**
- * A text as its addresses are read, once or twice: as learners see it
+ * A text as its addresses are read, once to three times: as learners see it
  * (asShown), each run of characters that may stand apart from a name
- * (MAY_STAND_APART) read as a space and, where it doesn't end a name
- * (endsName), as part of the name too (lettersOf). So "paypal.com¹",
- * "PayPal.com™" and "paypal.comʼs" show paypal.com, and so do "paypal.cᵒm",
- * "paypal.ⓒⓞⓜ", "paypaⅼ.com" (a Roman numeral), "PayPal™.com" and
- * "paypal.com¹.evil.example".
+ * (MAY_STAND_APART) read as a space, as part of the name (lettersOf), and
+ * as part of a name inside one and a space where it ends one (endsName).
+ * So "paypal.com¹", "PayPal.com™" and "paypal.comʼs" show paypal.com, and
+ * so do "paypal.cᵒm", "paypal.ⓒⓞⓜ", "paypaⅼ.com" (a Roman numeral),
+ * "PayPal™.com" and "paypal.com¹.evil.example"; "rabobank.nⅼ" and
+ * "sparkasse.dᵉ" show rabobank.nl and sparkasse.de.
  */
 function readingsOf(text: string): string[] {
   const unseen = text.replace(SHOWS_NOTHING, "");
   const apart = unseen.replace(MAY_STAND_APART, apartOf);
   if (apart === unseen) return [asShown(unseen)];
-  const letters = unseen.replace(MAY_STAND_APART, (run: string, at: number) => (endsName(unseen, at, run.length) ? apartOf(run) : lettersOf(run)));
-  return letters === apart ? [asShown(apart)] : [asShown(apart), asShown(letters)];
+  const letters = unseen.replace(MAY_STAND_APART, lettersOf);
+  const endsApart = unseen.replace(MAY_STAND_APART, (run: string, at: number) => (endsName(unseen, at, run.length) ? apartOf(run) : lettersOf(run)));
+  return [...new Set([apart, letters, endsApart])].map(asShown);
 }
+
+// A character that Unicode 16, the server's, doesn't assign (unassigned.ts).
+const UNASSIGNED = new RegExp(UNASSIGNED_CLASS, "gu");
+const HOLDS_UNASSIGNED = new RegExp(UNASSIGNED_CLASS, "u");
+
+/**
+ * `text` with each character that Unicode 16 doesn't assign read as a
+ * space, and as nothing: once, when it holds none. A browser of a newer
+ * Unicode knows some of them, the server none; both read them so.
+ */
+const placedOf = (text: string): string[] => (HOLDS_UNASSIGNED.test(text) ? [text.replace(UNASSIGNED, " "), text.replace(UNASSIGNED, "")] : [text]);
 
 /**
  * Where a host goes, as compared here (D104, the owner's decision of 22
@@ -199,20 +219,27 @@ function placeOf(hostname: string): Place {
   return { site: labels.slice(siteStart).join("."), host, shown: [...shown] };
 }
 
-/** The hostname the URL parser gives `name` (lower case, an international one in punycode); null when it gives none. */
-function hostnameOf(name: string): string | null {
-  try {
-    return new URL(`https://${name}`).hostname;
-  } catch {
-    return null;
-  }
-}
-
-/** The top-level domain of a hostname the URL parser gave, in lower case. */
+/** The top-level domain of a hostname the URL parser gave (or of a name as written), in lower case. */
 const topOf = (hostname: string) => {
   const name = hostname.replace(/\.$/, "");
   return name.slice(name.lastIndexOf(".") + 1).toLowerCase();
 };
+
+/**
+ * The hostname the URL parser gives `name` (lower case, an international
+ * one in punycode). When it gives none to a name that ends in a top-level
+ * domain as written, the name as written, in lower case: the parsers of
+ * the server and of the browsers differ at the edges ("xn--a.paypal.com",
+ * whose punycode label the server's refuses and a browser's keeps), and
+ * the name shows its site all the same. Null for any other.
+ */
+function hostnameOf(name: string): string | null {
+  try {
+    return new URL(`https://${name}`).hostname;
+  } catch {
+    return TOP_LEVEL_DOMAINS.has(topOf(name)) ? name.toLowerCase() : null;
+  }
+}
 
 /**
  * The hostname of `name` when it ends in a top-level domain
@@ -577,6 +604,11 @@ const UP_TO_TWO_LETTERS = /^\p{L}{1,2}$/u;
 // at most four letters ("Jun.Prof.", "apl.Prof.", "Pty.Ltd.").
 const TITLE_ENDS: ReadonlySet<string> = new Set(["Prof", "Ltd"]);
 const UP_TO_FOUR_LETTERS = /^\p{L}{1,4}$/u;
+// Titles written with the feminine ending "in" in Austrian usage ("Dir.in",
+// "Bgm.in", "OStR.in"), in their written case: a name of one of them and
+// "in" is an abbreviation (a title prefix's is anyway: "Dr.in", "Prof.in").
+const TITLES_WITH_ENDING: ReadonlySet<string> = new Set(["Abg", "BEd", "Bgm", "DDr", "DI", "Dir", "Doz", "GR", "HR", "LAbg", "OStR", "StR", "Vzbgm"]);
+const FEMININE_ENDING = "in";
 const TITLE_CASE = /^\p{Lu}\p{Ll}+$/u;
 const LOWER_CASE = /^\p{Ll}+$/u;
 const ONE_LETTER = /^\p{L}$/u;
@@ -609,12 +641,15 @@ function startsPublicSuffix(labels: readonly string[], start: number): boolean {
  * - a title or a company form at its end, after words of at most four
  *   letters ("Jun.Prof.", "apl.Prof.", "Pty.Ltd.");
  * - one letter followed by a label in title case ("M.Sc.", "B.Com.",
- *   "B.Tech.").
+ *   "B.Tech.");
+ * - a title and its feminine ending "in", as Austrian usage writes them
+ *   ("Dir.in", "Bgm.in", "OStR.in"; TITLES_WITH_ENDING).
  * Hosts are written in lower case or in capitals ("x.com", "X.com",
  * "PAYPAL.COM", "paypal.ltd").
  */
 function isAbbreviation(labels: readonly string[]): boolean {
   const last = labels.length - 1;
+  if (last === 1 && labels[1] === FEMININE_ENDING && TITLES_WITH_ENDING.has(labels[0])) return true;
   for (let i = 0; i < last; i++) {
     if (TITLE_PREFIXES.has(labels[i])) {
       if (LOWER_CASE.test(labels[i + 1]) || !startsPublicSuffix(labels, i)) return true;
@@ -627,19 +662,26 @@ function isAbbreviation(labels: readonly string[]): boolean {
 }
 
 /**
- * `name` as a bare host: where it goes (null when it is a host whose place
- * can't be read), and whether it was read only by the top-level domain it
- * ends in (`byName`: no "www.", no path or port, not after two slashes).
- * Null when it isn't one. `after` is the text right after it;
- * `afterSlashes`, whether two slashes come right before it. It is read as
- * it shows in Latin letters (readAsLatin) when that ends in a top-level
- * domain, else as written. A public suffix of more than one label read by
- * name ("gov.gr", "GOV.UK") is every site under it (Place). See
- * addBareHosts.
+ * A name `written` as a bare host: where it goes (null when it is a host
+ * whose place can't be read), and whether it was read only by the
+ * top-level domain it ends in (`byName`: no "www.", no path or port, not
+ * after two slashes). Null when it isn't one. `after` is the text right
+ * after it; `afterSlashes`, whether two slashes come right before it. A
+ * last label that starts with a top-level domain in lower case and a
+ * hyphen ends the name there ("paypal.com-login" is paypal.com;
+ * topLevelDomainBeforeHyphen). It is read as it shows in Latin letters
+ * (readAsLatin) when that ends in a top-level domain, else as written. A
+ * public suffix of more than one label read by name ("gov.gr", "GOV.UK") is
+ * every site under it (Place). See addBareHosts.
  */
-function bareHost(name: string, after: string, afterSlashes: boolean): { place: Place | null; byName: boolean } | null {
-  const labels = name.split(".");
+function bareHost(written: string, after: string, afterSlashes: boolean): { place: Place | null; byName: boolean } | null {
+  const labels = written.split(".");
   if (labels.length < 2 || !labels.every((label) => LABEL.test(label))) return null;
+  // A last label that starts with a top-level domain in lower case and a
+  // hyphen shows the name that ends there ("paypal.com-login").
+  const ending = topLevelDomainBeforeHyphen(labels[labels.length - 1]);
+  if (ending !== null) labels[labels.length - 1] = ending;
+  const name = labels.join(".");
   const pathOrPort = PATH_OR_PORT.test(after);
   if (IPV4.test(name)) return pathOrPort || afterSlashes ? { place: placeOf(name), byName: false } : null;
   const top = labels[labels.length - 1];
@@ -657,6 +699,20 @@ function bareHost(name: string, after: string, afterSlashes: boolean): { place: 
   if (!sure) return null;
   const hostname = (latin === null ? null : hostnameOf(latin)) ?? hostnameOf(name);
   return { place: hostname === null ? null : placeOf(hostname), byName: false };
+}
+
+/**
+ * What a name's last label shows before its first hyphen when that is a
+ * top-level domain in lower case, as a host is written ("com" in
+ * "paypal.com-login", "de" in "amazon.de-bestellung"), through look-alike
+ * letters; null for any other ("Online" in "bzw.Online-Kurs", "IT" in
+ * "1.IT-Sicherheit").
+ */
+function topLevelDomainBeforeHyphen(label: string): string | null {
+  const hyphen = label.indexOf("-");
+  if (hyphen <= 0) return null;
+  const head = label.slice(0, hyphen);
+  return LOWER_CASE.test(head) && TOP_LEVEL_DOMAINS.has(readAsLatin(head) ?? head) ? head : null;
 }
 
 /** Is `host` (as placeOf gives it) a public suffix of more than one label ("gov.gr", "co.uk")? */
@@ -680,7 +736,8 @@ function trimDotsAndHyphens(raw: string): string {
  * "bank.example/login", "bank.example:8443"), or when it ends in a
  * top-level domain (TOP_LEVEL_DOMAINS: "paypal.com", "bank.example"), as
  * written or as it shows in Latin letters ("paypal.соm", "pаypal.com";
- * readAsLatin); an IPv4 address is one with a path or a port. So an
+ * readAsLatin), or one in lower case and a hyphen ("paypal.com-login");
+ * an IPv4 address is one with a path or a port. So an
  * ordinary word with a dot isn't one: a version ("v1.2"), an abbreviation
  * ("e.g.", "z.B.", "κ.λπ.", "M.Sc.", "Dr.med.", "Jun.Prof."; isAbbreviation),
  * the end of a sentence (a trailing dot ends it), a file's name ending in no
@@ -747,24 +804,26 @@ function blankOut(text: string, read: readonly [number, number][]): string {
 export function addressesShown(text: string): ShownAddresses | null {
   const shown: Shown = { web: [], mailboxes: new Set(), email: [], inMailboxes: [], elsewhere: false, names: 0, others: 0 };
   let any = false;
-  const readings = readingsOf(text);
-  // The text as written, too, as a quick link would find its addresses.
-  if (!readings.includes(text)) {
-    for (const found of findLinks(text)) {
-      addTarget(shown, foundTarget(text.slice(found.start, found.end), found));
-      any = true;
+  for (const placed of placedOf(text)) {
+    const readings = readingsOf(placed);
+    // The text as written, too, as a quick link would find its addresses.
+    if (!readings.includes(placed)) {
+      for (const found of findLinks(placed)) {
+        addTarget(shown, foundTarget(placed.slice(found.start, found.end), found));
+        any = true;
+      }
     }
-  }
-  for (const reading of readings) {
-    // What has been read of it as an address: not read again as a bare host.
-    const read: [number, number][] = [];
-    for (const found of findLinks(reading)) {
-      addTarget(shown, foundTarget(reading.slice(found.start, found.end), found));
-      any = true;
-      read.push([found.start, found.end]);
+    for (const reading of readings) {
+      // What has been read of it as an address: not read again as a bare host.
+      const read: [number, number][] = [];
+      for (const found of findLinks(reading)) {
+        addTarget(shown, foundTarget(reading.slice(found.start, found.end), found));
+        any = true;
+        read.push([found.start, found.end]);
+      }
+      if (addLooseAddresses(shown, reading, read)) any = true;
+      if (addBareHosts(shown, blankOut(reading, read))) any = true;
     }
-    if (addLooseAddresses(shown, reading, read)) any = true;
-    if (addBareHosts(shown, blankOut(reading, read))) any = true;
   }
   if (!any) return null;
   const { web, mailboxes, email, inMailboxes, elsewhere } = shown;
