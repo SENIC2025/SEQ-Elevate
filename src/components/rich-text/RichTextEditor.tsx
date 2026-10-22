@@ -69,6 +69,7 @@ interface VariantSpec {
   prose: string;
   box: string;
   advice: RtAdvice;
+  indent: boolean;
 }
 
 /**
@@ -77,13 +78,15 @@ interface VariantSpec {
  * edited; editor-schema.test.ts checks they haven't drifted apart.
  * `advice`: what the problem line tells an author to do about text that
  * can't be saved (RT_ADVICE): split a lesson's block, shorten a text of its
- * own.
+ * own. `indent`: whether a paragraph takes indent steps (the references
+ * list's layout hangs every entry alike, so it has none).
  */
 export const VARIANT = {
   paragraph: {
     name: "Paragraph",
     subject: "This paragraph",
     advice: "block",
+    indent: true,
     label: "Paragraph text",
     placeholder: "Write the paragraph…",
     prose: "text-base leading-relaxed",
@@ -93,6 +96,7 @@ export const VARIANT = {
     name: "Key message",
     subject: "This key message",
     advice: "block",
+    indent: true,
     label: "Key message text",
     placeholder: "The one point learners should remember",
     prose: "seq-prose-compact font-medium text-[var(--accent)]",
@@ -104,18 +108,20 @@ export const VARIANT = {
     subject: "This introduction",
     // A reflection lesson's one text: it can't be split into blocks.
     advice: "text",
+    indent: true,
     label: "Introduction",
     placeholder: "Write a short introduction…",
     prose: "text-sm text-[var(--muted-foreground)]",
     box: "px-3 py-2",
   },
   // A course's references and bibliography (D109): set as the learner's
-  // references page sets it (.seq-references, a hanging indent per entry).
-  // One list per language.
+  // references page sets it (.seq-references, a hanging indent per entry,
+  // so an entry has no indent of its own). One list per language.
   references: {
     name: "References",
     subject: "The references list",
     advice: "list",
+    indent: false,
     label: "References & bibliography",
     placeholder: "Write the paragraph…",
     prose: "seq-references",
@@ -157,13 +163,13 @@ export function RichTextEditor({
   const ids = React.useId();
   const toolbarRef = React.useRef<HTMLDivElement>(null);
   // Set once: the editor keeps its own state after it mounts.
-  const [opening] = React.useState(() => openingDoc(rich, text));
+  const [opening] = React.useState(() => openingDoc(rich, text, { indent: v.indent }));
   const [problem, setProblem] = React.useState(() => problemLine(variant, opening));
   const [flattened, setFlattened] = React.useState(false);
 
   const [options] = React.useState(() => ({
     content: opening.doc,
-    extensions: editorExtensions(v.placeholder),
+    extensions: editorExtensions(v.placeholder, { indent: v.indent }),
     editorProps: {
       attributes: {
         // rt-editor (globals.css): the height, the empty editor's hint, and
@@ -218,7 +224,7 @@ export function RichTextEditor({
 
   return (
     <div className="rounded-md border border-[var(--border)] bg-[var(--surface)]">
-      <Toolbar editor={editor} name={v.name} toolbarRef={toolbarRef} />
+      <Toolbar editor={editor} name={v.name} indent={v.indent} toolbarRef={toolbarRef} />
       <p
         id={`${ids}-tip`}
         className="border-b border-[var(--border)] px-2.5 py-1.5 text-xs text-[var(--muted-foreground)]"
@@ -270,12 +276,35 @@ export function problemLine(variant: RichTextEditorProps["variant"], text: { iss
  * on anything unknown). One over a limit — a block copied or put back while
  * the author was still shortening it — opens as it is, with its problem
  * shown, rather than empty. Anything else opens the plain text by Round 1's
- * rules.
+ * rules. With `indent: false` (VARIANT) its paragraphs open without indent
+ * steps.
  */
-function openingDoc(
-  rich: unknown,
-  text: string | undefined
-): { doc: JSONContent; issues: RtIssue[] } {
+export function openingDoc(rich: unknown, text: string | undefined, { indent = true }: { indent?: boolean } = {}): OpeningDoc {
+  const opened = openingDocAsStored(rich, text);
+  return indent ? opened : { ...opened, doc: withoutIndent(opened.doc) };
+}
+
+/** A doc's paragraphs without indent steps (only top-level paragraphs have one). */
+function withoutIndent(doc: JSONContent): JSONContent {
+  return {
+    ...doc,
+    content: doc.content?.map((block) => {
+      if (block.type !== "paragraph" || block.attrs?.indent === undefined) return block;
+      const copy: JSONContent = { ...block, attrs: { ...block.attrs } };
+      delete copy.attrs!.indent;
+      if (!Object.keys(copy.attrs!).length) delete copy.attrs;
+      return copy;
+    }),
+  };
+}
+
+/** What the editor opens with (openingDoc). */
+interface OpeningDoc {
+  doc: JSONContent;
+  issues: RtIssue[];
+}
+
+function openingDocAsStored(rich: unknown, text: string | undefined): OpeningDoc {
   const { value, issues } = sanitizeRichText(rich);
   if (value) return { doc: value.doc, issues: [] };
   if (!issues.includes("bad-envelope")) {
@@ -420,6 +449,14 @@ const TOOLS: readonly Tool[] = [
   },
 ];
 
+/**
+ * The toolbar's buttons: every tool, or (`indent` false: the references
+ * list, whose entries all hang alike) every tool but the two Indent buttons.
+ */
+export function toolbarTools(indent: boolean): readonly Tool[] {
+  return indent ? TOOLS : TOOLS.filter((tool) => tool.label !== "Increase indent" && tool.label !== "Decrease indent");
+}
+
 function innermostList(editor: Editor): ToolState["list"] {
   const { $from } = editor.state.selection;
   for (let d = $from.depth; d > 0; d--) {
@@ -442,10 +479,13 @@ const isMac = () =>
 function Toolbar({
   editor,
   name,
+  indent,
   toolbarRef,
 }: {
   editor: Editor;
   name: string;
+  /** Whether paragraphs take indent steps here (VARIANT): else no Indent buttons. */
+  indent: boolean;
   toolbarRef: React.RefObject<HTMLDivElement | null>;
 }) {
   const state = useEditorState({
@@ -464,12 +504,13 @@ function Toolbar({
   const buttons = React.useRef<(HTMLButtonElement | null)[]>([]);
   const [active, setActive] = React.useState(0);
 
-  const enabled = TOOLS.map((t) => (t.enabled ? t.enabled(state) : true));
+  const tools = toolbarTools(indent);
+  const enabled = tools.map((t) => (t.enabled ? t.enabled(state) : true));
   // The one button Tab reaches: the last one used, while it can be used.
   const tabStop = enabled[active] ? active : enabled.indexOf(true);
 
   function move(e: React.KeyboardEvent) {
-    const order = TOOLS.map((_, i) => i).filter((i) => enabled[i]);
+    const order = tools.map((_, i) => i).filter((i) => enabled[i]);
     const at = Math.max(0, order.indexOf(tabStop));
     const next =
       e.key === "ArrowRight"
@@ -495,7 +536,7 @@ function Toolbar({
       onKeyDown={move}
       className="flex flex-wrap items-center gap-0.5 border-b border-[var(--border)] px-1 py-1"
     >
-      {TOOLS.map((tool, i) => {
+      {tools.map((tool, i) => {
         const Icon = tool.icon;
         const pressed = tool.pressed?.(state);
         return (

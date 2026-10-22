@@ -25,10 +25,14 @@ import { CappedListItem, Indent } from "./indent-extension";
  * Bold comes before italic, so both together render <strong><em>, as for
  * learners.
  *
+ * `indent: false` (the references list, whose layout hangs every entry
+ * alike): a paragraph takes no indent step, from a command, a shortcut or a
+ * paste; a list point still moves in and out.
+ *
  * Authoring only: imports Tiptap, which the ESLint rule keeps out of
  * learner code (load the editor through LazyRichTextEditor).
  */
-export function editorExtensions(placeholder: string): Extensions {
+export function editorExtensions(placeholder: string, { indent = true }: { indent?: boolean } = {}): Extensions {
   return [
     Document,
     Paragraph,
@@ -43,7 +47,7 @@ export function editorExtensions(placeholder: string): Extensions {
     UndoRedo,
     Placeholder.configure({ placeholder }),
     BlankLines,
-    Indent.configure({ max: RT_LIMITS.maxIndent }),
+    Indent.configure({ max: indent ? RT_LIMITS.maxIndent : 0 }),
   ];
 }
 
