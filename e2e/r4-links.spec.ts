@@ -18,7 +18,7 @@ import {
 import { callAction } from "./fixtures/server-action";
 import { LINK_INPUTS } from "@/lib/rich-text/link-fixtures";
 import { toLinkInput } from "@/lib/rich-text/link-text";
-import { checkLinkHref, emailAddressOf, type LinkRefusal } from "@/lib/rich-text/link-url";
+import { checkLinkHref, emailAddressOf, isEmailAddress, type LinkRefusal } from "@/lib/rich-text/link-url";
 import { addressProblem } from "@/lib/rich-text/sanitize";
 
 /**
@@ -41,8 +41,9 @@ import { addressProblem } from "@/lib/rich-text/sanitize";
  *          attributes: stored without them), and nothing changes; so are
  *          links read with the text touching them (WORD_MARKS).
  *   R4-E6c link text with a dot that shows no other site (ACCEPTED_LABELS:
- *          an abbreviation, the link's registrable domain) is saved with
- *          its link, through both actions.
+ *          an abbreviation or a title, a Greek word, a person's email
+ *          address, the link's registrable domain or its www. host) is
+ *          saved with its link, through both actions.
  *   R4-E7  (guard) hostile links written straight into the database: no page
  *          draws an href outside https, http and mailto, nor one whose text
  *          shows another address; the text of every refused link shows; the
@@ -150,6 +151,16 @@ const WORD_MARKS: readonly { name: string; rich: ReturnType<typeof paragraphDoc>
     shown: "https://bank.example/login",
   },
 ];
+/**
+ * A hostile label that is an email address stays as words when its link is
+ * dropped, and typed words that are an email address are a quick link to
+ * that address (D55): it shows where it goes.
+ */
+const OWN_QUICK_LINKS: ReadonlySet<string> = new Set(
+  HOSTILE_MARKS.flatMap((row) => row.rich.doc.content[0].content).flatMap((node) =>
+    "text" in node && isEmailAddress(node.text) ? [`mailto:${node.text}`] : []
+  )
+);
 const HOSTILE_SHAPES = [...HOSTILE_MARKS, ...RENDER_ONLY_MARKS, ...WORD_MARKS].map((row, i) =>
   richBlock(row.rich, `Shape ${i}`)
 );
@@ -672,6 +683,20 @@ describe("Release 4 — links in lesson text", () => {
         /Block 1 \(Paragraph\): the link text “_paypal\.com_” looks like a web address, but the link opens another one\./,
       "a label that shows another site in front of the link's":
         /Block 1 \(Paragraph\): the link text “paypal\.com\.evil\.example” looks like a web address, but the link opens another one\./,
+      "a label that shows another site after two slashes":
+        /Block 1 \(Paragraph\): the link text “\/\/paypal\.com” shows a different address than the link opens\./,
+      "a label that shows another site with a raised sign after it":
+        /Block 1 \(Paragraph\): the link text “PayPal\.com\u2122” looks like a web address, but the link opens another one\./,
+      "a label that shows another site through a hair space":
+        /Block 1 \(Paragraph\): the link text “paypal\u200A\.com” looks like a web address, but the link opens another one\./,
+      "a label that shows another site under Co. and a country":
+        /Block 1 \(Paragraph\): the link text “Amazon\.Co\.UK” looks like a web address, but the link opens another one\./,
+      "a label that shows another site in front of the link's, a hyphen after it":
+        /Block 1 \(Paragraph\): the link text “paypal\.com-login\.evil\.example” looks like a web address, but the link opens another one\./,
+      "a label that shows another site through look-alike letters, over its own address":
+        /Block 1 \(Paragraph\): the link text “p\u0430ypal\.com” looks like a web address, but the link opens another one\./,
+      "a label that shows another site as an email address's first part":
+        /Block 1 \(Paragraph\): the link text “paypal\.com@evil\.example” shows a different address than the link opens\./,
     };
     for (const row of WORD_MARKS) {
       named[row.name] = new RegExp(
@@ -772,7 +797,9 @@ describe("Release 4 — links in lesson text", () => {
       for (const href of [...htmlHrefs, ...rscHrefs]) {
         if (href.startsWith("/") || href.startsWith("#")) continue; // the site's own pages
         expect(href, `${name}: ${href.slice(0, 80)}`).toMatch(SAFE_SCHEME);
-        // Every link to evil.example shows another address (or is refused): none is drawn.
+        // Every link to evil.example shows another address (or is refused): none is drawn,
+        // but for an email label's own words, a quick link to the address they show.
+        if (OWN_QUICK_LINKS.has(href)) continue;
         expect(href, `${name}: ${href.slice(0, 80)}`).not.toContain("evil.example");
       }
     }
