@@ -431,6 +431,23 @@ describe("richTextForSave (any rich text an action stores)", () => {
     });
   });
 
+  it("gives the advice it is asked for: the references list is shortened, or written again on a reloaded page", () => {
+    const tooLong = rich(p(t("x".repeat(10_001))));
+    expect(richTextForSave(tooLong, "The references list", "list")).toEqual({
+      ok: false,
+      issues: ["The references list is too long — at most 10,000 characters. Shorten the list."],
+    });
+    expect(richTextForSave({ v: 3, doc: {} }, "The references list", "list")).toEqual({
+      ok: false,
+      issues: ["The references list couldn't be read. Reload the page, then make your change again."],
+    });
+    // A block's advice, unless asked otherwise.
+    expect(richTextForSave(tooLong, "Block 1 (Paragraph)")).toEqual({
+      ok: false,
+      issues: ["Block 1 (Paragraph) is too long — at most 10,000 characters. Split it into two blocks."],
+    });
+  });
+
   it("refuses what isn't an envelope of a version it reads as unreadable, where a block keeps its text", () => {
     for (const raw of [undefined, null, "text", { v: 3, doc: { type: "doc", content: [] } }, { v: 1 }, { v: 2 }]) {
       expect(richTextForSave(raw, "The references list")).toEqual({

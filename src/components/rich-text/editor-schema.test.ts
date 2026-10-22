@@ -9,7 +9,7 @@ import {
 } from "./editor-extensions";
 import { canSinkWithin } from "./indent-extension";
 import { linkRange } from "./link-extension";
-import { VARIANT, editorChange, openingDoc, removedLinksNote } from "./RichTextEditor";
+import { VARIANT, editorChange, openingDoc, problemLine, removedLinksNote } from "./RichTextEditor";
 import { NARRATIVE_TEXT_CLASS } from "@/components/course/NarrativeStage";
 import { REFLECTION_INTRO_CLASS } from "@/components/course/ReflectionIntro";
 import { legacyTextToDoc } from "@/lib/rich-text/from-legacy";
@@ -480,6 +480,39 @@ describe("blank lines", () => {
   it("leaves an empty editor to its placeholder, and list points alone", () => {
     expect(marked(editorWith({ type: "paragraph" }))).toEqual([]);
     expect(marked(editorWith(ul(li("A"), li("B"))))).toEqual([]);
+  });
+});
+
+describe("the problem line's advice", () => {
+  // Each text is told what its editor offers: a lesson's block can be
+  // split into two; an introduction and the references list are one text.
+  const paragraphOf = (content: JSONContent[]) => ({ v: 2, doc: { type: "doc", content: [{ type: "paragraph", content }] } });
+  const linked = (text: string, href: string): JSONContent => ({ type: "text", text, marks: [{ type: "link", attrs: { href } }] });
+  const long = sanitizeRichText({ v: 1, doc: { type: "doc", content: [p("x".repeat(10_001))] } });
+  // 1,600 links and words in under 10,000 characters: too many nodes.
+  const crowded = sanitizeRichText(
+    paragraphOf(Array.from({ length: 1_600 }, (_, i) => (i % 2 ? { type: "text", text: " " } : linked(`w${i}`, `https://example.org/${i}`))))
+  );
+
+  it("splits a paragraph or a key message into two blocks", () => {
+    expect(problemLine("paragraph", long)).toBe("This paragraph is too long — at most 10,000 characters. Split it into two blocks.");
+    expect(problemLine("callout", long)).toBe("This key message is too long — at most 10,000 characters. Split it into two blocks.");
+  });
+
+  it("shortens an introduction, and the references list", () => {
+    expect(problemLine("reflection-intro", long)).toBe("This introduction is too long — at most 10,000 characters. Shorten it.");
+    expect(problemLine("references", long)).toBe("The references list is too long — at most 10,000 characters. Shorten the list.");
+    expect(problemLine("references", crowded)).toBe(
+      "The references list has too many links or too much formatting to save. Shorten the list."
+    );
+  });
+
+  it("names a link's problem when the text can be saved otherwise", () => {
+    const misleading = sanitizeRichText(paragraphOf([linked("bank.example", "https://evil.example/")]));
+    expect(problemLine("references", misleading)).toBe(
+      "The link text “bank.example” shows a different address than the link opens. Show the real address, or use a few words."
+    );
+    expect(problemLine("references", sanitizeRichText({ v: 1, doc: { type: "doc", content: [p("Fine")] } }))).toBeNull();
   });
 });
 

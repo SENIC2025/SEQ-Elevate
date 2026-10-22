@@ -6,6 +6,7 @@ import {
   linkProblemMessage,
   richTextProblem,
   sanitizeRichText,
+  type RtAdvice,
 } from "./sanitize";
 import { docToPlainText } from "./to-plain";
 
@@ -219,7 +220,9 @@ export type RichTextForSave =
  * other rich text an action stores. `raw` is the envelope the browser sent;
  * it is sanitized, and its plain `text` is derived here from the doc. When
  * it can't be stored, `issues` holds one sentence per problem, naming the
- * text as `name` ("Block 2 (Paragraph)", "The references list"). An
+ * text as `name` ("Block 2 (Paragraph)", "The references list") and
+ * ending with what to do, by what the text is (`advice`, RT_ADVICE: a
+ * block's unless said otherwise). An
  * envelope of a version a save doesn't read (versions 1 and 2 are read) is
  * refused as unreadable.
  *
@@ -228,13 +231,13 @@ export type RichTextForSave =
  * naming it by its words ("Block 2 (Paragraph): the link “the guide” can't
  * be used. …"). A text with a link is stored as version 2.
  */
-export function richTextForSave(raw: unknown, name: string): RichTextForSave {
-  if (!isSavedEnvelope(raw)) return { ok: false, issues: [RT_PROBLEM["bad-envelope"](name)] };
+export function richTextForSave(raw: unknown, name: string, advice: RtAdvice = "block"): RichTextForSave {
+  if (!isSavedEnvelope(raw)) return { ok: false, issues: [RT_PROBLEM["bad-envelope"](name, advice)] };
   const { value, issues: found, linkProblems, hasLinks } = sanitizeRichText(raw);
   if (!value) {
     return {
       ok: false,
-      issues: [richTextProblem(found, name, hasLinks) ?? RT_PROBLEM["bad-envelope"](name)],
+      issues: [richTextProblem(found, name, hasLinks, advice) ?? RT_PROBLEM["bad-envelope"](name, advice)],
     };
   }
   if (found.includes("dropped-link") || found.includes("own-file-link")) {

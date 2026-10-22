@@ -32,6 +32,7 @@ import {
   richTextProblem,
   sanitizeRichText,
   type LinkProblem,
+  type RtAdvice,
   type RtIssue,
   type RtSanitized,
 } from "@/lib/rich-text/sanitize";
@@ -70,15 +71,29 @@ export interface RichTextEditorProps {
   onChange: (rich: RichText, text: string) => void;
 }
 
+interface VariantSpec {
+  name: string;
+  subject: string;
+  label: string;
+  placeholder: string;
+  prose: string;
+  box: string;
+  advice: RtAdvice;
+}
+
 /**
  * Per kind of text. `prose` holds the classes of the learner's element
  * (NarrativeStage, ReflectionIntro), so the text looks the same while it is
  * edited; editor-schema.test.ts checks they haven't drifted apart.
+ * `advice`: what the problem line tells an author to do about text that
+ * can't be saved (RT_ADVICE): split a lesson's block, shorten a text of its
+ * own.
  */
 export const VARIANT = {
   paragraph: {
     name: "Paragraph",
     subject: "This paragraph",
+    advice: "block",
     label: "Paragraph text",
     placeholder: "Write the paragraph…",
     prose: "text-base leading-relaxed",
@@ -87,6 +102,7 @@ export const VARIANT = {
   callout: {
     name: "Key message",
     subject: "This key message",
+    advice: "block",
     label: "Key message text",
     placeholder: "The one point learners should remember",
     prose: "seq-prose-compact font-medium text-[var(--accent)]",
@@ -96,6 +112,8 @@ export const VARIANT = {
   "reflection-intro": {
     name: "Introduction",
     subject: "This introduction",
+    // A reflection lesson's one text: it can't be split into blocks.
+    advice: "text",
     label: "Introduction",
     placeholder: "Write a short introduction…",
     prose: "text-sm text-[var(--muted-foreground)]",
@@ -103,15 +121,17 @@ export const VARIANT = {
   },
   // A course's references and bibliography (D109): set as the learner's
   // references page sets it (.seq-references, a hanging indent per entry).
+  // One list per language.
   references: {
     name: "References",
     subject: "The references list",
+    advice: "list",
     label: "References & bibliography",
     placeholder: "Write the paragraph…",
     prose: "seq-references",
     box: "px-3 py-2",
   },
-} as const;
+} as const satisfies Record<RichTextEditorProps["variant"], VariantSpec>;
 
 /**
  * The lesson text editor for one paragraph, key message or reflection
@@ -161,11 +181,7 @@ export function RichTextEditor({
   const boxRef = React.useRef<HTMLDivElement>(null);
   // Set once: the editor keeps its own state after it mounts.
   const [opening] = React.useState(() => openingDoc(rich, text));
-  const [problem, setProblem] = React.useState(
-    () =>
-      richTextProblem(opening.issues, v.subject, opening.hasLinks) ??
-      firstLinkProblem(opening.linkProblems)
-  );
+  const [problem, setProblem] = React.useState(() => problemLine(variant, opening));
   const [flattened, setFlattened] = React.useState(false);
   // The status line's notes: after a paste, or the links left out when the
   // editor opened. They stay until the text next changes otherwise (the
@@ -233,7 +249,7 @@ export function RichTextEditor({
     onUpdate: ({ editor: e }) => {
       const doc = e.getJSON();
       const sanitized = sanitizeRichText({ v: 1, doc });
-      setProblem(richTextProblem(sanitized.issues, v.subject, sanitized.hasLinks) ?? firstLinkProblem(sanitized.linkProblems));
+      setProblem(problemLine(variant, sanitized));
       setFlattened(sanitized.issues.includes("list-flattened"));
       const { rich: changed, text: plain } = editorChange(doc, sanitized, () => e.getText({ blockSeparator: "\n\n" }));
       onChange(changed, plain);
@@ -461,6 +477,20 @@ const CANT_LINK = "Select words in one paragraph to link them.";
 /** The first link problem, as the editor says it ("The link “…” can't be used. …"), or null. */
 function firstLinkProblem(problems: readonly LinkProblem[]): string | null {
   return problems.length ? linkProblemMessage(problems[0]) : null;
+}
+
+/**
+ * The problem line of a `variant`'s editor for its text (as sanitized, or
+ * as it opened): why the text can't be saved, with what to do about it as
+ * that text allows (VARIANT's advice); else the first link a save would
+ * refuse; else null.
+ */
+export function problemLine(
+  variant: RichTextEditorProps["variant"],
+  text: { issues: readonly RtIssue[]; hasLinks: boolean; linkProblems: readonly LinkProblem[] }
+): string | null {
+  const v = VARIANT[variant];
+  return richTextProblem(text.issues, v.subject, text.hasLinks, v.advice) ?? firstLinkProblem(text.linkProblems);
 }
 
 /** Whether the selection lies within one paragraph or list point: only then can it be linked. */
