@@ -8,6 +8,7 @@ import { getCourse } from "@/lib/cms";
 import { getCourseStatus } from "@/lib/cms/course-overlay";
 import { getCourseReferences } from "@/lib/cms/course-references";
 import { learnerContentLocale } from "@/lib/cms/language-ready";
+import { nameInSentence, sentenceStart } from "@/lib/cms/language-name";
 import { canEditContent } from "@/lib/permissions";
 import { furtherReadingOn } from "@/lib/r4-switches";
 import { getViewerRoles } from "@/lib/server-queries";
@@ -34,7 +35,8 @@ const viewerCanEdit = cache(async () => canEditContent(await getViewerRoles()));
  * yet is English for a German learner); for an editor on a draft, or with
  * ?preview=1, the language asked for, as the course's preview shows it.
  * Within that, getCourseReferences falls back to English, then to the
- * first language written.
+ * first language written. A preview in a language learners don't get yet
+ * says so (`languageNotLive`), as the course's preview does.
  */
 const loadReferences = cache(async (courseId: string, requested: Locale, previewAsked: boolean) => {
   if (!furtherReadingOn()) return null;
@@ -44,12 +46,19 @@ const loadReferences = cache(async (courseId: string, requested: Locale, preview
   const isDraft = status !== "published";
   if (isDraft && !canEdit) return null;
   const preview = canEdit && (isDraft || previewAsked);
-  const contentLocale = preview ? requested : await learnerContentLocale(PROJECT, courseId, requested);
+  const learnerLocale = await learnerContentLocale(PROJECT, courseId, requested);
+  const contentLocale = preview ? requested : learnerLocale;
   const list = await getCourseReferences(PROJECT, courseId, contentLocale);
   if (!list) return null;
   const course = await getCourse(PROJECT, courseId, contentLocale);
   if (!course) return null;
-  return { courseTitle: course.title, contentLocale, list, keepPreview: canEdit && previewAsked };
+  return {
+    courseTitle: course.title,
+    contentLocale,
+    list,
+    keepPreview: canEdit && previewAsked,
+    languageNotLive: preview && learnerLocale !== requested ? requested : undefined,
+  };
 });
 
 function asLocale(locale: string): Locale {
@@ -101,7 +110,9 @@ export default async function Page({ params, searchParams }: { params: Params; s
   const loaded = await loadReferences(courseId, requested, one(sp.preview) === "1");
   if (!loaded) notFound();
   const t = await getTranslations("courseReferences");
-  const { courseTitle, contentLocale, list, keepPreview } = loaded;
+  const tPlayer = await getTranslations("coursePlayer");
+  const tCourses = await getTranslations("courseManager");
+  const { courseTitle, contentLocale, list, keepPreview, languageNotLive } = loaded;
   const titleLang = contentLocale !== requested ? contentLocale : undefined;
   const listLang = list.locale !== requested ? list.locale : undefined;
 
@@ -122,6 +133,17 @@ export default async function Page({ params, searchParams }: { params: Params; s
           {t("back")}
         </Link>
       )}
+
+      {languageNotLive ? (
+        <p className="mt-3 text-sm font-medium">
+          {sentenceStart(
+            tPlayer("languageNotLive", {
+              language: nameInSentence(tCourses(`languageName.${languageNotLive}`), requested),
+            }),
+            requested
+          )}
+        </p>
+      ) : null}
 
       <div className="mt-6 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4 sm:p-6">
         {listLang ? (

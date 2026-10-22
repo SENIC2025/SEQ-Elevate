@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { AlertTriangle, CheckCircle2, Loader2, RefreshCw, Save, Undo2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,8 @@ import type {
   CourseReferencesForEditor,
   SaveCourseReferencesResult,
 } from "@/app/actions/course-references";
+import type { CourseStatus } from "@/lib/cms/course-status";
+import { nameInSentence, sentenceStart } from "@/lib/cms/language-name";
 import { hasText } from "@/lib/cms/text-fallback";
 import type { Locale } from "@/lib/cms/types";
 import { markContentLang } from "./blocks/content-lang";
@@ -91,6 +93,13 @@ export type ReferencesEvent =
 
 /** Is there anything typed that isn't saved? */
 export const isDirty = (s: ReferencesEditorState) => s.edits !== s.cleanAt;
+
+/**
+ * Does a list saved here reach learners at once? Only on a published course
+ * whose learners get it in this language (`ready`, Release 3's D90: a
+ * course whose German isn't switched on is English for German learners).
+ */
+export const reachesLearnersAtOnce = (status: CourseStatus, ready: boolean) => status === "published" && ready;
 
 /** The language's stored list, from what loadCourseReferencesForEditor answered. */
 export function storedFor(loaded: CourseReferencesForEditor, lang: Locale): StoredReferences {
@@ -190,17 +199,41 @@ export function watchContentLang(root: HTMLElement, lang: string): () => void {
  * - Its text box carries the language being written; the controls around
  *   it keep the page's. The box is styled as learners see the list
  *   (.seq-references, the editor's "references" variant).
+ * - It says when learners don't get what is saved here at once: for a
+ *   language not switched on for the course, that its learners get English
+ *   until it is; and "Saved. Learners see it now." only where they do.
+ * - Keyboard focus never falls to the page: a control that goes away or is
+ *   disabled by its own action (Save, Discard changes, Load their version,
+ *   Try again) hands focus to the editor's heading.
  *
  * Outside the course copy editor's form: Enter in the list never submits it.
  */
-export function CourseReferencesEditor({ slug, lang }: { slug: string; lang: Locale }) {
+export function CourseReferencesEditor({
+  slug,
+  lang,
+  status,
+  ready,
+}: {
+  slug: string;
+  lang: Locale;
+  /** The course's status: only a published course's list reaches learners. */
+  status: CourseStatus;
+  /** Whether learners get the course in `lang` (CourseOutline.ready). */
+  ready: boolean;
+}) {
   const t = useTranslations("courseReading.references");
   const tText = useTranslations("lessonBlocks.textEditor");
   const tLanguage = useTranslations("courseManager.languageName");
+  const tCourses = useTranslations("courseManager");
   const tPage = useTranslations("courseManager.page");
   const tSystem = useTranslations("system");
+  const ui = useLocale();
   const ids = React.useId();
   const boxRef = React.useRef<HTMLDivElement>(null);
+  const headingRef = React.useRef<HTMLHeadingElement>(null);
+  const saveRef = React.useRef<HTMLButtonElement>(null);
+  /** Keep focus in the editor when the control that has it goes away or is disabled. */
+  const keepFocus = () => headingRef.current?.focus();
   const [state, dispatch] = React.useReducer(referencesReducer, INITIAL_REFERENCES_STATE);
   const dirty = isDirty(state);
 
@@ -245,6 +278,8 @@ export function CourseReferencesEditor({ slug, lang }: { slug: string; lang: Loc
   async function save() {
     if (!state.stored || !state.draft || busy || !dirty) return;
     const at = state.edits;
+    // Save is disabled while it runs, and stays so once nothing is unsaved.
+    if (document.activeElement === saveRef.current) keepFocus();
     dispatch({ type: "saving" });
     try {
       const result = await saveCourseReferences(slug, lang, { rich: state.draft.rich }, state.stored.base);
@@ -256,12 +291,22 @@ export function CourseReferencesEditor({ slug, lang }: { slug: string; lang: Loc
 
   function discard() {
     if (!window.confirm(tText("discardConfirm"))) return;
+    // "Discard changes" goes away with the changes.
+    keepFocus();
     dispatch({ type: "discarded" });
   }
 
   function reload() {
     if (dirty && !window.confirm(tText("reloadConfirm", { language }))) return;
+    // "Load their version" goes away with the alert it is in.
+    keepFocus();
     void load(true);
+  }
+
+  function retry() {
+    // "Try again" goes away once the list is there.
+    keepFocus();
+    void load(false);
   }
 
   const problemText =
@@ -283,7 +328,7 @@ export function CourseReferencesEditor({ slug, lang }: { slug: string; lang: Loc
       className="mt-6 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4 sm:p-5"
     >
       <div className="flex flex-wrap items-center gap-2">
-        <h2 id={`${ids}-h`} className="text-base font-semibold">
+        <h2 id={`${ids}-h`} ref={headingRef} tabIndex={-1} className="text-base font-semibold">
           {t("heading")}
         </h2>
         <Badge variant="muted" className="text-[10px]">
@@ -292,6 +337,11 @@ export function CourseReferencesEditor({ slug, lang }: { slug: string; lang: Loc
       </div>
       <p className="mt-1 text-sm text-[var(--muted-foreground)]">{t("hint")}</p>
       <p className="mt-1 text-sm text-[var(--muted-foreground)]">{t("languageNote")}</p>
+      {ready ? null : (
+        <p className="mt-1 text-sm font-medium">
+          {sentenceStart(tCourses("languageReady.notLive", { language: nameInSentence(language, ui) }), ui)}
+        </p>
+      )}
       {state.stored && !hasText(state.stored.text) ? (
         <p className="mt-2 text-sm font-medium">{t("empty")}</p>
       ) : null}
@@ -309,7 +359,7 @@ export function CourseReferencesEditor({ slug, lang }: { slug: string; lang: Loc
         ) : state.loadFailed ? (
           <div role="alert" className="rounded-md border border-[var(--danger)] bg-[var(--danger)]/10 px-3 py-2 text-sm">
             <p>{tSystem("errorBody")}</p>
-            <Button size="sm" variant="outline" className="mt-2" onClick={() => void load(false)}>
+            <Button size="sm" variant="outline" className="mt-2" onClick={retry}>
               <RefreshCw className="h-4 w-4" aria-hidden />
               {tSystem("tryAgain")}
             </Button>
@@ -358,7 +408,7 @@ export function CourseReferencesEditor({ slug, lang }: { slug: string; lang: Loc
       ) : null}
 
       <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-[var(--border)] pt-3">
-        <Button size="sm" disabled={busy || !state.stored || !dirty} onClick={() => void save()}>
+        <Button ref={saveRef} size="sm" disabled={busy || !state.stored || !dirty} onClick={() => void save()}>
           {state.status === "saving" ? (
             <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
           ) : (
@@ -378,7 +428,7 @@ export function CourseReferencesEditor({ slug, lang }: { slug: string; lang: Loc
           ) : state.status === "saved" ? (
             <span className="inline-flex items-center gap-1 text-[var(--success)]">
               <CheckCircle2 className="h-3.5 w-3.5" aria-hidden />
-              {t("saved")}
+              {reachesLearnersAtOnce(status, ready) ? t("saved") : tText("saved")}
             </span>
           ) : state.status === "reloading" ? (
             <span className="text-[var(--muted-foreground)]">{tText("reloading")}</span>

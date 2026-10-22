@@ -305,7 +305,7 @@ function Workspace({
           {/* Beside the title and subtitle, outside their form; a built-in
               course has no list (D109). Keyed by language, like the copy. */}
           {outline.kind === "cms" ? (
-            <CourseReferencesEditor key={lang} slug={outline.slug} lang={lang} />
+            <CourseReferencesEditor key={lang} slug={outline.slug} lang={lang} status={status} ready={outline.ready[lang]} />
           ) : null}
 
           <ol className="mt-6 space-y-4">

@@ -334,15 +334,45 @@ describe("saveCourseReferences", () => {
       expect(res).toMatchObject({ ok: false, error: "invalid" });
       expect((res as { issues: string[] }).issues[0]).toMatch(/^The references list/);
     }
-    // Over the rich-text limit: too long, named.
+    // Over the rich-text limit: too long, named, with the list's own advice.
     const long = await saveCourseReferences(SLUG, "en", { rich: doc("x".repeat(10_001)) }, base);
     expect(long).toEqual({
       ok: false,
       error: "invalid",
-      issues: ["The references list is too long — at most 10,000 characters. Split it into two blocks."],
+      issues: ["The references list is too long — at most 10,000 characters. Shorten the list."],
     });
     expect(db.bibliography?.content).toEqual(kept);
     expect(db.audit.filter((r) => r.action !== "course.references_saved")).toEqual([]);
+  });
+
+  it("advises what the list's editor offers: shortening the list, never splitting or copying blocks it hasn't got", async () => {
+    // A real reading list of 90 entries of about 120 characters each: over 10,000.
+    const entry = "Author, A. A. (2020). Title of a modest real reference entry of about this length. Publisher. https://doi.org/10.1/x";
+    const ninety = doc(...Array.from({ length: 90 }, (_, i) => `${i} ${entry}`));
+    // 1,600 nodes in under 4,000 characters: too much formatting.
+    const nodes = doc(...Array.from({ length: 800 }, (_, i) => `E${i}`));
+    const answers = [
+      await saveCourseReferences(SLUG, "en", { rich: ninety }, null),
+      await saveCourseReferences(SLUG, "en", { rich: nodes }, null),
+      await saveCourseReferences(SLUG, "en", { rich: { v: 3, doc: {} } }, null),
+    ];
+    expect(answers.map((a) => (a as { issues?: string[] }).issues)).toEqual([
+      ["The references list is too long — at most 10,000 characters. Shorten the list."],
+      ["The references list has too much formatting or too many list points to save. Shorten the list."],
+      ["The references list couldn't be read. Reload the page, then make your change again."],
+    ]);
+    // Part A's words for a list over a limit that holds links: the same advice.
+    vi.mocked(narrative.richTextForSave).mockReturnValue({
+      ok: false,
+      issues: ["The references list has too many links or too much formatting to save. Split it into two blocks."],
+    });
+    expect(await saveCourseReferences(SLUG, "en", { rich: doc("x") }, null)).toEqual({
+      ok: false,
+      error: "invalid",
+      issues: ["The references list has too many links or too much formatting to save. Shorten the list."],
+    });
+    for (const answer of answers) expect(JSON.stringify(answer)).not.toMatch(/block/i);
+    expect(db.bibliography).toBeNull();
   });
 
   it("passes on Part A's refusals as they are (with Part A, richTextForSave names the link)", async () => {

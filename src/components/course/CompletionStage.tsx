@@ -4,7 +4,7 @@ import { useEffect, useRef } from "react";
 import { useTranslations } from "next-intl";
 import { motion, MotionConfig } from "framer-motion";
 import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Link } from "@/i18n/navigation";
 import { useDemoState } from "@/store/demo-state";
 import type { CourseContent } from "@/lib/cms/types";
@@ -148,11 +148,13 @@ export function CompletionStage({
             </Button>
           </Link>
           {hasReferences ? (
-            <Link href={`/learner/course/${course.slug}/references${preview ? "?preview=1" : ""}`}>
-              <Button size="lg" variant="outline">
-                <BookOpen className="h-4 w-4" aria-hidden />
-                {tReferences("title")}
-              </Button>
+            // One link, styled as a button: a button inside a link would be two Tab stops for one action.
+            <Link
+              href={`/learner/course/${course.slug}/references${preview ? "?preview=1" : ""}`}
+              className={buttonVariants({ size: "lg", variant: "outline" })}
+            >
+              <BookOpen className="h-4 w-4" aria-hidden />
+              {tReferences("title")}
             </Link>
           ) : null}
           <Link href="/learner">

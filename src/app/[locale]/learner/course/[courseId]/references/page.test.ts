@@ -226,6 +226,23 @@ describe("the references page", () => {
     expect(getCourseReferences).toHaveBeenLastCalledWith("seq-elevate", SLUG, "en");
   });
 
+  it("says in an editor's preview that learners get English until the language is switched on", async () => {
+    const notLive = (messages: typeof en, language: string) =>
+      messages.coursePlayer.languageNotLive.replaceAll("{language}", language);
+    setup({ editor: true, learnerLocale: "en", list: { locale: "de", text: "Autorin (2021)." } });
+    expect(await visit("de", { preview: "1" })).toContain(notLive(de, "Deutsch"));
+    // A draft is always a preview for its editors; Greek writes the name in lower case.
+    setup({ status: "draft", editor: true, learnerLocale: "en", list: { locale: "el", text: "Συγγραφέας (2022)." } });
+    expect(await visit("el")).toContain(notLive(el, "ελληνικά"));
+    // Learners, and a preview in a language learners get, have no such line.
+    setup({ learnerLocale: "en" });
+    expect(await visit("de")).not.toContain(notLive(de, "Deutsch"));
+    setup({ editor: true, learnerLocale: "de", list: { locale: "de", text: "Autorin (2021)." } });
+    expect(await visit("de", { preview: "1" })).not.toContain(notLive(de, "Deutsch"));
+    setup({ editor: true });
+    expect(await visit("en", { preview: "1" })).not.toContain(notLive(en, "English"));
+  });
+
   it("never gives ?preview=1 a learner's meaning: it is the language learners get", async () => {
     setup({ learnerLocale: "en" });
     const html = await visit("de", { preview: "1" });

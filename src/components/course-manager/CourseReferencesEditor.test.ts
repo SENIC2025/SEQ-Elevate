@@ -29,6 +29,7 @@ const {
   CourseReferencesEditor,
   INITIAL_REFERENCES_STATE,
   isDirty,
+  reachesLearnersAtOnce,
   referencesReducer,
   storedFor,
   watchContentLang,
@@ -43,6 +44,10 @@ const run = (...events: Event[]): State => events.reduce(referencesReducer, INIT
 const RICH = { v: 1, doc: { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Author (2020)." }] }] } };
 const STORED = { text: "Author (2020).", rich: RICH, base: "b1" };
 const EDIT: Event = { type: "edited", rich: { v: 1, doc: { type: "doc", content: [] } }, text: "Author (2021)." };
+/** The editor on a published course, in a language learners get it in. */
+const LIVE = { status: "published", ready: true } as const;
+const editor = (props: { lang: "en" | "de" | "el"; status?: "draft" | "published" | "archived"; ready?: boolean }) =>
+  createElement(CourseReferencesEditor, { slug: "my-course", ...LIVE, ...props });
 
 beforeEach(() => {
   dirtyCalls.length = 0;
@@ -50,14 +55,14 @@ beforeEach(() => {
 
 describe("CourseReferencesEditor", () => {
   it("registers with the page's unsaved-changes registry, by its heading, bound to the language", () => {
-    renderIn(createElement(CourseReferencesEditor, { slug: "my-course", lang: "de" }));
+    renderIn(editor({ lang: "de" }));
     expect(dirtyCalls).toEqual([["references", en.courseReading.references.heading, true]]);
-    renderIn(createElement(CourseReferencesEditor, { slug: "my-course", lang: "en" }), "de");
+    renderIn(editor({ lang: "en" }), "de");
     expect(dirtyCalls[1]).toEqual(["references", de.courseReading.references.heading, true]);
   });
 
   it("is a region named by its heading, with the hint and the language note, loading its list", () => {
-    const html = renderIn(createElement(CourseReferencesEditor, { slug: "my-course", lang: "de" }));
+    const html = renderIn(editor({ lang: "de" }));
     const heading = html.match(/<h2 id="([^"]+)"[^>]*>([^<]*)<\/h2>/);
     expect(heading?.[2]).toBe(en.courseReading.references.heading.replace("&", "&amp;"));
     expect(html).toContain(`<section aria-labelledby="${heading?.[1]}"`);
@@ -72,13 +77,42 @@ describe("CourseReferencesEditor", () => {
   });
 
   it("speaks the page's language", () => {
-    const html = renderIn(createElement(CourseReferencesEditor, { slug: "my-course", lang: "en" }), "de");
+    const html = renderIn(editor({ lang: "en" }), "de");
     expect(textOf(html)).toContain(de.courseReading.references.hint);
     expect(textOf(html)).toContain(de.courseManager.languageName.en);
   });
 
   it("styles its text box as learners see the list (the editor's references variant)", () => {
     expect(VARIANT.references.prose).toBe("seq-references");
+  });
+
+  it("says, for a language not switched on for the course, that its learners get English until it is", () => {
+    const notLive = (language: string) =>
+      en.courseManager.languageReady.notLive.replaceAll("{language}", language);
+    expect(textOf(renderIn(editor({ lang: "de", ready: false })))).toContain(notLive("German"));
+    expect(textOf(renderIn(editor({ lang: "el", ready: false })))).toContain(notLive("Greek"));
+    expect(textOf(renderIn(editor({ lang: "de", ready: false }), "de"))).toContain(
+      de.courseManager.languageReady.notLive.replaceAll("{language}", "Deutsch")
+    );
+    // Switched on (and English, always): nothing of the kind.
+    for (const html of [renderIn(editor({ lang: "de" })), renderIn(editor({ lang: "en" }))]) {
+      expect(textOf(html)).not.toContain(notLive("German"));
+      expect(textOf(html)).not.toContain(notLive("English"));
+    }
+  });
+
+  it("can take keyboard focus on its heading, so focus stays in it when a control it used goes away", () => {
+    const html = renderIn(editor({ lang: "en" }));
+    expect(html).toMatch(/<h2 id="[^"]+" tabindex="-1"[^>]*>/);
+  });
+});
+
+describe("whether a saved list reaches learners at once", () => {
+  it("does on a published course in a language learners get it in, and nowhere else", () => {
+    expect(reachesLearnersAtOnce("published", true)).toBe(true);
+    expect(reachesLearnersAtOnce("published", false)).toBe(false);
+    expect(reachesLearnersAtOnce("draft", true)).toBe(false);
+    expect(reachesLearnersAtOnce("archived", true)).toBe(false);
   });
 });
 

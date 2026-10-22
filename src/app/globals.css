@@ -257,11 +257,14 @@ a.seq-link:focus-visible {
      indent and 0.75em between entries. The learner's references page and
      the course page's references editor both carry it, so authors see the
      learners' layout. Only an entry's own first line hangs; what it nests
-     doesn't. */
+     doesn't. The hanging indent is the list's layout, so it holds for an
+     entry with indent steps too: the inline padding of a step (an entry
+     pasted from Word's Bibliography style arrives with one) never moves an
+     entry out of line with the others. */
   .seq-references > p,
   .seq-references > ul > li,
   .seq-references > ol > li {
-    padding-inline-start: 2em;
+    padding-inline-start: 2em !important;
     text-indent: -2em;
   }
   .seq-references li li,

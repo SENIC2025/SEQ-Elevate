@@ -19,7 +19,8 @@
  *   D39): when someone else saved this language since, it is refused as
  *   "changed-elsewhere" and the transaction rolls back.
  * - The list is saved through richTextForSave, as lesson text is: refused,
- *   never cut, with one sentence per problem naming "The references list".
+ *   never cut, with one sentence per problem naming "The references list"
+ *   and saying what its editor can do about it (the list has no blocks).
  *   An empty list removes its language.
  * - Audited against the course (its slug) with the language only, never
  *   the list's text.
@@ -33,7 +34,7 @@ import { COURSE_DEFS } from "@/data/course";
 import { isContentLocale } from "@/lib/cms/course-admin-types";
 import { parseBibliography, type BibliographyEntry } from "@/lib/cms/bibliography";
 import { readCourseBibliography } from "@/lib/cms/course-references";
-import { PROJECT, SLUG, lockCourse } from "@/lib/cms/sections/store.server";
+import { PROJECT, SLUG, isVersion, lockCourse } from "@/lib/cms/sections/store.server";
 import { ChangedElsewhere, fingerprint } from "@/lib/cms/stored-json";
 import { hasText } from "@/lib/cms/text-fallback";
 import { richTextForSave } from "@/lib/rich-text/narrative";
@@ -64,15 +65,28 @@ async function requireEditor() {
 /** A course the platform ships (built in): never a list. */
 const isBundled = (slug: string) => Object.prototype.hasOwnProperty.call(COURSE_DEFS, slug);
 
-/** A base as the editor sends it back: a fingerprint, or null for "nothing stored". */
-const isBase = (base: unknown): base is string | null =>
-  base === null || (typeof base === "string" && base.length <= 32);
-
 /** The list as sent: `{ rich }`, or null to remove this language's list. */
 const isValue = (value: unknown): value is { rich: unknown } | null =>
   value === null || (typeof value === "object" && !Array.isArray(value) && "rich" in value);
 
-/** Thrown inside the transaction to answer `result` with nothing written (it rolls back). */
+/**
+ * What a refusal advises, as the references editor offers it: the list is
+ * one text per language, so a text over a limit is shortened, and one that
+ * can't be read is written again on a fresh page. (richTextForSave's
+ * sentences end with a lesson block's advice; its first part, naming the
+ * list and the problem, is kept.)
+ */
+const LIST_ADVICE: readonly [RegExp, string][] = [
+  [/ Split it into two blocks\.$/, " Shorten the list."],
+  [/ Copy its text into a new block, then remove this one\.$/, " Reload the page, then make your change again."],
+];
+const forTheList = (issue: string) => LIST_ADVICE.reduce((sentence, [from, to]) => sentence.replace(from, to), issue);
+
+/**
+ * Thrown inside the transaction to answer `result` with nothing written (it
+ * rolls back). This action's own answers, a success with nothing to remove
+ * among them, so not store.server.ts's Refusal (the lesson actions' results).
+ */
 class Stop extends Error {
   constructor(readonly result: SaveCourseReferencesResult) {
     super("stop");
@@ -94,7 +108,7 @@ export async function saveCourseReferences(
 ): Promise<SaveCourseReferencesResult> {
   const editor = await requireEditor();
   if (!editor) return { ok: false, error: "forbidden" };
-  if (typeof slug !== "string" || !SLUG.test(slug) || !isContentLocale(locale) || !isValue(value) || !isBase(base)) {
+  if (typeof slug !== "string" || !SLUG.test(slug) || !isContentLocale(locale) || !isValue(value) || !isVersion(base)) {
     return { ok: false, error: "bad-input" };
   }
   if (isBundled(slug)) return { ok: false, error: "built-in" };
@@ -117,7 +131,7 @@ export async function saveCourseReferences(
       });
       const stored = parseBibliography(row.content);
       if (fingerprint(stored.locales[locale] ?? null) !== base) throw new ChangedElsewhere();
-      if (prepared && !prepared.ok) throw new Stop({ ok: false, error: "invalid", issues: prepared.issues });
+      if (prepared && !prepared.ok) throw new Stop({ ok: false, error: "invalid", issues: prepared.issues.map(forTheList) });
       const locales = { ...stored.locales };
       if (entry) {
         locales[locale] = entry;

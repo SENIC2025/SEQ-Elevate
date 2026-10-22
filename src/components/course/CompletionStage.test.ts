@@ -57,6 +57,14 @@ describe("CompletionStage's link to the references", () => {
     ]);
   });
 
+  it("is one link that looks like a button, with no button inside it: one Tab stop, one name", () => {
+    const html = renderIn(createElement(CompletionStage, { course, hasReferences: true }));
+    const refs = elements(html, "a").find((a) => attr(a.attrs, "href") === "/en/learner/course/speak-up/references");
+    expect(refs, "the link to the references").toBeDefined();
+    expect(refs!.inner).not.toMatch(/<button/);
+    expect(attr(refs!.attrs, "class")).toMatch(/\binline-flex\b.*\brounded-lg\b/);
+  });
+
   it("keeps an editor's preview", () => {
     const html = renderIn(createElement(CompletionStage, { course, hasReferences: true, preview: true }));
     expect(links(html).map((l) => l.href)).toContain("/en/learner/course/speak-up/references?preview=1");
