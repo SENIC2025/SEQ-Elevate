@@ -217,7 +217,8 @@ function sameFormat(a: WalkText, b: WalkText): boolean {
 
 /** Text for a link problem: trimmed, at most PROBLEM_TEXT_CHARS (never half an emoji). */
 function problemText(text: string): string {
-  const shown = text.replace(/\s+/g, " ").trim();
+  // Spaces collapsed, but not a hair space: the text is named as it shows.
+  const shown = text.replace(/(?:(?!\u200A)\s)+/g, " ").trim();
   if (shown.length <= PROBLEM_TEXT_CHARS) return shown;
   let cut = PROBLEM_TEXT_CHARS - 1;
   const last = shown.charCodeAt(cut - 1);
@@ -491,8 +492,9 @@ class Walker {
     if (!kept.length) return this.rebuild(nodes);
 
     // Where the words around a position start and end: the next and the
-    // previous whitespace (a line break included), found once per paragraph.
-    const space = /\s/;
+    // previous whitespace (a line break included; not a hair space, which
+    // shows nothing between two letters), found once per paragraph.
+    const space = /(?!\u200A)\s/;
     const wordEnd: number[] = new Array(joined.length + 1);
     wordEnd[joined.length] = joined.length;
     for (let k = joined.length - 1; k >= 0; k--) wordEnd[k] = space.test(joined[k]) ? k : wordEnd[k + 1];

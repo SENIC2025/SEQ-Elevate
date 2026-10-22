@@ -788,6 +788,23 @@ describe("sanitizeRichText: links (D104)", () => {
     }
   });
 
+  it("reads the word a link is in through a hair space, and past a raised character after a host", () => {
+    const EVIL = "https://evil.example/login";
+    const cases: [string, unknown[], string][] = [
+      ["a hair space inside a link's text", [link("paypal .com", EVIL)], "paypal .com"],
+      ["a hair space before the text touching a link", [link("PayPal", EVIL), t(" .com today")], "PayPal .com"],
+      ["a raised character after the text touching a link", [t("Log in at "), link("PayPal", EVIL), t(".com™ today")], "PayPal.com™"],
+    ];
+    for (const [name, content, word] of cases) {
+      const result = sanitizeRichText(envelope(p(...content)));
+      expect(result.issues, name).toEqual(["dropped-link"]);
+      expect(result.linkProblems.map((problem) => problem.text), name).toEqual([word]);
+      expect(result.value?.v, name).toBe(1);
+    }
+    // A narrow space shows: "z. B." stays two words, and a link on one keeps its link.
+    expect(sanitizeRichText(envelope(p(link("z.", "https://example.org/zb"), t(" B. the guide")))).issues).toEqual([]);
+  });
+
   it("keeps a link to our own file store, reporting own-file-link", () => {
     const file = "https://e2e-store.public.blob.vercel-storage.com/handout.pdf";
     const result = sanitizeRichText(envelope(p(link("handout", file))));
