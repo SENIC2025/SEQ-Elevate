@@ -424,13 +424,16 @@ describe("Release 3: adding a guest's work never puts this page's older copy, or
     await prisma.compCard.create({ data: { userId: person.userId, projectId: "seq-elevate", improve: OLD } });
     await guestCard(page, { wentWell: `guest-went-${RUN}`, difficult: GUEST_D, confidence: 3 }, []);
     await signIn(context, person.sessionToken);
-    // The card's write waits while another device writes wentWell.
+    // The card's write waits while another device writes wentWell. It is
+    // known by the guest's text it carries, however the build sends it
+    // (with the fill flag or without), so the test waits for the card's
+    // write on any build and fails only on what the account holds after.
     let release!: () => void;
     const held = new Promise<void>((resolve) => (release = resolve));
     let heldOnce = false;
     await page.route("**/*", async (route) => {
       const request = route.request();
-      if (!heldOnce && request.method() === "POST" && (await request.headerValue("next-action")) && (request.postData() ?? "").includes('"fill":true')) {
+      if (!heldOnce && request.method() === "POST" && (await request.headerValue("next-action")) && (request.postData() ?? "").includes(GUEST_D)) {
         heldOnce = true;
         await held;
       }
