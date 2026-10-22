@@ -9,7 +9,7 @@ import {
 } from "./editor-extensions";
 import { canSinkWithin } from "./indent-extension";
 import { linkRange } from "./link-extension";
-import { VARIANT, editorChange, openingDoc, problemLine, removedLinksNote } from "./RichTextEditor";
+import { VARIANT, editorChange, openingDoc, problemLine, removedLinksNote, toolbarTools } from "./RichTextEditor";
 import { NARRATIVE_TEXT_CLASS } from "@/components/course/NarrativeStage";
 import { REFLECTION_INTRO_CLASS } from "@/components/course/ReflectionIntro";
 import { legacyTextToDoc } from "@/lib/rich-text/from-legacy";
@@ -480,6 +480,66 @@ describe("blank lines", () => {
   it("leaves an empty editor to its placeholder, and list points alone", () => {
     expect(marked(editorWith({ type: "paragraph" }))).toEqual([]);
     expect(marked(editorWith(ul(li("A"), li("B"))))).toEqual([]);
+  });
+});
+
+describe("indent, where a text's layout sets it (the references list)", () => {
+  // .seq-references hangs every entry alike: an indent step would show
+  // nothing there, so the references editor has none to give.
+  const listEditor = (...content: JSONContent[]) => {
+    const editor = new Editor({
+      element: null,
+      extensions: editorExtensions("", { indent: VARIANT.references.indent }),
+      content: { type: "doc", content },
+    });
+    editor.view.updateState(editor.state.reconfigure({ plugins: editor.extensionManager.plugins }));
+    open.push(editor);
+    return editor;
+  };
+
+  it("gives an entry no indent step, by command or shortcut", () => {
+    const editor = listEditor(p("Entry"));
+    cursorIn(editor, "Entry");
+    expect(editor.can().indent()).toBe(false);
+    expect(editor.commands.indent()).toBe(false);
+    press(editor, "]", true);
+    expect(firstIndent(editor)).toBe(0);
+  });
+
+  it("keeps no indent step from a paste or a stored entry", () => {
+    // Word's Bibliography style: a half-inch margin, one step anywhere else.
+    const pasted = { style: { paddingInlineStart: "", marginLeft: ".5in" }, closest: () => null } as unknown as HTMLElement;
+    const indentOf = (indent: boolean) => {
+      const rule = getSchema(editorExtensions("", { indent })).nodes.paragraph.spec.parseDOM?.[0];
+      return (rule?.getAttrs?.(pasted) as { indent?: number } | null)?.indent;
+    };
+    expect(indentOf(true)).toBe(1);
+    expect(indentOf(false)).toBe(0);
+    const storedList = { v: 1, doc: { type: "doc", content: [p("Stored", 2), ul(li("Point"))] } };
+    expect(openingDoc(storedList, "Stored", { indent: false }).doc).toEqual({ type: "doc", content: [p("Stored"), ul(li("Point"))] });
+    // Every other text opens with its indent.
+    expect(openingDoc(storedList, "Stored").doc.content?.[0]).toEqual(p("Stored", 2));
+  });
+
+  it("still moves a list point in and out", () => {
+    const editor = listEditor(ul(li("A"), li("B")));
+    cursorIn(editor, "B");
+    expect(editor.commands.indent()).toBe(true);
+    expect(stored(editor)).toEqual([ul(li("A", ul(li("B"))))]);
+  });
+
+  it("leaves indent to every other text", () => {
+    for (const variant of ["paragraph", "callout", "reflection-intro"] as const) expect(VARIANT[variant].indent, variant).toBe(true);
+    expect(VARIANT.references.indent).toBe(false);
+  });
+
+  it("has no Indent buttons in the references toolbar, and both in every other", () => {
+    const ids = (indent: boolean) => toolbarTools(indent).map((tool) => tool.id);
+    expect(ids(false)).not.toContain("indent");
+    expect(ids(false)).not.toContain("outdent");
+    expect(ids(false)).toEqual(expect.arrayContaining(["bold", "italic", "link", "unlink", "bullets", "numbers", "undo", "redo"]));
+    expect(ids(true)).toEqual(expect.arrayContaining(["indent", "outdent"]));
+    expect(ids(true).length).toBe(ids(false).length + 2);
   });
 });
 
