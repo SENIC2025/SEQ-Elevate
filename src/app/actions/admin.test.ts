@@ -29,6 +29,9 @@ const cohortInScope = vi.fn();
 const organisationsInScope = vi.fn((scope: { kind: string; organisationId?: string }) => ({
   scoped: scope.kind === "project" ? "project" : scope.organisationId,
 }));
+const membershipsInScope = vi.fn((scope: { kind: string; organisationId?: string }) => ({
+  membershipsOf: scope.kind === "project" ? "project" : scope.organisationId,
+}));
 const getAdminMembers = vi.fn(async () => []);
 const getAdminOrgs = vi.fn(async () => []);
 const getCountryMappings = vi.fn(async () => []);
@@ -43,7 +46,7 @@ const db = {
   countryMapping: { count: fn(), upsert: fn(), findUnique: fn() },
   projectProfile: { count: fn(), findMany: fn(), findUnique: fn(), upsert: fn(), update: fn(), createMany: fn() },
   user: { findFirst: fn(), count: fn(), create: fn(), update: fn(), findUnique: fn(), findUniqueOrThrow: fn() },
-  membership: { findMany: fn(), upsert: fn(), delete: fn(), create: fn(), updateMany: fn(), deleteMany: fn() },
+  membership: { findMany: fn(), count: fn(), upsert: fn(), delete: fn(), create: fn(), updateMany: fn(), deleteMany: fn() },
   auditLog: { create: fn(), count: fn() },
   compCard: { updateMany: fn() },
   $transaction: vi.fn(),
@@ -57,6 +60,7 @@ vi.mock("@/lib/scope", () => ({
   inScope,
   cohortInScope,
   organisationsInScope,
+  membershipsInScope,
 }));
 vi.mock("@/lib/admin-queries", () => ({ getAdminMembers, getAdminOrgs, getCountryMappings }));
 vi.mock("@/lib/person-organisation", () => ({ setPersonOrganisation }));
@@ -155,6 +159,7 @@ beforeEach(() => {
     emailVerified: null,
   }));
   db.membership.findMany.mockResolvedValue([]);
+  db.membership.count.mockResolvedValue(0);
   db.membership.upsert.mockResolvedValue({});
   db.membership.deleteMany.mockResolvedValue({ count: 1 });
   db.membership.updateMany.mockResolvedValue({ count: 1 });
@@ -277,6 +282,35 @@ describe("cohorts, in scope only (SP17, SP18)", () => {
     await expect(deleteCohort("cohort-b")).resolves.toEqual({ ok: false, error: "unknown-cohort" });
     expect(cohortInScope).toHaveBeenCalledWith(ORG_A_SCOPE, "cohort-b");
     expect(changedAnything()).toBe(false);
+  });
+
+  it("a partner admin deletes a cohort of its own when it is shown everyone in it", async () => {
+    asPartnerAdmin();
+    db.cohort.deleteMany.mockResolvedValue({ count: 1 });
+    const res = await deleteCohort("cohort-a");
+    expect(res.ok).toBe(true);
+    // Asked about the cohort's members it is NOT shown (an ADMIN, an
+    // ADMIN_EMAILS address, someone of another organisation).
+    expect(db.membership.count).toHaveBeenCalledWith({
+      where: { cohortId: "cohort-a", NOT: { membershipsOf: ORG_A } },
+    });
+    expect(db.cohort.deleteMany).toHaveBeenCalledWith({ where: { id: "cohort-a", projectId: PROJECT } });
+    expect(auditedActions()).toEqual(["cohort.deleted"]);
+  });
+
+  it("a partner admin can't delete a cohort with someone in it it isn't shown: the question it saw counted only its own people", async () => {
+    asPartnerAdmin();
+    db.membership.count.mockResolvedValue(1);
+    await expect(deleteCohort("cohort-a")).resolves.toEqual({ ok: false, error: "has-others" });
+    expect(changedAnything()).toBe(false);
+  });
+
+  it("an ADMIN, shown everyone, deletes a cohort whoever is in it", async () => {
+    db.membership.count.mockResolvedValue(3);
+    db.cohort.deleteMany.mockResolvedValue({ count: 1 });
+    const res = await deleteCohort("cohort-a");
+    expect(res.ok).toBe(true);
+    expect(db.cohort.deleteMany).toHaveBeenCalledWith({ where: { id: "cohort-a", projectId: PROJECT } });
   });
 
   it("renames a cohort in scope, and returns the organisations as the caller sees them", async () => {

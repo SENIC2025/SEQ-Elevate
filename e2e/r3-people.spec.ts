@@ -288,6 +288,52 @@ describe("Release 3 people and organisations", () => {
     expect((await prisma.membership.findFirst({ where: { userId: learner.userId } }))?.cohortId).toBe(cohortA2.id);
   });
 
+  test("A-E3 (guard): a partner admin deletes its organisation's cohort only when it is shown everyone in it", async ({
+    request,
+  }) => {
+    const cohortOf = async (name: string) => {
+      const cohort = await prisma.cohort.create({
+        data: { projectId: PROJECT, organisationId: world.organisations.A.id, name: `${name} ${RUN}` },
+        select: { id: true },
+      });
+      madeCohorts.push(cohort.id);
+      return cohort.id;
+    };
+    const join = (userId: string, cohortId: string) =>
+      prisma.membership.updateMany({ where: { userId, projectId: PROJECT }, data: { cohortId } });
+    const exists = async (id: string) => (await prisma.cohort.count({ where: { id } })) === 1;
+
+    // An ADMIN of A in it: the partner admin isn't shown them, and its
+    // question would count only the learner, so it can't delete it.
+    const mixed = await cohortOf("E2E mixed cohort");
+    const learner = await createPerson(prisma, { email: address("cohort-learner"), roles: ["LEARNER"] });
+    const adminOfA = await createPerson(prisma, {
+      email: address("cohort-admin"),
+      roles: ["ADMIN"],
+      organisation: { id: world.organisations.A.id },
+    });
+    await join(learner.userId, mixed);
+    await join(adminOfA.userId, mixed);
+    const refused = await call(request, world.people.PAA, "deleteCohort", [mixed], COHORTS_PAGE);
+    expect(refused.result).toEqual({ ok: false, error: "has-others" });
+    expect(await exists(mixed)).toBe(true);
+    expect((await prisma.membership.findFirst({ where: { userId: adminOfA.userId } }))?.cohortId).toBe(mixed);
+
+    // Only its own people in it: deleted, and they keep their accounts.
+    const own = await cohortOf("E2E own cohort");
+    const second = await createPerson(prisma, { email: address("cohort-learner-2"), roles: ["LEARNER"] });
+    await join(second.userId, own);
+    const deleted = await call(request, world.people.PAA, "deleteCohort", [own], COHORTS_PAGE);
+    expect(deleted.result).toMatchObject({ ok: true });
+    expect(await exists(own)).toBe(false);
+    expect((await prisma.membership.findFirst({ where: { userId: second.userId } }))?.cohortId).toBeNull();
+
+    // An ADMIN, shown everyone, deletes the mixed one.
+    const byAdmin = await call(request, world.people.AS, "deleteCohort", [mixed], COHORTS_PAGE);
+    expect(byAdmin.result).toMatchObject({ ok: true });
+    expect(await exists(mixed)).toBe(false);
+  });
+
   test("A-E4 (SC8–SC10, guard): a partner admin can't remove, invite or change another organisation's people and cohorts, or its own partner admins and editors", async ({
     request,
   }) => {

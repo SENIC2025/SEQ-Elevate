@@ -46,6 +46,7 @@ import {
   cohortInScope,
   getViewer,
   inScope,
+  membershipsInScope,
   organisationsInScope,
   requireAdminProject,
   type Scope,
@@ -313,12 +314,27 @@ export async function updateCohort(
   return { ok: true as const, orgs: await getAdminOrgs(m.scope) };
 }
 
-/** Deletes a cohort in scope (SP18); members are unassigned (Membership.cohortId → null). */
+/**
+ * Deletes a cohort in scope (SP18); members are unassigned (Membership.cohortId → null).
+ * Only by someone shown everyone in it: the question before it counts the
+ * members the viewer is shown (getAdminOrgs), so a partner admin can't delete
+ * a cohort that holds someone it isn't shown (an ADMIN, an ADMIN_EMAILS
+ * address, someone of another organisation) — that answers "has-others",
+ * and nothing changes (D76: a partner admin never touches ADMIN holders).
+ */
 export async function deleteCohort(id: string) {
   const m = await requirePeopleManager();
   if (!m) return { ok: false as const, error: "forbidden" };
   if (!(await cohortInScope(m.scope, id))) return { ok: false as const, error: "unknown-cohort" };
-  await prisma.cohort.deleteMany({ where: { id, projectId: PROJECT } });
+  const refused = await prisma.$transaction(async (tx) => {
+    if (m.scope.kind !== "project") {
+      const others = await tx.membership.count({ where: { cohortId: id, NOT: membershipsInScope(m.scope) } });
+      if (others > 0) return true;
+    }
+    await tx.cohort.deleteMany({ where: { id, projectId: PROJECT } });
+    return false;
+  });
+  if (refused) return { ok: false as const, error: "has-others" };
   await audit(prisma, m.user.id, "cohort.deleted", "Cohort", id, m.scope);
   return { ok: true as const, orgs: await getAdminOrgs(m.scope) };
 }

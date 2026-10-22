@@ -44,6 +44,8 @@ function errorText(error?: string): string {
       return "Delete the organisation's cohorts first.";
     case "has-people":
       return "People belong to this organisation. Move them to another organisation first (Manage people, “Change details”).";
+    case "has-others":
+      return "Someone in this cohort is managed by DIESIS, so only DIESIS can delete it.";
     case "has-mapping":
       return "A country is mapped to this organisation. Map it to another organisation first.";
     case "unknown-org":

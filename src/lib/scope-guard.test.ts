@@ -967,6 +967,7 @@ const ALLOW: AllowList = {
   "src/app/actions/admin.ts#removeMember": staff("Manage people: remove (SP23)"),
   "src/app/actions/admin.ts#manageable": staff("whether a manager may change a person: in scope, and their roles (SP21–SP23, SP26)"),
   "src/app/actions/admin.ts#claimable": staff("whether a partner admin may take on an account that holds nothing yet (SP19)"),
+  "src/app/actions/admin.ts#deleteCohort": staff("a partner admin deletes a cohort only when it is shown everyone in it (SP18)"),
   "src/app/actions/admin.ts#deleteOrganisation": staff("an organisation is deleted only while no profile names it (SP16)"),
   "src/app/actions/admin.ts#setCountryMapping": staff("the country mapping places unplaced learners of that country (SP25)"),
   "src/app/actions/admin.ts#updatePersonProfile": staff("Manage people: a person's name, country or organisation (SP26)"),
