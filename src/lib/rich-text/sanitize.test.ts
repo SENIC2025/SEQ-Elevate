@@ -805,6 +805,31 @@ describe("sanitizeRichText: links (D104)", () => {
     expect(sanitizeRichText(envelope(p(link("z.", "https://example.org/zb"), t(" B. the guide")))).issues).toEqual([]);
   });
 
+  it("reads a host as it shows: a mark that follows no letter is nothing, a Roman numeral or a raised letter inside a name is the letter", () => {
+    const EVIL = "https://evil.example/login";
+    const cases: [string, unknown[], string][] = [
+      ["a mark at a label's start", [link("www.paypal.̲com/login", EVIL)], "www.paypal.̲com/login"],
+      ["a mark at a name's start", [t("Log in at "), link("̲paypal.com", EVIL)], "̲paypal.com"],
+      ["a mark starting the text touching a link", [link("paypal.", "https://evil.example/a"), link("̲com", "https://evil.example/b")], "paypal.̲com"],
+      ["a Roman numeral letter", [link("paypal.ⅽom", EVIL)], "paypal.ⅽom"],
+      ["a raised letter inside a name", [link("paypal.cᵒm", EVIL)], "paypal.cᵒm"],
+    ];
+    for (const [name, content, shown] of cases) {
+      const result = sanitizeRichText(envelope(p(...content)));
+      expect(result.issues, name).toEqual(["dropped-link"]);
+      expect(result.linkProblems.map((problem) => problem.text), name).toEqual([shown]);
+    }
+    // An abbreviation, and a public suffix named by itself over a site under it, keep their links.
+    for (const [text, href] of [
+      ["Dr.in Maria Huber", "https://www.univie.ac.at/personen/huber"],
+      ["Gov.gr Wallet", "https://wallet.gov.gr/"],
+    ]) {
+      const result = sanitizeRichText(envelope(p(link(text, href))));
+      expect(result.issues, text).toEqual([]);
+      expect(result.value?.v, text).toBe(2);
+    }
+  });
+
   it("keeps a link to our own file store, reporting own-file-link", () => {
     const file = "https://e2e-store.public.blob.vercel-storage.com/handout.pdf";
     const result = sanitizeRichText(envelope(p(link("handout", file))));

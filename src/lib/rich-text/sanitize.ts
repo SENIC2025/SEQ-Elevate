@@ -1,5 +1,5 @@
 import { MAX_HREF_CHARS, checkLinkHref, emailAddressOf, type LinkRefusal } from "./link-url";
-import { addressesShown, showsAnotherAddress, visibleLinkText } from "./link-text";
+import { addressesShown, showsAnotherAddress, visibleLinkText, type ShownAddresses } from "./link-text";
 import { ownFileHost } from "./own-file-host";
 import {
   RT_LIMITS,
@@ -508,15 +508,18 @@ class Walker {
     // the text of the links it touches, joined; and the words it is in.
     // Links joined by touching or by sharing words form one cluster, and a
     // cluster that shows another address in any of these readings loses all
-    // its links. Each reading is of a stretch of text read once.
+    // its links. A text is read once in a cluster: the same text read
+    // another way (two touching links that make one word) adds its links to
+    // the reading of it.
     type Kept = (typeof kept)[number];
     type Reading = { text: string; runs: Kept[] };
-    const elsewhere = (reading: Reading) => {
-      const shown = addressesShown(reading.text);
-      return shown !== null && reading.runs.some((run) => showsAnotherAddress(shown, run.link.href));
-    };
     let cluster: Kept[] = [];
-    let readings: Reading[] = [];
+    let readings = new Map<string, Reading>();
+    const read = (text: string, runs: Kept[]) => {
+      const before = readings.get(text);
+      if (before) before.runs.push(...runs);
+      else readings.set(text, { text, runs: [...runs] });
+    };
     // The links touching the last one, and the links sharing its words
     // (from wordFrom to wordTo).
     let touching: Kept[] = [];
@@ -525,12 +528,18 @@ class Walker {
     let wordTo = 0;
     const flush = () => {
       if (!cluster.length) return;
-      const misleading = readings.find(elsewhere);
+      let misleading: { text: string; shown: ShownAddresses } | null = null;
+      for (const reading of readings.values()) {
+        const shown = addressesShown(reading.text);
+        if (shown !== null && reading.runs.some((run) => showsAnotherAddress(shown, run.link.href))) {
+          misleading = { text: reading.text, shown };
+          break;
+        }
+      }
       if (misleading) {
         // Text of names read only by the top-level domain they end in
         // ("course-materials.zip") looks like a web address.
-        const names = addressesShown(misleading.text)?.namesOnly;
-        this.problem("misleading", misleading.text, names ? LOOKS_LIKE_WEB_ADDRESS : undefined);
+        this.problem("misleading", misleading.text, misleading.shown.namesOnly ? LOOKS_LIKE_WEB_ADDRESS : undefined);
         this.issues.add("dropped-link");
         cluster.forEach(unlink);
       } else {
@@ -542,18 +551,17 @@ class Walker {
         }
       }
       cluster = [];
-      readings = [];
+      readings = new Map();
     };
     const closeTouching = () => {
       if (touching.length > 1) {
-        readings.push({ text: joined.slice(at[touching[0].start], at[touching[touching.length - 1].end]), runs: touching });
+        read(joined.slice(at[touching[0].start], at[touching[touching.length - 1].end]), touching);
       }
       touching = [];
     };
     const closeWords = () => {
       const text = joined.slice(wordFrom, wordTo);
-      // Words that are one link's own text were read with it.
-      if (words.length > 1 || (words.length === 1 && text !== textOf(words[0]))) readings.push({ text, runs: words });
+      if (words.length) read(text, words);
       words = [];
     };
     for (const run of kept) {
@@ -570,7 +578,7 @@ class Walker {
       if (!touches) closeTouching();
       if (!sharesWords) closeWords();
       if (!touches && !sharesWords) flush();
-      readings.push({ text: textOf(run), runs: [run] });
+      read(textOf(run), [run]);
       touching.push(run);
       if (sharesWords) {
         wordTo = Math.max(wordTo, to);

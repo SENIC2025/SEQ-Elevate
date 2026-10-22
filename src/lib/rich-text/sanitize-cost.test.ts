@@ -65,3 +65,60 @@ describe("sanitizeRichText reads touching links in time proportional to the text
     expect(parsed, "URLs parsed").toBeLessThanOrEqual(12 * runs);
   });
 });
+
+/*
+ * A name or an address of up to 10,000 characters (a block's most) costs
+ * time in proportion to its length: compared as eight links of 1,250
+ * characters against one of 10,000, the same characters in all, it takes
+ * about as long, never eight times as long. A stretch of text is read once:
+ * two links that touch and make one word are read each, and once together;
+ * a misleading text is read once.
+ */
+describe("sanitizeRichText reads a long name or address in time proportional to its length", () => {
+  const EVIL = "https://evil.example/login";
+  const dottedTitle = (n: number) => `Dr.${"de.".repeat(Math.floor((n - 5) / 3))}de`;
+  const texts: [string, (n: number) => string][] = [
+    ["a title before thousands of labels", dottedTitle],
+    ["a company form before thousands of labels", (n) => `${"Co.".repeat(Math.floor((n - 2) / 3))}UK`],
+    ["an address of thousands of commas", (n) => `https://a${",".repeat(n - 10)}b`],
+    ["an email address of thousands of commas", (n) => `mailto:a@b${",".repeat(n - 11)}c`],
+    ["an address of thousands of dots", (n) => `https://a${".".repeat(n - 10)}b`],
+  ];
+  const time = (blocks: unknown[]) => {
+    let best = Infinity;
+    for (let k = 0; k < 3; k++) {
+      const started = performance.now();
+      for (const block of blocks) sanitizeRichText(block);
+      best = Math.min(best, performance.now() - started);
+    }
+    return best;
+  };
+  it.each(texts)("%s, as one link and as two touching links", (_, make) => {
+    const one = (n: number) => paragraphOf([linkNode(make(n), EVIL)]);
+    const two = (n: number) => {
+      const text = make(n);
+      const half = Math.floor(text.length / 2);
+      return paragraphOf([linkNode(text.slice(0, half), "https://evil.example/a"), linkNode(text.slice(half), "https://evil.example/b")]);
+    };
+    for (const block of [one, two]) {
+      const short = Array.from({ length: 8 }, () => block(1_250));
+      time(short);
+      expect(time([block(10_000)]) / time(short)).toBeLessThan(3);
+    }
+  }, 60_000);
+
+  it("reads two touching links that make one word each, and once together", () => {
+    // Each a title before many labels, and so the two together: no host.
+    const first = `Dr.${"de.".repeat(1_665)}`;
+    const second = dottedTitle(5_000);
+    const result = sanitizeRichText(paragraphOf([linkNode(first, "https://evil.example/a"), linkNode(second, "https://evil.example/b")]));
+    expect(result.issues).toEqual([]);
+    expect(read.chars, "characters read for addresses").toBeLessThanOrEqual(2 * (first.length + second.length));
+  });
+
+  it("reads a misleading link's text once", () => {
+    const text = `https://bank.example/${"a".repeat(5_000)}`;
+    expect(sanitizeRichText(paragraphOf([linkNode(text, EVIL)])).issues).toEqual(["dropped-link"]);
+    expect(read.chars, "characters read for addresses").toBeLessThanOrEqual(text.length);
+  });
+});

@@ -128,6 +128,15 @@ describe("classifyPastedLink", () => {
     );
     // Its own address (www. aside) is fine.
     expect(classifyPastedLink({ href: "https://bpb.de/x", name: null, text: "www.bpb.de" })).toEqual(kept("https://bpb.de/x"));
+    // A host read as it shows: through a Roman numeral letter, a mark that follows no letter, a raised letter.
+    for (const text of ["paypal.ⅽom", "www.paypal.̲com/login", "paypal.cᵒm"]) {
+      expect(classifyPastedLink({ href: "https://evil.example/login", name: null, text }), text).toEqual(unwrapped("misleading"));
+    }
+    // An abbreviation, and a public suffix named by itself over a site under it.
+    expect(classifyPastedLink({ href: "https://www.univie.ac.at/personen/huber", name: null, text: "Dr.in Maria Huber" })).toEqual(
+      kept("https://www.univie.ac.at/personen/huber")
+    );
+    expect(classifyPastedLink({ href: "https://wallet.gov.gr/", name: null, text: "Gov.gr Wallet" })).toEqual(kept("https://wallet.gov.gr/"));
   });
 
   it("unwraps every other address, counted as not kept", () => {
