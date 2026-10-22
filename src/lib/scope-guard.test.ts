@@ -54,6 +54,13 @@ import ts from "typescript";
  * relation, directly or through a nested write of profiles from a user, a
  * project or an organisation) are allowed only in setPersonOrganisation
  * (D101). Complements src/app/actions/use-server-exports.test.ts.
+ *
+ * A Scope is made only by the scope module (hardening SS4): its type is
+ * branded, so a hand-made literal doesn't type-check (src/lib/scope-brand.test.ts
+ * checks that with tsc). What would get round the brand fails here instead:
+ * the module's test-only factory (testOnlyScope) named anywhere in src/
+ * outside tests and the module, and a value asserted to be a Scope there
+ * (`as Scope`, `<Scope>`, under any name the type is imported as).
  */
 
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
@@ -1099,6 +1106,52 @@ const ALLOW: AllowList = {
   "src/app/actions/structure.ts#writeIfUnchanged": system("an editor's structure change under a row lock (no people's data)"),
 };
 
+/* ------------------------- Scopes made elsewhere (SS4) ------------------------- */
+
+/** The one module that makes a Scope. */
+const SCOPE_MODULE = "src/lib/scope.ts";
+/** Its factory for tests: forbidden in src/ outside tests and the module. */
+const TEST_ONLY_FACTORY = "testOnlyScope";
+const SCOPE_IMPORTS = new Set(["@/lib/scope", "./scope", "../lib/scope"]);
+
+/**
+ * Where `source` (a file of src/, tests excluded) makes a Scope the scope
+ * module didn't: "file:line: text" for each use of the test-only factory,
+ * and for each value asserted to be a Scope (as, angle brackets), whatever
+ * name the type is imported under. Nothing for the scope module itself.
+ */
+function scopesMadeElsewhere(file: string, source: string): string[] {
+  if (file === SCOPE_MODULE) return [];
+  const sf = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
+  const hits: string[] = [];
+  const at = (node: ts.Node, what: string) => {
+    const { line } = sf.getLineAndCharacterOfPosition(node.getStart(sf));
+    hits.push(`${file}:${line + 1}: ${what}`);
+  };
+  // The local names of the Scope type: "Scope", and any alias of it imported from the scope module.
+  const scopeNames = new Set(["Scope"]);
+  for (const statement of sf.statements) {
+    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) continue;
+    if (!SCOPE_IMPORTS.has(statement.moduleSpecifier.text)) continue;
+    const named = statement.importClause?.namedBindings;
+    if (named && ts.isNamedImports(named)) {
+      for (const el of named.elements) if ((el.propertyName ?? el.name).text === "Scope") scopeNames.add(el.name.text);
+    }
+  }
+  const namesScope = (type: ts.TypeNode): boolean =>
+    ts.isTypeReferenceNode(type) &&
+    (ts.isIdentifier(type.typeName) ? scopeNames.has(type.typeName.text) : type.typeName.right.text === "Scope");
+  const visit = (node: ts.Node) => {
+    if (ts.isIdentifier(node) && node.text === TEST_ONLY_FACTORY) at(node, `${TEST_ONLY_FACTORY} outside tests`);
+    if ((ts.isAsExpression(node) || ts.isTypeAssertionExpression(node)) && namesScope(node.type)) {
+      at(node, "a value asserted to be a Scope");
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
+  return hits;
+}
+
 /* --------------------------------- Tests --------------------------------- */
 
 function sourceFiles(dir: string): string[] {
@@ -1129,6 +1182,56 @@ describe("the scope guard (FD-U15)", () => {
 
   it("gives every entry a reason", () => {
     for (const [id, entry] of Object.entries(ALLOW)) expect(entry.reason.length, id).toBeGreaterThan(10);
+  });
+
+  it("finds no Scope made outside the scope module (SS4): no test-only factory, no assertion", () => {
+    expect([...SOURCES].flatMap(([file, source]) => scopesMadeElsewhere(file, source))).toEqual([]);
+    // It reads the module it exempts: the factory is defined there.
+    expect(SOURCES.get(SCOPE_MODULE)).toContain(`export function ${TEST_ONLY_FACTORY}(`);
+  });
+});
+
+describe("the scope guard refuses a Scope made outside the scope module (SS4 meta-test)", () => {
+  it("the test-only factory, in any file of src/ outside tests", () => {
+    expect(
+      scopesMadeElsewhere(
+        "src/lib/new-report.ts",
+        `import { testOnlyScope } from "@/lib/scope";
+         export const everyone = testOnlyScope({ kind: "project", viewerId: "x", viewerOrganisationId: null });`
+      )
+    ).toEqual([
+      "src/lib/new-report.ts:1: testOnlyScope outside tests",
+      "src/lib/new-report.ts:2: testOnlyScope outside tests",
+    ]);
+  });
+
+  it("a literal asserted to be a Scope, directly, through unknown, in angle brackets or under another name", () => {
+    expect(
+      scopesMadeElsewhere(
+        "src/app/actions/new-action.ts",
+        `import type { Scope } from "@/lib/scope";
+         import { type Scope as Seen } from "@/lib/scope";
+         export const a = { kind: "none" } as Scope;
+         export const b = { kind: "project" } as unknown as Scope;
+         export const c = <Scope>{ kind: "none" };
+         export const d = { kind: "none" } as Seen;`
+      )
+    ).toEqual([
+      "src/app/actions/new-action.ts:3: a value asserted to be a Scope",
+      "src/app/actions/new-action.ts:4: a value asserted to be a Scope",
+      "src/app/actions/new-action.ts:5: a value asserted to be a Scope",
+      "src/app/actions/new-action.ts:6: a value asserted to be a Scope",
+    ]);
+  });
+
+  it("and a scope that came from the module passes", () => {
+    expect(
+      scopesMadeElsewhere(
+        "src/lib/new-report.ts",
+        `import { getViewerScope, type Scope } from "@/lib/scope";
+         export async function mine(): Promise<Scope> { const scope: Scope = await getViewerScope(); return scope; }`
+      )
+    ).toEqual([]);
   });
 });
 

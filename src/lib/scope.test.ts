@@ -51,6 +51,7 @@ import {
   requireAdminProject,
   scopeFor,
   statisticsMembershipsInScope,
+  testOnlyScope,
   type Scope,
 } from "./scope";
 import { currentTermsVersion } from "./profile";
@@ -65,9 +66,10 @@ const COMPLETE = {
 };
 const ON = { R3_PARTNER_ACCESS: "on" };
 
-const PROJECT_SCOPE: Scope = { kind: "project", viewerId: "v", viewerOrganisationId: null };
-const ORG_SCOPE: Scope = { kind: "organisation", viewerId: "v", organisationId: "org-a" };
-const NONE: Scope = { kind: "none" };
+// Only the scope module makes a Scope (SS4): tests ask its test-only factory.
+const PROJECT_SCOPE: Scope = testOnlyScope({ kind: "project", viewerId: "v", viewerOrganisationId: null });
+const ORG_SCOPE: Scope = testOnlyScope({ kind: "organisation", viewerId: "v", organisationId: "org-a" });
+const NONE: Scope = testOnlyScope({ kind: "none" });
 
 /** Every path in `value` that holds undefined. */
 function undefinedPaths(value: unknown, path = "$"): string[] {

@@ -47,11 +47,12 @@ vi.mock("@/lib/prisma", () => ({
 }));
 
 const { getAdminOrgs, getAdminMembers, getCountryMappings, guardianAge } = await import("./admin-queries");
-const { membershipsInScope, organisationsInScope, peopleInScope } = await import("./scope");
+const { membershipsInScope, organisationsInScope, peopleInScope, testOnlyScope } = await import("./scope");
 
-const PROJECT_SCOPE: Scope = { kind: "project", viewerId: "admin", viewerOrganisationId: null };
-const ORG_A: Scope = { kind: "organisation", viewerId: "paa", organisationId: "org-a" };
-const NONE: Scope = { kind: "none" };
+// Only the scope module makes a Scope (SS4): tests ask its test-only factory.
+const PROJECT_SCOPE: Scope = testOnlyScope({ kind: "project", viewerId: "admin", viewerOrganisationId: null });
+const ORG_A: Scope = testOnlyScope({ kind: "organisation", viewerId: "paa", organisationId: "org-a" });
+const NONE: Scope = testOnlyScope({ kind: "none" });
 
 const argsOf = (fn: { mock: { calls: unknown[][] } }) => fn.mock.calls.at(-1)?.[0] as Record<string, unknown>;
 

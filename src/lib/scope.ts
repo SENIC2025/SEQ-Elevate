@@ -24,6 +24,12 @@ import "server-only";
  * answers a Prisma filter, and for "none" one that matches nothing — never
  * `undefined`, which Prisma reads as "no filter". Filters are combined with
  * AND: [...], never by spreading two objects that may share a key.
+ *
+ * A Scope is made only here (hardening SS4): the type carries a brand no
+ * other module can name, so a hand-made literal doesn't type-check outside
+ * this file. Tests make one with testOnlyScope; the scope guard
+ * (scope-guard.test.ts) fails for that name, and for a value asserted to be
+ * a Scope, anywhere in src/ but here and in tests.
  */
 
 import { cache } from "react";
@@ -42,10 +48,29 @@ type Env = Record<string, string | undefined>;
 /** The project every scope is in. */
 export const PROJECT = "seq-elevate";
 
-export type Scope =
+/** What a scope holds. Plain objects of this shape are not scopes: only this module makes one. */
+export type ScopeShape =
   | { kind: "project"; viewerId: string; viewerOrganisationId: string | null } // ADMIN
   | { kind: "organisation"; viewerId: string; organisationId: string } // PARTNER_ADMIN, FACILITATOR
   | { kind: "none" };
+
+/** The brand: a type only, named nowhere else (at run time a scope is the plain object). */
+declare const MADE_BY_THE_SCOPE_MODULE: unique symbol;
+
+/** Whose data a viewer may read or change, as this module worked it out (see above). */
+export type Scope = ScopeShape & { readonly [MADE_BY_THE_SCOPE_MODULE]: true };
+
+/** The one place a shape becomes a Scope. */
+const made = (shape: ScopeShape): Scope => shape as Scope;
+
+/**
+ * A scope for a test, of any shape. For tests only: the scope guard
+ * (scope-guard.test.ts) fails for this name anywhere in src/ outside tests
+ * and this module. Code gets its scope from getViewer or scopeFor.
+ */
+export function testOnlyScope(shape: ScopeShape): Scope {
+  return made(shape);
+}
 
 export type ProjectProfileRow = ProjectProfile;
 
@@ -57,7 +82,7 @@ export interface Viewer {
   scope: Scope;
 }
 
-const NONE: Scope = { kind: "none" };
+const NONE: Scope = made({ kind: "none" });
 const NOBODY: Viewer = { user: null, roles: [], profile: null, scope: NONE };
 
 /** A filter that matches no row: every model filtered here has an `id`. */
@@ -83,10 +108,10 @@ export function scopeFor(
   if (profileGateOn(env) && !isProfileComplete({ name: viewer.name }, viewer.profile, rules)) return NONE;
   const organisationId = viewer.profile?.organisationId ?? null;
   if (seesWholeProject(viewer.roles)) {
-    return { kind: "project", viewerId: viewer.userId, viewerOrganisationId: organisationId };
+    return made({ kind: "project", viewerId: viewer.userId, viewerOrganisationId: organisationId });
   }
   if (canSupportLearners(viewer.roles) && partnerAccessOn(env) && organisationId) {
-    return { kind: "organisation", viewerId: viewer.userId, organisationId };
+    return made({ kind: "organisation", viewerId: viewer.userId, organisationId });
   }
   return NONE;
 }

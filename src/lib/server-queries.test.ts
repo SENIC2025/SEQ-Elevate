@@ -125,13 +125,15 @@ const {
   organisationsInScope,
   statisticsMembershipsInScope,
   MATCH_NOTHING,
+  testOnlyScope,
 } = await import("./scope");
 
+// Only the scope module makes a Scope (SS4): tests ask its test-only factory.
 /** An ADMIN's scope (SENIC: no organisation of their own). */
-const PROJECT_SCOPE: Scope = { kind: "project", viewerId: "admin", viewerOrganisationId: null };
+const PROJECT_SCOPE: Scope = testOnlyScope({ kind: "project", viewerId: "admin", viewerOrganisationId: null });
 /** A facilitator or partner admin of organisation A. */
-const ORG_A: Scope = { kind: "organisation", viewerId: "fac-a", organisationId: "org-a" };
-const NONE: Scope = { kind: "none" };
+const ORG_A: Scope = testOnlyScope({ kind: "organisation", viewerId: "fac-a", organisationId: "org-a" });
+const NONE: Scope = testOnlyScope({ kind: "none" });
 
 /** The roster as a facilitator of organisation A reads it (most tests). */
 const getProjectLearners = (locale: "en" | "de" | "el") => learnersFor(ORG_A, locale);
@@ -515,7 +517,7 @@ describe("getProjectLearners, for the viewer's scope (FD-U9)", () => {
   it("gives an admin of the organisation the cards shared with it", async () => {
     viewerRoles.mockImplementation(async () => [{ role: "ADMIN" }]);
     membershipFindMany.mockImplementation(async () => learnerWith("org-a", [card()]));
-    const diesisAdmin: Scope = { kind: "project", viewerId: "ad", viewerOrganisationId: "org-a" };
+    const diesisAdmin: Scope = testOnlyScope({ kind: "project", viewerId: "ad", viewerOrganisationId: "org-a" });
     const [learner] = (await learnersFor(diesisAdmin, "en")) ?? [];
     expect(learner.compCard?.fields.wentWell).toBe("MARKER-WENT-WELL");
   });
@@ -612,7 +614,7 @@ describe("scopeOrganisationName (SP1: the facilitator page's empty organisation)
     await expect(scopeOrganisationName(NONE)).resolves.toBeNull();
     await expect(scopeOrganisationName(PROJECT_SCOPE)).resolves.toBeNull();
     await expect(
-      scopeOrganisationName({ kind: "project", viewerId: "admin", viewerOrganisationId: "org-a" })
+      scopeOrganisationName(testOnlyScope({ kind: "project", viewerId: "admin", viewerOrganisationId: "org-a" }))
     ).resolves.toBeNull();
     expect(organisationFindFirst).not.toHaveBeenCalled();
   });
