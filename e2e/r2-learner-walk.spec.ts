@@ -5,7 +5,7 @@ import { createPerson } from "./fixtures/people";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { applyR2Deltas, type Captured } from "./fixtures/r2-deltas";
-import { applyR3Deltas } from "./fixtures/r3-deltas";
+import { applyR3Deltas, LIVE as R3_DELTAS, type R3Delta } from "./fixtures/r3-deltas";
 import { AE1_TITLE, ae1Lessons } from "./fixtures/r2-ae1-course";
 import { removeR2Course, seedR2Course } from "./fixtures/r2-course";
 import { setReady } from "./fixtures/r3-e-course";
@@ -67,6 +67,15 @@ import { setReady } from "./fixtures/r3-e-course";
 const DB = process.env.E2E_DB === "1";
 /** "none": compare with the Release 0 recording as it is (to show Release 1 equals it). */
 const NO_DELTAS = process.env.R2_WALK_DELTAS === "none";
+/**
+ * Release 3's differences the walk expects: the closed list (R3-D1, the
+ * reflection hint), or none with R3_WALK_DELTAS=none, to compare Release 2's
+ * build with what Release 2 showed (spec 18.5 I-E1: Release 2 passes without
+ * the list and fails with it only at the reflections; Release 3 the other
+ * way round). Release 2's build runs it on a database Release 3 has
+ * migrated: the walk's course is written with Release 3's columns.
+ */
+const R3_LIVE: ReadonlySet<R3Delta> = process.env.R3_WALK_DELTAS === "none" ? new Set() : R3_DELTAS;
 const prisma = DB
   ? new PrismaClient({
       adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }),
@@ -429,7 +438,7 @@ async function capture(page: Page, key: string, names?: Record<string, string>) 
     .catch(() => null);
   const got: Captured = { aria, counter: counter?.trim() ?? null };
   expect(baseline[key], `a Release 0 recording for "${key}"`).toBeTruthy();
-  const expected = NO_DELTAS ? baseline[key] : applyR3Deltas(key, applyR2Deltas(key, baseline[key], { names }));
+  const expected = NO_DELTAS ? baseline[key] : applyR3Deltas(key, applyR2Deltas(key, baseline[key], { names }), R3_LIVE);
   expect.soft(got, `what learners see at "${key}"`).toEqual(expected);
 }
 
@@ -675,7 +684,7 @@ function learnerSees(page: Page, locale: "en" | "de") {
     seen[key] = got;
     if (RECORD) return;
     expect(r2Baseline[key], `a Release 2 recording for "${key}"`).toBeTruthy();
-    expect.soft(got, `what learners see at "${key}"`).toEqual(applyR3Deltas(key, r2Baseline[key]));
+    expect.soft(got, `what learners see at "${key}"`).toEqual(applyR3Deltas(key, r2Baseline[key], R3_LIVE));
   };
 }
 
@@ -683,7 +692,7 @@ function learnerSees(page: Page, locale: "en" | "de") {
 function previewSees(page: Page, locale: "en" | "de") {
   return async (step: string) => {
     const key = `flexible:${locale}:${step}`;
-    const learner = RECORD ? seen[key] : r2Baseline[key] && applyR3Deltas(key, r2Baseline[key]);
+    const learner = RECORD ? seen[key] : r2Baseline[key] && applyR3Deltas(key, r2Baseline[key], R3_LIVE);
     expect(learner, `what the learner saw at "${key}"`).toBeTruthy();
     const got = await snapshot(page);
     expect.soft(asLearnersSeeIt(got), `the preview at "${key}" shows what learners get`).toEqual(
