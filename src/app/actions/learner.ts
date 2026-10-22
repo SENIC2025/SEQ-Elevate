@@ -17,6 +17,7 @@ import { getCurrentUser, getProjectMemberships } from "@/lib/auth-helpers";
 import { isBootstrapAdmin } from "@/lib/admin-bootstrap";
 import {
   SHARING_TEXT_VERSION,
+  compCardFill,
   effectiveSharing,
   parseCompCardInput,
   type CompCardField,
@@ -88,13 +89,34 @@ export interface CompCardInput {
   behaviour?: string;
   confidence?: number;
   privacy?: unknown;
+  /**
+   * A guest's card added to the account (D79): only what the stored card
+   * lacks is written, under the card's row lock (compCardFill), and nothing
+   * into a shared card (D80).
+   */
+  fill?: true;
 }
 
-/** What a Comp Card save answers: answered, never thrown, so the store doesn't try it again. */
+/** A Comp Card's texts and confidence as stored, and when it last changed. */
+export interface SavedCompCard {
+  wentWell: string;
+  difficult: string;
+  improve: string;
+  behaviour: string;
+  confidence: number;
+  updatedAt: string | null;
+}
+
+/**
+ * What a Comp Card save answers: answered, never thrown, so the store
+ * doesn't try it again. In fill mode, the card as it is once filled (null:
+ * there is none), or "shared": a card shared with the learner's
+ * facilitators gets nothing.
+ */
 export type SaveCompCardResult =
-  | { ok: true }
+  | { ok: true; card?: SavedCompCard | null }
   | { ok: false; error: "too-long" | "bad-input"; field?: CompCardField }
-  | { ok: false; error: "other-account" };
+  | { ok: false; error: "other-account" | "shared" };
 
 /** What a change of the Comp Card's sharing answers (spec 4.3). */
 export type SetSharingResult =
@@ -548,12 +570,17 @@ export async function saveCourseProgressPatch(
     select: { id: true, slug: true, badgeId: true, meta: true, status: true, publishedAt: true },
   });
   if (!course) return { ok: false, error: "unknown-course" };
-  const refused = await saveProgress(user.id, course, p.completedAt !== null, (row) =>
-    mergeIntoEnrollment(row, p, now)
-  );
+  // In fill mode, where the account's answers stayed over the guest's, as
+  // the merge that was written found them.
+  let kept: string[] = [];
+  const refused = await saveProgress(user.id, course, p.completedAt !== null, (row) => {
+    const merged = mergeIntoEnrollment(row, p, now);
+    kept = merged.kept;
+    return merged;
+  });
   // A course nobody ever published: to a learner, no course at all.
   if (refused === "not-open") return { ok: false, error: "unknown-course" };
-  return { ok: true, refused };
+  return p.fill ? { ok: true, refused, kept } : { ok: true, refused };
 }
 
 /**
@@ -611,6 +638,7 @@ export async function saveCourseProgress(
       changed,
       refused: [],
       completedNow: before.completedAt === null && next.completedAt !== null,
+      kept: [],
     };
   });
 }
@@ -627,12 +655,62 @@ export async function saveCourseProgress(
  *   - refuses a text longer than 2,000 characters only when it is longer
  *     than the stored one (an older, longer text can be saved unchanged),
  *     and then the whole save, with the field named;
- *   - answers, never throws, a refusal: the store doesn't try it again.
+ *   - answers, never throws, a refusal: the store doesn't try it again;
+ *   - in fill mode (`fill`, a guest's card added to the account, D79)
+ *     writes only what the card lacks (compCardFill), worked out under the
+ *     card's row lock, nothing into a card shared with the learner's
+ *     facilitators ("shared": moving never shares, D80), and answers the
+ *     card as it is then.
  * Pages from before Release 3 ignore the answer.
  */
 export async function saveCompCard(input: CompCardInput, forUser: string): Promise<SaveCompCardResult> {
   const user = await requireLearner();
   if (!isLearner(user, forUser)) return { ok: false, error: "other-account" };
+  if (input && typeof input === "object" && input.fill === true) {
+    // Fill mode (a guest's card added to the account, D79): what the card
+    // lacks, worked out against the card as it is under its row's lock, so
+    // a text another device saved since the move read the card stays.
+    const organisationId = (await ownProfile(user.id))?.organisationId ?? null;
+    return prisma.$transaction(async (tx): Promise<SaveCompCardResult> => {
+      await tx.$queryRaw`SELECT id FROM "CompCard" WHERE "userId" = ${user.id} AND "projectId" = ${PROJECT} FOR UPDATE`;
+      const where = { userId_projectId: { userId: user.id, projectId: PROJECT } };
+      const select = {
+        wentWell: true,
+        difficult: true,
+        improve: true,
+        behaviour: true,
+        confidence: true,
+        privacy: true,
+        sharedAt: true,
+        sharedWithOrganisationId: true,
+        updatedAt: true,
+      } as const;
+      const now = await tx.compCard.findUnique({ where, select });
+      // Moving never shares (D80): a shared card gets nothing.
+      if (now && effectiveSharing(now, organisationId) === "facilitators") return { ok: false, error: "shared" };
+      const parsed = parseCompCardInput(input, now);
+      if (!parsed.ok) {
+        return parsed.field ? { ok: false, error: parsed.error, field: parsed.field } : { ok: false, error: parsed.error };
+      }
+      const data = compCardFill(now, parsed.value);
+      const card = Object.keys(data).length
+        ? await tx.compCard.upsert({ where, create: { userId: user.id, projectId: PROJECT, ...data }, update: data, select })
+        : now;
+      return {
+        ok: true,
+        card: card
+          ? {
+              wentWell: card.wentWell ?? "",
+              difficult: card.difficult ?? "",
+              improve: card.improve ?? "",
+              behaviour: card.behaviour ?? "",
+              confidence: card.confidence ?? 3,
+              updatedAt: card.updatedAt instanceof Date ? card.updatedAt.toISOString() : null,
+            }
+          : null,
+      };
+    });
+  }
   const stored = await prisma.compCard.findUnique({
     where: { userId_projectId: { userId: user.id, projectId: PROJECT } },
     select: { wentWell: true, difficult: true, improve: true, behaviour: true },

@@ -14,7 +14,7 @@ import {
   setCompCardSharing,
   awardBadgeAction,
 } from "@/app/actions/learner";
-import type { Sharing } from "@/lib/comp-card-visibility";
+import { COMP_CARD_FIELDS, type Sharing } from "@/lib/comp-card-visibility";
 import type { Locale } from "@/lib/cms/types";
 import {
   answerQuestion,
@@ -36,7 +36,7 @@ import type {
   StoredAnswer,
 } from "@/lib/learner-progress/contract";
 import { completeLesson, withAnswer } from "@/lib/learner-progress/answers";
-import { EMPTY_PROGRESS, applyPatch } from "@/lib/learner-progress/patch";
+import { EMPTY_PROGRESS, applyPatch, patchSince } from "@/lib/learner-progress/patch";
 import {
   courseAfterLoad,
   courseAfterMigration,
@@ -45,7 +45,7 @@ import {
   mergeCompCardOnHydrate,
   storedGuestState,
 } from "./progress-merge";
-import { cardToSave, guestWorkOf, migrateGuest, type GuestWork } from "./guest-migration";
+import { cardToSave, guestStoreLeft, guestWorkOf, migrateGuest, type GuestWork } from "./guest-migration";
 import { courseChanged, courseSaveRefs, saveCourse } from "./course-save";
 import { clearEveryOutbox, restoreOutbox } from "./outbox";
 import { pendingSave } from "./pending-save";
@@ -265,16 +265,21 @@ function readGuestWork(): GuestWork | null {
 /**
  * What became of the guest store's work on this page (GuestWorkPrompt):
  *   added        all of it is in the account, and the browser's copy is gone;
- *   addedOwn     the same, where the account had saved something of its own
- *                too: its own answers stay (D37, D69);
+ *   addedOwn     the same, where the account kept an answer of its own over
+ *                a different one of the guest's (D37, D69);
  *   addedMore    what was read is in the account, and a tab still a guest
  *                saved more meanwhile: that stays, offered again;
  *   cardShared   all but the Comp Card is in the account: the account's card
- *                is shared, so nothing moved into it (D80); it stays here;
+ *                is shared, so nothing moved into it (D80); it alone stays
+ *                here;
+ *   nothing      nothing was added: the browser held no work any more (added
+ *                or removed in another tab meanwhile, or not readable);
  *   removed      removed from this browser, nothing sent;
- *   failed       a write that didn't get through: it stays, offered again.
+ *   failed       a write that didn't get through, or another account's
+ *                session on this browser: what didn't move stays, offered
+ *                again.
  */
-export type GuestWorkDone = "added" | "addedOwn" | "addedMore" | "cardShared" | "removed" | "failed";
+export type GuestWorkDone = "added" | "addedOwn" | "addedMore" | "cardShared" | "nothing" | "removed" | "failed";
 
 /**
  * Removes the guest store if it still holds `read`, the text the move read
@@ -291,6 +296,24 @@ function removeGuestStoreIf(read: string): "removed" | "gone" | "changed" {
     return "removed";
   } catch {
     return "gone"; // the browser's storage can't be reached: nothing to remove or offer
+  }
+}
+
+/**
+ * Puts `rest` (what a move left, guestStoreLeft) in place of the guest
+ * store if it still holds `read`, the text the move read (compare and
+ * swap): "replaced", "gone" (removed in another tab meanwhile: it stays
+ * removed) or "changed" (a tab still a guest saved more: that stays).
+ */
+function replaceGuestStoreIf(read: string, rest: string): "replaced" | "gone" | "changed" {
+  try {
+    const now = window.localStorage.getItem(STORAGE_KEY);
+    if (now === null) return "gone";
+    if (now !== read) return "changed";
+    window.localStorage.setItem(STORAGE_KEY, rest);
+    return "replaced";
+  } catch {
+    return "gone";
   }
 }
 
@@ -316,6 +339,19 @@ type Action =
   | { type: "hydrate"; state: DemoState }
   | { type: "hydrateGlobal"; compCard: CompCardData | null; badges: string[] }
   | { type: "guestCourseMigrated"; course: CourseProgress }
+  /**
+   * The course being played, read again after guest work moved into it
+   * ("Add it to my account"): what the server holds now (`saved`), with
+   * what this page did that the server didn't have yet (since `base`, what
+   * it held before) on top — never this page's older copy over the server's.
+   */
+  | { type: "courseReread"; slug: string; saved: CourseProgress | null; base: ProgressState }
+  /**
+   * The Comp Card as the server holds it after guest work moved into it
+   * (`card`), but for the fields the learner changed on this page since the
+   * move began (`before`: the card then).
+   */
+  | { type: "cardAfterClaim"; card: CompCardData; before: CompCardData }
   /**
    * `migrated`: the guest's course, when it moved into the account on
    * sign-in and this is its first load — the account's answers come first
@@ -551,6 +587,42 @@ export function reducer(state: DemoState, action: Action): DemoState {
       const course = courseAfterLoad(state.course, action.slug, action.saved, action.migrated);
       return course ? { ...state, course } : state;
     }
+    case "courseReread": {
+      if (state.course.courseSlug !== action.slug) return state;
+      const local = patchSince(action.base, state.course);
+      const server = savedProgress(action.saved);
+      const fresh: CourseProgress = {
+        ...DEFAULT_STATE.course,
+        ...server,
+        courseSlug: action.slug,
+        courseTitle: state.course.courseTitle ?? action.saved?.courseTitle ?? null,
+        courseLocale: state.course.courseTitle ? state.course.courseLocale : action.saved?.courseLocale,
+        scenario: {
+          root: server.scenario.root,
+          followup: server.scenario.followup,
+          rootLabel: server.scenario.rootLabel ?? null,
+          followupLabel: server.scenario.followupLabel ?? null,
+        },
+      };
+      if (!local) return { ...state, course: fresh };
+      const course = applyPatch(fresh, local);
+      // The page's own answers as it holds them: a scenario with its
+      // choices' texts, a quick check tried again on this page.
+      if (local.answers?.["scenario/main"]) course.scenario = state.course.scenario;
+      if (local.answers?.["assessment/main"]) course.assessment = state.course.assessment;
+      return { ...state, course };
+    }
+    case "cardAfterClaim": {
+      const now = state.compCard;
+      const card: CompCardData = { ...action.card };
+      let edited = false;
+      for (const field of [...COMP_CARD_FIELDS, "confidence"] as const) {
+        if (now[field] === action.before[field]) continue;
+        (card as unknown as Record<string, unknown>)[field] = now[field];
+        edited = true;
+      }
+      return { ...state, compCard: edited ? { ...card, updatedAt: now.updatedAt } : card };
+    }
     case "completeLesson":
       if (!isSectionId(action.id)) return state;
       return withCourse(state, completeLesson(state.course, action.id));
@@ -660,6 +732,17 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
   // The course whose saved progress has loaded and been merged into state;
   // null while one loads. Only this course is ever saved (see below).
   const loadedCourseRef = React.useRef<string | null>(null);
+  // The course being played, read again once guest work moved into it
+  // ("Add it to my account", courseReread): set with the course, and the
+  // load below runs again (courseReload).
+  const rereadRef = React.useRef<string | null>(null);
+  const [courseReload, setCourseReload] = React.useState(0);
+  // The store as last rendered, for what runs outside a render.
+  const stateRef = React.useRef(state);
+  React.useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
+
   const persistedBadges = React.useRef<Set<string>>(new Set());
   const badgeTries = React.useRef<Map<string, number>>(new Map());
   // The course and Comp Card last handed to the saves below. A write-through
@@ -735,6 +818,7 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
     clearEveryOutbox(tabStorage());
     loadedCourseRef.current = null;
     setLoadedCourse(null);
+    rereadRef.current = null;
     progressRefs.current = courseSaveRefs();
     migratedRef.current = null;
     persistedBadges.current = new Set();
@@ -935,6 +1019,8 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
   // isn't saved and what the learner does stays in memory.
   React.useEffect(() => {
     const slug = state.course.courseSlug;
+    // Read again only as the course it was asked for.
+    if (rereadRef.current !== null && rereadRef.current !== slug) rereadRef.current = null;
     if (loadedCourseRef.current !== slug) {
       courseSave.flush();
       loadedCourseRef.current = null;
@@ -972,9 +1058,17 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
       const saved = prog as CourseProgress | null;
       const refs = progressRefs.current;
       const server = savedProgress(saved);
+      // Read again after guest work moved into it: what the server held
+      // before, so only what this page did since goes on top (courseReread).
+      const base = rereadRef.current === slug ? refs.acked.get(slug) : undefined;
+      if (rereadRef.current === slug) rereadRef.current = null;
       refs.acked.set(slug, server);
       refs.latest.delete(slug);
       refs.refused.delete(slug);
+      if (base) {
+        dispatch({ type: "courseReread", slug, saved, base });
+        return;
+      }
       const migrated = migratedRef.current?.courseSlug === slug ? migratedRef.current : null;
       if (migrated) migratedRef.current = null;
       dispatch({ type: "courseProgressLoaded", slug, saved, migrated });
@@ -988,7 +1082,7 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
       if (kept) dispatch({ type: "outboxRestored", slug, patch: kept });
     })();
     return () => abort.abort();
-  }, [authed, dbReady, state.course.courseSlug, locale, owner, courseSave]);
+  }, [authed, dbReady, state.course.courseSlug, locale, owner, courseSave, courseReload]);
 
   // ---- DB write-through: course progress (debounced) ----
   // Never a course whose saved progress hasn't loaded and been merged in
@@ -1127,27 +1221,36 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
   );
 
   // ---- The guest store's work (spec 5.5) ----
-  // "Add it to my account": what the account holds now is read first (the
-  // guest store stays if that fails), then the guest store is moved in
-  // under the account-wins rules (guest-migration.ts: what the account
-  // lacks is filled in), each write tried again, and removed once every
-  // write is through: until then it outlives a tab closed mid-move, and is
-  // offered again (a second move changes nothing: the account has it, and
-  // wins). It is removed only as it was read: a tab still a guest (its
-  // session not yet read again) may have saved more meanwhile, which stays
-  // and is offered again; and not while the Comp Card in it was held back
-  // from a card the account shares (D80), which stays too. What the
-  // account should now hold goes to the store whether its write got
-  // through or not, and the store's write-throughs save what didn't: the
-  // Comp Card, the badges not yet awarded, and the course once it has
-  // loaded (migratedRef, read back from the server and merged, the
-  // account's answers first). The page says it was added only once every
-  // write is through: someone who signs out on a shared computer when told
-  // so leaves nothing of theirs behind. A write that didn't get through is
-  // said too, and the offer comes back; so is what wasn't moved, and why.
+  // "Add it to my account": what this page has waiting to be saved is sent
+  // first, what the account holds now is read (the guest store stays if
+  // that fails), then the guest store is moved in under the account-wins
+  // rules (guest-migration.ts: the server fills what the account lacks,
+  // answer by answer and field by field, as the account is when each write
+  // lands), each write tried again. Nothing to move — the guest store gone
+  // or emptied in another tab, or unreadable — and the page says nothing
+  // was added. A write refused as another account's (someone else signed
+  // in on this browser) stops the move: the guest store stays as it is,
+  // and this page reads its session again, lets go of this account's data
+  // and offers the work to whoever is signed in. Otherwise the guest store
+  // keeps only what didn't move (guestStoreLeft: a Comp Card held back from
+  // a card the account shares, D80; a write that never got through), as it
+  // was read: a tab still a guest may have saved more meanwhile, which
+  // stays and is offered again; it goes once all of it is in the account.
+  // The page then shows only what the server confirmed: the Comp Card as
+  // the server holds it (fields changed here meanwhile kept), and the
+  // course being played read again (courseReread) — never this page's
+  // older copy, or the guest's, saved over the account's. The page says it
+  // was added only once every write is through: someone who signs out on a
+  // shared computer when told so leaves nothing of theirs behind; and that
+  // the account kept an answer of its own only where it did.
   const claimGuestWork = React.useCallback(async () => {
     const forUser = dbOwnerRef.current;
     if (!forUser) return;
+    courseSave.flush();
+    cardSave.flush();
+    // The Comp Card as this page holds it now: a field changed from it while
+    // the work moves was changed here, and stays.
+    const cardBefore = stateRef.current.compCard;
     let saved: Awaited<ReturnType<typeof loadLearnerGlobal>>;
     try {
       saved = await withRetry(() => loadLearnerGlobal());
@@ -1163,15 +1266,16 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
       /* none to read */
     }
     let guest: DemoState | null = null;
+    let unreadable = false;
     try {
       guest = read ? storedGuestState(JSON.parse(read), DEFAULT_STATE) : null;
     } catch {
-      /* unreadable: removed below */
+      unreadable = true;
     }
-    if (!guest) {
-      if (read !== null) removeGuestStoreIf(read);
+    if (read === null || !guest || !guestWorkOf(guest)) {
+      if (unreadable && read !== null) removeGuestStoreIf(read);
       setGuestWork(null);
-      setGuestWorkDone("added");
+      setGuestWorkDone("nothing");
       return;
     }
     const migrated = await migrateGuest(
@@ -1183,24 +1287,50 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
         saveCourse: (slug, patch) => saveCourseProgressPatch(slug, patch, forUser),
       }
     );
-    // All of it in the account: the browser's copy goes, as it was read.
-    const removal = migrated.settled && !migrated.cardHeldBack ? removeGuestStoreIf(read!) : null;
     // The account let go of meanwhile (signed out, another account): none
-    // of it goes to the next one.
+    // of it goes to the next one, and nothing is taken from this browser.
     if (dbOwnerRef.current !== forUser) return;
-    dispatch({ type: "hydrateGlobal", compCard: migrated.compCard, badges: migrated.badges });
+    if (migrated.otherAccount) {
+      setGuestWork(guestWorkOf(guest));
+      setGuestWorkDone("failed");
+      void updateSession.current();
+      return;
+    }
+    const rest = guestStoreLeft(guest, migrated.left, DEFAULT_STATE);
+    const store = rest ? replaceGuestStoreIf(read, JSON.stringify(rest)) : removeGuestStoreIf(read);
+    dispatch({ type: "hydrateGlobal", compCard: null, badges: migrated.badges });
     for (const slug of migrated.awarded) persistedBadges.current.add(slug);
-    if (migrated.course) {
-      migratedRef.current = migrated.course;
-      dispatch({ type: "guestCourseMigrated", course: migrated.course });
+    if (migrated.cardMoved && migrated.compCard) {
+      // Not saved again: it is what the server holds (the write-through
+      // sends only a field changed here meanwhile).
+      cardScheduled.current = migrated.compCard;
+      dispatch({ type: "cardAfterClaim", card: migrated.compCard, before: cardBefore });
+    }
+    const slug = migrated.courseMoved ? migrated.course?.courseSlug : null;
+    if (migrated.course && slug) {
+      if (stateRef.current.course.courseSlug === slug) {
+        // The course being played moved under this page: it is read again,
+        // and what was done here that the server didn't have goes on top
+        // (one still loading loads again, after the move).
+        rereadRef.current = loadedCourseRef.current === slug ? slug : null;
+        loadedCourseRef.current = null;
+        setLoadedCourse(null);
+        setCourseReload((n) => n + 1);
+      } else {
+        // Shown when no course is being played, and loaded like any other
+        // when it is opened: what the server holds then, the guest's copy
+        // on the page left out (courseAfterLoad).
+        migratedRef.current = migrated.course;
+        dispatch({ type: "guestCourseMigrated", course: migrated.course });
+      }
     }
     // Server-rendered parts (the dashboard) show what was just written.
     if (migrated.wrote) router.refresh();
     if (!migrated.settled) {
-      // Offered again: a second move sends only what the account lacks.
-      setGuestWork(guestWorkOf(guest));
+      // What didn't move is offered again: a second move sends only that.
+      setGuestWork(readGuestWork());
       setGuestWorkDone("failed");
-    } else if (migrated.cardHeldBack || removal === "changed") {
+    } else if (migrated.cardHeldBack || store === "changed") {
       // What stays in this browser is offered again, as it is now.
       setGuestWork(readGuestWork());
       setGuestWorkDone(migrated.cardHeldBack ? "cardShared" : "addedMore");
@@ -1208,7 +1338,7 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
       setGuestWork(null);
       setGuestWorkDone(migrated.accountFirst ? "addedOwn" : "added");
     }
-  }, [router]);
+  }, [router, courseSave, cardSave]);
 
   // "Remove it from this browser": nothing is sent.
   const discardGuestWork = React.useCallback(() => {

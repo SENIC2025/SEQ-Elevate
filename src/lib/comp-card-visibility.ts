@@ -24,6 +24,9 @@ import type { Scope } from "@/lib/scope";
 /** The longest a Comp Card text field may grow, in characters (D80). */
 export const COMP_CARD_TEXT_MAX = 2000;
 
+/** The confidence of a card no one has touched: the schema's default, and the blank card's. */
+export const COMP_CARD_BLANK_CONFIDENCE = 3;
+
 /** The version of the sharing wording (compCard.sharing.*); bumped when it changes. */
 export const SHARING_TEXT_VERSION = "2026-11-20";
 
@@ -159,4 +162,31 @@ export function parseCompCardInput(
     value.confidence = raw.confidence;
   }
   return { ok: true, value };
+}
+
+/** A Comp Card's texts and confidence, as fill mode reads and writes them. */
+export type CompCardValues = Partial<Record<CompCardField, string>> & { confidence?: 1 | 2 | 3 | 4 | 5 };
+
+/**
+ * What a guest's Comp Card (`value`, checked by parseCompCardInput) adds to
+ * the stored card in fill mode (D79: "Add it to my account" fills what the
+ * account lacks, field by field): each text where the stored card has none
+ * (nothing but whitespace), and the confidence only where there is no card
+ * or a card with nothing in it (no text, the blank confidence) — a card in
+ * use has a confidence of its own, even the default. Never who sees it.
+ */
+export function compCardFill(
+  stored: (Record<CompCardField, string> & { confidence: number }) | null,
+  value: CompCardValues
+): CompCardValues {
+  const written = (text: unknown) => typeof text === "string" && text.trim() !== "";
+  const out: CompCardValues = {};
+  for (const field of COMP_CARD_FIELDS) {
+    if (written(value[field]) && !written(stored?.[field])) out[field] = value[field];
+  }
+  const blank = !stored || (COMP_CARD_FIELDS.every((f) => !written(stored[f])) && stored.confidence === COMP_CARD_BLANK_CONFIDENCE);
+  if (value.confidence !== undefined && blank && value.confidence !== (stored?.confidence ?? COMP_CARD_BLANK_CONFIDENCE)) {
+    out.confidence = value.confidence;
+  }
+  return out;
 }

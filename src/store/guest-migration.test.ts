@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
-import { cardToSave, guestWorkOf, migrateGuest, type GuestWrites } from "./guest-migration";
+import { cardToSave, guestStoreLeft, guestWorkOf, migrateGuest, type GuestWrites } from "./guest-migration";
 import { withRetry } from "./retry";
 import type { ProgressPatch } from "@/lib/learner-progress/contract";
 import type { CompCardData, CourseProgress, DemoState } from "./demo-state";
@@ -108,18 +108,22 @@ describe("migrateGuest", () => {
 
     expect(server).toEqual({
       badges: ["voice-without-edges"],
-      card: sentCard,
+      card: { ...sentCard, fill: true },
       course: moved,
     });
     expect(migrated).toEqual({
       badges: ["voice-without-edges"],
       awarded: ["voice-without-edges"],
       compCard: card,
+      cardMoved: true,
       course,
+      courseMoved: true,
       wrote: true,
       settled: true,
       accountFirst: false,
       cardHeldBack: false,
+      otherAccount: false,
+      left: null,
     });
   });
 
@@ -148,27 +152,31 @@ describe("migrateGuest", () => {
     const migrated = await migrateGuest(guest, nothingSaved, w, retry);
 
     expect(tries).toEqual({ badge: 2, card: 3, course: 2 });
-    expect(server).toEqual({ badges: ["voice-without-edges"], card: sentCard, course: moved });
+    expect(server).toEqual({ badges: ["voice-without-edges"], card: { ...sentCard, fill: true }, course: moved });
     expect(migrated.awarded).toEqual(["voice-without-edges"]);
     expect(migrated.settled, "all of it in the account: the guest store can go").toBe(true);
   });
 
-  it("keeps the rest going, and hands the store all of it, when a write never gets through", async () => {
-    // The learner store's write-throughs save it, and the guest store,
-    // not settled, stays: it outlives a tab closed before they do.
+  it("keeps the rest going when a write never gets through, and leaves in the browser what didn't move", async () => {
+    // Not settled: what didn't get through stays in the guest store
+    // (guestStoreLeft), offered again; the page doesn't take it as saved.
     const { writes: w, server } = writes({ badge: 100, card: 100 });
     const migrated = await migrateGuest(guest, nothingSaved, w, retry);
 
     expect(server.course).toEqual(moved); // not skipped
     expect(migrated).toEqual({
-      badges: ["voice-without-edges"], // shown…
-      awarded: [], // …and awarded by the store's badge write-through
-      compCard: card, // saved by its Comp Card write-through
-      course, // saved once it has loaded
+      badges: ["voice-without-edges"], // shown, and awarded by the store's badge write-through
+      awarded: [],
+      compCard: null, // the account's, as read: nothing
+      cardMoved: false,
+      course,
+      courseMoved: true,
       wrote: true,
       settled: false,
       accountFirst: false,
       cardHeldBack: false,
+      otherAccount: false,
+      left: { badges: ["voice-without-edges"], compCard: true, course: false },
     });
     expect(console.error).toHaveBeenCalled();
   });
@@ -225,11 +233,16 @@ describe("migrateGuest", () => {
       badges: ["voice-without-edges"],
       awarded: ["voice-without-edges"],
       compCard: savedCard,
+      cardMoved: false,
       course,
+      courseMoved: true,
       wrote: true,
       settled: true,
+      // The card's own wentWell stays over the guest's.
       accountFirst: true,
       cardHeldBack: false,
+      otherAccount: false,
+      left: null,
     });
   });
 
@@ -302,8 +315,8 @@ describe("migrateGuest", () => {
   it("sends the course in fill mode when the account has progress in it too, even without a lesson done", async () => {
     // An account that started the course on another device: the guest's
     // finished course still moves, filling what the account lacks (its
-    // lessons, its answers, the completion), and the store merges it the
-    // same way once the course loads (courseAfterLoad, the account first).
+    // lessons, its answers, the completion). The server kept no answer of
+    // the account's over one of the guest's, so there's nothing to say.
     const finished: CourseProgress = { ...course, completedAt: "2026-10-22T09:00:00.000Z" };
     const { writes: w, server } = writes();
     const migrated = await migrateGuest(
@@ -313,7 +326,7 @@ describe("migrateGuest", () => {
       retry
     );
     expect(server.course).toEqual({ ...moved, completedAt: "2026-10-22T09:00:00.000Z" });
-    expect(migrated).toMatchObject({ course: finished, settled: true, accountFirst: true });
+    expect(migrated).toMatchObject({ course: finished, courseMoved: true, settled: true, accountFirst: false });
   });
 
   it("doesn't count a move the server refused as saved, and still hands the store the course", async () => {
@@ -335,7 +348,7 @@ describe("migrateGuest", () => {
 });
 
 describe("Release 3: a guest's Comp Card moves as Only me, within the limit (D80, UB3)", () => {
-  it("counts a Comp Card save the server refused (a text over the limit) as not saved, and still hands the store the card", async () => {
+  it("counts a Comp Card save the server refused (a text over the limit) as not saved", async () => {
     const { writes: base } = writes();
     const w: GuestWrites = {
       ...base,
@@ -347,8 +360,7 @@ describe("Release 3: a guest's Comp Card moves as Only me, within the limit (D80
       w,
       retry
     );
-    expect(migrated.wrote).toBe(false);
-    expect(migrated.compCard).toMatchObject({ wentWell: card.wentWell, difficult: card.difficult, sharing: "onlyMe" });
+    expect(migrated).toMatchObject({ wrote: false, cardMoved: false, compCard: null });
     expect(console.error).toHaveBeenCalled();
   });
 
@@ -358,7 +370,7 @@ describe("Release 3: a guest's Comp Card moves as Only me, within the limit (D80
     const saved: CompCardData = { ...card, wentWell: "Saved: I stayed calm", difficult: "", confidence: 3 };
     const { writes: w, server } = writes();
     const migrated = await migrateGuest({ ...guest, badges: [] }, { ...nothingSaved, compCard: saved }, w, retry);
-    expect(server.card).toEqual({ difficult: "Guest: waiting my turn" });
+    expect(server.card).toEqual({ difficult: "Guest: waiting my turn", fill: true });
     expect(migrated).toMatchObject({
       compCard: { wentWell: "Saved: I stayed calm", difficult: "Guest: waiting my turn", confidence: 3, sharing: "onlyMe" },
       settled: true,
@@ -371,7 +383,7 @@ describe("Release 3: a guest's Comp Card moves as Only me, within the limit (D80
     const blank: CompCardData = { ...card, wentWell: "", difficult: "", confidence: 3 };
     const { writes: w, server } = writes();
     const migrated = await migrateGuest({ ...guest, badges: [] }, { ...nothingSaved, compCard: blank }, w, retry);
-    expect(server.card).toEqual({ wentWell: "Guest: I listened", difficult: "Guest: waiting my turn", confidence: 4 });
+    expect(server.card).toEqual({ wentWell: "Guest: I listened", difficult: "Guest: waiting my turn", confidence: 4, fill: true });
     expect(migrated).toMatchObject({ compCard: { wentWell: card.wentWell, difficult: card.difficult, confidence: 4 }, accountFirst: false });
   });
 
@@ -472,5 +484,132 @@ describe("guestWorkOf: what a guest store holds, offered after sign-in (spec 5.5
 
   it("doesn't count a course opened and left empty", () => {
     expect(guestWorkOf({ ...empty, course: { ...course, stagesCompleted: [] } })).toBeNull();
+  });
+});
+
+describe("Release 3 polish: what the move may say, and what it leaves in the browser", () => {
+  const blankState: DemoState = {
+    projectId: "seq-elevate",
+    role: null,
+    badges: [],
+    course: { ...course, courseSlug: null, courseTitle: null, stagesCompleted: [] },
+    compCard: { ...card, wentWell: "", difficult: "", confidence: 3, updatedAt: null },
+    refusedKeys: {},
+  };
+
+  it("stops at a write refused as another account's (another account signed in on this browser), and isn't settled", async () => {
+    // The badge award, the first write, finds another account's session.
+    const tried: string[] = [];
+    const w: GuestWrites = {
+      awardBadge: async () => (tried.push("badge"), { ok: false, reason: "other-account" }),
+      saveCompCard: async () => (tried.push("card"), { ok: false, error: "other-account" }),
+      saveCourse: async () => (tried.push("course"), { ok: false, error: "other-account" }),
+    };
+    const migrated = await migrateGuest(guest, nothingSaved, w, retry);
+    expect(tried).toEqual(["badge"]);
+    expect(migrated).toMatchObject({ wrote: false, settled: false, otherAccount: true, cardMoved: false, courseMoved: false });
+  });
+
+  it("says the account kept its own when the guest's confidence wasn't added to a card in use", async () => {
+    const guestCard = { ...card, wentWell: "Guest text", difficult: "", confidence: 5 };
+    const saved = { ...card, wentWell: "", difficult: "Account text", confidence: 2 };
+    const { writes: w, server } = writes();
+    const migrated = await migrateGuest(
+      { ...guest, badges: [], course: blankState.course, compCard: guestCard },
+      { ...nothingSaved, compCard: saved },
+      w,
+      retry
+    );
+    expect(server.card).toEqual({ wentWell: "Guest text", fill: true });
+    expect(migrated.accountFirst).toBe(true);
+  });
+
+  it("doesn't say the account kept its own when every text and the confidence of the guest's card are in it", async () => {
+    const saved = { ...card, wentWell: "", difficult: "", improve: "Account text", confidence: 3 };
+    const { writes: w } = writes();
+    const migrated = await migrateGuest(
+      { ...guest, badges: [], course: blankState.course, compCard: { ...card, confidence: 3 } },
+      { ...nothingSaved, compCard: saved },
+      w,
+      retry
+    );
+    expect(migrated.accountFirst).toBe(false);
+  });
+
+  it("says the account kept its own in the course only where the server kept an answer of the account's over another of the guest's", async () => {
+    const answered = (kept: string[]): GuestWrites => ({
+      ...writes().writes,
+      saveCourse: async () => ({ ok: true, refused: [], kept }),
+    });
+    const theGuest = { ...guest, badges: [], compCard: blankState.compCard };
+    const had = { ...nothingSaved, enrollments: [enrolment(3, true)] };
+    expect((await migrateGuest(theGuest, had, answered(["reflection/main"]), retry)).accountFirst).toBe(true);
+    // Progress of the account's own, but none of it over an answer of the guest's.
+    expect((await migrateGuest(theGuest, had, answered([]), retry)).accountFirst).toBe(false);
+  });
+
+  it("fills the Comp Card on the server, under its row, and takes the card as the server holds it then", async () => {
+    // Another device wrote wentWell after the account's card was read here.
+    const saved = { ...card, wentWell: "", difficult: "", confidence: 3, updatedAt: "2026-10-01T09:00:00.000Z" };
+    const sent: CompCardInput[] = [];
+    const w: GuestWrites = {
+      ...writes().writes,
+      saveCompCard: async (input) => {
+        sent.push(input);
+        return {
+          ok: true,
+          card: { wentWell: "Phone", difficult: card.difficult, improve: "", behaviour: "", confidence: 3, updatedAt: "2026-10-02T09:00:00.000Z" },
+        };
+      },
+    };
+    const migrated = await migrateGuest({ ...guest, badges: [], course: blankState.course }, { ...nothingSaved, compCard: saved }, w, retry);
+    expect(sent).toEqual([{ wentWell: card.wentWell, difficult: card.difficult, confidence: 4, fill: true }]);
+    expect(migrated).toMatchObject({
+      cardMoved: true,
+      compCard: { wentWell: "Phone", difficult: card.difficult, confidence: 3, sharing: "onlyMe", updatedAt: "2026-10-02T09:00:00.000Z" },
+      // The guest's wentWell and confidence aren't in it: the account's stay.
+      accountFirst: true,
+      settled: true,
+    });
+  });
+
+  it("holds the Comp Card back when the server finds it shared by the time it is filled (D80)", async () => {
+    const w: GuestWrites = { ...writes().writes, saveCompCard: async () => ({ ok: false, error: "shared" }) };
+    const migrated = await migrateGuest({ ...guest, badges: [] }, nothingSaved, w, retry);
+    expect(migrated).toMatchObject({ cardHeldBack: true, cardMoved: false, settled: true });
+  });
+
+  it("moves a course too big for one save in several, each in fill mode", async () => {
+    const lessons = Array.from({ length: 70 }, (_, i) => `s-${String(i).padStart(8, "a")}`);
+    const big: CourseProgress = { ...course, stagesCompleted: [], sectionsCompleted: lessons };
+    const patches: ProgressPatch[] = [];
+    const w: GuestWrites = {
+      ...writes().writes,
+      saveCourse: async (_slug, patch) => (patches.push(patch), { ok: true, refused: [] }),
+    };
+    const migrated = await migrateGuest({ ...guest, badges: [], course: big }, nothingSaved, w, retry);
+    expect(patches.map((p) => [p.completed?.length, p.fill])).toEqual([
+      [64, true],
+      [6, true],
+    ]);
+    expect(migrated).toMatchObject({ courseMoved: true, settled: true });
+  });
+
+  it("leaves in the browser only what didn't move: a Comp Card held back, a write that never got through", async () => {
+    const shared: CompCardData = { ...card, wentWell: "Saved", difficult: "", sharing: "facilitators", sharedAt: "2026-11-21T08:00:00.000Z" };
+    const heldBack = await migrateGuest(guest, { ...nothingSaved, compCard: shared }, writes().writes, retry);
+    expect(heldBack.left).toEqual({ badges: [], compCard: true, course: false });
+    expect(guestStoreLeft(guest, heldBack.left, blankState)).toEqual({ ...blankState, compCard: card });
+
+    const courseFailed = await migrateGuest(guest, nothingSaved, writes({ course: 100 }).writes, retry);
+    expect(courseFailed.left).toEqual({ badges: [], compCard: false, course: true });
+    expect(guestStoreLeft(guest, courseFailed.left, blankState)).toEqual({ ...blankState, course });
+
+    const badgeFailed = await migrateGuest(guest, nothingSaved, writes({ badge: 100 }).writes, retry);
+    expect(guestStoreLeft(guest, badgeFailed.left, blankState)).toEqual({ ...blankState, badges: ["voice-without-edges"] });
+
+    const allMoved = await migrateGuest(guest, nothingSaved, writes().writes, retry);
+    expect(allMoved.left).toBeNull();
+    expect(guestStoreLeft(guest, allMoved.left, blankState)).toBeNull();
   });
 });

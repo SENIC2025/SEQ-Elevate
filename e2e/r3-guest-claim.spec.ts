@@ -42,6 +42,9 @@ const GUEST_P2 = `guest-p2-${RUN}`;
 const ACCOUNT_P1 = `account-p1-${RUN}`;
 const ADDED_ACCOUNT_FIRST = "Added to your account. Where your account already had an answer of its own, it keeps it.";
 const ADDED_MORE = "Added to your account. More was saved on this browser meanwhile: add it too, or remove it.";
+const ADDED = "Added to your account.";
+const NOTHING = "Nothing was added: there is no work on this browser to add any more.";
+const FAILED = "That didn't save. Please try again.";
 
 const next = (page: Page) => page.getByRole("button", { name: /^continue$/i });
 
@@ -234,9 +237,11 @@ describe("Release 3: adding a guest's work to an account that has its own", () =
       expect(await account(person.userId)).toMatchObject({ completed: false, scenarioRoot: "private" });
       expect(said).toBe(ADDED_MORE);
 
-      // Offered again: it moves, and the browser's copy goes.
+      // Offered again: it moves, and the browser's copy goes. Everything in
+      // the account is the guest's own (the first Add put it there): the
+      // account kept nothing of its own over it.
       await prompt.getByRole("button", { name: "Add it to my account" }).click();
-      await expect(prompt.getByRole("status")).toHaveText(ADDED_ACCOUNT_FIRST, { timeout: 45_000 });
+      await expect(prompt.getByRole("status")).toHaveText(ADDED, { timeout: 45_000 });
       expect(await account(person.userId)).toMatchObject({ completed: true, scenarioRoot: "private", p1: GUEST_P1, badges: [BADGE] });
       expect(await guestStore(b)).toBeNull();
     } finally {
@@ -306,5 +311,281 @@ describe("Release 3: adding a guest's work to an account that has its own", () =
     expect(await guestStore(page)).toBeNull();
     // The account had no answer of its own where the guest had one.
     expect(saidThen).toBe("Added to your account.");
+  });
+});
+
+/** What the account holds of the built-in course's answers besides the summary above. */
+async function answers(userId: string) {
+  const e = await prisma.courseEnrollment.findFirst({ where: { userId, course: { slug: BUILT_IN } } });
+  return { reflection: (e?.reflection ?? {}) as Record<string, string>, assessment: e?.assessment ?? null };
+}
+
+describe("Release 3: adding a guest's work never puts this page's older copy, or the guest's, over the account's own", () => {
+  test.describe.configure({ timeout: 180_000 });
+  const made: string[] = [];
+  const address = (who: string) => {
+    const email = `e2e-claim2-${who}-${RUN}@example.com`;
+    made.push(email);
+    return email;
+  };
+  const GUEST_D = `guest-difficult-${RUN}`;
+  const OLD = `account-old-${RUN}`;
+  const NEW = `account-new-${RUN}`;
+  const PHONE_P2 = `phone-p2-${RUN}`;
+  const addButton = (page: Page) =>
+    page.getByRole("region", { name: PROMPT }).getByRole("button", { name: "Add it to my account" });
+
+  test.afterAll(async () => {
+    await removePeople(prisma, made);
+  });
+
+  test("a Comp Card another device changed after this page loaded keeps that change when the guest's card is added", async ({
+    page,
+    context,
+  }) => {
+    const person = await createPerson(prisma, { email: address("card-later") });
+    await prisma.compCard.create({ data: { userId: person.userId, projectId: "seq-elevate", wentWell: OLD } });
+    await guestCard(page, { wentWell: "", difficult: GUEST_D, confidence: 3 }, []);
+    await signIn(context, person.sessionToken);
+    await page.goto("/en/learner");
+    await expect(addButton(page)).toBeVisible({ timeout: 20_000 });
+    // The page's own saves after loading have gone out.
+    await page.waitForTimeout(3000);
+    // On another device the learner rewrites the answer this page shows.
+    await prisma.compCard.update({
+      where: { userId_projectId: { userId: person.userId, projectId: "seq-elevate" } },
+      data: { wentWell: NEW },
+    });
+    await addButton(page).click();
+    const said = await outcome(page);
+    // Past the page's save debounce: nothing of this page's older copy follows.
+    await page.waitForTimeout(4000);
+    expect(await cardOf(person.userId)).toMatchObject({ wentWell: NEW, difficult: GUEST_D });
+    expect(said).toBe(ADDED);
+  });
+
+  test("a Comp Card text another device writes while the guest's card is being added stays, and the page says the account kept its own", async ({
+    page,
+    context,
+  }) => {
+    const person = await createPerson(prisma, { email: address("card-during") });
+    await prisma.compCard.create({ data: { userId: person.userId, projectId: "seq-elevate", improve: OLD } });
+    await guestCard(page, { wentWell: `guest-went-${RUN}`, difficult: GUEST_D, confidence: 3 }, []);
+    await signIn(context, person.sessionToken);
+    // The card's write waits while another device writes wentWell.
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    let heldOnce = false;
+    await page.route("**/*", async (route) => {
+      const request = route.request();
+      if (!heldOnce && request.method() === "POST" && (await request.headerValue("next-action")) && (request.postData() ?? "").includes('"fill":true')) {
+        heldOnce = true;
+        await held;
+      }
+      await route.continue().catch(() => undefined);
+    });
+    try {
+      await page.goto("/en/learner");
+      await addButton(page).click({ timeout: 20_000 });
+      await expect.poll(() => heldOnce, { timeout: 30_000 }).toBe(true);
+      await prisma.compCard.update({
+        where: { userId_projectId: { userId: person.userId, projectId: "seq-elevate" } },
+        data: { wentWell: NEW },
+      });
+      release();
+      const said = await outcome(page);
+      await page.waitForTimeout(4000);
+      expect(await cardOf(person.userId)).toMatchObject({ wentWell: NEW, difficult: GUEST_D });
+      expect(said).toBe(ADDED_ACCOUNT_FIRST);
+    } finally {
+      release();
+    }
+  });
+
+  test("another account signing in on this browser while the work is added: nothing goes to either, the browser keeps it, and it is offered to whoever is signed in", async ({
+    page,
+    context,
+  }) => {
+    const a = await createPerson(prisma, { email: address("first") });
+    const b = await createPerson(prisma, { email: address("second") });
+    await guestCard(page, { wentWell: "", difficult: GUEST_D, confidence: 3 }, [BADGE]);
+    await signIn(context, a.sessionToken);
+    // The badge award, the move's first write, waits while B signs in on
+    // this browser (another tab): this tab hasn't read its session again.
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    let heldOnce = false;
+    await page.route("**/*", async (route) => {
+      const request = route.request();
+      if (!heldOnce && request.method() === "POST" && (await request.headerValue("next-action")) && (request.postData() ?? "").includes(BADGE)) {
+        heldOnce = true;
+        await held;
+      }
+      await route.continue().catch(() => undefined);
+    });
+    try {
+      await page.goto("/en/learner");
+      await addButton(page).click({ timeout: 20_000 });
+      await expect.poll(() => heldOnce, { timeout: 30_000 }).toBe(true);
+      // The cookie only: this page stays open (the fixture's signIn leaves it).
+      await context.addCookies([
+        { name: "authjs.session-token", value: b.sessionToken, domain: "localhost", path: "/", httpOnly: true, sameSite: "Lax" },
+      ]);
+      release();
+      // The page finds B signed in, lets go of A's data and offers the work to B.
+      await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
+      await expect(addButton(page)).toBeVisible({ timeout: 45_000 });
+      await page.waitForTimeout(3000);
+      expect(await page.getByRole("region", { name: PROMPT }).textContent()).not.toContain("Added");
+      expect(await guestStore(page), "the browser still holds it").toMatchObject({ difficult: GUEST_D, badges: [BADGE] });
+      expect(await cardOf(a.userId)).toBeNull();
+      expect((await account(a.userId)).badges).toEqual([]);
+      expect(await cardOf(b.userId)).toBeNull();
+      // Added now, it goes to the account signed in.
+      await addButton(page).click();
+      expect(await outcome(page)).toBe(ADDED);
+      expect(await cardOf(b.userId)).toMatchObject({ difficult: GUEST_D });
+      expect((await account(b.userId)).badges).toEqual([BADGE]);
+      expect(await cardOf(a.userId)).toBeNull();
+      expect(await guestStore(page)).toBeNull();
+    } finally {
+      release();
+    }
+  });
+
+  test("removed from this browser in another tab, then Add in this one: the page says nothing was added", async ({ page, context }) => {
+    const person = await createPerson(prisma, { email: address("removed") });
+    await guestCard(page, { wentWell: "", difficult: GUEST_D, confidence: 3 }, [BADGE]);
+    await signIn(context, person.sessionToken);
+    await page.goto("/en/learner");
+    await expect(addButton(page)).toBeVisible({ timeout: 20_000 });
+    const other = await context.newPage();
+    await other.goto("/en/learner");
+    const otherPrompt = other.getByRole("region", { name: PROMPT });
+    await otherPrompt.getByRole("button", { name: "Remove it from this browser" }).click({ timeout: 20_000 });
+    await expect(otherPrompt.getByRole("status")).toHaveText("Removed from this browser.");
+    await addButton(page).click();
+    expect(await outcome(page)).toBe(NOTHING);
+    expect(await cardOf(person.userId)).toBeNull();
+    expect((await account(person.userId)).badges).toEqual([]);
+  });
+
+  test("a Comp Card held back from a shared card: the browser keeps the card alone, and adding it later changes nothing else", async ({
+    page,
+    context,
+  }) => {
+    const person = await createPerson(prisma, { email: address("held-back") });
+    await prisma.compCard.create({
+      data: {
+        userId: person.userId,
+        projectId: "seq-elevate",
+        wentWell: ACCOUNT_P1,
+        privacy: "FACILITATOR",
+        sharedAt: new Date(),
+        sharedWithOrganisationId: person.organisationId,
+      },
+    });
+    await walkToLastStep(page);
+    await finish(page);
+    // The guest filled in their Comp Card too.
+    await page.evaluate(
+      ([key, d]) => {
+        const s = JSON.parse(localStorage.getItem(key)!);
+        s.compCard = { ...s.compCard, difficult: d, updatedAt: "2026-11-21T09:00:00.000Z" };
+        localStorage.setItem(key, JSON.stringify(s));
+      },
+      [GUEST_STORE, GUEST_D] as const
+    );
+    await signIn(context, person.sessionToken);
+    await page.goto("/en/learner");
+    await addButton(page).click({ timeout: 20_000 });
+    await outcome(page);
+    expect(await account(person.userId)).toMatchObject({ completed: true, p2: GUEST_P2, badges: [BADGE] });
+    expect(await guestStore(page), "the Comp Card alone").toEqual({ completed: false, lessons: 0, difficult: GUEST_D, badges: [] });
+    await page.waitForTimeout(3000);
+    // Later, in the account, the learner empties their second reflection
+    // answer, presses "Try again" on the quick check, and takes the Comp
+    // Card back to Only me.
+    const course = await prisma.course.findFirstOrThrow({ where: { slug: BUILT_IN } });
+    await prisma.courseEnrollment.update({
+      where: { userId_courseId: { userId: person.userId, courseId: course.id } },
+      data: { reflection: { p1: GUEST_P1, p2: "" }, assessment: { answers: {}, checked: false } },
+    });
+    await prisma.compCard.update({
+      where: { userId_projectId: { userId: person.userId, projectId: "seq-elevate" } },
+      data: { privacy: "SELF", sharedAt: null, sharedWithOrganisationId: null },
+    });
+    await page.goto("/en/learner");
+    const prompt = page.getByRole("region", { name: PROMPT });
+    await expect(prompt).toContainText("No course progress. Comp Card: yes. Badges: 0.", { timeout: 20_000 });
+    await addButton(page).click();
+    expect(await outcome(page)).toBe(ADDED);
+    await page.waitForTimeout(3000);
+    expect(await answers(person.userId)).toEqual({
+      reflection: { p1: GUEST_P1, p2: "" },
+      assessment: { answers: {}, checked: false },
+    });
+    expect(await cardOf(person.userId)).toMatchObject({ wentWell: ACCOUNT_P1, difficult: GUEST_D, privacy: "SELF" });
+    expect(await guestStore(page)).toBeNull();
+  });
+
+  test("Add pressed in the course's own player: an answer another device saved since the page loaded stays the account's", async ({
+    page,
+    context,
+  }) => {
+    const person = await createPerson(prisma, { email: address("player") });
+    const course = await prisma.course.findFirstOrThrow({ where: { slug: BUILT_IN } });
+    await prisma.courseEnrollment.create({
+      data: { userId: person.userId, courseId: course.id, stagesCompleted: ["CONTEXT"], reflection: { p1: ACCOUNT_P1 } },
+    });
+    await walkToLastStep(page);
+    await finish(page);
+    await signIn(context, person.sessionToken);
+    await page.goto(`/en/learner/course/${BUILT_IN}`);
+    await expect(addButton(page)).toBeVisible({ timeout: 20_000 });
+    await page.waitForTimeout(3000); // the course's saved progress has loaded
+    // On another device the learner answers the second reflection question.
+    await prisma.courseEnrollment.update({
+      where: { userId_courseId: { userId: person.userId, courseId: course.id } },
+      data: { reflection: { p1: ACCOUNT_P1, p2: PHONE_P2 } },
+    });
+    await addButton(page).click();
+    const said = await outcome(page);
+    // Past the page's save debounce.
+    await page.waitForTimeout(4000);
+    expect(await account(person.userId)).toMatchObject({ completed: true, scenarioRoot: "private", p1: ACCOUNT_P1, p2: PHONE_P2, badges: [BADGE] });
+    expect(said).toBe(ADDED_ACCOUNT_FIRST);
+  });
+
+  test("every answer to the move lost after the server wrote it: the page says it didn't save, and the next Add says plainly that it was added", async ({
+    page,
+    context,
+  }) => {
+    const person = await createPerson(prisma, { email: address("lost") });
+    await walkToLastStep(page);
+    await finish(page);
+    await signIn(context, person.sessionToken);
+    let losing = false;
+    await page.route("**/*", async (route) => {
+      const request = route.request();
+      if (losing && request.method() === "POST" && (await request.headerValue("next-action")) && /"fill":true|voice-without-edges/.test(request.postData() ?? "")) {
+        await route.fetch().catch(() => undefined); // the server gets it and writes it
+        await route.abort("connectionreset");
+        return;
+      }
+      await route.continue().catch(() => undefined);
+    });
+    await page.goto("/en/learner");
+    await expect(addButton(page)).toBeVisible({ timeout: 20_000 });
+    losing = true;
+    await addButton(page).click();
+    expect(await outcome(page)).toBe(FAILED);
+    losing = false;
+    expect(await guestStore(page), "kept while no answer came back").not.toBeNull();
+    await addButton(page).click({ timeout: 20_000 });
+    // Everything in the account is the guest's own: nothing of the account's was kept over it.
+    await expect(page.getByRole("region", { name: PROMPT }).getByRole("status")).toHaveText(ADDED, { timeout: 45_000 });
+    expect(await account(person.userId)).toMatchObject({ completed: true, p1: GUEST_P1, p2: GUEST_P2, badges: [BADGE] });
+    expect(await guestStore(page)).toBeNull();
   });
 });

@@ -140,3 +140,79 @@ describe("the learner store's Comp Card sharing (D80, UB3)", () => {
     expect(shared.compCard.updatedAt).toBe(loaded.compCard.updatedAt);
   });
 });
+
+describe("after guest work is added to the account (D79, Release 3 polish)", () => {
+  const base = {
+    ...DEFAULT_STATE.course,
+    stagesCompleted: ["context"],
+    reflection: { p1: "Account", p2: "", p3: "" },
+  };
+  // The course being played, loaded before the move: what the server held then.
+  const loaded: DemoState = {
+    ...playing,
+    course: { ...playing.course, stagesCompleted: ["context"], reflection: { p1: "Account", p2: "", p3: "" } },
+  };
+  // What the server holds after the move: the guest's lessons and completion,
+  // and another device's answer to p2, which the move kept.
+  const server = {
+    ...DEFAULT_STATE.course,
+    courseSlug: SLUG,
+    courseTitle: "Saying no",
+    stagesCompleted: ["context", "concept", "assessment"],
+    reflection: { p1: "Account", p2: "From the phone", p3: "Guest" },
+    assessment: { answers: { q1: "a" }, checked: true },
+    completedAt: "2026-11-21T09:00:00.000Z",
+  };
+
+  it("reads the course being played again: what the server holds now, and nothing of this page's older copy over it", () => {
+    const next = reducer(loaded, { type: "courseReread", slug: SLUG, saved: server, base });
+    expect(next.course).toMatchObject({
+      courseSlug: SLUG,
+      courseTitle: "Saying no",
+      stagesCompleted: ["context", "concept", "assessment"],
+      reflection: { p1: "Account", p2: "From the phone", p3: "Guest" },
+      assessment: { answers: { q1: "a" }, checked: true },
+      completedAt: "2026-11-21T09:00:00.000Z",
+    });
+  });
+
+  it("keeps what the learner did on this page that the server didn't have yet", () => {
+    const played: DemoState = {
+      ...loaded,
+      course: {
+        ...loaded.course,
+        stagesCompleted: ["context", "behaviour"],
+        reflection: { p1: "Account", p2: "", p3: "On this page" },
+        scenario: { root: "r1", followup: null, rootLabel: "Root one", followupLabel: null },
+      },
+    };
+    const next = reducer(played, { type: "courseReread", slug: SLUG, saved: server, base });
+    expect(next.course.stagesCompleted).toEqual(["context", "concept", "assessment", "behaviour"]);
+    expect(next.course.reflection).toEqual({ p1: "Account", p2: "From the phone", p3: "On this page" });
+    expect(next.course.scenario).toEqual({ root: "r1", followup: null, rootLabel: "Root one", followupLabel: null });
+  });
+
+  it("leaves another course alone", () => {
+    const elsewhere = { ...loaded, course: { ...loaded.course, courseSlug: "other" } };
+    expect(reducer(elsewhere, { type: "courseReread", slug: SLUG, saved: server, base })).toBe(elsewhere);
+  });
+
+  const cardBefore = { ...DEFAULT_STATE.compCard, wentWell: "Old, as loaded", updatedAt: "2026-11-20T09:00:00.000Z" };
+  const cardNow = {
+    ...DEFAULT_STATE.compCard,
+    wentWell: "New, from the phone",
+    difficult: "Guest",
+    updatedAt: "2026-11-21T09:00:00.000Z",
+  };
+
+  it("shows the Comp Card as the server holds it after the move, not this page's copy as loaded", () => {
+    const s = reducer({ ...playing, compCard: cardBefore }, { type: "cardAfterClaim", card: cardNow, before: cardBefore });
+    expect(s.compCard).toEqual(cardNow);
+  });
+
+  it("keeps a field of the Comp Card the learner changed on this page while the work was being added", () => {
+    const edited = { ...cardBefore, improve: "Typed meanwhile", updatedAt: "2026-11-21T09:00:01.000Z" };
+    const s = reducer({ ...playing, compCard: edited }, { type: "cardAfterClaim", card: cardNow, before: cardBefore });
+    expect(s.compCard).toEqual({ ...cardNow, improve: "Typed meanwhile", updatedAt: edited.updatedAt });
+  });
+});

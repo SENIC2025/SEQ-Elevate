@@ -18,10 +18,12 @@ import { useDemoState } from "@/store/demo-state";
  * once a choice is made, what became of the work takes its place, and
  * focus goes there (the button pressed is gone). "Added" is said only once
  * all of it is in the account, and that the account kept its own answers
- * where it had some (D37, D69). A move that didn't get through says so,
- * and the choice is offered again; so is what a tab still a guest saved
- * meanwhile, and a Comp Card held back from a card the account shares
- * (D80), with what to do to add it.
+ * only where it kept one over a different one of the guest's (D37, D69).
+ * A move that didn't get through says so, and what didn't move is offered
+ * again; so is what a tab still a guest saved meanwhile, and a Comp Card
+ * held back from a card the account shares (D80), with what to do to add
+ * it. Work gone from the browser meanwhile (added or removed in another
+ * tab) is said too: nothing was added.
  * Nothing is shown when there is no such work (and never in the recorded
  * walk, which signs in with no guest store).
  */
@@ -51,7 +53,8 @@ export function GuestWorkPrompt() {
         ? t(guestWorkDone)
         : null;
   // Nothing left in this browser to choose about.
-  const finished = guestWorkDone === "added" || guestWorkDone === "addedOwn" || guestWorkDone === "removed";
+  const finished =
+    guestWorkDone === "added" || guestWorkDone === "addedOwn" || guestWorkDone === "nothing" || guestWorkDone === "removed";
 
   return (
     <section aria-labelledby={`${ids}-title`} className="mx-auto max-w-6xl px-4 pt-6">
