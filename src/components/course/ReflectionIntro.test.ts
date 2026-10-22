@@ -81,7 +81,8 @@ describe("ReflectionIntro", () => {
 
   it("shows the plain text when the rich text doesn't pass the check", () => {
     const unusable = [
-      { v: 2, doc: { type: "doc", content: [] } },
+      // An unknown version (2 holds links, Release 4's).
+      { v: 3, doc: { type: "doc", content: [] } },
       { v: 1, doc: { type: "doc", content: "<script>" } },
     ] as unknown as Reflection["introRich"][];
     for (const introRich of unusable) {

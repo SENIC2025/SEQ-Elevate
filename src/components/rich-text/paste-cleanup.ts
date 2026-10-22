@@ -1,3 +1,4 @@
+import { classifyPastedLink, NO_LINKS_DROPPED, type PasteReport } from "./paste-links";
 import {
   listTreeToHtml,
   nestListItems,
@@ -10,11 +11,16 @@ import {
  * Pasted HTML, tidied before the editor reads it (its transformPastedHTML).
  *
  * The editor's schema already keeps only paragraphs, line breaks, bold,
- * italic and lists when it parses a paste: fonts, colours, sizes, links,
+ * italic, links and lists when it parses a paste: fonts, colours, sizes,
  * images and tables' layout are dropped there, and every change is
  * sanitized again. What the schema can't do is recognise lists that aren't
- * written as lists, so this does, in the pasted HTML:
+ * written as lists, or say which links weren't kept, so this does, in the
+ * pasted HTML:
  *
+ * - Links (D106, paste-links.ts): each <a> is kept, with nothing but its
+ *   normalised address, or unwrapped to its text — and counted, so the
+ *   editor can say how many links weren't kept and why, and how many use
+ *   http. Done first, so a link inside a Word list point is rebuilt with it.
  * - Word: each list point is a paragraph styled `mso-list:l0 level2 …`, its
  *   bullet or number drawn by a marker span Word asks others to ignore. They
  *   become real <ul>/<ol> (word-list.ts), and Word's empty <o:p> fillers go.
@@ -31,10 +37,20 @@ import {
  * returned as it came, and the schema still cleans it.
  */
 export function cleanPastedHtml(html: string): string {
-  if (!html || typeof DOMParser === "undefined") return html;
+  return cleanPastedHtmlWithReport(html).html;
+}
+
+/**
+ * cleanPastedHtml, with what it did to the paste's links (PasteReport). On
+ * a failure the HTML comes back as it came, and nothing is reported: the
+ * schema's parse rule still checks every link (link-extension.ts).
+ */
+export function cleanPastedHtmlWithReport(html: string): PasteReport & { html: string } {
+  if (!html || typeof DOMParser === "undefined") return { html, ...NO_LINKS_DROPPED };
   try {
     const doc = new DOMParser().parseFromString(html, "text/html");
     const body = doc.body;
+    const report = cleanLinks(body);
     if (WORD_HTML.test(html)) {
       removeOfficeFillers(body);
       rebuildWordLists(body);
@@ -42,10 +58,33 @@ export function cleanPastedHtml(html: string): string {
     liftStrayLists(body);
     nestAriaLevels(body);
     removeBlankLines(body);
-    return body.innerHTML;
+    return { html: body.innerHTML, ...report };
   } catch {
-    return html;
+    return { html, ...NO_LINKS_DROPPED };
   }
+}
+
+/** Every <a>: kept with its normalised address only, or unwrapped to its text (classifyPastedLink). */
+function cleanLinks(root: HTMLElement): PasteReport {
+  const report: PasteReport = { ...NO_LINKS_DROPPED };
+  for (const anchor of Array.from(root.querySelectorAll("a"))) {
+    const result = classifyPastedLink({
+      href: anchor.getAttribute("href"),
+      name: anchor.getAttribute("name"),
+      text: anchor.textContent ?? "",
+    });
+    if (result.keep) {
+      for (const attribute of Array.from(anchor.attributes)) anchor.removeAttribute(attribute.name);
+      anchor.setAttribute("href", result.href);
+      if (result.http) report.http++;
+      continue;
+    }
+    if (result.counted === "not-kept") report.notKept++;
+    else if (result.counted === "uploaded") report.uploaded++;
+    else if (result.counted === "misleading") report.misleading++;
+    anchor.replaceWith(...Array.from(anchor.childNodes));
+  }
+  return report;
 }
 
 const WORD_HTML = /class=["']?Mso|urn:schemas-microsoft-com:office|mso-list/i;

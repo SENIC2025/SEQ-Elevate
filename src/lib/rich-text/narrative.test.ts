@@ -56,7 +56,7 @@ describe("sanitizeNarrativeBlocks", () => {
         kind: "paragraph",
         text: "whatever the browser says",
         rich: rich(
-          p(t("Stay "), t("calm", { type: "bold" }), t(" here", { type: "link", attrs: { href: "javascript:alert(1)" } })),
+          p(t("Stay "), t("calm", { type: "bold" }), t(" here", { type: "underline" })),
           { type: "bulletList", content: [{ type: "listItem", content: [p(t("Pause"))] }] },
           { type: "image", attrs: { src: "x" } }
         ),
@@ -72,7 +72,21 @@ describe("sanitizeNarrativeBlocks", () => {
         text: "Stay calm here\n\n• Pause",
       },
     ]);
-    expect(JSON.stringify(blocks)).not.toMatch(/javascript|image|href/);
+    expect(JSON.stringify(blocks)).not.toMatch(/underline|image/);
+  });
+
+  it("refuses a javascript: link by name instead of saving the text without it (Release 4)", () => {
+    expect(
+      refused([
+        {
+          kind: "paragraph",
+          text: "whatever the browser says",
+          rich: rich(p(t("Stay "), t("calm", { type: "bold" }), t(" here", { type: "link", attrs: { href: "javascript:alert(1)" } }))),
+        },
+      ])
+    ).toEqual([
+      "Block 1 (Paragraph): the link “here” can't be used. Use an address starting with https:// or http://, or an email address.",
+    ]);
   });
 
   it("gives a key message rich text too", () => {
@@ -88,7 +102,7 @@ describe("sanitizeNarrativeBlocks", () => {
   it("keeps a block of a format version it doesn't know as its plain text", () => {
     expect(
       saved([
-        { kind: "callout", rich: { v: 2, doc: { type: "fancy" } }, text: "Hello" },
+        { kind: "callout", rich: { v: 3, doc: { type: "fancy" } }, text: "Hello" },
         { kind: "paragraph", rich: null, text: "Plain" },
         { kind: "paragraph", rich: "junk", text: "Also plain" },
       ])
@@ -418,14 +432,106 @@ describe("richTextForSave (any rich text an action stores)", () => {
   });
 
   it("refuses what isn't an envelope of a version it reads as unreadable, where a block keeps its text", () => {
-    for (const raw of [undefined, null, "text", { v: 2, doc: { type: "doc", content: [] } }, { v: 1 }]) {
+    for (const raw of [undefined, null, "text", { v: 3, doc: { type: "doc", content: [] } }, { v: 1 }, { v: 2 }]) {
       expect(richTextForSave(raw, "The references list")).toEqual({
         ok: false,
         issues: [expect.stringMatching(/^The references list couldn't be read\./)],
       });
     }
-    expect(saved([{ kind: "paragraph", rich: { v: 2, doc: {} }, text: "Kept" }])).toEqual([
+    expect(saved([{ kind: "paragraph", rich: { v: 3, doc: {} }, text: "Kept" }])).toEqual([
       { kind: "paragraph", text: "Kept" },
     ]);
+  });
+});
+
+/* ------------------------------------------------- Links (Release 4, U4) */
+
+const linked = (text: string, href: unknown) => t(text, { type: "link", attrs: { href } });
+const v2 = (...content: unknown[]) => ({ v: 2, doc: { type: "doc", content } });
+
+describe("richTextForSave: links are refused by name, never cut (D104)", () => {
+  it("saves a link: version 2, its plain text naming the address", () => {
+    for (const envelope of [rich, v2]) {
+      expect(
+        richTextForSave(envelope(p(t("Read "), linked("the guide", "HTTPS://Example.org/guide"), t(" today."))), "Block 2 (Paragraph)")
+      ).toEqual({
+        ok: true,
+        rich: v2(p(t("Read "), linked("the guide", "https://example.org/guide"), t(" today."))),
+        text: "Read the guide (https://example.org/guide) today.",
+      });
+    }
+    // Version 2 without a link is stored as version 1.
+    expect(richTextForSave(v2(p(t("Plain"))), "Block 1 (Paragraph)")).toEqual({
+      ok: true,
+      rich: rich(p(t("Plain"))),
+      text: "Plain",
+    });
+  });
+
+  it("refuses each kind of link problem with a sentence naming the block and the link", () => {
+    const name = "Block 2 (Paragraph)";
+    const cases: [unknown, string][] = [
+      [
+        rich(p(linked("the guide", "javascript:alert(1)"))),
+        "Block 2 (Paragraph): the link “the guide” can't be used. Use an address starting with https:// or http://, or an email address.",
+      ],
+      [
+        rich(p(linked("the guide", "https://eur01.safelinks.protection.outlook.com/?url=https%3A%2F%2Fexample.org&data=x"))),
+        "Block 2 (Paragraph): the link “the guide” is an Outlook safe link, which carries the address of the mailbox it was sent to. Use the original address instead.",
+      ],
+      [
+        v2(p(linked("https://bank.example", "https://evil.example/"))),
+        "Block 2 (Paragraph): the link text “https://bank.example” shows a different address than the link opens. Show the real address, or use a few words.",
+      ],
+      [
+        v2(p(linked("https://bank.", "https://evil.example/a"), linked("example", "https://evil.example/b"))),
+        "Block 2 (Paragraph): the link text “https://bank.example” shows a different address than the link opens. Show the real address, or use a few words.",
+      ],
+      [
+        v2(p(linked("handout", "https://e2e-store.public.blob.vercel-storage.com/handout.pdf"))),
+        "Block 2 (Paragraph): the link “handout” points to a file uploaded to the platform. Add the file to the lesson as a document instead.",
+      ],
+      [
+        v2(p(t("x", { type: "link", attrs: { href: "https://example.org/a" } }, { type: "link", attrs: { href: "https://example.org/b" } }))),
+        "Block 2 (Paragraph): the link “x” can't be used. Use an address starting with https:// or http://, or an email address.",
+      ],
+    ];
+    for (const [raw, message] of cases) {
+      expect(richTextForSave(raw, name)).toEqual({ ok: false, issues: [message] });
+    }
+  });
+
+  it("names every link it refuses, in a lesson's blocks too", () => {
+    expect(
+      refused([
+        { kind: "paragraph", text: "fine" },
+        { kind: "callout", rich: v2(p(linked("one", "file:///C:/x"), t(" and "), linked("two", "tel:+32"))) },
+      ])
+    ).toEqual([
+      "Block 2 (Key message): the link “one” can't be used. Use an address starting with https:// or http://, or an email address.",
+      "Block 2 (Key message): the link “two” can't be used. Use an address starting with https:// or http://, or an email address.",
+    ]);
+  });
+
+  it("stores a link without its other attributes", () => {
+    const result = richTextForSave(
+      v2(p(t("the guide", { type: "link", attrs: { href: "https://example.org/", target: "_self", onclick: "x" } }))),
+      "Block 1 (Paragraph)"
+    );
+    expect(result).toEqual({ ok: true, rich: v2(p(linked("the guide", "https://example.org/"))), text: "the guide (https://example.org/)" });
+  });
+
+  it("says a block over a limit with links has too many links", () => {
+    const many = Array.from({ length: 800 }, (_, i) => linked(`w${i} `, `https://example.org/${i}`));
+    expect(richTextForSave(v2(p(...many)), "Block 1 (Paragraph)")).toEqual({
+      ok: false,
+      issues: ["Block 1 (Paragraph) has too many links or too much formatting to save. Split it into two blocks."],
+    });
+  });
+
+  it("reads the plain text of a version-2 block stored without one, and a reflection's version-2 introduction", () => {
+    const stored = v2(p(t("Read "), linked("the guide", "https://example.org/guide")));
+    expect(blockPlainText({ rich: stored })).toBe("Read the guide (https://example.org/guide)");
+    expect(introFromBlocks([{ kind: "paragraph", rich: stored, text: "T" }])).toEqual({ text: "T", rich: stored });
   });
 });

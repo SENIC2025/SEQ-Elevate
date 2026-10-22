@@ -167,6 +167,8 @@ describe("legacyTextToDoc", () => {
       expect(sanitizeRichText({ v: 1, doc })).toEqual({
         value: { v: 1, doc },
         issues: [],
+        linkProblems: [],
+        hasLinks: false,
       });
     }
   });

@@ -351,3 +351,63 @@ describe("linkifyInline", () => {
   });
 });
 
+
+/* -------------------------------------------- Release 4 (U6, D103, D104) */
+
+describe("findLinks — through the one address check (checkLinkHref)", () => {
+  it("leaves an address over 2,048 characters as text", () => {
+    const longest = "https://example.org/" + "a".repeat(2_048 - 20);
+    expect(linked(`See ${longest} now`)).toEqual([longest]);
+    expect(findLinks(`See ${longest}a now`)).toEqual([]);
+  });
+
+  it("leaves a mailto: with anything but a subject as text", () => {
+    expect(linked("mailto:help@example.org?subject=Hi")).toEqual(["mailto:help@example.org?subject=Hi"]);
+    for (const text of [
+      "mailto:help@example.org?cc=boss@example.org",
+      "mailto:help@example.org?bcc=boss@example.org",
+      "mailto:help@example.org?body=Hello",
+      "mailto:help@example.org?subject=Hi&cc=boss@example.org",
+    ]) {
+      expect(findLinks(text), text).toEqual([]);
+    }
+  });
+
+  it("leaves a bare email address too long to be a link as text", () => {
+    const user = "a".repeat(2_048 - "mailto:@example.org".length);
+    expect(linked(`Write to ${user}@example.org.`)).toEqual([`${user}@example.org`]);
+    expect(findLinks(`Write to ${user}a@example.org.`)).toEqual([]);
+  });
+
+  it("leaves an Outlook safe link as text", () => {
+    expect(
+      findLinks("https://eur01.safelinks.protection.outlook.com/?url=https%3A%2F%2Fexample.org&data=05%7Csomeone%40example.org")
+    ).toEqual([]);
+  });
+
+  it("keeps a typed address of our own file store a link (ownFile is ignored)", () => {
+    expect(linked("https://e2e-store.public.blob.vercel-storage.com/handout.pdf")).toEqual([
+      "https://e2e-store.public.blob.vercel-storage.com/handout.pdf",
+    ]);
+  });
+
+  it("accepts and refuses as checkLinkHref does, with the same address", async () => {
+    const { checkLinkHref } = await import("./link-url");
+    for (const typed of [
+      "https://example.org/guide",
+      "HTTPS://Example.ORG/Path",
+      "https://bücher.example/straße",
+      "http://192.0.2.1/x",
+      "mailto:help@example.org",
+      "MAILTO:Help@Example.org?subject=x",
+      "https://user:pw@evil.example",
+      "https://localhost/x",
+      "https://example.org:99999/x",
+    ]) {
+      const check = checkLinkHref(typed);
+      const found = findLinks(typed);
+      if (check.ok) expect(found, typed).toEqual([{ start: 0, end: typed.length, href: check.href, kind: check.kind }]);
+      else expect(found, typed).toEqual([]);
+    }
+  });
+});

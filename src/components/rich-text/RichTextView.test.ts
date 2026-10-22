@@ -207,8 +207,9 @@ describe("RichTextView", () => {
   });
 
   it("falls back to the plain text for a format version it doesn't know", () => {
-    const v2 = { v: 2, doc: { type: "doc", content: [p(text("New"))] } };
-    expect(render({ rich: v2, text: "Fallback" })).toBe(
+    // Version 2 is Release 4's (links); version 3 is unknown.
+    const v3 = { v: 3, doc: { type: "doc", content: [p(text("New"))] } };
+    expect(render({ rich: v3, text: "Fallback" })).toBe(
       plainWrap("<p>Fallback</p>")
     );
   });
@@ -492,5 +493,189 @@ describe("RichTextView quick links", () => {
     expect(render({ text: "• a@ b\n• example.org" })).toBe(
       plainWrap("<ul><li>a@ b</li><li>example.org</li></ul>")
     );
+  });
+});
+
+/* ------------------------------------------- Named links (Release 4, U7) */
+
+const named = (value: string, href: unknown, ...marks: string[]): Json => ({
+  type: "text",
+  text: value,
+  marks: [...marks.map((type) => ({ type })), { type: "link", attrs: { href } }],
+});
+const v2 = (...content: Json[]) => ({ v: 2, doc: { type: "doc", content } });
+
+describe("RichTextView named links (D104)", () => {
+  it("draws a link as one <a> opening in a new tab, bold and italic inside it", () => {
+    expect(
+      renderIn("en", {
+        rich: v2(
+          p(
+            text("Read "),
+            named("the ", "https://example.org/guide"),
+            named("guide", "https://example.org/guide", "bold"),
+            named(" now", "https://example.org/guide", "italic"),
+            text(" today.")
+          )
+        ),
+      })
+    ).toBe(
+      wrap(`<p>Read ${linkTo("https://example.org/guide", "the <strong>guide</strong><em> now</em>")} today.</p>`)
+    );
+  });
+
+  it("draws the address as stored, normalised by the check on every render", () => {
+    expect(renderIn("en", { rich: v2(p(named("Bücher", "https://bücher.example/straße"))) })).toBe(
+      wrap(`<p>${linkTo("https://xn--bcher-kva.example/stra%C3%9Fe", "Bücher")}</p>`)
+    );
+  });
+
+  it("draws neighbouring links to different addresses as two links", () => {
+    expect(
+      renderIn("en", { rich: v2(p(named("one", "https://example.org/a"), named("two", "https://example.org/b"))) })
+    ).toBe(wrap(`<p>${linkTo("https://example.org/a", "one")}${linkTo("https://example.org/b", "two")}</p>`));
+  });
+
+  it("ends a link at a line break", () => {
+    expect(
+      renderIn("en", { rich: v2(p(named("one", "https://example.org/a"), br, named("two", "https://example.org/a"))) })
+    ).toBe(wrap(`<p>${linkTo("https://example.org/a", "one")}<br/>${linkTo("https://example.org/a", "two")}</p>`));
+  });
+
+  it("finds quick links only in unlinked text: a typed address never runs into a named link", () => {
+    expect(
+      renderIn("en", {
+        rich: v2(p(text("See https://example.org/"), named("guide", "https://example.org/guide"), text(" or help@example.org"))),
+      })
+    ).toBe(
+      wrap(
+        `<p>See ${linkTo("https://example.org/", "https://example.org/")}${linkTo("https://example.org/guide", "guide")} or ${linkTo(
+          "mailto:help@example.org",
+          "help@example.org"
+        )}</p>`
+      )
+    );
+    // A named link whose text is an address is one link, not a link inside a link.
+    const html = renderIn("en", { rich: v2(p(named("https://example.org/guide", "https://example.org/guide"))) });
+    expect(html).toBe(wrap(`<p>${linkTo("https://example.org/guide", "https://example.org/guide")}</p>`));
+  });
+
+  it("draws links in list points", () => {
+    expect(renderIn("en", { rich: v2(ul(li(p(named("Tips", "https://example.org/tips"))))) })).toBe(
+      wrap(`<ul><li>${linkTo("https://example.org/tips", "Tips")}</li></ul>`)
+    );
+  });
+
+  it("names where a link goes in an inert preview, as a title", () => {
+    expect(
+      render({
+        rich: v2(p(named("the guide", "https://example.org/guide"), text(" or "), named("us", "mailto:team@example.org?subject=Hi"))),
+        inertLinks: true,
+      })
+    ).toBe(
+      wrap(
+        '<p><span class="seq-link" title="https://example.org/guide">the guide</span> or <span class="seq-link" title="team@example.org">us</span></p>'
+      )
+    );
+  });
+
+  it("draws a refused link as its text, without a link", () => {
+    expect(render({ rich: v2(p(text("Read "), named("the guide", "javascript:alert(1)"), text("."))) })).toBe(
+      wrap("<p>Read the guide.</p>")
+    );
+  });
+
+  it("draws version 2 from its doc, and an unknown version from its text", () => {
+    expect(renderIn("en", { rich: v2(p(named("x", "https://example.org/"))), text: "Fallback" })).toBe(
+      wrap(`<p>${linkTo("https://example.org/", "x")}</p>`)
+    );
+    expect(render({ rich: { v: 3, doc: v2(p(text("x"))).doc }, text: "Fallback" })).toBe(plainWrap("<p>Fallback</p>"));
+  });
+});
+
+describe("RichTextView keeps hostile links inert", () => {
+  const ADDRESSES: unknown[] = [
+    "javascript:alert(1)",
+    "JaVaScRiPt:alert(1)",
+    " javascript:alert(1)",
+    "java\tscript:alert(1)",
+    "java\u0000script:alert(1)",
+    "data:text/html,<script>alert(1)</script>",
+    "vbscript:msgbox(1)",
+    "file:///C:/x",
+    "//evil.example",
+    "/relative",
+    "#x",
+    "https:evil.example",
+    "https://user:pw@evil.example",
+    "https://bank.example@evil.example",
+    "https://example.org/" + "a".repeat(3000),
+    42,
+    { href: "https://example.org" },
+    ["https://example.org"],
+    'https://example.org/"><script>alert(1)</script>',
+    "https://example.org/' onmouseover='alert(1)",
+  ];
+  const hostile = v2(
+    ...ADDRESSES.map((href, i) =>
+      p(text(`Row ${i}: `), named("click", href, "bold"), {
+        type: "text",
+        text: " me",
+        marks: [{ type: "link", attrs: { href: "https://example.org/ok", target: "_self", onclick: "alert(1)", style: "x" } }],
+      })
+    ),
+    p(named("https://bank.", "https://evil.example/a"), named("example", "https://evil.example/b")),
+    p({ type: "text", text: "two", marks: [{ type: "link", attrs: { href: "https://a.example/" } }, { type: "link", attrs: { href: "https://b.example/" } }] }),
+    p({ type: "text", text: "deep", marks: [{ type: "link", attrs: { attrs: { href: "javascript:alert(1)" } } }] }),
+    p({ type: "text", text: "anchor", marks: [{ type: "anchor", attrs: { href: "javascript:alert(1)" } }] }),
+    ul(li(p(named("https://example.org", "https://example.org/"), text(" and https://example.org/typed"))))
+  );
+  const html = renderIn("en", { rich: hostile, text: "unused" });
+  const plain = render({ rich: hostile, inertLinks: true });
+
+  it("emits only whitelisted elements and attributes", () => {
+    for (const out of [html, plain]) {
+      const tags = out.match(/<[a-z][^>]*>/gi) ?? [];
+      for (const tag of tags) {
+        expect(tag).toMatch(/^<(?:div|p|ul|ol|li|br\/|strong|em|a|span)(?:\s|>|\/)/);
+        for (const [, name] of tag.matchAll(/\s([a-z-]+)=/gi)) {
+          expect(["href", "target", "rel", "class", "lang", "title", "start", "style"]).toContain(name);
+        }
+      }
+      // style only as a paragraph's indent, start only on <ol>.
+      expect(out).not.toMatch(/<(?!p\b)[a-z]+[^>]*\sstyle=/i);
+    }
+  });
+
+  it("never puts a link inside a link", () => {
+    expect(html).not.toMatch(/<a\b(?:(?!<\/a>)[\s\S])*<a\b/);
+  });
+
+  it("only ever draws https, http and mailto addresses", () => {
+    const hrefs = [...html.matchAll(/\shref="([^"]*)"/g)].map((m) => m[1]);
+    expect(hrefs.length).toBeGreaterThan(0);
+    for (const href of hrefs) expect(href).toMatch(/^(?:https:\/\/|http:\/\/|mailto:)/);
+    expect(html).not.toMatch(/javascript|vbscript|data:|file:|evil\.example/i);
+    expect(html).not.toMatch(/onclick|onmouseover|_self/);
+  });
+
+  it("keeps the text of every refused link", () => {
+    const accepted = ADDRESSES.indexOf('https://example.org/"><script>alert(1)</script>');
+    for (let i = 0; i < ADDRESSES.length; i++) {
+      if (i !== accepted) expect(html).toContain(`Row ${i}: <strong>click</strong>`);
+    }
+    // An address whose markup the URL parser percent-encodes is a link, inert.
+    expect(html).toContain(
+      `Row ${accepted}: <a href="https://example.org/%22%3E%3Cscript%3Ealert(1)%3C/script%3E" target="_blank"`
+    );
+    // Touching links that read as another address are text, and that text a quick link to where it says.
+    expect(html).toContain(`<p>${linkTo("https://bank.example/", "https://bank.example")}</p>`);
+    expect(html).toContain("<p>two</p>");
+    expect(html).toContain("<p>deep</p>");
+    expect(html).toContain("<p>anchor</p>");
+  });
+
+  it("draws no link at all in an inert preview", () => {
+    expect(plain).not.toMatch(/<a\b|href=/);
   });
 });

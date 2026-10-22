@@ -1,20 +1,24 @@
-import { isEmailAddress } from "./link-url";
+import { checkLinkHref, isEmailAddress } from "./link-url";
 import type { RtInline, RtText } from "./types";
 
 /**
  * Quick links: web and email addresses typed in lesson text become links
  * when the text is shown to learners (Release 0, amending D36). Only at
- * render time — nothing stored changes, the sanitizer still drops every
- * link mark, and the editor keeps the address as plain text.
+ * render time — nothing stored changes, and the editor keeps a typed
+ * address as plain text (named links are the editor's link marks, D104).
  *
  * What counts as an address, and nothing else:
  * - `https://…` and `http://…`, the scheme in any letter case, with a host
  *   that has a dot in it;
  * - `mailto:` followed by an email address (and an optional `?subject=…`);
  * - a bare email address such as `help@example.org`, linked as mailto.
- * Every other scheme — javascript:, data:, vbscript:, file: and the rest —
- * is never linked, because an href is only ever built from these three
- * patterns, and checked once more by the URL parser.
+ * A typed address is a link exactly when the one address check
+ * (checkLinkHref, link-url.ts; D103) accepts it, so a typed address and a
+ * named link to the same place are accepted or refused alike: an address
+ * over 2,048 characters, a mailto: with anything but a subject, and an
+ * Outlook safe link stay text. An address of our own file store stays a
+ * quick link (only new named links refuse those). Every other scheme —
+ * javascript:, data:, vbscript:, file: and the rest — is never linked.
  *
  * Trailing punctuation (". , ; : ! ?" and closing quotes, Greek and German
  * ones included) and unbalanced closing brackets stay outside the link, so
@@ -126,29 +130,16 @@ function scheme(
   return runEnd;
 }
 
-/** An https or http href for a typed address, or null if it isn't one. */
+/** An https or http href for a typed address (checkLinkHref), or null if it isn't one. */
 function webHref(typed: string): string | null {
-  let url: URL;
-  try {
-    url = new URL(typed);
-  } catch {
-    return null;
-  }
-  if (url.protocol !== "https:" && url.protocol !== "http:") return null;
-  // "https://bank.example@evil.example" goes to evil.example.
-  if (url.username || url.password) return null;
-  // A host with a dot ("example.org", "192.0.2.1"), its labels not empty.
-  const labels = url.hostname.replace(/\.$/, "").split(".");
-  if (labels.length < 2 || labels.some((label) => !label)) return null;
-  return url.href;
+  const check = checkLinkHref(typed);
+  return check.ok && check.kind === "web" ? check.href : null;
 }
 
-/** The href for a typed "mailto:address[?query]", or null. */
+/** The href for a typed "mailto:address[?subject=…]" (checkLinkHref), or null. */
 function mailtoHref(typed: string): string | null {
-  const rest = typed.slice("mailto:".length);
-  const query = rest.indexOf("?");
-  const address = query < 0 ? rest : rest.slice(0, query);
-  return isEmailAddress(address) ? `mailto:${rest}` : null;
+  const check = checkLinkHref(typed);
+  return check.ok && check.kind === "email" ? check.href : null;
 }
 
 /**
@@ -173,7 +164,10 @@ function email(
   if (start > 0 && GLUED_BEFORE_EMAIL.test(text[start - 1])) return at + 1;
   const address = text.slice(start, end);
   if (!isEmailAddress(address)) return at + 1;
-  found.push({ start, end, href: `mailto:${address}`, kind: "email" });
+  // As a link, through the one check (an address too long to be one stays text).
+  const href = mailtoHref(`mailto:${address}`);
+  if (!href) return at + 1;
+  found.push({ start, end, href, kind: "email" });
   return end;
 }
 

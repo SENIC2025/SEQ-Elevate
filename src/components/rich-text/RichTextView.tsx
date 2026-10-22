@@ -1,5 +1,6 @@
 import { Fragment, type ReactNode } from "react";
 import { legacyTextToDoc } from "@/lib/rich-text/from-legacy";
+import { emailAddressOf } from "@/lib/rich-text/link-url";
 import { linkifyInline } from "@/lib/rich-text/linkify";
 import { isEmptyDoc, sanitizeRichText } from "@/lib/rich-text/sanitize";
 import {
@@ -25,16 +26,22 @@ import { QuickLink } from "./QuickLink";
  * unknown format version, or one that fails the check — the block's plain
  * `text` is shown by Round 1's rules (parseLegacyText), exactly as typed.
  *
- * Only whitelisted elements come out: p, br, strong, em, ul, ol and li,
- * with text always as React text nodes (escaped), never as HTML. The only
- * attributes are a numbered list's start and a paragraph's indent (an
- * inline padding), both clamped here once more. Lists render no deeper
- * than RT_LIMITS.maxListDepth, so recursion is bounded even on its own.
+ * Only whitelisted elements come out: p, br, strong, em, ul, ol, li, and
+ * for links a and span, with text always as React text nodes (escaped),
+ * never as HTML. The only attributes are a numbered list's start, a
+ * paragraph's indent (an inline padding), both clamped here once more, and
+ * a link's (below). Lists render no deeper than RT_LIMITS.maxListDepth, so
+ * recursion is bounded even on its own.
  *
- * Quick links: web and email addresses in the text are shown as links
- * (QuickLink, an <a> opening an https, http or mailto address in a new
- * tab), found at render time by linkifyInline — nothing stored changes,
- * and text without an address renders exactly as before.
+ * Links (QuickLink, an <a> opening an https, http or mailto address in a
+ * new tab): a named link (D104) is the run of neighbouring text with the
+ * same link mark — an address the sanitizer has just checked and
+ * normalised — drawn as one <a> with its bold and italic inside it; a line
+ * break ends it. Quick links: web and email addresses typed in the rest of
+ * the text are found at render time by linkifyInline, which never looks
+ * inside a named link, so no link is ever inside another and a typed
+ * address never runs into a named one. Text without a link renders exactly
+ * as before.
  *
  * Pure (no hooks of its own, no editor code), so server and client render
  * the same markup. Renders nothing when there is no text.
@@ -58,7 +65,8 @@ export function RichTextView({
    * Show addresses looking like links, but not as links: for a preview
    * that is itself a button (the lesson editor's block preview), where a
    * link would be a control inside a control and a click would leave the
-   * editor instead of opening it.
+   * editor instead of opening it. A named link's address shows as its
+   * title, so authors can see where it goes.
    */
   inertLinks?: boolean;
   /**
@@ -200,35 +208,84 @@ function renderItem(
   );
 }
 
+/** A named link's address, from its mark (already checked), or null. */
+function namedHref(node: RtInline): string | null {
+  if (node.type !== "text") return null;
+  const mark = node.marks?.find((m) => m.type === "link");
+  return mark?.type === "link" ? mark.attrs.href : null;
+}
+
 /**
- * A paragraph's text, line breaks and links. An address keeps its bold and
- * italic inside the link: <a><strong>…</strong></a>.
+ * A paragraph's text, line breaks and links. A link keeps its bold and
+ * italic inside it: <a><strong>…</strong></a>. Named links are taken out
+ * first; quick links are looked for in the unlinked text between them.
  */
 function renderInline(
   content: readonly RtInline[],
   links: LinkMode
 ): ReactNode[] {
-  return linkifyInline(content).map((node, i) => {
-    if (node.type === "hardBreak") return <br key={i} />;
-    if (node.type === "text") {
-      return <Fragment key={i}>{withMarks(node)}</Fragment>;
+  const out: ReactNode[] = [];
+  let unlinked: RtInline[] = [];
+  const flush = () => {
+    if (!unlinked.length) return;
+    for (const node of linkifyInline(unlinked)) {
+      const key = out.length;
+      if (node.type === "hardBreak") out.push(<br key={key} />);
+      else if (node.type === "text") out.push(<Fragment key={key}>{withMarks(node)}</Fragment>);
+      else out.push(renderLink(node.href, node.content, key, links, false));
     }
-    if (node.type === "link") {
-      const text = node.content.map((part, j) => (
-        <Fragment key={j}>{withMarks(part)}</Fragment>
-      ));
-      return links === "live" ? (
-        <QuickLink key={i} href={node.href}>
-          {text}
-        </QuickLink>
-      ) : (
-        <span key={i} className="seq-link">
-          {text}
-        </span>
-      );
+    unlinked = [];
+  };
+  for (let i = 0; i < content.length; ) {
+    const href = namedHref(content[i]);
+    if (href === null) {
+      unlinked.push(content[i]);
+      i++;
+      continue;
     }
-    return null;
-  });
+    flush();
+    const run: RtText[] = [];
+    while (i < content.length && namedHref(content[i]) === href) {
+      run.push(content[i] as RtText);
+      i++;
+    }
+    out.push(renderLink(href, run, out.length, links, true));
+  }
+  flush();
+  return out;
+}
+
+/**
+ * One link: live, a QuickLink; inert, a span that looks like one (a named
+ * link's span says where it goes: the address, or an email link's bare
+ * address).
+ */
+function renderLink(
+  href: string,
+  content: readonly RtText[],
+  key: number,
+  links: LinkMode,
+  named: boolean
+): ReactNode {
+  const text = content.map((part, j) => (
+    <Fragment key={j}>{withMarks(part)}</Fragment>
+  ));
+  if (links === "live") {
+    return (
+      <QuickLink key={key} href={href}>
+        {text}
+      </QuickLink>
+    );
+  }
+  return (
+    <span
+      key={key}
+      className="seq-link"
+      title={named ? (emailAddressOf(href) ?? href) : undefined}
+    >
+      {text}
+    </span>
+  );
 }
 
 /**

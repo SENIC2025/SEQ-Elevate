@@ -9,30 +9,38 @@ import {
   type Editor,
   type JSONContent,
 } from "@tiptap/react";
+import type { Transaction } from "@tiptap/pm/state";
 import type { EditorView } from "@tiptap/pm/view";
 import {
   AlertTriangle,
   Bold,
   Italic,
+  Link2,
   List,
   ListIndentDecrease,
   ListIndentIncrease,
   ListOrdered,
   Redo2,
   Undo2,
+  Unlink2,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { legacyTextToDoc } from "@/lib/rich-text/from-legacy";
 import {
+  linkProblemMessage,
   richTextProblem,
   sanitizeRichText,
+  type LinkProblem,
   type RtIssue,
 } from "@/lib/rich-text/sanitize";
 import { docToPlainText } from "@/lib/rich-text/to-plain";
-import type { RichTextV1 } from "@/lib/rich-text/types";
+import { RT_LIMITS, type RichText } from "@/lib/rich-text/types";
 import { editorExtensions, plainTextSlice } from "./editor-extensions";
-import { cleanPastedHtml } from "./paste-cleanup";
+import { linkRange, newLinkHref } from "./link-extension";
+import { LinkForm, shownAddress } from "./LinkForm";
+import { cleanPastedHtmlWithReport } from "./paste-cleanup";
+import { pasteNotes } from "./paste-links";
 
 export interface RichTextEditorProps {
   /** The block's stored rich text, as saved (it is sanitized before use). */
@@ -53,11 +61,12 @@ export interface RichTextEditorProps {
   autoFocus?: boolean;
   /**
    * After every edit: the new rich text and its plain text. When the text
-   * can't be stored (too long, say) the editor says so, and still passes on
-   * what the author sees — Save then names the block instead of quietly
-   * storing an older version.
+   * can't be stored (too long, say, or with a link that can't be used) the
+   * editor says so, and still passes on what the author sees — Save then
+   * names the block instead of quietly storing an older version, or the
+   * text without its link.
    */
-  onChange: (rich: RichTextV1, text: string) => void;
+  onChange: (rich: RichText, text: string) => void;
 }
 
 /**
@@ -105,19 +114,27 @@ export const VARIANT = {
 
 /**
  * The lesson text editor for one paragraph, key message or reflection
- * introduction (D36): bold, italic, bulleted and numbered lists, indent,
- * undo — the formatting learners see, drawn with the same .seq-prose
+ * introduction (D36): bold, italic, links, bulleted and numbered lists,
+ * indent, undo — the formatting learners see, drawn with the same .seq-prose
  * styles, and nothing else.
  *
- * - It opens `rich` when that reads as version 1, otherwise `text` by the
- *   rules learners already see (Round 1), so an old block shows the
+ * - It opens `rich` when that reads as version 1 or 2, otherwise `text` by
+ *   the rules learners already see (Round 1), so an old block shows the
  *   paragraphs and lists it had. It only becomes rich text once edited:
  *   Tiptap calls onUpdate for real edits only.
  * - Uncontrolled after it mounts: the parent remounts it (a new key) to
  *   start over, e.g. on "Discard changes" or another language.
  * - Pasting: Word and Google Docs HTML is tidied (paste-cleanup.ts) and read
- *   against the schema, which keeps only the formatting above; plain text
- *   with line breaks follows Round 1's rules ("•" and "1." lines are lists).
+ *   against the schema, which keeps only the formatting above; the status
+ *   line says how many links weren't kept, and why. Plain text with line
+ *   breaks follows Round 1's rules ("•" and "1." lines are lists).
+ * - Links (D104, D106): Link (Ctrl+K, ⌘K) opens the Link form (LinkForm)
+ *   for the selected words, or for the link the cursor is in; Remove link
+ *   takes the whole link off. Where a link goes shows under the toolbar
+ *   while the cursor is in it. A link that can't be saved — its address
+ *   refused, its text showing another address, a file of our own — is
+ *   named at once, and the text goes up with it, so Save refuses it by name
+ *   rather than storing the text without the link the author sees.
  * - Keyboard: the usual shortcuts; Tab and Shift+Tab move a list point in
  *   and out (and leave the editor at the deepest level or outside lists);
  *   Escape or Alt+F10 goes to the toolbar.
@@ -136,12 +153,24 @@ export function RichTextEditor({
   const v = VARIANT[variant];
   const ids = React.useId();
   const toolbarRef = React.useRef<HTMLDivElement>(null);
+  const boxRef = React.useRef<HTMLDivElement>(null);
   // Set once: the editor keeps its own state after it mounts.
   const [opening] = React.useState(() => openingDoc(rich, text));
-  const [problem, setProblem] = React.useState(() =>
-    richTextProblem(opening.issues, v.subject)
+  const [problem, setProblem] = React.useState(
+    () =>
+      richTextProblem(opening.issues, v.subject, opening.hasLinks) ??
+      firstLinkProblem(opening.linkProblems)
   );
   const [flattened, setFlattened] = React.useState(false);
+  const [notes, setNotes] = React.useState<string[]>([]);
+  const [linkForm, setLinkForm] = React.useState<LinkFormState | null>(null);
+  const [blurTick, setBlurTick] = React.useState(0);
+  // Where the Link form's link goes, and the selection it opened on: kept
+  // in step with every change to the text while it is open.
+  const linkAt = React.useRef<{ from: number; to: number } | null>(null);
+  const selectionAt = React.useRef<{ from: number; to: number } | null>(null);
+  // Ctrl+K, from the editor's own key handler.
+  const openLink = React.useRef<() => void>(() => {});
 
   const [options] = React.useState(() => ({
     content: opening.doc,
@@ -161,7 +190,11 @@ export function RichTextEditor({
         // Where BlockEditor puts focus when it's asked to.
         "data-block-field": "",
       },
-      transformPastedHTML: cleanPastedHtml,
+      transformPastedHTML: (html: string) => {
+        const cleaned = cleanPastedHtmlWithReport(html);
+        setNotes(pasteNotes(cleaned));
+        return cleaned.html;
+      },
       handlePaste: pastePlainText,
       handleKeyDown: (_view: EditorView, event: KeyboardEvent) => {
         if (event.isComposing) return false;
@@ -169,6 +202,12 @@ export function RichTextEditor({
           toolbarRef.current
             ?.querySelector<HTMLButtonElement>('button[tabindex="0"]')
             ?.focus();
+          return true;
+        }
+        // Ctrl+K / ⌘K: the Link form (and never the browser's search box).
+        if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === "k") {
+          event.preventDefault();
+          openLink.current();
           return true;
         }
         return false;
@@ -181,13 +220,114 @@ export function RichTextEditor({
     ...options,
     onUpdate: ({ editor: e }) => {
       const doc = e.getJSON();
-      const { value, issues } = sanitizeRichText({ v: 1, doc });
-      setProblem(richTextProblem(issues, v.subject));
+      const { value, issues, linkProblems, hasLinks } = sanitizeRichText({ v: 1, doc });
+      setProblem(richTextProblem(issues, v.subject, hasLinks) ?? firstLinkProblem(linkProblems));
       setFlattened(issues.includes("list-flattened"));
-      if (value) onChange(value, docToPlainText(value.doc));
-      else onChange({ v: 1, doc } as unknown as RichTextV1, "");
+      // A link the author sees but a save would refuse goes up as it is, so
+      // Save names it; so does text that can't be stored at all. As plain
+      // JSON: ProseMirror's attribute objects have no prototype, and a
+      // server action would receive them as opaque references, unreadable.
+      if (value && linkProblems.length === 0) onChange(value, docToPlainText(value.doc));
+      else onChange({ v: hasLinks ? 2 : 1, doc: JSON.parse(JSON.stringify(doc)) } as RichText, "");
     },
   });
+
+  // Keep the Link form's place as the text around it changes.
+  React.useEffect(() => {
+    if (!editor) return;
+    const follow = ({ transaction }: { transaction: Transaction }) => {
+      if (!transaction.docChanged) return;
+      for (const at of [linkAt, selectionAt]) {
+        if (at.current) {
+          const from = transaction.mapping.map(at.current.from, 1);
+          const to = Math.max(from, transaction.mapping.map(at.current.to, -1));
+          at.current = { from, to };
+        }
+      }
+    };
+    editor.on("transaction", follow);
+    return () => {
+      editor.off("transaction", follow);
+    };
+  }, [editor]);
+
+  const forgetLinkForm = () => {
+    setLinkForm(null);
+    linkAt.current = null;
+    selectionAt.current = null;
+  };
+
+  /** Close the Link form without a change; the cursor goes back to the text, at `focusAt` when given. */
+  const closeLinkForm = (focusAt?: { from: number; to: number }) => {
+    forgetLinkForm();
+    if (!editor) return;
+    const chain = editor.chain().focus();
+    if (focusAt) chain.setTextSelection(focusAt);
+    chain.run();
+  };
+
+  /** Open the Link form for the selection, or for the link the cursor is in; nothing when the selection spans paragraphs. */
+  const openLinkForm = () => {
+    if (!editor || !canLinkSelection(editor)) return;
+    const { state } = editor;
+    const selection = state.selection;
+    const range = linkRange(state) ?? { from: selection.from, to: selection.to };
+    const href = firstLinkHref(editor, range);
+    linkAt.current = range;
+    selectionAt.current = { from: selection.from, to: selection.to };
+    setLinkForm((was) => ({
+      key: (was?.key ?? 0) + 1,
+      text: state.doc.textBetween(range.from, range.to, " ", " "),
+      address: href ?? "",
+      editing: href !== null,
+      focus: !selection.empty || href !== null ? "address" : "text",
+    }));
+  };
+  // Ctrl+K reaches it through the editor's key handler, set up once.
+  React.useEffect(() => {
+    openLink.current = openLinkForm;
+  });
+
+  const toggleLinkForm = () => {
+    if (linkForm) closeLinkForm(selectionAt.current ?? undefined);
+    else openLinkForm();
+  };
+
+  /**
+   * Apply the form: unchanged words keep their formatting and get the link
+   * (any links they had give way); new words take the formatting the
+   * selection started with, plus the link. The cursor goes right after it.
+   */
+  const applyLink = (shown: string, href: string) => {
+    const range = linkAt.current;
+    if (!editor || !range) return;
+    const { from, to } = range;
+    const before = editor.state.doc.textBetween(from, to, " ", " ");
+    const chain = editor.chain().focus();
+    let end: number;
+    if (from < to && shown === before) {
+      chain.setTextSelection({ from, to }).unsetMark("link").setLessonLink({ href });
+      end = to;
+    } else {
+      const marks = (editor.state.doc.nodeAt(from)?.marks ?? editor.state.selection.$from.marks())
+        .filter((mark) => mark.type.name !== "link")
+        .map((mark) => mark.toJSON());
+      chain
+        .insertContentAt({ from, to }, { type: "text", text: shown, marks })
+        .setTextSelection({ from, to: from + shown.length })
+        .setLessonLink({ href });
+      end = from + shown.length;
+    }
+    chain.setTextSelection(end).run();
+    forgetLinkForm();
+  };
+
+  const removeLink = () => {
+    const range = linkAt.current;
+    if (!editor || !range) return;
+    editor.chain().focus().setTextSelection(range).unsetLessonLink().setTextSelection(range.to).run();
+    forgetLinkForm();
+  };
 
   // Once, when it's first on the page (Tiptap's own autofocus can run
   // before React has put the editor in place).
@@ -198,19 +338,58 @@ export function RichTextEditor({
 
   if (!editor) return <EditorLoading />;
 
+  const status = [
+    flattened ? "Points nested more than 3 levels deep show at the third level for learners." : null,
+    ...notes,
+  ]
+    .filter(Boolean)
+    .join(" ");
+
   return (
-    <div className="rounded-md border border-[var(--border)] bg-[var(--surface)]">
-      <Toolbar editor={editor} name={v.name} toolbarRef={toolbarRef} />
+    <div
+      ref={boxRef}
+      onBlur={(e) => {
+        // Focus left the editor box (not just moved inside it).
+        if (!boxRef.current?.contains(e.relatedTarget as Node | null)) setBlurTick((n) => n + 1);
+      }}
+      className="rounded-md border border-[var(--border)] bg-[var(--surface)]"
+    >
+      <Toolbar
+        editor={editor}
+        name={v.name}
+        toolbarRef={toolbarRef}
+        link={{
+          formId: `${ids}-link-form`,
+          lineId: `${ids}-link-line`,
+          open: linkForm !== null,
+          toggle: toggleLinkForm,
+        }}
+      />
+      <LinkLine editor={editor} id={`${ids}-link-line`} />
+      {linkForm ? (
+        <LinkForm
+          key={linkForm.key}
+          id={`${ids}-link-form`}
+          initialText={linkForm.text}
+          initialAddress={linkForm.address}
+          editing={linkForm.editing}
+          focus={linkForm.focus}
+          blurTick={blurTick}
+          onApply={applyLink}
+          onCancel={() => closeLinkForm(selectionAt.current ?? undefined)}
+          onRemove={removeLink}
+        />
+      ) : null}
       <p
         id={`${ids}-tip`}
         className="border-b border-[var(--border)] px-2.5 py-1.5 text-xs text-[var(--muted-foreground)]"
       >
         Tip: paste from Word or Google Docs with Ctrl+V (⌘V on Mac) — bold,
-        italic and lists are kept, other formatting is tidied away.
+        italic, lists and links are kept, other formatting is tidied away.
       </p>
       <span id={`${ids}-keys`} className="sr-only">
-        Tab and Shift+Tab move a list point in and out. Press Escape for the
-        formatting toolbar.
+        Tab and Shift+Tab move a list point in and out. Ctrl+K (⌘K on Mac)
+        adds a link. Press Escape for the formatting toolbar.
       </span>
       <div className={v.box}>
         <EditorContent editor={editor} />
@@ -229,11 +408,70 @@ export function RichTextEditor({
         role="status"
         className="border-t border-[var(--border)] px-2.5 py-1.5 text-xs text-[var(--muted-foreground)] empty:border-0 empty:p-0"
       >
-        {flattened
-          ? "Points nested more than 3 levels deep show at the third level for learners."
-          : null}
+        {status || null}
       </p>
     </div>
+  );
+}
+
+/** What the Link form opened with (see LinkForm). */
+interface LinkFormState {
+  /** A new form each time it opens. */
+  key: number;
+  text: string;
+  address: string;
+  editing: boolean;
+  focus: "text" | "address";
+}
+
+/** The first link problem, as the editor says it ("The link “…” can't be used. …"), or null. */
+function firstLinkProblem(problems: readonly LinkProblem[]): string | null {
+  return problems.length ? linkProblemMessage(problems[0]) : null;
+}
+
+/** Whether the selection lies within one paragraph or list point: only then can it be linked. */
+function canLinkSelection(editor: Editor): boolean {
+  const { $from, $to } = editor.state.selection;
+  return $from.sameParent($to) && $from.parent.isTextblock;
+}
+
+/** The address of the first link in `range`, or null. */
+function firstLinkHref(editor: Editor, range: { from: number; to: number }): string | null {
+  let href: string | null = null;
+  const type = editor.state.schema.marks.link;
+  const check = (marks: readonly { type: unknown; attrs: Record<string, unknown> }[]) => {
+    const mark = marks.find((m) => m.type === type);
+    if (href === null && mark && typeof mark.attrs.href === "string") href = mark.attrs.href;
+  };
+  if (range.from === range.to) check(editor.state.selection.$from.marks());
+  editor.state.doc.nodesBetween(range.from, range.to, (node) => {
+    if (href !== null) return false;
+    if (node.isText) check(node.marks);
+    return true;
+  });
+  return href;
+}
+
+/**
+ * While the cursor is in a link: "Link: https://example.org/guide" (an
+ * email link's bare address), so authors can check where it goes without
+ * opening the form. Plain text, not a live region; the Link button points
+ * at it (aria-describedby).
+ */
+function LinkLine({ editor, id }: { editor: Editor; id: string }) {
+  const href = useEditorState({
+    editor,
+    selector: ({ editor: e }) => (e.isActive("link") ? ((e.getAttributes("link").href as unknown) ?? null) : null),
+  });
+  if (href === null) return null;
+  const checked = newLinkHref(href);
+  return (
+    <p
+      id={id}
+      className="break-all border-b border-[var(--border)] px-2.5 py-1 text-xs text-[var(--muted-foreground)]"
+    >
+      {checked === null ? "Link: this address can't be used" : `Link: ${shownAddress(checked)}`}
+    </p>
   );
 }
 
@@ -241,20 +479,61 @@ export function RichTextEditor({
  * What the editor opens: the stored doc, sanitized (the schema would throw
  * on anything unknown). One over a limit — a block copied or put back while
  * the author was still shortening it — opens as it is, with its problem
- * shown, rather than empty. Anything else opens the plain text by Round 1's
- * rules.
+ * shown, rather than empty; unless it holds a link (D104), whose address
+ * nothing would have checked: it opens as its plain text instead, with the
+ * problem. Anything else opens the plain text by Round 1's rules.
+ * (The link mark checks every address it draws too, link-extension.ts.)
  */
-function openingDoc(
+export function openingDoc(
   rich: unknown,
   text: string | undefined
-): { doc: JSONContent; issues: RtIssue[] } {
-  const { value, issues } = sanitizeRichText(rich);
-  if (value) return { doc: value.doc, issues: [] };
-  if (!issues.includes("bad-envelope")) {
-    // Past the envelope check, so `rich` is { v: 1, doc: { type: "doc", … } }.
-    return { doc: (rich as { doc: JSONContent }).doc, issues };
+): { doc: JSONContent; issues: RtIssue[]; hasLinks: boolean; linkProblems: LinkProblem[] } {
+  const { value, issues, hasLinks, linkProblems } = sanitizeRichText(rich);
+  if (value) {
+    // Links it left out aren't in the text it opens; a link it keeps that a
+    // save would refuse (one of our own files) is named at once.
+    const shown = linkProblems.filter((problem) => problem.reason === "own-file");
+    return { doc: value.doc, issues: [], hasLinks, linkProblems: shown };
   }
-  return { doc: legacyTextToDoc(text), issues: [] };
+  if (!issues.includes("bad-envelope")) {
+    // Past the envelope check, so `rich` is { v: 1 or 2, doc: { type: "doc", … } }.
+    const doc = (rich as { doc: JSONContent }).doc;
+    if (mayHoldLink(doc)) return { doc: legacyTextToDoc(text), issues, hasLinks: true, linkProblems: [] };
+    return { doc, issues, hasLinks, linkProblems: [] };
+  }
+  return { doc: legacyTextToDoc(text), issues: [], hasLinks: false, linkProblems: [] };
+}
+
+/**
+ * Whether a doc holds a link mark, looking at no more than four times the
+ * node limit of nodes and marks; running out counts as finding one. A work
+ * stack, never recursion; anything that isn't a node is skipped.
+ */
+function mayHoldLink(doc: unknown): boolean {
+  let budget = 4 * RT_LIMITS.maxNodes;
+  const stack: unknown[] = [doc];
+  try {
+    while (stack.length) {
+      if (--budget < 0) return true;
+      const node = stack.pop();
+      if (typeof node !== "object" || node === null) continue;
+      const { marks, content } = node as { marks?: unknown; content?: unknown };
+      if (Array.isArray(marks)) {
+        for (const mark of marks) {
+          if (--budget < 0) return true;
+          if (typeof mark === "object" && mark !== null && (mark as { type?: unknown }).type === "link") return true;
+        }
+      }
+      if (Array.isArray(content)) {
+        if (content.length > budget) return true;
+        for (let i = content.length - 1; i >= 0; i--) stack.push(content[i]);
+      }
+    }
+  } catch {
+    // A throwing getter: nothing here can be trusted.
+    return true;
+  }
+  return false;
 }
 
 /** While the editor starts: LazyRichTextEditor's box, an empty editor's size. */
@@ -300,6 +579,10 @@ function pastePlainText(view: EditorView, event: ClipboardEvent): boolean {
 interface ToolState {
   bold: boolean;
   italic: boolean;
+  /** The cursor is in a link (or the selection starts in one). */
+  inLink: boolean;
+  /** The selection lies within one paragraph or list point. */
+  canLink: boolean;
   /** The list the cursor is in (the innermost one). */
   list: "bulletList" | "orderedList" | null;
   canIndent: boolean;
@@ -309,21 +592,27 @@ interface ToolState {
 }
 
 interface Tool {
-  label: string;
+  /** Stable, for React. */
+  id: string;
+  label: string | ((s: ToolState) => string);
   icon: LucideIcon;
   /** aria-keyshortcuts. */
   keys: string;
   /** The shortcut as shown in the tooltip, [Windows/Linux, Mac]. */
   hint: [string, string];
+  /** Why it can't be used now, as its tooltip. */
+  disabledHint?: string;
   pressed?: (s: ToolState) => boolean;
   enabled?: (s: ToolState) => boolean;
-  run: (chain: ChainedCommands) => ChainedCommands;
+  /** An editor command; or "link", which opens and closes the Link form. */
+  run: ((chain: ChainedCommands) => ChainedCommands) | "link";
   /** Starts a new group (a divider before it). */
   group?: boolean;
 }
 
 const TOOLS: readonly Tool[] = [
   {
+    id: "bold",
     label: "Bold",
     icon: Bold,
     keys: "Control+B Meta+B",
@@ -332,6 +621,7 @@ const TOOLS: readonly Tool[] = [
     run: (c) => c.toggleBold(),
   },
   {
+    id: "italic",
     label: "Italic",
     icon: Italic,
     keys: "Control+I Meta+I",
@@ -340,6 +630,27 @@ const TOOLS: readonly Tool[] = [
     run: (c) => c.toggleItalic(),
   },
   {
+    // Opens a form rather than toggling: aria-expanded, no aria-pressed.
+    id: "link",
+    label: (s) => (s.inLink ? "Edit link" : "Link"),
+    icon: Link2,
+    keys: "Control+K Meta+K",
+    hint: ["Ctrl+K", "⌘K"],
+    disabledHint: "Select words in one paragraph to link them",
+    enabled: (s) => s.canLink,
+    run: "link",
+  },
+  {
+    id: "unlink",
+    label: "Remove link",
+    icon: Unlink2,
+    keys: "",
+    hint: ["", ""],
+    enabled: (s) => s.inLink,
+    run: (c) => c.unsetLessonLink(),
+  },
+  {
+    id: "bullets",
     label: "Bulleted list",
     icon: List,
     keys: "Control+Shift+8 Meta+Shift+8",
@@ -349,6 +660,7 @@ const TOOLS: readonly Tool[] = [
     group: true,
   },
   {
+    id: "numbers",
     label: "Numbered list",
     icon: ListOrdered,
     keys: "Control+Shift+7 Meta+Shift+7",
@@ -357,6 +669,7 @@ const TOOLS: readonly Tool[] = [
     run: (c) => c.toggleOrderedList(),
   },
   {
+    id: "outdent",
     label: "Decrease indent",
     icon: ListIndentDecrease,
     keys: "Control+[ Meta+[",
@@ -366,6 +679,7 @@ const TOOLS: readonly Tool[] = [
     group: true,
   },
   {
+    id: "indent",
     label: "Increase indent",
     icon: ListIndentIncrease,
     keys: "Control+] Meta+]",
@@ -374,6 +688,7 @@ const TOOLS: readonly Tool[] = [
     run: (c) => c.indent(),
   },
   {
+    id: "undo",
     label: "Undo",
     icon: Undo2,
     keys: "Control+Z Meta+Z",
@@ -383,6 +698,7 @@ const TOOLS: readonly Tool[] = [
     group: true,
   },
   {
+    id: "redo",
     label: "Redo",
     icon: Redo2,
     keys: "Control+Shift+Z Meta+Shift+Z",
@@ -409,22 +725,33 @@ const isMac = () =>
  * The formatting buttons: one Tab stop, arrow keys (and Home / End) move
  * between them (a roving tabindex, WAI-ARIA toolbar pattern). A mouse click
  * leaves the cursor where it was; from the keyboard a button acts, then
- * returns to the text.
+ * returns to the text. Link opens the Link form instead (focus goes to it).
  */
 function Toolbar({
   editor,
   name,
   toolbarRef,
+  link,
 }: {
   editor: Editor;
   name: string;
   toolbarRef: React.RefObject<HTMLDivElement | null>;
+  link: {
+    /** The Link form's id, while it is open (aria-controls). */
+    formId: string;
+    /** The "Link: …" line's id, while the cursor is in a link. */
+    lineId: string;
+    open: boolean;
+    toggle: () => void;
+  };
 }) {
   const state = useEditorState({
     editor,
     selector: ({ editor: e }): ToolState => ({
       bold: e.isActive("bold"),
       italic: e.isActive("italic"),
+      inLink: e.isActive("link"),
+      canLink: canLinkSelection(e),
       list: innermostList(e),
       canIndent: e.can().indent(),
       canOutdent: e.can().outdent(),
@@ -470,8 +797,11 @@ function Toolbar({
       {TOOLS.map((tool, i) => {
         const Icon = tool.icon;
         const pressed = tool.pressed?.(state);
+        const label = typeof tool.label === "function" ? tool.label(state) : tool.label;
+        const isLink = tool.run === "link";
+        const hint = tool.hint[mac ? 1 : 0];
         return (
-          <React.Fragment key={tool.label}>
+          <React.Fragment key={tool.id}>
             {tool.group ? (
               <span
                 aria-hidden
@@ -485,14 +815,26 @@ function Toolbar({
               type="button"
               tabIndex={i === tabStop ? 0 : -1}
               disabled={!enabled[i]}
-              aria-label={tool.label}
+              aria-label={label}
               aria-pressed={pressed}
-              aria-keyshortcuts={tool.keys}
-              title={`${tool.label} (${tool.hint[mac ? 1 : 0]})`}
+              aria-keyshortcuts={tool.keys || undefined}
+              aria-expanded={isLink ? link.open : undefined}
+              aria-controls={isLink && link.open ? link.formId : undefined}
+              aria-describedby={isLink && state.inLink ? link.lineId : undefined}
+              title={
+                !enabled[i] && tool.disabledHint
+                  ? tool.disabledHint
+                  : hint
+                    ? `${label} (${hint})`
+                    : label
+              }
               // Keep the text's selection: the click acts on it.
               onMouseDown={(e) => e.preventDefault()}
               onFocus={() => setActive(i)}
-              onClick={() => tool.run(editor.chain().focus()).run()}
+              onClick={() => {
+                if (tool.run === "link") link.toggle();
+                else tool.run(editor.chain().focus()).run();
+              }}
               className={cn(
                 "rounded p-1.5 text-[var(--muted-foreground)] hover:bg-[var(--surface-muted)] hover:text-[var(--foreground)] disabled:opacity-30 disabled:hover:bg-transparent",
                 pressed &&

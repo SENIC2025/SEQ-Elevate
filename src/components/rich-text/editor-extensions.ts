@@ -13,17 +13,20 @@ import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import { legacyTextToDoc } from "@/lib/rich-text/from-legacy";
 import { RT_LIMITS } from "@/lib/rich-text/types";
 import { CappedListItem, Indent } from "./indent-extension";
+import { LessonLink } from "./link-extension";
 
 /**
  * Everything the lesson text editor can make — exactly what the stored
  * format (D36) and the learner view's RichTextView know: paragraphs (with
- * indent), line breaks, bold, italic, and bulleted or numbered lists up to
- * three levels. Listed one by one rather than through StarterKit, which
- * would add headings, links, code, underline and more. Pasted content is
- * parsed against this schema, so anything else is dropped on the way in.
+ * indent), line breaks, bold, italic, named links (D104, link-extension.ts)
+ * and bulleted or numbered lists up to three levels. Listed one by one
+ * rather than through StarterKit, which would add headings, Tiptap's own
+ * links, code, underline and more. Pasted content is parsed against this
+ * schema, so anything else is dropped on the way in.
  *
  * Bold comes before italic, so both together render <strong><em>, as for
- * learners.
+ * learners; the link comes last, as the stored format orders marks (bold,
+ * italic, link), so the editor's JSON needs no reordering.
  *
  * Authoring only: imports Tiptap, which the ESLint rule keeps out of
  * learner code (load the editor through LazyRichTextEditor).
@@ -35,6 +38,7 @@ export function editorExtensions(placeholder: string): Extensions {
     Text,
     Bold,
     Italic,
+    LessonLink,
     HardBreak,
     Bullets,
     Numbers,

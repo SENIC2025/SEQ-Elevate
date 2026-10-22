@@ -8,12 +8,16 @@ import {
   plainTextSlice,
 } from "./editor-extensions";
 import { canSinkWithin } from "./indent-extension";
-import { VARIANT } from "./RichTextEditor";
+import { linkRange } from "./link-extension";
+import { VARIANT, openingDoc } from "./RichTextEditor";
 import { NARRATIVE_TEXT_CLASS } from "@/components/course/NarrativeStage";
 import { REFLECTION_INTRO_CLASS } from "@/components/course/ReflectionIntro";
 import { legacyTextToDoc } from "@/lib/rich-text/from-legacy";
 import { sanitizeRichText } from "@/lib/rich-text/sanitize";
-import type { RichTextV1 } from "@/lib/rich-text/types";
+import { checkLinkHref } from "@/lib/rich-text/link-url";
+import { LINK_INPUTS } from "@/lib/rich-text/link-fixtures";
+import { ownFileHost } from "@/lib/rich-text/own-file-host";
+import type { RichText, RichTextV1 } from "@/lib/rich-text/types";
 
 /**
  * The editor can make exactly what the stored format and the learner view
@@ -40,8 +44,9 @@ describe("the editor's schema", () => {
       ].sort()
     );
     // In this order: a mark's place in the schema is its nesting, so bold
-    // and italic together draw <strong><em>, as for learners.
-    expect(Object.keys(schema.marks)).toEqual(["bold", "italic"]);
+    // and italic together draw <strong><em>, as for learners. Release 4
+    // (D104): and a link, last, as the stored format orders marks.
+    expect(Object.keys(schema.marks)).toEqual(["bold", "italic", "link"]);
   });
 
   it("gives paragraphs an indent and numbered lists only a start", () => {
@@ -485,5 +490,262 @@ describe("the editor's look", () => {
   it("draws a paragraph and a reflection's introduction as learners see them", () => {
     expect(VARIANT.paragraph.prose).toBe(NARRATIVE_TEXT_CLASS.paragraph);
     expect(VARIANT["reflection-intro"].prose).toBe(REFLECTION_INTRO_CLASS);
+  });
+});
+
+/* --------------------------------------------- Links (Release 4, U8, D104) */
+
+/** An element as the parse rule reads it: only its attributes. */
+const anchor = (attrs: Record<string, unknown>) =>
+  ({ getAttribute: (name: string) => (typeof attrs[name] === "string" ? attrs[name] : null) }) as unknown as HTMLElement;
+
+/** What the link mark's parse rule makes of `<a href>`: its attributes, or false (the text stays, unlinked). */
+function parsed(href: unknown) {
+  const rule = schema.marks.link.spec.parseDOM?.find((r) => "tag" in r && r.tag === "a[href]");
+  if (!rule || !("getAttrs" in rule) || !rule.getAttrs) throw new Error("no a[href] rule");
+  return rule.getAttrs(anchor({ href, target: "_self", onclick: "alert(1)", class: "x" }) as never);
+}
+
+/** The mark's drawing for `href`, as ProseMirror gets it. */
+function drawn(href: unknown) {
+  const mark = schema.marks.link.create({ href });
+  return schema.marks.link.spec.toDOM!(mark, true) as unknown as [string, Record<string, string>, number];
+}
+
+describe("the link mark (D104)", () => {
+  it("is not inclusive (typing after a link doesn't extend it) and stores only its address", () => {
+    expect(schema.marks.link.spec.inclusive).toBe(false);
+    expect(Object.keys(schema.marks.link.spec.attrs ?? {})).toEqual(["href"]);
+  });
+
+  it("takes a pasted <a href> exactly when the address check accepts it, normalised; never our own files", () => {
+    const own = { ownFileHost: ownFileHost() };
+    for (const href of LINK_INPUTS) {
+      if (typeof href !== "string") continue;
+      const check = checkLinkHref(href, own);
+      const label = JSON.stringify(href.slice(0, 80));
+      if (check.ok && !check.ownFile) expect(parsed(href), label).toEqual({ href: check.href });
+      else expect(parsed(href), label).toBe(false);
+    }
+  });
+
+  it("draws an address only when the check accepts it, and never any other attribute", () => {
+    expect(drawn("HTTPS://Example.org/guide")).toEqual([
+      "a",
+      { href: "https://example.org/guide", class: "seq-link", rel: "noopener noreferrer", target: "_blank" },
+      0,
+    ]);
+    for (const href of [
+      "javascript:alert(1)",
+      "data:text/html,<script>alert(1)</script>",
+      "https://e2e-store.public.blob.vercel-storage.com/handout.pdf",
+      "https://user:pw@evil.example",
+      42,
+      null,
+    ]) {
+      expect(drawn(href), String(href)).toEqual(["a", { class: "seq-link" }, 0]);
+    }
+  });
+
+  it("opens every stored shape with links, and gives it back unchanged", () => {
+    const stored: RichText = {
+      v: 2,
+      doc: {
+        type: "doc",
+        content: [
+          {
+            type: "paragraph",
+            content: [
+              { type: "text", text: "Read " },
+              { type: "text", text: "the ", marks: [{ type: "link", attrs: { href: "https://example.org/guide" } }] },
+              {
+                type: "text",
+                text: "guide",
+                marks: [{ type: "bold" }, { type: "italic" }, { type: "link", attrs: { href: "https://example.org/guide" } }],
+              },
+              { type: "text", text: "two", marks: [{ type: "link", attrs: { href: "mailto:help@example.org?subject=Hi" } }] },
+            ],
+          },
+          {
+            type: "bulletList",
+            content: [
+              {
+                type: "listItem",
+                content: [
+                  {
+                    type: "paragraph",
+                    content: [{ type: "text", text: "point", marks: [{ type: "link", attrs: { href: "http://example.org/" } }] }],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    };
+    const node = schema.nodeFromJSON(stored.doc);
+    node.check();
+    expect(sanitizeRichText({ v: 1, doc: node.toJSON() }).value).toEqual(stored);
+  });
+
+  it("links a selection only to an address the check accepts, and unlinks the whole link", () => {
+    const editor = editorWith(p("Read the guide today"));
+    let from = -1;
+    editor.state.doc.descendants((node, pos) => {
+      if (node.isText) from = pos + "Read ".length;
+    });
+    editor.commands.setTextSelection({ from, to: from + "the guide".length });
+    for (const bad of ["javascript:alert(1)", "https://e2e-store.public.blob.vercel-storage.com/x.pdf", "www.example.org"]) {
+      expect(editor.commands.setLessonLink({ href: bad }), bad).toBe(false);
+    }
+    expect(stored(editor)).toEqual([p("Read the guide today")]);
+    expect(editor.commands.setLessonLink({ href: "HTTPS://Example.org/guide" })).toBe(true);
+    expect(stored(editor)).toEqual([
+      {
+        type: "paragraph",
+        content: [
+          { type: "text", text: "Read " },
+          { type: "text", text: "the guide", marks: [{ type: "link", attrs: { href: "https://example.org/guide" } }] },
+          { type: "text", text: " today" },
+        ],
+      },
+    ]);
+    // The cursor anywhere in the link: Remove link takes all of it.
+    editor.commands.setTextSelection(from + 2);
+    expect(editor.isActive("link")).toBe(true);
+    expect(editor.commands.unsetLessonLink()).toBe(true);
+    expect(stored(editor)).toEqual([p("Read the guide today")]);
+  });
+
+  it("doesn't extend a link to text typed after it", () => {
+    const editor = editorWith({
+      type: "paragraph",
+      content: [{ type: "text", text: "guide", marks: [{ type: "link", attrs: { href: "https://example.org/" } }] }],
+    });
+    cursorIn(editor, "guide");
+    type(editor, " more");
+    expect(stored(editor)).toEqual([
+      {
+        type: "paragraph",
+        content: [
+          { type: "text", text: "guide", marks: [{ type: "link", attrs: { href: "https://example.org/" } }] },
+          { type: "text", text: " more" },
+        ],
+      },
+    ]);
+  });
+});
+
+describe("openingDoc (what the editor opens)", () => {
+  const linked = (text: string, href: string) => ({ type: "text", text, marks: [{ type: "link", attrs: { href } }] });
+  /** A stored version-2 paragraph over the node limit (1,501 text nodes) with hostile links. */
+  const overLimit = {
+    v: 2,
+    doc: {
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          content: [
+            linked("First ", "javascript:alert(1)"),
+            linked("second ", "data:text/html,<script>alert(1)</script>"),
+            ...Array.from({ length: 1_499 }, (_, i) => ({ type: "text", text: `w${i} `, marks: [{ type: "italic" }] })),
+          ],
+        },
+      ],
+    },
+  };
+
+  it("opens an over-limit doc that holds a link as the block's text, with the problem", () => {
+    const opened = openingDoc(overLimit, "An over-limit block, opened as its text.");
+    expect(opened.doc).toEqual(legacyTextToDoc("An over-limit block, opened as its text."));
+    expect(opened.issues).toContain("too-many-nodes");
+    expect(JSON.stringify(opened.doc)).not.toMatch(/javascript|data:|link/);
+  });
+
+  it("still opens an over-limit doc without a link as it is", () => {
+    const plain = {
+      v: 1,
+      doc: {
+        type: "doc",
+        content: [{ type: "paragraph", content: Array.from({ length: 1_501 }, (_, i) => ({ type: "text", text: `w${i} `, marks: [{ type: "italic" }] })) }],
+      },
+    };
+    const opened = openingDoc(plain, "text");
+    expect(opened.doc).toBe(plain.doc);
+    expect(opened.issues).toEqual(["too-many-nodes"]);
+  });
+
+  it("counts running out of its walk as finding a link", () => {
+    // Marks the sanitizer never gets to: the walk is bounded too.
+    const deep = {
+      v: 1,
+      doc: {
+        type: "doc",
+        content: Array.from({ length: 7_000 }, () => ({ type: "paragraph", content: [{ type: "text", text: "x", marks: [{ type: "bold" }] }] })),
+      },
+    };
+    expect(openingDoc(deep, "As text").doc).toEqual(legacyTextToDoc("As text"));
+  });
+
+  it("opens a stored doc with links sanitized: refused links as text, accepted ones normalised", () => {
+    const opened = openingDoc(
+      { v: 2, doc: { type: "doc", content: [{ type: "paragraph", content: [linked("bad", "javascript:x"), { type: "text", text: " " }, linked("good", "HTTPS://Example.org/")] }] } },
+      "unused"
+    );
+    expect(opened.doc).toEqual({
+      type: "doc",
+      content: [{ type: "paragraph", content: [{ type: "text", text: "bad " }, linked("good", "https://example.org/")] }],
+    });
+    expect(() => schema.nodeFromJSON(opened.doc).check()).not.toThrow();
+  });
+});
+
+describe("linkRange (what Link and Remove link act on)", () => {
+  const linked = (text: string, href: string): JSONContent => ({
+    type: "text",
+    text,
+    marks: [{ type: "link", attrs: { href } }],
+  });
+  const at = (editor: Editor, text: string, offset: number) => {
+    let pos = -1;
+    editor.state.doc.descendants((node, p) => {
+      if (node.isText && node.text === text) pos = p + offset;
+    });
+    return pos;
+  };
+
+  it("is the whole link around the cursor, across formatting, and none just after it", () => {
+    const editor = editorWith({
+      type: "paragraph",
+      content: [
+        { type: "text", text: "Read " },
+        linked("the ", "https://example.org/a"),
+        { type: "text", text: "guide", marks: [{ type: "bold" }, { type: "link", attrs: { href: "https://example.org/a" } }] },
+        { type: "text", text: " today" },
+      ],
+    });
+    const start = at(editor, "the ", 0);
+    editor.commands.setTextSelection(start + 2);
+    expect(linkRange(editor.state)).toEqual({ from: start, to: start + "the guide".length });
+    // Right after the link: not in it.
+    editor.commands.setTextSelection(start + "the guide".length);
+    expect(linkRange(editor.state)).toBeNull();
+    // A selection that starts right after it doesn't take it in.
+    editor.commands.setTextSelection({ from: start + "the guide".length, to: start + "the guide to".length });
+    expect(linkRange(editor.state)).toBeNull();
+    // A selection over part of it: widened to all of it.
+    editor.commands.setTextSelection({ from: start - 2, to: start + 2 });
+    expect(linkRange(editor.state)).toEqual({ from: start - 2, to: start + "the guide".length });
+  });
+
+  it("tells touching links apart", () => {
+    const editor = editorWith({
+      type: "paragraph",
+      content: [linked("one", "https://example.org/a"), linked("two", "https://example.org/b")],
+    });
+    const two = at(editor, "two", 0);
+    editor.commands.setTextSelection(two + 1);
+    expect(linkRange(editor.state)).toEqual({ from: two, to: two + 3 });
   });
 });

@@ -8,6 +8,7 @@ const RICH_TEXT_EDITOR_FILES = [
   "src/components/rich-text/RichTextEditor.tsx",
   "src/components/rich-text/editor-extensions.ts",
   "src/components/rich-text/indent-extension.ts",
+  "src/components/rich-text/link-extension.ts",
   "src/components/rich-text/editor-schema.test.ts",
 ];
 
@@ -36,9 +37,11 @@ const eslintConfig = defineConfig([
                 "**/rich-text/RichTextEditor",
                 "**/rich-text/editor-extensions",
                 "**/rich-text/indent-extension",
+                "**/rich-text/link-extension",
                 "./RichTextEditor",
                 "./editor-extensions",
                 "./indent-extension",
+                "./link-extension",
               ],
               allowTypeImports: true,
               message:

@@ -3,6 +3,7 @@ import { RT_LIMITS, type RichText } from "./types";
 import {
   RT_PROBLEM,
   cleanPlainText,
+  linkProblemMessage,
   richTextProblem,
   sanitizeRichText,
 } from "./sanitize";
@@ -22,7 +23,10 @@ import { docToPlainText } from "./to-plain";
  *
  * Text over a limit is refused with a message naming the block, rather than
  * cut short: silently losing the end of an author's text is worse than
- * asking them to split it. Messages are authoring-tool copy (English).
+ * asking them to split it. So is a link the sanitizer would leave out (an
+ * address the check refuses, link text showing another address) or one to
+ * our own file store (D104): the block and the link are named. Messages are
+ * authoring-tool copy (English).
  */
 
 export const NARRATIVE_LIMITS = {
@@ -202,7 +206,7 @@ function sanitizeBlock(
 
 /** Is `raw` a rich-text envelope of a version a save reads (see richTextForSave)? */
 function isSavedEnvelope(raw: unknown): raw is Rec {
-  return isRecord(raw) && raw.v === 1;
+  return isRecord(raw) && (raw.v === 1 || raw.v === 2);
 }
 
 export type RichTextForSave =
@@ -216,16 +220,26 @@ export type RichTextForSave =
  * it is sanitized, and its plain `text` is derived here from the doc. When
  * it can't be stored, `issues` holds one sentence per problem, naming the
  * text as `name` ("Block 2 (Paragraph)", "The references list"). An
- * envelope of a version a save doesn't read is refused as unreadable.
+ * envelope of a version a save doesn't read (versions 1 and 2 are read) is
+ * refused as unreadable.
+ *
+ * Links (D104) are refused, not cut: a link the sanitizer leaves out, and a
+ * link to our own file store, refuse the text with one sentence per link,
+ * naming it by its words ("Block 2 (Paragraph): the link “the guide” can't
+ * be used. …"). A text with a link is stored as version 2.
  */
 export function richTextForSave(raw: unknown, name: string): RichTextForSave {
   if (!isSavedEnvelope(raw)) return { ok: false, issues: [RT_PROBLEM["bad-envelope"](name)] };
-  const { value, issues: found } = sanitizeRichText(raw);
+  const { value, issues: found, linkProblems, hasLinks } = sanitizeRichText(raw);
   if (!value) {
     return {
       ok: false,
-      issues: [richTextProblem(found, name) ?? RT_PROBLEM["bad-envelope"](name)],
+      issues: [richTextProblem(found, name, hasLinks) ?? RT_PROBLEM["bad-envelope"](name)],
     };
+  }
+  if (found.includes("dropped-link") || found.includes("own-file-link")) {
+    const named = linkProblems.length ? linkProblems : [{ text: "", reason: "refused" as const }];
+    return { ok: false, issues: named.map((problem) => linkProblemMessage(problem, name)) };
   }
   return { ok: true, rich: value, text: docToPlainText(value.doc) };
 }

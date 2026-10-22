@@ -134,3 +134,73 @@ describe("docToPlainText", () => {
     );
   });
 });
+
+/* ------------------------------------------------- Links (Release 4, U5) */
+
+const a = (text: string, href: string, ...marks: ("bold" | "italic")[]): RtInline => ({
+  type: "text",
+  text,
+  marks: [...marks.map((type) => ({ type })), { type: "link", attrs: { href } }],
+});
+
+describe("docToPlainText: links (D104)", () => {
+  it("writes a link as its text and, in brackets, its address", () => {
+    expect(docToPlainText(doc(p(t("Read "), a("the guide", "https://example.org/guide"), t(" today."))))).toBe(
+      "Read the guide (https://example.org/guide) today."
+    );
+  });
+
+  it("writes one address for a link whose text changes formatting partway", () => {
+    expect(
+      docToPlainText(doc(p(a("the ", "https://example.org/guide"), a("guide", "https://example.org/guide", "bold"))))
+    ).toBe("the guide (https://example.org/guide)");
+  });
+
+  it("gives an email link's bare address: no mailto:, no subject", () => {
+    expect(docToPlainText(doc(p(t("Write to "), a("our team", "mailto:help@example.org?subject=Hi"), t("."))))).toBe(
+      "Write to our team (help@example.org)."
+    );
+  });
+
+  it("writes the text alone when it already shows the address", () => {
+    expect(docToPlainText(doc(p(a("https://example.org/guide", "https://example.org/guide"))))).toBe(
+      "https://example.org/guide"
+    );
+    // As a quick link would read it: the stored address is normalised.
+    expect(docToPlainText(doc(p(a("Example.org: https://Example.org", "https://example.org/"))))).toBe(
+      "Example.org: https://Example.org"
+    );
+    expect(docToPlainText(doc(p(a("Mail help@example.org", "mailto:help@example.org"))))).toBe("Mail help@example.org");
+    expect(docToPlainText(doc(p(a("HELP@example.org", "mailto:help@example.org"))))).toBe("HELP@example.org");
+  });
+
+  it("keeps spaces at a link's ends outside the brackets", () => {
+    expect(docToPlainText(doc(p(t("Read"), a(" the guide ", "https://example.org/g"), t("now"))))).toBe(
+      "Read the guide (https://example.org/g) now"
+    );
+  });
+
+  it("writes neighbouring links to different addresses each with its own", () => {
+    expect(docToPlainText(doc(p(a("one", "https://example.org/a"), a("two", "https://example.org/b"))))).toBe(
+      "one (https://example.org/a)two (https://example.org/b)"
+    );
+  });
+
+  it("writes links in list points, nested ones too", () => {
+    expect(
+      docToPlainText(
+        doc(
+          ul(
+            li(p(t("See "), a("the guide", "https://example.org/guide")), ul(li(p(a("us", "mailto:team@example.org"))))),
+            li(p(t("Plain")))
+          )
+        )
+      )
+    ).toBe("• See the guide (https://example.org/guide)\n• us (team@example.org)\n• Plain");
+  });
+
+  it("reads back, by Round 1's rules, with the address a quick link", () => {
+    const text = docToPlainText(doc(p(t("Read "), a("the guide", "https://example.org/guide"), t(" today."))));
+    expect(legacyTextToDoc(text)).toEqual(doc(p(t("Read the guide (https://example.org/guide) today."))));
+  });
+});
