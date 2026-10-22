@@ -644,6 +644,10 @@ describe("Release 4 — links in lesson text", () => {
         /Block 1 \(Paragraph\): the link text “https:\/\/bank\u200B\.example\/login” shows a different address than the link opens\./,
       "a label that shows another address after a user name":
         /Block 1 \(Paragraph\): the link text “https:\/\/login@bank\.example\/” shows a different address than the link opens\./,
+      "a label that shows another site as a bare host":
+        /Block 1 \(Paragraph\): the link text “bank\.example\/login” shows a different address than the link opens\./,
+      "a label that shows another site as a bare host with www.":
+        /Block 1 \(Paragraph\): the link text “www\.bank\.example” shows a different address than the link opens\./,
       "two touching links that together show another address":
         /Block 1 \(Paragraph\): the link text “https:\/\/bank\.example” shows a different address than the link opens\./,
     };
