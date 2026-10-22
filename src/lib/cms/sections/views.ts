@@ -85,13 +85,15 @@ export interface DeletableRow {
   parts?: unknown;
   video?: unknown;
   documentCount?: number;
+  /** Further-reading links, drafts included (Release 4, D107). */
+  linkCount?: number;
 }
 
 /**
  * What "Delete lesson" would remove, for its confirmation: the languages it
- * has text in, how many texts and questions, the video, the documents. The
- * main content counts as one text or one question when anything of it is
- * stored.
+ * has text in, how many texts and questions, the video, the documents and
+ * the further-reading links (only when it has some). The main content counts
+ * as one text or one question when anything of it is stored.
  */
 export function deleteSummary(row: DeletableRow | undefined): DeleteSummary {
   const narrative = isRecord(row?.narrative) ? row.narrative : {};
@@ -111,6 +113,7 @@ export function deleteSummary(row: DeletableRow | undefined): DeleteSummary {
     questionBlocks: mainQuestion + extras.length - texts.length,
     video: row?.video != null,
     documents: row?.documentCount ?? 0,
+    ...(row?.linkCount ? { links: row.linkCount } : {}),
   };
 }
 

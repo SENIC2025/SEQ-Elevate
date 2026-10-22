@@ -29,6 +29,8 @@ import {
   resolveSimulation,
   type StoredStructure,
 } from "../structure";
+import { forLanguage } from "../item-language";
+import type { ItemLanguages } from "../reading-types";
 import { blocksHaveText, fallbackOrder, firstText, resolveNarrative } from "../text-fallback";
 import type { LessonDocumentRef, Locale, NarrativeBlock, VideoContent } from "../types";
 import {
@@ -141,6 +143,7 @@ export const resolveSectionStage: ResolveSectionStage = ({
   section,
   row,
   locale,
+  itemLocales,
   label,
   standardTitle,
   defaults,
@@ -206,16 +209,25 @@ export const resolveSectionStage: ResolveSectionStage = ({
   }
 
   const video = isRecord(row?.video) ? (row.video as unknown as VideoContent) : undefined;
-  const documents: LessonDocumentRef[] = (row?.documents ?? []).filter((d) => d.published);
+  const published: (LessonDocumentRef & ItemLanguages)[] = (row?.documents ?? []).filter((d) => d.published);
+  // Whether the lesson is there counts every published document, in every
+  // language (D108): the language never changes which lessons there are.
   const facts: LessonFacts = {
     stageKey: section.id,
     structure: row?.structure ?? null,
     parts: row?.parts ?? null,
     narrative: row?.narrative ?? null,
     hasVideo: video !== undefined,
-    publishedDocuments: documents.length,
+    publishedDocuments: published.length,
   };
   if (!lessonHasContent(section, facts)) return null;
+
+  // What it shows follows the languages it is shown for (spec 4.4). A
+  // lesson whose only material is documents for other languages shows them
+  // all, each marked with its language, rather than nothing at all.
+  let documents = itemLocales ? forLanguage(published, itemLocales) : published;
+  if (!documents.length && published.length && !parts.length && !video) documents = published;
+  const links = itemLocales ? forLanguage(row?.links ?? [], itemLocales) : (row?.links ?? []);
 
   return {
     key: section.id,
@@ -224,6 +236,7 @@ export const resolveSectionStage: ResolveSectionStage = ({
     ...(subtitle ? { subtitle } : {}),
     ...(video ? { video } : {}),
     ...(documents.length ? { documents } : {}),
+    ...(links.length ? { links } : {}),
     parts,
     skipped,
   };

@@ -320,6 +320,8 @@ describe("applyOutlineOp: add", () => {
       { narrative: { en: { title: "x" } } },
       { video: { provider: "file", src: "x" } },
       { documentCount: 1 },
+      // Release 4: the reused lesson would bring its old further reading back.
+      { linkCount: 1 },
       { parts: { v: 1, items: [{ id: "main", type: "main" }, { id: "p-aaaaaaaa", type: "text", blocks: {} }] } },
       { parts: "unreadable" },
     ]) {

@@ -1,10 +1,13 @@
 "use client";
 
 import * as React from "react";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { LessonDocumentViewer } from "./LessonDocumentViewer";
-import type { LessonDocumentRef } from "@/lib/cms/types";
+import { useContentLang } from "./CourseText";
+import { itemLanguageMark } from "@/lib/cms/lesson-links";
+import type { ItemLanguages } from "@/lib/cms/reading-types";
+import type { LessonDocumentRef, Locale } from "@/lib/cms/types";
 import {
   FileText,
   FileImage,
@@ -30,15 +33,23 @@ function formatSize(bytes: number): string {
  * Lesson documents, shown two ways at once: a "Step through" guided viewer
  * (slides 1.1 → 1.2) and an ordered downloadable list. `stageNumber` is the
  * lesson's 1-based position so items read 1.1, 1.2, 1.3…
+ *
+ * Release 4 (D108, spec 4.5): a document for some languages only, none of
+ * them the one the course text is shown in, is marked with that language
+ * and a small label ("In German", in the page's words), as further reading
+ * is; any other document's name reads in the course text's language.
  */
 export function LessonDocuments({
   documents,
   stageNumber,
 }: {
-  documents: LessonDocumentRef[];
+  documents: (LessonDocumentRef & ItemLanguages)[];
   stageNumber?: number;
 }) {
   const t = useTranslations("lesson");
+  const tReading = useTranslations("furtherReading");
+  const page = useLocale() as Locale;
+  const courseLang = useContentLang();
   const [viewerStart, setViewerStart] = React.useState<number | null>(null);
   if (!documents.length) return null;
 
@@ -66,6 +77,7 @@ export function LessonDocuments({
         {documents.map((d, i) => {
           const Icon = iconFor(d.mimeType);
           const seq = stageNumber ? `${stageNumber}.${i + 1}` : `${i + 1}`;
+          const mark = itemLanguageMark(d.languages, courseLang ?? page, page);
           return (
             <li
               key={d.id}
@@ -81,8 +93,13 @@ export function LessonDocuments({
                 className="flex-1 truncate text-left hover:underline"
                 title={t("viewInViewer")}
               >
-                {d.name}
+                <span lang={mark ?? courseLang}>{d.name}</span>
               </button>
+              {mark ? (
+                <span className="flex-shrink-0 rounded bg-[var(--surface-muted)] px-1.5 py-0.5 text-xs text-[var(--muted-foreground)]">
+                  {tReading(`language.${mark}`)}
+                </span>
+              ) : null}
               <span className="text-xs text-[var(--muted-foreground)] tabular-nums">
                 {formatSize(d.sizeBytes)}
               </span>

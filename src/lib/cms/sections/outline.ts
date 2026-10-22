@@ -230,10 +230,12 @@ export const toStoredOutline: ToStoredOutline = (o) => ({
 /**
  * Is a standard practice / scenario / quick check free for "Add lesson" to
  * reuse? Only while it isn't in the list and its row (if any) holds nothing
- * an editor made: no text, exercise, extra content, video or documents. A
- * draft alone doesn't count (addendum 8): the course page shows such a key
- * as an "Add …" row marked Draft, and the reuse takes over that lesson and
- * its draft rather than adding a second practice lesson beside it.
+ * an editor made: no text, exercise, extra content, video, documents or
+ * further-reading links (Release 4: the reused lesson would bring back the
+ * old links). A draft alone doesn't count (addendum 8): the course page
+ * shows such a key as an "Add …" row marked Draft, and the reuse takes over
+ * that lesson and its draft rather than adding a second practice lesson
+ * beside it.
  */
 function keyIsFree(
   key: InteractiveKey,
@@ -250,7 +252,8 @@ function keyIsFree(
       items !== "unreadable" &&
       items.length === 1 &&
       l.video == null &&
-      !((l.documentCount ?? 0) > 0)
+      !((l.documentCount ?? 0) > 0) &&
+      !((l.linkCount ?? 0) > 0)
     );
   });
 }

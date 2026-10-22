@@ -11,9 +11,11 @@ import {
   initWorkspace,
   lessonContentCallbacks,
   workspaceReducer,
+  type LessonWithReading,
   type WorkspaceAction,
   type WorkspaceState,
 } from "./workspace-reducer";
+import type { StaffLessonLink } from "@/lib/cms/lesson-links";
 
 /* -------------------------------- fixtures -------------------------------- */
 
@@ -495,5 +497,29 @@ describe("a lesson's content callbacks", () => {
     ]);
     expect(actions.at(-1)).toMatchObject({ key: "concept", lang: "de" });
     expect(refresh).toHaveBeenCalledTimes(7);
+  });
+
+  // Release 4 (D107): a link added or removed changes what Delete removes
+  // and the lesson's content base, as a document does.
+  it("take further reading in and re-read the page", () => {
+    const actions: WorkspaceAction[] = [];
+    const refresh = vi.fn();
+    const cb = lessonContentCallbacks("concept", "de", (a) => actions.push(a), refresh);
+    const link: StaffLessonLink = { id: "l1", title: "Guide", url: "https://example.org/", kind: "web", description: "", languages: [], published: false };
+    cb.onLinksChanged([link]);
+    expect(actions).toEqual([{ type: "linksChanged", key: "concept", links: [link] }]);
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("linksChanged (Release 4)", () => {
+  const link: StaffLessonLink = { id: "l1", title: "Guide", url: "https://example.org/", kind: "web", description: "", languages: ["de"], published: true };
+
+  it("puts the lesson's links on that lesson only", () => {
+    const state = initWorkspace(outline([lesson("context"), lesson("concept")]));
+    const next = workspaceReducer(state, { type: "linksChanged", key: "concept", links: [link] });
+    expect((next.lessons[1] as LessonWithReading).links).toEqual([link]);
+    expect(next.lessons[0]).toBe(state.lessons[0]);
+    expect(workspaceReducer(next, { type: "linksChanged", key: "concept", links: [] }).lessons[1]).toMatchObject({ links: [] });
   });
 });

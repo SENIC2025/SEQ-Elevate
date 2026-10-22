@@ -20,7 +20,13 @@ const findMany = vi.fn(async (args: { select?: Record<string, unknown> }) =>
     args.select ? Object.fromEntries(Object.entries(r).filter(([k]) => args.select![k])) : r
   )
 );
-vi.mock("@/lib/prisma", () => ({ prisma: { lesson: { findMany } } }));
+let links: Record<string, unknown>[] | "fail" = [];
+const linkFindMany = vi.fn(async (args?: unknown) => {
+  void args;
+  if (links === "fail") throw new Error("links down");
+  return links;
+});
+vi.mock("@/lib/prisma", () => ({ prisma: { lesson: { findMany }, lessonLink: { findMany: linkFindMany } } }));
 
 const { applyLessonMedia } = await import("./lesson-overlay");
 
@@ -100,7 +106,8 @@ describe("applyLessonMedia reads only what learners see", () => {
         documents: {
           where: { published: true },
           orderBy: [{ order: "asc" }, { createdAt: "asc" }],
-          select: { id: true, name: true, url: true, mimeType: true, sizeBytes: true, published: true },
+          // Release 4 (D108): the languages each is for (changed on purpose).
+          select: { id: true, name: true, url: true, mimeType: true, sizeBytes: true, published: true, languages: true },
         },
       },
     });
@@ -135,5 +142,100 @@ describe("applyLessonMedia reads only what learners see", () => {
       },
     ]);
     rows = null;
+  });
+});
+
+/*
+ * U11, Release 4 (spec 4.4, D107, D108): getCourse is read by learners and
+ * staff alike and doesn't know the page's language, so documents come with
+ * the languages each is for and are never filtered here. Further reading is
+ * read on its own: published links only, each address checked again, and a
+ * failure there costs only the links, never the video or the documents.
+ */
+describe("applyLessonMedia and Release 4's further reading and languages", () => {
+  const DOC = { id: "d1", name: "Arbeitsblatt.pdf", url: "https://blob.example/a.pdf", mimeType: "application/pdf", sizeBytes: 9, published: true };
+  const VIDEO = { provider: "youtube", src: "https://youtu.be/abc", title: "Watch" };
+  const link = (id: string, url: string, fields: Record<string, unknown> = {}) => ({
+    id,
+    title: `Reading ${id}`,
+    url,
+    description: "",
+    languages: [],
+    published: true,
+    lesson: { stageKey: "context" },
+    ...fields,
+  });
+
+  it("gives every document with its languages, whatever the page's language", async () => {
+    rows = [
+      {
+        stageKey: "context",
+        narrative: null,
+        video: null,
+        documents: [
+          { ...DOC, languages: ["de"] },
+          { ...DOC, id: "d2", languages: [] },
+          { ...DOC, id: "d3", languages: ["en", "de", "el"] },
+          { ...DOC, id: "d4", languages: null },
+        ],
+      },
+    ];
+    links = [];
+    const [stage] = (await applyLessonMedia("p", "workplace-conflict", builtIn())).stages;
+    expect(stage.documents).toEqual([
+      { ...DOC, languages: ["de"] },
+      { ...DOC, id: "d2" },
+      { ...DOC, id: "d3" },
+      { ...DOC, id: "d4" },
+    ]);
+    rows = null;
+  });
+
+  it("reads published links only, in order, and drops a stored address the check refuses", async () => {
+    rows = [{ stageKey: "context", narrative: null, video: null, documents: [] }];
+    links = [
+      link("l1", "HTTPS://Example.org/One", { languages: ["el", "de"] }),
+      link("l2", "javascript:alert(1)"),
+      link("l3", "data:text/html,<script>alert(1)</script>"),
+      link("l4", "not an address"),
+      link("l5", "mailto:help@example.org", { description: "Write to us." }),
+    ];
+    const [stage] = (await applyLessonMedia("p", "workplace-conflict", builtIn())).stages;
+    expect(linkFindMany.mock.calls.at(-1)?.[0]).toMatchObject({
+      where: { published: true, lesson: { projectId: "p", courseSlug: "workplace-conflict" } },
+      orderBy: [{ order: "asc" }, { createdAt: "asc" }],
+    });
+    expect((stage as { links?: unknown }).links).toEqual([
+      { id: "l1", title: "Reading l1", url: "https://example.org/One", kind: "web", description: "", languages: ["de", "el"], published: true },
+      { id: "l5", title: "Reading l5", url: "mailto:help@example.org", kind: "email", description: "Write to us.", languages: [], published: true },
+    ]);
+    rows = null;
+    links = [];
+  });
+
+  it("keeps the video and the documents when the links can't be read", async () => {
+    rows = [{ stageKey: "context", narrative: null, video: VIDEO, documents: [DOC] }];
+    links = "fail";
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const [stage] = (await applyLessonMedia("p", "workplace-conflict", builtIn())).stages;
+    expect(stage).toMatchObject({ video: VIDEO, documents: [DOC] });
+    expect(stage).not.toHaveProperty("links");
+    expect(log).toHaveBeenCalledTimes(1);
+    log.mockRestore();
+    rows = null;
+    links = [];
+  });
+
+  it("doesn't read the links with R4_FURTHER_READING=off", async () => {
+    vi.stubEnv("R4_FURTHER_READING", "off");
+    rows = [{ stageKey: "context", narrative: null, video: null, documents: [] }];
+    links = [link("l1", "https://example.org/one")];
+    linkFindMany.mockClear();
+    const [stage] = (await applyLessonMedia("p", "workplace-conflict", builtIn())).stages;
+    expect(linkFindMany).not.toHaveBeenCalled();
+    expect(stage).not.toHaveProperty("links");
+    vi.unstubAllEnvs();
+    rows = null;
+    links = [];
   });
 });

@@ -6,10 +6,13 @@ import { NarrativeBlocks } from "@/components/course/NarrativeStage";
 import { FormattedText } from "@/components/course/FormattedText";
 import { ReflectionIntro } from "@/components/course/ReflectionIntro";
 import { DraftBadge } from "@/components/role/StructureAuthor";
+import { QuickLink } from "@/components/rich-text/QuickLink";
 import type { LessonOutline } from "@/lib/cms/course-admin-types";
+import { linkPlace, type StaffLessonLink } from "@/lib/cms/lesson-links";
+import type { ItemLanguages } from "@/lib/cms/reading-types";
 import type { PartView, ResolvedPart, SectionStage } from "@/lib/cms/sections/contract";
 import type { CourseStage, Locale, OutcomeQuality } from "@/lib/cms/types";
-import { Check, FileText, Star, Video } from "lucide-react";
+import { BookOpen, Check, FileText, Star, Video } from "lucide-react";
 import { blocksHaveText, fallbackOrder } from "@/lib/cms/text-fallback";
 import { partTypeOf } from "./blocks/part-list";
 
@@ -32,6 +35,11 @@ const QUALITY_KEY: Record<OutcomeQuality, string> = {
  * content (Release 1), shows each piece of its content in order, as the
  * editor's preview resolves it (`sectioned`), with a "Draft" mark where a
  * draft waits and a note for content not shown yet.
+ *
+ * Release 4 (D107, D108): documents name the languages they are for when
+ * not every language, and the lesson's further reading follows them, drafts
+ * marked. A link whose stored address can't be used is shown as text with
+ * its address, never as a link.
  */
 export function LessonReadView({
   lesson,
@@ -76,6 +84,7 @@ export function LessonReadView({
   const video = lesson.video;
   const videoKind =
     video?.provider === "youtube" ? t("youtubeVideo") : t("fileVideo");
+  const links = (lesson as LessonOutline & { links?: StaffLessonLink[] }).links;
 
   return (
     <div className="space-y-4">
@@ -127,6 +136,7 @@ export function LessonReadView({
                       {t("draftDocument")}
                     </Badge>
                   ) : null}
+                  <LanguagesBadge languages={(d as ItemLanguages).languages} />
                 </li>
               ))}
             </ul>
@@ -135,6 +145,7 @@ export function LessonReadView({
               {t("noDocuments")}
             </p>
           )}
+          {links ? <FurtherReading links={links} /> : null}
         </div>
       </div>
 
@@ -142,6 +153,71 @@ export function LessonReadView({
         {body}
       </div>
     </div>
+  );
+}
+
+/** "For: German" on an item for some languages only; nothing for every language. */
+function LanguagesBadge({ languages }: { languages?: readonly Locale[] }) {
+  const tReading = useTranslations("courseReading");
+  const tLanguage = useTranslations("courseManager.languageName");
+  const ui = useLocale();
+  if (!languages?.length) return null;
+  const names = languages.map((l) => tLanguage(l));
+  let list: string;
+  try {
+    list = new Intl.ListFormat(ui, { type: "conjunction" }).format(names);
+  } catch {
+    list = names.join(", ");
+  }
+  return (
+    <Badge variant="muted" className="text-[10px]">
+      {tReading("for", { languages: list })}
+    </Badge>
+  );
+}
+
+/**
+ * The lesson's further reading on the read view (Release 4, D107), every
+ * link with its draft and language marks. A usable link opens in a new tab,
+ * so it can be checked from here; one whose stored address can't be used
+ * shows its title and its address as text.
+ */
+function FurtherReading({ links }: { links: readonly StaffLessonLink[] }) {
+  const t = useTranslations("courseManager.page.read");
+  const tReading = useTranslations("courseReading.read");
+  return (
+    <>
+      <h3 className="mt-4 text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
+        {tReading("links")}
+      </h3>
+      {links.length ? (
+        <ul className="mt-1 space-y-1 text-sm">
+          {links.map((l) => (
+            <li key={l.id} className="flex flex-wrap items-center gap-1.5">
+              <BookOpen className="h-4 w-4 flex-shrink-0 text-[var(--accent)]" aria-hidden />
+              {l.unusable ? (
+                <span className="min-w-0 break-all">
+                  {l.title} <span className="text-[var(--muted-foreground)]">({l.url})</span>
+                </span>
+              ) : (
+                <span className="min-w-0 break-all">
+                  <QuickLink href={l.url}>{l.title}</QuickLink>{" "}
+                  <span className="text-xs text-[var(--muted-foreground)]">{linkPlace(l)}</span>
+                </span>
+              )}
+              {!l.published ? (
+                <Badge variant="muted" className="text-[10px]">
+                  {t("draftDocument")}
+                </Badge>
+              ) : null}
+              <LanguagesBadge languages={l.languages} />
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mt-1 text-sm text-[var(--muted-foreground)]">{tReading("noLinks")}</p>
+      )}
+    </>
   );
 }
 

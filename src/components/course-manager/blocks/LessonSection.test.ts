@@ -62,6 +62,7 @@ function render(
     onStructureCleared: noop,
     onVideoSaved: noop,
     onDocumentsChanged: noop,
+    onLinksChanged: noop,
     onOutline: noop,
     announce: noop,
     ...overrides,

@@ -191,6 +191,12 @@ export interface SectionFacts {
   parts?: unknown;
   video?: unknown;
   documentCount?: number;
+  /**
+   * Release 4 (D107): how many further-reading links the row has, drafts
+   * included. Never content: it only keeps a standard key with links from
+   * being taken over as a free one (keyIsFree).
+   */
+  linkCount?: number;
 }
 
 /* ---------------------------------------------------------------- parts --- */
@@ -421,6 +427,8 @@ export interface DeleteSummary {
   questionBlocks: number;
   video: boolean;
   documents: number;
+  /** Release 4 (D107): further-reading links, drafts included; absent when there are none. */
+  links?: number;
 }
 
 export interface SectionView {
@@ -621,7 +629,11 @@ export type PartsOrderVersion = (items: readonly StoredPart[]) => string;
 export type PartVersions = (item: StoredPart) => PartBase;
 export type ItemVersion = (item: StoredPart) => string;
 export type TextPartVersion = (item: StoredPart, locale: Locale) => string | null;
-/** Base of deleteSection: narrative, structure, structureDraft, parts, video, sorted document ids. */
+/**
+ * Base of deleteSection: narrative, structure, structureDraft, parts, video,
+ * sorted document ids, and (Release 4, D107) sorted further-reading link ids
+ * when the lesson has any, so a lesson without links keeps its base.
+ */
 export type SectionContentVersion = (
   row: {
     narrative: unknown;
@@ -630,6 +642,7 @@ export type SectionContentVersion = (
     parts: unknown;
     video: unknown;
     documentIds: readonly string[];
+    linkIds?: readonly string[];
   } | null
 ) => string | null;
 
