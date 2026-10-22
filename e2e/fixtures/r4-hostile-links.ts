@@ -142,6 +142,16 @@ export const HOSTILE_MARKS: readonly HostileMarks[] = [
     save: "refused",
   },
   {
+    name: "a label that shows another address through a zero-width space",
+    rich: linkedParagraph("https://evil.example/login", "https://bank\u200B.example/login"),
+    save: "refused",
+  },
+  {
+    name: "a label that shows another address after a user name",
+    rich: linkedParagraph("https://evil.example/login", "https://login@bank.example/"),
+    save: "refused",
+  },
+  {
     name: "two touching links that together show another address",
     rich: paragraphDoc([
       { type: "text", text: "Log in at " },
@@ -182,4 +192,8 @@ export const MISLEADING_TITLES: readonly string[] = [
   "https://bank.example/login",
   "Log in at https://bank.example",
   "Write to help@bank.example",
+  // Read as learners see them: characters that show nothing, and a one dot leader.
+  "https://bank\u200B.example/login",
+  "https:\u200B//bank.example",
+  "https://bank.example\u2024login",
 ];
