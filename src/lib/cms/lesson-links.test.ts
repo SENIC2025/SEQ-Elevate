@@ -56,6 +56,14 @@ describe("titleMisleads: a title is compared as it reads", () => {
     expect(titleMisleads("Write to help@bank.example", EVIL)).toBe(true);
   });
 
+  it("refuses a host read as it shows, once cleaned: a Roman numeral letter, a mark that follows no letter, a raised letter inside a name", () => {
+    for (const title of ["paypal.\u217Dom", "paypa\u217C.com", "www.paypal.\u0332com/login", "\u0332paypal.com", "paypal.c\u1D52m", "paypal.\u24D2\u24DE\u24DC"]) {
+      const clean = cleanLinkLine(title, 200);
+      expect(clean, JSON.stringify(title)).not.toBeNull();
+      expect(titleMisleads(clean!, EVIL), JSON.stringify(title)).toBe(true);
+    }
+  });
+
   it("accepts a title that names the link's own site, however it is written", () => {
     expect(titleMisleads("www.bpb.de", "https://www.bpb.de/")).toBe(false);
     expect(titleMisleads("www.bpb.de", "https://bpb.de/themen")).toBe(false);
@@ -63,6 +71,10 @@ describe("titleMisleads: a title is compared as it reads", () => {
     expect(titleMisleads("https://bank​.example/login", "https://bank.example/login")).toBe(false);
     expect(titleMisleads("Kontakt: www.verein.de", "mailto:info@verein.de")).toBe(false);
     expect(titleMisleads("https://www.bank.example", "https://bank.example/")).toBe(false);
+    // A public suffix named by itself, over a site under it; a title's abbreviation.
+    expect(titleMisleads("Gov.gr Wallet", "https://wallet.gov.gr/")).toBe(false);
+    expect(titleMisleads("Υπεύθυνη Δήλωση μέσω gov.gr", "https://dilosi.services.gov.gr/")).toBe(false);
+    expect(titleMisleads("Dr.in Maria Huber", "https://www.univie.ac.at/personen/huber")).toBe(false);
   });
 
   it("accepts words, in English, German and Greek, emoji with joiners included", () => {
