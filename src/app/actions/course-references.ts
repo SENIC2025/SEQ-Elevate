@@ -20,8 +20,8 @@
  *   "changed-elsewhere" and the transaction rolls back.
  * - The list is saved through richTextForSave, as lesson text is: refused,
  *   never cut, with one sentence per problem naming "The references list"
- *   and saying what its editor can do about it (the list has no blocks).
- *   An empty list removes its language.
+ *   and saying what its editor can do about it (RT_ADVICE's "list": the
+ *   list has no blocks). An empty list removes its language.
  * - Audited against the course (its slug) with the language only, never
  *   the list's text.
  */
@@ -70,19 +70,6 @@ const isValue = (value: unknown): value is { rich: unknown } | null =>
   value === null || (typeof value === "object" && !Array.isArray(value) && "rich" in value);
 
 /**
- * What a refusal advises, as the references editor offers it: the list is
- * one text per language, so a text over a limit is shortened, and one that
- * can't be read is written again on a fresh page. (richTextForSave's
- * sentences end with a lesson block's advice; its first part, naming the
- * list and the problem, is kept.)
- */
-const LIST_ADVICE: readonly [RegExp, string][] = [
-  [/ Split it into two blocks\.$/, " Shorten the list."],
-  [/ Copy its text into a new block, then remove this one\.$/, " Reload the page, then make your change again."],
-];
-const forTheList = (issue: string) => LIST_ADVICE.reduce((sentence, [from, to]) => sentence.replace(from, to), issue);
-
-/**
  * Thrown inside the transaction to answer `result` with nothing written (it
  * rolls back). This action's own answers, a success with nothing to remove
  * among them, so not store.server.ts's Refusal (the lesson actions' results).
@@ -115,7 +102,7 @@ export async function saveCourseReferences(
 
   // Read and checked before any lock is taken; refused only after the
   // checks under the lock, which come first (spec 5.3).
-  const prepared = value === null ? null : richTextForSave(value.rich, NAME);
+  const prepared = value === null ? null : richTextForSave(value.rich, NAME, "list");
   const entry = prepared?.ok && hasText(prepared.text) ? { text: prepared.text, rich: prepared.rich } : null;
 
   const write = () =>
@@ -131,7 +118,7 @@ export async function saveCourseReferences(
       });
       const stored = parseBibliography(row.content);
       if (fingerprint(stored.locales[locale] ?? null) !== base) throw new ChangedElsewhere();
-      if (prepared && !prepared.ok) throw new Stop({ ok: false, error: "invalid", issues: prepared.issues.map(forTheList) });
+      if (prepared && !prepared.ok) throw new Stop({ ok: false, error: "invalid", issues: prepared.issues });
       const locales = { ...stored.locales };
       if (entry) {
         locales[locale] = entry;

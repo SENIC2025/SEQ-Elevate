@@ -361,16 +361,9 @@ describe("saveCourseReferences", () => {
       ["The references list has too much formatting or too many list points to save. Shorten the list."],
       ["The references list couldn't be read. Reload the page, then make your change again."],
     ]);
-    // Part A's words for a list over a limit that holds links: the same advice.
-    vi.mocked(narrative.richTextForSave).mockReturnValue({
-      ok: false,
-      issues: ["The references list has too many links or too much formatting to save. Split it into two blocks."],
-    });
-    expect(await saveCourseReferences(SLUG, "en", { rich: doc("x") }, null)).toEqual({
-      ok: false,
-      error: "invalid",
-      issues: ["The references list has too many links or too much formatting to save. Shorten the list."],
-    });
+    // The advice is the list's own, asked of richTextForSave (RT_ADVICE), so
+    // Part A's words for a list over a limit that holds links give it too.
+    for (const call of vi.mocked(narrative.richTextForSave).mock.calls) expect(call.slice(1)).toEqual(["The references list", "list"]);
     for (const answer of answers) expect(JSON.stringify(answer)).not.toMatch(/block/i);
     expect(db.bibliography).toBeNull();
   });
@@ -383,7 +376,7 @@ describe("saveCourseReferences", () => {
       error: "invalid",
       issues: [named],
     });
-    expect(narrative.richTextForSave).toHaveBeenCalledWith(doc("the guide"), "The references list");
+    expect(narrative.richTextForSave).toHaveBeenCalledWith(doc("the guide"), "The references list", "list");
     expect(db.bibliography).toBeNull();
   });
 

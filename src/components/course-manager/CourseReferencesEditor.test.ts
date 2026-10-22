@@ -217,7 +217,7 @@ describe("the references editor's steps", () => {
 
   it("lists the server's refusals, and says why anything else failed", () => {
     const typed = run({ type: "loaded", stored: STORED, reload: false }, EDIT, { type: "saving" });
-    const issues = ["The references list is too long — at most 10,000 characters. Split it into two blocks."];
+    const issues = ["The references list is too long — at most 10,000 characters. Shorten the list."];
     expect(referencesReducer(typed, { type: "answered", at: 1, result: { ok: false, error: "invalid", issues } })).toMatchObject({
       issues,
       status: "error",
