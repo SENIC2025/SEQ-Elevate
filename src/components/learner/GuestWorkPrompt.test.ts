@@ -29,7 +29,7 @@ vi.mock("@/store/demo-state", () => ({
 const { GuestWorkPrompt } = await import("./GuestWorkPrompt");
 
 const offer = (courses: GuestWork["courses"], locale: "en" | "de" | "el") => {
-  work = { courses, compCard: false, cardTooLong: [], reflections: 0, badges: 0 };
+  work = { courses, compCard: false, cardTooLong: [], texts: [], tooLong: [], reflections: 0, badges: 0 };
   return renderIn(createElement(GuestWorkPrompt), locale);
 };
 
@@ -67,7 +67,7 @@ describe("GuestWorkPrompt: the courses' titles", () => {
 describe("GuestWorkPrompt: a Comp Card text too long to add", () => {
   const long = "x".repeat(2001);
   const offerLong = (locale: "en" | "de" | "el", outcome: GuestWorkDone | null = null, stayed: GuestCardTooLong | null = null) => {
-    work = { courses: [], compCard: true, cardTooLong: [{ field: "difficult", text: long }], reflections: 0, badges: 0 };
+    work = { courses: [], compCard: true, cardTooLong: [{ field: "difficult", text: long }], texts: [], tooLong: [], reflections: 0, badges: 0 };
     done = outcome;
     held = stayed;
     const html = renderIn(createElement(GuestWorkPrompt), locale);
