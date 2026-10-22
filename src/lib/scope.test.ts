@@ -149,6 +149,31 @@ describe("scopeFor", () => {
   });
 });
 
+describe("a scope can't be changed in place (SS4)", () => {
+  it("every scope the module makes is frozen: a change throws and leaves it as it was", () => {
+    const scopes = [
+      scopeFor({ userId: "v", name: "V", roles: ["ADMIN"], profile: COMPLETE }, ON),
+      scopeFor({ userId: "v", name: "V", roles: ["FACILITATOR"], profile: COMPLETE }, ON),
+      scopeFor({ userId: "v", name: "V", roles: ["LEARNER"], profile: COMPLETE }, ON),
+      testOnlyScope({ kind: "organisation", viewerId: "v", organisationId: "org-a" }),
+    ];
+    for (const scope of scopes) {
+      const before = JSON.stringify(scope);
+      expect(Object.isFrozen(scope), before).toBe(true);
+      expect(() => Object.assign(scope, { kind: "project", viewerId: "x", viewerOrganisationId: null }), before).toThrow(TypeError);
+      expect(() => Object.defineProperty(scope, "organisationId", { value: "org-b" }), before).toThrow(TypeError);
+      expect(JSON.stringify(scope)).toBe(before);
+    }
+  });
+
+  it("nor can the shape it was made from change it afterwards", () => {
+    const shape = { kind: "organisation" as const, viewerId: "v", organisationId: "org-a" };
+    const scope = testOnlyScope(shape);
+    shape.organisationId = "org-b";
+    expect(scope).toEqual({ kind: "organisation", viewerId: "v", organisationId: "org-a" });
+  });
+});
+
 describe("getViewer", () => {
   beforeEach(() => {
     vi.unstubAllEnvs();
@@ -160,8 +185,11 @@ describe("getViewer", () => {
 
   it("is nobody, with no scope, when not signed in", async () => {
     getCurrentUser.mockResolvedValue(null);
-    expect(await getViewer()).toEqual({ user: null, roles: [], profile: null, scope: NONE });
+    const viewer = await getViewer();
+    expect(viewer).toEqual({ user: null, roles: [], profile: null, scope: NONE });
     expect(findUnique).not.toHaveBeenCalled();
+    // The same "nobody" for every request: neither it nor its roles can be changed.
+    expect(Object.isFrozen(viewer) && Object.isFrozen(viewer.roles) && Object.isFrozen(viewer.scope)).toBe(true);
   });
 
   it("reads the roles and the profile in the project", async () => {
@@ -174,6 +202,7 @@ describe("getViewer", () => {
       profile: COMPLETE,
       scope: { kind: "organisation", viewerId: "v", organisationId: "org-a" },
     });
+    expect(Object.isFrozen(await getViewer())).toBe(true);
     expect(getProjectMemberships).toHaveBeenCalledWith(PROJECT);
     expect(findUnique).toHaveBeenCalledWith({ where: { userId_projectId: { userId: "v", projectId: PROJECT } } });
     expect(await getViewerScope()).toEqual({ kind: "organisation", viewerId: "v", organisationId: "org-a" });

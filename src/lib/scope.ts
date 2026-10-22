@@ -25,11 +25,17 @@ import "server-only";
  * `undefined`, which Prisma reads as "no filter". Filters are combined with
  * AND: [...], never by spreading two objects that may share a key.
  *
- * A Scope is made only here (hardening SS4): the type carries a brand no
- * other module can name, so a hand-made literal doesn't type-check outside
- * this file. Tests make one with testOnlyScope; the scope guard
- * (scope-guard.test.ts) fails for that name, and for a value asserted to be
- * a Scope, anywhere in src/ but here and in tests.
+ * A Scope is made only here (hardening SS4). Its type carries a brand no
+ * other module can name, a class with a private field, which a spread
+ * doesn't copy: outside this file neither a hand-made literal nor a copy of
+ * a real scope with its fields changed type-checks. Its fields are
+ * read-only, and every scope made here is frozen, so one can't be changed
+ * in place either. Tests make one with testOnlyScope. The scope guard
+ * (scope-guard.test.ts) reads src/ with the type checker and fails, outside
+ * this file and tests, for that name, for an assertion to a Scope (or to a
+ * type holding one) under any spelling, for an any or never where a Scope
+ * is expected, for an object literal there, and for Object.assign and the
+ * like on a Scope.
  */
 
 import { cache } from "react";
@@ -54,14 +60,20 @@ export type ScopeShape =
   | { kind: "organisation"; viewerId: string; organisationId: string } // PARTNER_ADMIN, FACILITATOR
   | { kind: "none" };
 
-/** The brand: a type only, named nowhere else (at run time a scope is the plain object). */
-declare const MADE_BY_THE_SCOPE_MODULE: unique symbol;
+/**
+ * The brand: a type only, named nowhere else (at run time a scope is the
+ * plain object, frozen). A class with a private field is matched by name,
+ * not by shape, and a spread copies no private field.
+ */
+declare class MadeByTheScopeModule {
+  #madeByTheScopeModule: true;
+}
 
 /** Whose data a viewer may read or change, as this module worked it out (see above). */
-export type Scope = ScopeShape & { readonly [MADE_BY_THE_SCOPE_MODULE]: true };
+export type Scope = Readonly<ScopeShape> & MadeByTheScopeModule;
 
-/** The one place a shape becomes a Scope. */
-const made = (shape: ScopeShape): Scope => shape as Scope;
+/** The one place a shape becomes a Scope: frozen, so it can't be changed in place. */
+const made = (shape: ScopeShape): Scope => Object.freeze({ ...shape }) as Scope;
 
 /**
  * A scope for a test, of any shape. For tests only: the scope guard
@@ -74,16 +86,17 @@ export function testOnlyScope(shape: ScopeShape): Scope {
 
 export type ProjectProfileRow = ProjectProfile;
 
+/** Who is asking. Read-only, and frozen where it is made (getViewer): its scope stays the one made here. */
 export interface Viewer {
-  user: { id: string; email: string } | null;
+  readonly user: { id: string; email: string } | null;
   /** In PROJECT, as getProjectMemberships reads them (ADMIN_EMAILS self-healing kept). */
-  roles: Role[];
-  profile: ProjectProfileRow | null;
-  scope: Scope;
+  readonly roles: readonly Role[];
+  readonly profile: ProjectProfileRow | null;
+  readonly scope: Scope;
 }
 
 const NONE: Scope = made({ kind: "none" });
-const NOBODY: Viewer = { user: null, roles: [], profile: null, scope: NONE };
+const NOBODY: Viewer = Object.freeze({ user: null, roles: Object.freeze([]), profile: null, scope: NONE });
 
 /** A filter that matches no row: every model filtered here has an `id`. */
 export const MATCH_NOTHING = { id: { in: [] as string[] } } as const;
@@ -127,13 +140,13 @@ export const getViewer = cache(async (): Promise<Viewer> => {
         where: { userId_projectId: { userId: user.id, projectId: PROJECT } },
       }),
     ]);
-    const roles = memberships.map((m) => m.role);
-    return {
+    const roles = Object.freeze(memberships.map((m) => m.role));
+    return Object.freeze({
       user: { id: user.id, email: user.email },
       roles,
       profile,
       scope: scopeFor({ userId: user.id, name: user.name, roles, profile }),
-    };
+    });
   } catch (e) {
     // Next's own signals (render per request, a redirect) go through: a
     // page is never built once as "nobody".

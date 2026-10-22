@@ -15,8 +15,11 @@ import type { Scope, ScopeShape } from "./scope";
  *     tsconfig.json), and finds the literal refused and the module's own
  *     builders and test-only factory accepted.
  *
- * What would get round the brand (the test-only factory, or `as Scope`, in
- * src/ outside tests) fails the scope guard (scope-guard.test.ts).
+ * Nor does a copy of a real scope with its fields changed (a spread copies
+ * no private field, and the brand is one), nor a change of a real scope in
+ * place (its fields are read-only; at run time it is frozen). What would
+ * get round the type check (the test-only factory, an assertion, an any)
+ * in src/ outside tests fails the scope guard (scope-guard.test.ts).
  */
 
 // @ts-expect-error a hand-made project scope isn't a Scope (SS4)
@@ -32,6 +35,15 @@ void forgedProject;
 void forgedOrganisation;
 void forgedNone;
 void fromShape;
+/** Never called: what the type check refuses about a real scope. */
+function fromAReal(real: Scope) {
+  // @ts-expect-error nor a copy of a real scope with its fields changed (a spread doesn't copy the brand)
+  const respread: Scope = { ...real, kind: "project", viewerId: "x", viewerOrganisationId: null };
+  // @ts-expect-error nor a real scope changed in place (its fields are read-only)
+  if (real.kind === "organisation") real.organisationId = "org-b";
+  return respread;
+}
+void fromAReal;
 
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 /** The checked file, as if it were in src/app/actions (it is never written to disk). */
@@ -71,5 +83,22 @@ describe("a Scope is made only by the scope module (SS4, tsc)", { timeout: 120_0
     );
     // Line 2 (the literal) and line 3 (the literal as an argument), and nothing else.
     expect(errors).toEqual(["2: TS2322", "3: TS2345"]);
+  });
+
+  it("refuses a copy of a real scope with its fields changed, and a real scope changed in place", () => {
+    const errors = typeErrors(
+      [
+        `import { getViewerScope, learnerUsersInScope, type Scope } from "@/lib/scope";`,
+        `export async function f() {`,
+        `  const real = await getViewerScope();`,
+        `  const forged: Scope = { ...real, kind: "project", viewerId: "x", viewerOrganisationId: null };`,
+        `  if (real.kind === "organisation") real.organisationId = "org-b";`,
+        `  const copied = learnerUsersInScope({ ...real });`,
+        `  return [forged, copied, learnerUsersInScope(real)];`,
+        `}`,
+      ].join("\n")
+    );
+    // The spread copy (4), the change in place (5), the copy as an argument (6); the real scope (7) is fine.
+    expect(errors).toEqual(["4: TS2322", "5: TS2540", "6: TS2345"]);
   });
 });
