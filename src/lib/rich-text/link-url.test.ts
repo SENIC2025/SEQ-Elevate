@@ -25,6 +25,13 @@ const base = "https://example.org/";
 const LONGEST = base + "a".repeat(MAX_HREF_CHARS - base.length);
 const TOO_LONG = LONGEST + "a";
 
+/** A host of 253 characters, the most DNS holds (RFC 1035), and one of 254. */
+const hostOf = (last: number) => `${"a".repeat(63)}.${"b".repeat(63)}.${"c".repeat(63)}.${"d".repeat(last)}.example`;
+const HOST_253 = hostOf(53);
+const HOST_254 = hostOf(54);
+/** A label of 63 characters in punycode, and one of 64. */
+const idnLabel = (n: number) => `bü${"a".repeat(n)}`;
+
 const ACCEPTED: [string, string, input: string, href: string][] = [
   ["web", "https", "https://example.org/guide", "https://example.org/guide"],
   ["web", "http (insecure)", "http://example.org", "http://example.org/"],
@@ -42,6 +49,9 @@ const ACCEPTED: [string, string, input: string, href: string][] = [
   ["web", "a host written with ideographic full stops", "https://bank\u3002example/x", "https://bank.example/x"],
   ["web", "a port", "https://example.org:8443/x", "https://example.org:8443/x"],
   ["web", "2,048 characters", LONGEST, LONGEST],
+  ["web", "a label of 63 characters, the most DNS holds", `https://${"a".repeat(63)}.example/`, `https://${"a".repeat(63)}.example/`],
+  ["web", "a host of 253 characters, the most DNS holds", `https://${HOST_253}/`, `https://${HOST_253}/`],
+  ["web", "an international label of 63 characters in punycode", `https://${idnLabel(54)}.example/`, `https://xn--b${"a".repeat(54)}-pxf.example/`],
   ["email", "an address", "mailto:help@example.org", "mailto:help@example.org"],
   ["email", "the scheme in upper case, the address kept as typed", "MAILTO:HELP@example.org", "mailto:HELP@example.org"],
   ["email", "a subject", "mailto:help@example.org?subject=Course%20question", "mailto:help@example.org?subject=Course%20question"],
@@ -92,6 +102,14 @@ const REFUSED: [string, input: unknown, reason: LinkRefusal][] = [
   ["an empty label", "https://example..org/x", "host"],
   ["a host that is only a dot", "https://./x", "host"],
   ["an IPv6 address", "https://[2001:db8::1]/x", "host"],
+  // A host DNS can hold (RFC 1035): a longer one as typed is refused before
+  // the address is parsed.
+  ["a label of 64 characters", `https://${"a".repeat(64)}.example/`, "host"],
+  ["a host of 254 characters", `https://${HOST_254}/`, "host"],
+  ["an international label of 64 characters in punycode", `https://${idnLabel(55)}.example/`, "host"],
+  ["an international label of 64 characters", `https://${"ü".repeat(64)}.example/`, "host"],
+  ["a label of 64 characters between ideographic full stops", `https://bank\u3002${"a".repeat(64)}\u3002example/`, "host"],
+  ["a label of 64 characters behind a user name", `https://user@${"a".repeat(64)}.example/`, "credentials"],
   // A host every browser and the server read alike, or none (D103): the
   // engines differ on these, so the check refuses them itself.
   ["a punycode label that doesn't decode", "https://xn--a.example/", "host"],

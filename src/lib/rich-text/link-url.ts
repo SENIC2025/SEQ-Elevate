@@ -1,4 +1,4 @@
-import { hostReadAlike, typedHost } from "./link-host";
+import { MAX_HOST_CHARS, MAX_LABEL_CHARS, beyondDns, hostAfterUser, hostReadAlike, typedHost } from "./link-host";
 
 /**
  * The one address check for every link on the platform (D103): a named link
@@ -11,7 +11,10 @@ import { hostReadAlike, typedHost } from "./link-host";
  *   case), with a host that has a dot and no empty label, and no user name
  *   or password; its host one that every browser and the server read alike
  *   (link-host.ts: letters, marks, digits, "-" and "_", international names
- *   that decode, right-to-left names by the Bidi Rule); or
+ *   that decode, right-to-left names by the Bidi Rule), and one DNS can
+ *   hold (RFC 1035): as DNS writes it (in punycode), no label of more than
+ *   63 characters and at most 253 in all. A host longer than that as typed
+ *   (beyondDns) is refused before the address is parsed; or
  * - an email address, `mailto:` followed by the address and, at most, a
  *   `subject` (with no "&", "?" or "#" in it);
  * - at most MAX_HREF_CHARS characters, before and after it is normalised;
@@ -53,7 +56,7 @@ export type LinkRefusal =
   | "scheme"
   /** A web address with a user name or password before its host. */
   | "credentials"
-  /** A web address the URL parser refuses, or whose host has no dot or isn't read alike everywhere. */
+  /** A web address the URL parser refuses, or whose host has no dot, isn't read alike everywhere or is longer than DNS allows. */
   | "host"
   /** A mailto: that isn't one email address with, at most, a subject. */
   | "email"
@@ -133,7 +136,9 @@ const refuse = (reason: LinkRefusal): LinkCheck => ({ ok: false, reason });
 
 /**
  * Whether `raw` can be a link, and its normalised address if it can. Never
- * throws; a string over MAX_HREF_CHARS is refused before it is parsed.
+ * throws; a string over MAX_HREF_CHARS, and a web address whose host DNS
+ * can't hold, is refused before it is parsed, so any string is checked in
+ * time in proportion to its length.
  */
 export function checkLinkHref(raw: unknown, opts?: { ownFileHost?: string | null }): LinkCheck {
   if (typeof raw !== "string") return refuse("empty");
@@ -149,6 +154,9 @@ export function checkLinkHref(raw: unknown, opts?: { ownFileHost?: string | null
 }
 
 function web(typed: string, opts?: { ownFileHost?: string | null }): LinkCheck {
+  // Parsed, a long international label would cost its length times its
+  // characters (punycode): a host longer than DNS allows as typed is none.
+  if (beyondDns(hostAfterUser(typed))) return refuse(typedHost(typed) === null ? "credentials" : "host");
   let url: URL;
   try {
     url = new URL(typed);
@@ -162,6 +170,8 @@ function web(typed: string, opts?: { ownFileHost?: string | null }): LinkCheck {
   const host = comparableHost(url.hostname);
   const labels = host.split(".");
   if (labels.length < 2 || labels.some((label) => !label)) return refuse("host");
+  // As DNS writes it (RFC 1035).
+  if (host.length > MAX_HOST_CHARS || labels.some((label) => label.length > MAX_LABEL_CHARS)) return refuse("host");
   if (!hostReadAlike(typed, host)) return refuse("host");
   if (isSafeLinkHost(host)) return refuse("redirect");
   const href = url.href;
