@@ -258,8 +258,9 @@ export async function loadLearnerGlobal() {
       // Standard lessons and the course's own.
       stagesCompleted: completedLessonIds(e).length,
       completed: !!e.completedAt,
-      // Anything saved at all: a rating or an own reflection alone counts
-      // (D37 "the account wins", per course).
+      // Anything saved at all: a rating or an own reflection alone counts.
+      // A guest's course added to the account fills only what it lacks
+      // (D37, D69, D79), and the page then says the account kept its own.
       hasProgress: enrolmentHasProgress(e),
     })),
   };

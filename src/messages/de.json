@@ -1397,6 +1397,9 @@
     "add": "Zu meinem Konto hinzufügen",
     "remove": "Aus diesem Browser entfernen",
     "added": "Zu deinem Konto hinzugefügt.",
+    "addedOwn": "Zu deinem Konto hinzugefügt. Wo dein Konto schon eine eigene Antwort hatte, behält es sie.",
+    "addedMore": "Zu deinem Konto hinzugefügt. In diesem Browser wurde inzwischen mehr gespeichert: Füge es auch hinzu oder entferne es.",
+    "cardShared": "Alles andere wurde zu deinem Konto hinzugefügt. Deine Comp Card ist mit deinen Trainer:innen geteilt, deshalb wurde die Comp Card aus diesem Browser nicht hinzugefügt: Sie bleibt hier. Um sie hinzuzufügen, stell deine Comp Card zuerst auf „Nur ich“, oder entferne sie aus diesem Browser.",
     "removed": "Aus diesem Browser entfernt.",
     "clear": "Meine Arbeit aus diesem Browser löschen",
     "clearConfirm": "Damit werden dein Fortschritt, deine Antworten und deine Comp Card aus diesem Browser entfernt. Das lässt sich nicht rückgängig machen."

@@ -262,6 +262,38 @@ function readGuestWork(): GuestWork | null {
   return guest ? guestWorkOf(guest) : null;
 }
 
+/**
+ * What became of the guest store's work on this page (GuestWorkPrompt):
+ *   added        all of it is in the account, and the browser's copy is gone;
+ *   addedOwn     the same, where the account had saved something of its own
+ *                too: its own answers stay (D37, D69);
+ *   addedMore    what was read is in the account, and a tab still a guest
+ *                saved more meanwhile: that stays, offered again;
+ *   cardShared   all but the Comp Card is in the account: the account's card
+ *                is shared, so nothing moved into it (D80); it stays here;
+ *   removed      removed from this browser, nothing sent;
+ *   failed       a write that didn't get through: it stays, offered again.
+ */
+export type GuestWorkDone = "added" | "addedOwn" | "addedMore" | "cardShared" | "removed" | "failed";
+
+/**
+ * Removes the guest store if it still holds `read`, the text the move read
+ * (compare and remove): a tab still a guest may have saved more since, and
+ * that stays. "removed", "gone" (another tab removed it meanwhile) or
+ * "changed".
+ */
+function removeGuestStoreIf(read: string): "removed" | "gone" | "changed" {
+  try {
+    const now = window.localStorage.getItem(STORAGE_KEY);
+    if (now === null) return "gone";
+    if (now !== read) return "changed";
+    window.localStorage.removeItem(STORAGE_KEY);
+    return "removed";
+  } catch {
+    return "gone"; // the browser's storage can't be reached: nothing to remove or offer
+  }
+}
+
 type Action =
   | { type: "setProject"; projectId: string }
   | { type: "setRole"; role: Role | null }
@@ -574,8 +606,8 @@ interface ContextValue {
    * Null when there is none, for guests, and until their data has loaded.
    */
   guestWork: GuestWork | null;
-  /** What became of it on this page: added to the account, removed from this browser, or a move that didn't start. */
-  guestWorkDone: "added" | "removed" | "failed" | null;
+  /** What became of it on this page (GuestWorkDone). */
+  guestWorkDone: GuestWorkDone | null;
   /** "Add it to my account": the guest store moves into the account (guest-migration.ts), then is removed. */
   claimGuestWork: () => Promise<void>;
   /** "Remove it from this browser": the guest store is removed; nothing is sent. */
@@ -656,7 +688,7 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
   // work on offer, and what became of it.
   const [profileIncomplete, setProfileIncomplete] = React.useState(false);
   const [guestWork, setGuestWork] = React.useState<GuestWork | null>(null);
-  const [guestWorkDone, setGuestWorkDone] = React.useState<"added" | "removed" | "failed" | null>(null);
+  const [guestWorkDone, setGuestWorkDone] = React.useState<GuestWorkDone | null>(null);
   // A guest's work just cleared: the guest write-through doesn't write the
   // empty store back.
   const clearedGuest = React.useRef(false);
@@ -1097,17 +1129,22 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
   // ---- The guest store's work (spec 5.5) ----
   // "Add it to my account": what the account holds now is read first (the
   // guest store stays if that fails), then the guest store is moved in
-  // under the account-wins rules (guest-migration.ts), each write tried
-  // again, and removed once every write is through: until then it outlives
-  // a tab closed mid-move, and is offered again (a second move changes
-  // nothing: the account has it, and wins). What the account should now
-  // hold goes to the store whether its write got through or not, and the
-  // store's write-throughs save what didn't: the Comp Card, the badges not
-  // yet awarded, and the course once it has loaded (migratedRef, read back
-  // from the server and merged, the account's answers first). The page
-  // says it was added only once every write is through: someone who signs
-  // out on a shared computer when told so leaves nothing of theirs behind.
-  // A write that didn't get through is said too, and the offer comes back.
+  // under the account-wins rules (guest-migration.ts: what the account
+  // lacks is filled in), each write tried again, and removed once every
+  // write is through: until then it outlives a tab closed mid-move, and is
+  // offered again (a second move changes nothing: the account has it, and
+  // wins). It is removed only as it was read: a tab still a guest (its
+  // session not yet read again) may have saved more meanwhile, which stays
+  // and is offered again; and not while the Comp Card in it was held back
+  // from a card the account shares (D80), which stays too. What the
+  // account should now hold goes to the store whether its write got
+  // through or not, and the store's write-throughs save what didn't: the
+  // Comp Card, the badges not yet awarded, and the course once it has
+  // loaded (migratedRef, read back from the server and merged, the
+  // account's answers first). The page says it was added only once every
+  // write is through: someone who signs out on a shared computer when told
+  // so leaves nothing of theirs behind. A write that didn't get through is
+  // said too, and the offer comes back; so is what wasn't moved, and why.
   const claimGuestWork = React.useCallback(async () => {
     const forUser = dbOwnerRef.current;
     if (!forUser) return;
@@ -1119,16 +1156,20 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     if (dbOwnerRef.current !== forUser) return;
-    const guest = readGuestStore();
-    const removeGuestStore = () => {
-      try {
-        window.localStorage.removeItem(STORAGE_KEY);
-      } catch {
-        /* nothing to remove */
-      }
-    };
+    let read: string | null = null;
+    try {
+      read = window.localStorage.getItem(STORAGE_KEY);
+    } catch {
+      /* none to read */
+    }
+    let guest: DemoState | null = null;
+    try {
+      guest = read ? storedGuestState(JSON.parse(read), DEFAULT_STATE) : null;
+    } catch {
+      /* unreadable: removed below */
+    }
     if (!guest) {
-      removeGuestStore();
+      if (read !== null) removeGuestStoreIf(read);
       setGuestWork(null);
       setGuestWorkDone("added");
       return;
@@ -1138,12 +1179,12 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
       { compCard: saved.compCard as CompCardData | null, badges: saved.badges, enrollments: saved.enrollments },
       {
         awardBadge: (slug) => awardBadgeAction(slug, forUser),
-        saveCompCard: (card) => saveCompCard(cardToSave(card), forUser),
+        saveCompCard: (input) => saveCompCard(input, forUser),
         saveCourse: (slug, patch) => saveCourseProgressPatch(slug, patch, forUser),
       }
     );
-    // All of it in the account: the browser's copy goes.
-    if (migrated.settled) removeGuestStore();
+    // All of it in the account: the browser's copy goes, as it was read.
+    const removal = migrated.settled && !migrated.cardHeldBack ? removeGuestStoreIf(read!) : null;
     // The account let go of meanwhile (signed out, another account): none
     // of it goes to the next one.
     if (dbOwnerRef.current !== forUser) return;
@@ -1155,13 +1196,17 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
     }
     // Server-rendered parts (the dashboard) show what was just written.
     if (migrated.wrote) router.refresh();
-    if (migrated.settled) {
-      setGuestWork(null);
-      setGuestWorkDone("added");
-    } else {
+    if (!migrated.settled) {
       // Offered again: a second move sends only what the account lacks.
       setGuestWork(guestWorkOf(guest));
       setGuestWorkDone("failed");
+    } else if (migrated.cardHeldBack || removal === "changed") {
+      // What stays in this browser is offered again, as it is now.
+      setGuestWork(readGuestWork());
+      setGuestWorkDone(migrated.cardHeldBack ? "cardShared" : "addedMore");
+    } else {
+      setGuestWork(null);
+      setGuestWorkDone(migrated.accountFirst ? "addedOwn" : "added");
     }
   }, [router]);
 

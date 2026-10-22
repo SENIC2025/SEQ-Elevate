@@ -17,8 +17,11 @@ import { useDemoState } from "@/store/demo-state";
  * hub; focus isn't moved to it. While the work is being added it says so;
  * once a choice is made, what became of the work takes its place, and
  * focus goes there (the button pressed is gone). "Added" is said only once
- * all of it is in the account; a move that didn't get through says so, and
- * the choice is offered again.
+ * all of it is in the account, and that the account kept its own answers
+ * where it had some (D37, D69). A move that didn't get through says so,
+ * and the choice is offered again; so is what a tab still a guest saved
+ * meanwhile, and a Comp Card held back from a card the account shares
+ * (D80), with what to do to add it.
  * Nothing is shown when there is no such work (and never in the recorded
  * walk, which signs in with no guest store).
  */
@@ -42,13 +45,13 @@ export function GuestWorkPrompt() {
 
   const outcome = busy
     ? tCompCard("saving")
-    : guestWorkDone === "added"
-      ? t("added")
-      : guestWorkDone === "removed"
-        ? t("removed")
-        : guestWorkDone === "failed"
-          ? tProfile("failed")
-          : null;
+    : guestWorkDone === "failed"
+      ? tProfile("failed")
+      : guestWorkDone
+        ? t(guestWorkDone)
+        : null;
+  // Nothing left in this browser to choose about.
+  const finished = guestWorkDone === "added" || guestWorkDone === "addedOwn" || guestWorkDone === "removed";
 
   return (
     <section aria-labelledby={`${ids}-title`} className="mx-auto max-w-6xl px-4 pt-6">
@@ -56,7 +59,7 @@ export function GuestWorkPrompt() {
         <h2 id={`${ids}-title`} className="text-base font-semibold">
           {t("title")}
         </h2>
-        {guestWork && guestWorkDone !== "added" && guestWorkDone !== "removed" ? (
+        {guestWork && !finished ? (
           <>
             <p className="mt-1 text-sm">
               <CoursesIn

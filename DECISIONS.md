@@ -373,6 +373,7 @@ Single source of truth for decisions made, decisions still open, and the rationa
 **Decided**: 20 October 2026 · *Decider: SENIC principal (spec §8; owner default 6)*
 - Within that course a guest gets per-lesson and per-item answers, restore and resume, as a signed-in learner does.
 - On sign-in the course moves into the account only when the account has no progress in it, and only fills what the account lacks; when the course then loads, the account's answers come first (D37: the account wins).
+- *Amended in Release 3 (D79, as built 22 October; for the owner to confirm):* the course moves also into an account that has progress in it, filling only what the account lacks.
 - *Reason:* pilot learners sign in (Release 3's sign-up step); a guest store of several courses needs other fixes first.
 
 ### D70 · Scope notes for Release 2
@@ -442,6 +443,7 @@ Single source of truth for decisions made, decisions still open, and the rationa
 - The Learner membership is created by the profile step, not by the browser. Before the profile is complete nothing of the person's learning is saved (they are told), and nothing moves from the browser into the account.
 - After it, a browser holding guest work asks "Add it to my account" or "Remove it from this browser", and moves nothing unasked (shared computers).
 - *As built:* "Added" shows only once the work is in the account, and the browser's copy is removed then. Activity records wait until the person's data has loaded.
+- *As built (22 October, Release 3 polish):* "Add it to my account" fills what the account lacks, answer by answer in the course (fill mode) and field by field in the Comp Card, also in a course the account already has progress in: its own lessons and answers stay, the guest's are added, the completion too (this replaces D69's "only when the account has no progress in it", a builder's default for the owner to confirm; D37's "the account wins" holds answer by answer). Where the account had answers of its own, the page says it kept them. A Comp Card the account shares gets nothing (moving never shares, D80): the guest's card stays in the browser, and the page says to set the card to "Only me" to add it, or to remove it. The browser's copy is removed only as it was read: what a tab still a guest saves meanwhile stays, and is offered again.
 
 ### D80 · Comp Card privacy (amends D19)
 **Decided**: 21 October 2026 · *Decider: SENIC principal (spec §16; owner confirmation 4, default applied); consortium default Q16 (sharing is consent-based)*

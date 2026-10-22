@@ -1397,6 +1397,9 @@
     "add": "Add it to my account",
     "remove": "Remove it from this browser",
     "added": "Added to your account.",
+    "addedOwn": "Added to your account. Where your account already had an answer of its own, it keeps it.",
+    "addedMore": "Added to your account. More was saved on this browser meanwhile: add it too, or remove it.",
+    "cardShared": "Everything else was added to your account. Your Comp Card is shared with your facilitators, so the Comp Card from this browser wasn't added to it: it stays here. To add it, set your Comp Card to “Only me” first, or remove it from this browser.",
     "removed": "Removed from this browser.",
     "clear": "Clear my work from this browser",
     "clearConfirm": "This removes your progress, answers and Comp Card from this browser. It can't be undone."

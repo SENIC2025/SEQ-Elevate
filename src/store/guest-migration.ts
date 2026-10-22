@@ -6,15 +6,20 @@
  * it is theirs ("Add it to my account", claimGuestWork in demo-state.tsx),
  * once their profile step is done — on a shared computer it may be someone
  * else's. Until then it stays in the guest store, untouched, and the
- * learner store offers it (guestWorkOf). It moves only where the account
- * has none: the saved data always wins — per course for the course (D37, D69:
- * the guest store holds one), which is sent in fill mode, so the account
- * still wins if another device saves it at the same moment (spec 5.4).
+ * learner store offers it (guestWorkOf). It fills only what the account
+ * lacks: what the account has saved always wins (D37, D69), answer by
+ * answer in the course (the guest store holds one; it is sent in fill
+ * mode, so the account still wins if another device saves it at the same
+ * moment, spec 5.4) and field by field in the Comp Card, so a course the
+ * account started elsewhere still gets the guest's lessons, answers and
+ * completion (D79: what the page says was added is in the account). A
+ * Comp Card the account shares gets nothing: moving never shares (D80);
+ * the guest's card stays in the browser (`cardHeldBack`).
  * The guest store is emptied only once every write has got through (or
- * been refused, which no try can change: `settled`): until then it is the
- * copy that outlives a tab closed mid-move, and is offered again on the
- * next page. Moving it twice changes nothing — the account has it then,
- * and wins. No write is given up on at its first failure — a dropped
+ * been refused, which no try can change: `settled`) and nothing was held
+ * back: until then it is the copy that outlives a tab closed mid-move, and
+ * is offered again on the next page. Moving it twice changes nothing —
+ * the account has it then, and wins. No write is given up on at its first failure — a dropped
  * connection, or a session lookup that failed (the save actions fail then:
  * see requireLearner in src/app/actions/learner.ts) — and one failure
  * doesn't stop the rest: each write is tried again (retry.ts), and what
@@ -47,7 +52,8 @@ export interface SavedGlobal {
 /** The writes that move it, for the learner who signed in. */
 export interface GuestWrites {
   awardBadge(slug: string): Promise<unknown>;
-  saveCompCard(card: CompCardData): Promise<unknown>;
+  /** saveCompCard, with the fields to fill in (cardFill): never who sees the card. */
+  saveCompCard(input: CompCardInput): Promise<unknown>;
   /** saveCourseProgressPatch, with a patch in fill mode. */
   saveCourse(slug: string, patch: ProgressPatch): Promise<unknown>;
 }
@@ -57,14 +63,46 @@ export interface Migrated {
   badges: string[];
   /** Of those, the ones the server holds now; the store awards the rest. */
   awarded: string[];
-  /** The Comp Card: the saved one, else the guest's (null: neither). */
+  /**
+   * The Comp Card: the saved one with what it lacked filled in from the
+   * guest's, else the guest's as "Only me" (null: neither).
+   */
   compCard: CompCardData | null;
-  /** The guest's course, when it moves to the account; else null. */
+  /** The guest's course, when it holds any progress: it moves, filling what the account lacks; else null. */
   course: CourseProgress | null;
   /** Did any write get through (so server-rendered pages are stale)? */
   wrote: boolean;
   /** Did every write get through or get refused (none left to the store)? */
   settled: boolean;
+  /** Had the account saved something of its own where the guest had too (its own answers stay)? */
+  accountFirst: boolean;
+  /** Did the guest's Comp Card have text for a card the account shares, so that nothing of it moved (D80)? */
+  cardHeldBack: boolean;
+}
+
+/** The confidence of a card no one has touched: the blank card's (DEFAULT_STATE) and the database's default. */
+const BLANK_CONFIDENCE = 3;
+
+/**
+ * What of the guest's Comp Card (`guest`) an account whose card is `saved`
+ * gets (D37, D69: the account wins, field by field): every text it holds,
+ * within COMP_CARD_TEXT_MAX, where the saved card has none, and its
+ * confidence when the saved card has nothing in it at all (a card in use
+ * has a confidence of its own, even the default). No saved card: the whole
+ * card (cardToSave). Null when there is nothing to fill in, or the guest
+ * never filled the card in. Never who sees the card.
+ */
+export function cardFill(guest: CompCardData, saved: CompCardData | null): CompCardInput | null {
+  if (!guest.updatedAt) return null;
+  if (!saved) return cardToSave(guest);
+  const input: CompCardInput = {};
+  for (const field of COMP_CARD_FIELDS) {
+    const text = guest[field];
+    if (answered(text) && !answered(saved[field]) && text.length <= COMP_CARD_TEXT_MAX) input[field] = text;
+  }
+  const savedBlank = COMP_CARD_FIELDS.every((f) => !answered(saved[f])) && saved.confidence === BLANK_CONFIDENCE;
+  if (savedBlank && guest.confidence !== BLANK_CONFIDENCE) input.confidence = guest.confidence;
+  return Object.keys(input).length > 0 ? input : null;
 }
 
 /**
@@ -110,34 +148,51 @@ export async function migrateGuest(
     if (await write(() => writes.awardBadge(slug))) awarded.push(slug);
   }
 
-  // Comp Card: only if the account has none, as "Only me" (the save never
-  // shares). A refused save (a text over the limit) isn't counted as saved:
-  // the card stays in the store, whose write-through saves the rest.
+  // Comp Card: what the account's lacks, field by field (cardFill); no
+  // card, the guest's, as "Only me" (the save never shares). A card the
+  // account shares gets nothing: what moves into it would be shared without
+  // the learner choosing so (D80). A refused save (a text over the limit)
+  // isn't counted as saved: the card stays in the store, whose write-through
+  // saves the rest.
   let compCard = saved.compCard;
+  let accountFirst = false;
+  let cardHeldBack = false;
   const guestCard = guest.compCard;
-  if (!compCard && guestCard?.updatedAt) {
-    await write(() => writes.saveCompCard(guestCard));
-    compCard = { ...guestCard, sharing: "onlyMe", sharedAt: null, organisationName: null };
+  const fill = guestCard ? cardFill(guestCard, saved.compCard) : null;
+  if (guestCard && saved.compCard) {
+    accountFirst ||= COMP_CARD_FIELDS.some((f) => answered(guestCard[f]) && answered(saved.compCard?.[f]));
+  }
+  if (guestCard && fill) {
+    if (saved.compCard?.sharing === "facilitators") {
+      cardHeldBack = true;
+    } else {
+      await write(() => writes.saveCompCard(fill));
+      compCard = saved.compCard
+        ? { ...saved.compCard, ...fill, updatedAt: guestCard.updatedAt }
+        : { ...guestCard, sharing: "onlyMe", sharedAt: null, organisationName: null };
+    }
   }
 
-  // Course: the guest store only holds the last-played course. Only if the
-  // account has no progress in it yet (an enrolment from before Release 2
-  // says so by its lessons done). Everything the guest did in it is sent,
-  // within what one save may hold (fitPatch): the store saves the rest once
-  // the course has loaded, as it does a write that didn't get through.
+  // Course: the guest store only holds the last-played course. Everything
+  // the guest did in it is sent in fill mode, within what one save may hold
+  // (fitPatch), also when the account has progress in it (an enrolment from
+  // before Release 2 says so by its lessons done): the server keeps the
+  // account's lessons and answers and adds only what it lacks, the
+  // completion included. The store saves the rest once the course has
+  // loaded, as it does a write that didn't get through.
   let course: CourseProgress | null = null;
   const gc = guest.course;
   const slug = gc?.courseSlug;
-  const account = saved.enrollments.find((e) => e.slug === slug);
-  const accountHasProgress = account ? (account.hasProgress ?? account.stagesCompleted > 0) : false;
-  if (slug && hasCourseProgress(gc) && !accountHasProgress) {
+  if (slug && hasCourseProgress(gc)) {
+    const account = saved.enrollments.find((e) => e.slug === slug);
+    accountFirst ||= account ? (account.hasProgress ?? account.stagesCompleted > 0) : false;
     const all = patchSince(EMPTY_PROGRESS, gc);
     const patch = all && fitPatch({ ...all, fill: true }).patch;
     if (patch) await write(() => writes.saveCourse(slug, patch));
     course = gc;
   }
 
-  return { badges: [...saved.badges, ...newBadges], awarded, compCard, course, wrote, settled };
+  return { badges: [...saved.badges, ...newBadges], awarded, compCard, course, wrote, settled, accountFirst, cardHeldBack };
 }
 
 /** A summary of the work a guest store holds, for the prompt that offers it (spec 5.5). */
