@@ -979,8 +979,11 @@ describe("Release 4: the references actions refuse who they must, and change not
       expect(Date.now() - started, `${row.name}: answered in the action's normal time`).toBeLessThan(10_000);
       if (result.ok) {
         base = result.base ?? null;
-        const stored = JSON.stringify(((await bibliographyOf(r4.courseId)) as { locales: { en: { rich: unknown } } }).locales.en.rich);
-        expect(stored, `${row.name}: no hostile address or attribute is stored`).not.toMatch(
+        const rich = ((await bibliographyOf(r4.courseId)) as { locales: { en: { rich: unknown } } }).locales.en.rich;
+        const stored = JSON.stringify(rich);
+        // Outside the words: a label may name a host as text ("paypal.com.evil.example").
+        const outsideWords = JSON.stringify(rich, (key, value) => (key === "text" ? undefined : value));
+        expect(outsideWords, `${row.name}: no hostile address or attribute is stored`).not.toMatch(
           /javascript|vbscript|data:|file:|evil|onclick|style|_self|opener|safelinks|blob\.vercel/i
         );
         if (links) {
