@@ -19,7 +19,9 @@ import type { Scope, ScopeShape } from "./scope";
  * no private field, and the brand is one), nor a change of a real scope in
  * place (its fields are read-only; at run time it is frozen). What would
  * get round the type check (the test-only factory, an assertion, an any)
- * in src/ outside tests fails the scope guard (scope-guard.test.ts).
+ * in src/ outside tests fails the scope guard (scope-guard.test.ts). The
+ * scope of roles and settings a caller chooses (scopeFor) isn't exported:
+ * tests reach it as testOnlyScopeFor, which the guard refuses outside tests.
  */
 
 // @ts-expect-error a hand-made project scope isn't a Scope (SS4)
@@ -73,16 +75,26 @@ describe("a Scope is made only by the scope module (SS4, tsc)", { timeout: 120_0
   it("refuses a hand-made literal, as a value and as an argument; accepts what the module makes", () => {
     const errors = typeErrors(
       [
-        `import { getViewerScope, learnerUsersInScope, scopeFor, testOnlyScope, type Scope } from "@/lib/scope";`,
+        `import { getViewerScope, learnerUsersInScope, testOnlyScopeFor, testOnlyScope, type Scope } from "@/lib/scope";`,
         `export const forged: Scope = { kind: "project", viewerId: "x", viewerOrganisationId: null };`,
         `export const filter = learnerUsersInScope({ kind: "organisation", viewerId: "x", organisationId: "org-a" });`,
-        `export const built: Scope = scopeFor({ userId: "u", name: "N", roles: ["ADMIN"], profile: null }, {});`,
+        `export const built: Scope = testOnlyScopeFor({ userId: "u", name: "N", roles: ["ADMIN"], profile: null }, {});`,
         `export const forTests: Scope = testOnlyScope({ kind: "none" });`,
         `export async function mine(): Promise<Scope> { return getViewerScope(); }`,
       ].join("\n")
     );
     // Line 2 (the literal) and line 3 (the literal as an argument), and nothing else.
     expect(errors).toEqual(["2: TS2322", "3: TS2345"]);
+  });
+
+  it("doesn't export the scope of roles and settings a caller chooses: only its test-only name, which the guard refuses outside tests", () => {
+    const errors = typeErrors(
+      [
+        `import { scopeFor } from "@/lib/scope";`,
+        `export const everyone = scopeFor({ userId: "u", name: "N", roles: ["ADMIN"], profile: null }, {});`,
+      ].join("\n")
+    );
+    expect(errors).toEqual(["1: TS2459"]);
   });
 
   it("refuses a copy of a real scope with its fields changed, and a real scope changed in place", () => {

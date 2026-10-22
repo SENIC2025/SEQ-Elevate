@@ -30,12 +30,17 @@ import "server-only";
  * doesn't copy: outside this file neither a hand-made literal nor a copy of
  * a real scope with its fields changed type-checks. Its fields are
  * read-only, and every scope made here is frozen, so one can't be changed
- * in place either. Tests make one with testOnlyScope. The scope guard
+ * in place either. Tests make one with testOnlyScope, or testOnlyScopeFor
+ * (the scope of the roles and settings they pass). The scope guard
  * (scope-guard.test.ts) reads src/ with the type checker and fails, outside
- * this file and tests, for that name, for an assertion to a Scope (or to a
- * type holding one) under any spelling, for an any or never where a Scope
- * is expected, for an object literal there, and for Object.assign and the
- * like on a Scope.
+ * this file and tests, for those names, for an assertion to a Scope (or to
+ * a type holding one) under any spelling, for an any or never where a Scope
+ * is expected (also inside an array or a promise), for an object literal
+ * there, for Object.assign and the like on a Scope or copying one, for a
+ * generic function that makes its type parameter's value (an assertion, a
+ * spread, Object.assign, an any) when a Scope comes out of it, for a type
+ * predicate or an overload that answers a Scope, and for a server action
+ * that takes a Scope or a Viewer from its caller.
  */
 
 import { cache } from "react";
@@ -78,7 +83,7 @@ const made = (shape: ScopeShape): Scope => Object.freeze({ ...shape }) as Scope;
 /**
  * A scope for a test, of any shape. For tests only: the scope guard
  * (scope-guard.test.ts) fails for this name anywhere in src/ outside tests
- * and this module. Code gets its scope from getViewer or scopeFor.
+ * and this module. Code gets its scope from getViewer (getViewerScope).
  */
 export function testOnlyScope(shape: ScopeShape): Scope {
   return made(shape);
@@ -102,10 +107,12 @@ const NOBODY: Viewer = Object.freeze({ user: null, roles: Object.freeze([]), pro
 export const MATCH_NOTHING = { id: { in: [] as string[] } } as const;
 
 /**
- * The scope of a signed-in viewer, from what was read about them. Pure, so
- * every rule is tested on its own.
+ * The scope of a signed-in viewer, from what was read about them (getViewer).
+ * Not exported: a scope of roles and settings a caller chose would be a real
+ * Scope of whatever they chose. Pure, so every rule is tested on its own,
+ * through testOnlyScopeFor.
  */
-export function scopeFor(
+function scopeFor(
   viewer: {
     userId: string;
     name: string | null;
@@ -127,6 +134,14 @@ export function scopeFor(
     return made({ kind: "organisation", viewerId: viewer.userId, organisationId });
   }
   return NONE;
+}
+
+/**
+ * scopeFor, for its tests. For tests only: the scope guard fails for this
+ * name anywhere in src/ outside tests and this module, as for testOnlyScope.
+ */
+export function testOnlyScopeFor(...args: Parameters<typeof scopeFor>): Scope {
+  return scopeFor(...args);
 }
 
 /** Who is asking, with their roles, profile and scope. Read once per request. */

@@ -49,9 +49,9 @@ import {
   organisationsInScope,
   peopleInScope,
   requireAdminProject,
-  scopeFor,
   statisticsMembershipsInScope,
   testOnlyScope,
+  testOnlyScopeFor as scopeFor,
   type Scope,
 } from "./scope";
 import { currentTermsVersion } from "./profile";
