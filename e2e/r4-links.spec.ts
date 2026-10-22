@@ -6,6 +6,7 @@ import { createPerson, removePeople, runId, signIn } from "./fixtures/people";
 import { ownLessonId, parts, partId, PROJECT } from "./fixtures/r2-course";
 import { removeECourse, seedECourse } from "./fixtures/r3-e-course";
 import {
+  ACCEPTED_LABELS,
   HOSTILE_ADDRESSES,
   HOSTILE_MARKS,
   RENDER_ONLY_MARKS,
@@ -39,10 +40,14 @@ import { addressProblem } from "@/lib/rich-text/sanitize";
  *          saveLessonNarrative and savePartText is refused by name (extra
  *          attributes: stored without them), and nothing changes; so are
  *          links read with the text touching them (WORD_MARKS).
+ *   R4-E6c link text with a dot that shows no other site (ACCEPTED_LABELS:
+ *          an abbreviation, the link's registrable domain) is saved with
+ *          its link, through both actions.
  *   R4-E7  (guard) hostile links written straight into the database: no page
  *          draws an href outside https, http and mailto, nor one whose text
  *          shows another address; the text of every refused link shows; the
- *          editor opens them safely and names the links it left out.
+ *          editor opens them safely and names the links it left out. The
+ *          ACCEPTED_LABELS are drawn as links.
  *   R4-E7b editing a link's text into another address: named at once, Save
  *          refused by name, nothing stored without the link; the words go
  *          to Save beside the text, so an older save keeps them.
@@ -148,6 +153,8 @@ const WORD_MARKS: readonly { name: string; rich: ReturnType<typeof paragraphDoc>
 const HOSTILE_SHAPES = [...HOSTILE_MARKS, ...RENDER_ONLY_MARKS, ...WORD_MARKS].map((row, i) =>
   richBlock(row.rich, `Shape ${i}`)
 );
+/** Link text with a dot that shows no other site, each its own paragraph: kept as a link. */
+const ACCEPTED_BLOCKS = ACCEPTED_LABELS.map(({ label, href }) => richBlock(linkedParagraph(href, label), `Read ${label} today.`));
 
 async function setNarrative(stageKey: string, value: unknown) {
   await prisma.lesson.updateMany({
@@ -270,7 +277,7 @@ describe("Release 4 — links in lesson text", () => {
       slug: SLUG_H,
       title: { en: `E2E R4 hostile links ${RUN}` },
       lessons: [
-        { id: HOSTILE, narrative: narrative("R4 hostile links", [...HOSTILE_BLOCKS, ...HOSTILE_SHAPES]) },
+        { id: HOSTILE, narrative: narrative("R4 hostile links", [...HOSTILE_BLOCKS, ...HOSTILE_SHAPES, ...ACCEPTED_BLOCKS]) },
         // A standard lesson, drawn by the standard path.
         { id: "context", narrative: narrative("R4 hostile standard", HOSTILE_BLOCKS.slice(0, 8)) },
       ],
@@ -488,6 +495,14 @@ describe("Release 4 — links in lesson text", () => {
     await expect(form.getByRole("alert")).toHaveText(
       "The text shows a different address than the link opens. Show the real address, or use a few words."
     );
+    // A file's name that ends in a top-level domain looks like a web address
+    // (refused all the same: it fails safe), and the form says so.
+    await text.fill("course-materials.zip");
+    await address.fill("https://example.org/files/course-materials");
+    await text.press("Enter");
+    await expect(form.getByRole("alert")).toHaveText(
+      "The text looks like a web address, but the link opens another one. Use a few words instead, or show the real address."
+    );
 
     // The form, open and refusing, passes axe.
     const axe = await new AxeBuilder({ page })
@@ -650,6 +665,13 @@ describe("Release 4 — links in lesson text", () => {
         /Block 1 \(Paragraph\): the link text “www\.bank\.example” shows a different address than the link opens\./,
       "two touching links that together show another address":
         /Block 1 \(Paragraph\): the link text “https:\/\/bank\.example” shows a different address than the link opens\./,
+      // Names read only by the top-level domain they end in look like a web address.
+      "a label that shows another site through look-alike letters":
+        /Block 1 \(Paragraph\): the link text “paypal\.соm” looks like a web address, but the link opens another one\./,
+      "a label that shows another site as a host wrapped for emphasis":
+        /Block 1 \(Paragraph\): the link text “_paypal\.com_” looks like a web address, but the link opens another one\./,
+      "a label that shows another site in front of the link's":
+        /Block 1 \(Paragraph\): the link text “paypal\.com\.evil\.example” looks like a web address, but the link opens another one\./,
     };
     for (const row of WORD_MARKS) {
       named[row.name] = new RegExp(
@@ -673,6 +695,65 @@ describe("Release 4 — links in lesson text", () => {
     expect(stored.rich).toEqual(linkedParagraph("https://example.org/guide"));
     expect(stored.text).toBe("Read the guide (https://example.org/guide) today.");
     expect((await savePiece(extra.rich)).result).toMatchObject({ ok: true });
+  });
+
+  test("R4-E6c: link text with a dot that shows no other site (an abbreviation, the link's registrable domain) is saved with its link", async ({
+    request,
+  }) => {
+    // From no English text, so a save starts from no base.
+    await setNarrative(SAVES, { de: { title: "Nur Deutsch", blocks: [plain("Nur Deutsch.")] } });
+    await prisma.lesson.updateMany({
+      where: { projectId: PROJECT, courseSlug: SLUG, stageKey: PIECES },
+      data: { parts: { v: 1, items: [{ id: "main", type: "main" }, parts.text({ de: "Nur Deutsch." }, PIECE)] } as unknown as Json },
+    });
+    const page = `/en/content/courses/${SLUG}`;
+    const accepted = ACCEPTED_LABELS.map(({ label, href }) => richBlock(linkedParagraph(href, label), `Read ${label} today.`));
+    const textAnswer = await callAction(request, {
+      as: editor,
+      page,
+      file: "src/app/actions/lesson.ts",
+      name: "saveLessonNarrative",
+      args: [SLUG, SAVES, "en", { title: "R4 direct saves", blocks: accepted }, null],
+    });
+    expect(textAnswer.result, textAnswer.raw.slice(0, 300)).toMatchObject({ ok: true });
+    const kept = await storedBlocks(SAVES);
+    expect(kept.map((block) => block.rich)).toEqual(ACCEPTED_LABELS.map(({ label, href }) => linkedParagraph(href, label)));
+    for (const [i, { href }] of ACCEPTED_LABELS.entries()) expect(kept[i].text, href).toContain(`(${href})`);
+    const pieceAnswer = await callAction(request, {
+      as: editor,
+      page,
+      file: "src/app/actions/parts.ts",
+      name: "savePartText",
+      args: [SLUG, PIECES, PIECE, "en", accepted, null],
+    });
+    expect(pieceAnswer.result, pieceAnswer.raw.slice(0, 300)).toMatchObject({ ok: true });
+    const piece = await prisma.lesson.findFirstOrThrow({
+      where: { projectId: PROJECT, courseSlug: SLUG, stageKey: PIECES },
+      select: { parts: true },
+    });
+    for (const { href } of ACCEPTED_LABELS) expect(JSON.stringify(piece.parts), href).toContain(`"attrs":{"href":"${href}"}`);
+  });
+
+  // A reflection lesson's introduction is saved by saveLessonNarrative, which
+  // hands its one paragraph to sanitizeNarrativeBlocks as a lesson's blocks;
+  // the introduction's wording (sanitizeNarrativeBlocks(…, "reflection-intro"),
+  // as its editor's problem line says it) comes when R2 may edit
+  // src/app/actions/lesson.ts (Release 3 Stream E's until 13 Nov; spec 9.3).
+  test.fixme("R4-E6b (R2): a reflection lesson's introduction over the limit is refused by its name: \"Shorten it.\"", async ({
+    request,
+  }) => {
+    const answer = await callAction(request, {
+      as: editor,
+      page: `/en/content/courses/${SLUG}`,
+      file: "src/app/actions/lesson.ts",
+      name: "saveLessonNarrative",
+      args: [SLUG, "reflection", "en", { title: "R4 reflection", blocks: [{ kind: "paragraph", text: "x".repeat(10_001) }] }, null],
+    });
+    expect(answer.result, answer.raw.slice(0, 300)).toEqual({
+      ok: false,
+      error: "invalid",
+      issues: ["The introduction is too long — at most 10,000 characters. Shorten it."],
+    });
   });
 
   test("R4-E7 (guard): hostile links stored straight into the database draw no unsafe href, anywhere", async ({
@@ -709,6 +790,10 @@ describe("Release 4 — links in lesson text", () => {
       await expect(scope.getByText("Row 0: the guide 0 today.")).toBeVisible({ timeout: 20_000 });
       for (let i = 0; i < HOSTILE_BLOCKS.length; i++) {
         await expect(scope.getByText(`the guide ${i}`, { exact: false }).first(), `${name}: row ${i}`).toBeVisible();
+      }
+      // Link text with a dot that shows no other site is drawn as a link.
+      for (const { label, href } of ACCEPTED_LABELS) {
+        await expect(scope.locator(`a[href="${href}"]`, { hasText: label }).first(), `${name}: ${label}`).toBeVisible();
       }
       const hrefs = await scope.locator("a[href]").evaluateAll((links) => links.map((a) => a.getAttribute("href") ?? ""));
       for (const href of hrefs) {
