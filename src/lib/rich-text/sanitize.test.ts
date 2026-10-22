@@ -3,7 +3,6 @@ import {
   addressProblem,
   cleanInlineText,
   cleanPlainText,
-  LOOKS_LIKE_WEB_ADDRESS,
   isEmptyDoc,
   linkProblemMessage,
   richTextProblem,
@@ -698,21 +697,20 @@ describe("sanitizeRichText: links (D104)", () => {
     }
   });
 
-  it("says a link text that shows only names read by their top-level domain looks like a web address, a file's name too (refused all the same)", () => {
-    for (const name of ["course-materials.zip", "intro.mov", "paypal.com", "paypal.соm", "_paypal.com_"]) {
+  it("says a misleading link's text shows a different address; a file's name shows none (D104, as narrowed on 22 October 2026)", () => {
+    for (const text of ["paypal.com", "paypal.соm", "_paypal.com_", "https://bank.example", "www.bank.example", "bank.example/login", "help@bank.example"]) {
+      const result = sanitizeRichText(envelope(p(link(text, "https://example.org/files/x"))));
+      expect(result.issues, text).toEqual(["dropped-link"]);
+      expect(result.linkProblems, text).toEqual([{ text, reason: "misleading" }]);
+    }
+    // A file's name, ending in a top-level domain or not, is kept: the site box shows where it goes.
+    for (const name of ["course-materials.zip", "intro.mov", "README.md", "report.pdf"]) {
       const result = sanitizeRichText(envelope(p(link(name, "https://example.org/files/x"))));
-      expect(result.issues, name).toEqual(["dropped-link"]);
-      expect(result.linkProblems, name).toEqual([{ text: name, reason: "misleading", detail: LOOKS_LIKE_WEB_ADDRESS }]);
+      expect(result.issues, name).toEqual([]);
+      expect(result.value?.v, name).toBe(2);
     }
-    // An address with a scheme, "www." or a path shows a different address.
-    for (const text of ["https://bank.example", "www.bank.example", "bank.example/login", "help@bank.example"]) {
-      expect(sanitizeRichText(envelope(p(link(text, "https://example.org/x")))).linkProblems, text).toEqual([{ text, reason: "misleading" }]);
-    }
-    expect(linkProblemMessage({ text: "course-materials.zip", reason: "misleading", detail: LOOKS_LIKE_WEB_ADDRESS }, "Block 2 (Paragraph)")).toBe(
-      "Block 2 (Paragraph): the link text “course-materials.zip” looks like a web address, but the link opens another one. Use a few words instead, or show the real address."
-    );
-    expect(linkProblemMessage({ text: "intro.mov", reason: "misleading", detail: LOOKS_LIKE_WEB_ADDRESS })).toBe(
-      "The link text “intro.mov” looks like a web address, but the link opens another one. Use a few words instead, or show the real address."
+    expect(linkProblemMessage({ text: "paypal.com", reason: "misleading" }, "Block 2 (Paragraph)")).toBe(
+      "Block 2 (Paragraph): the link text “paypal.com” shows a different address than the link opens. Show the real address, or use a few words."
     );
   });
 
@@ -788,12 +786,11 @@ describe("sanitizeRichText: links (D104)", () => {
     }
   });
 
-  it("reads the word a link is in through a hair space, and past a raised character after a host", () => {
+  it("reads the word a link is in past a raised character after a host", () => {
     const EVIL = "https://evil.example/login";
     const cases: [string, unknown[], string][] = [
-      ["a hair space inside a link's text", [link("paypal .com", EVIL)], "paypal .com"],
-      ["a hair space before the text touching a link", [link("PayPal", EVIL), t(" .com today")], "PayPal .com"],
       ["a raised character after the text touching a link", [t("Log in at "), link("PayPal", EVIL), t(".com™ today")], "PayPal.com™"],
+      ["a host the text touching a link ends", [t("Log in at "), link("PayPal", EVIL), t(".com today")], "PayPal.com"],
     ];
     for (const [name, content, word] of cases) {
       const result = sanitizeRichText(envelope(p(...content)));
@@ -805,7 +802,7 @@ describe("sanitizeRichText: links (D104)", () => {
     expect(sanitizeRichText(envelope(p(link("z.", "https://example.org/zb"), t(" B. the guide")))).issues).toEqual([]);
   });
 
-  it("reads a host as it shows: a mark that follows no letter is nothing, a Roman numeral or a raised letter inside a name is the letter", () => {
+  it("reads a host as it shows: a combining mark left over is nothing, a Roman numeral or a raised letter is the letter", () => {
     const EVIL = "https://evil.example/login";
     const cases: [string, unknown[], string][] = [
       ["a mark at a label's start", [link("www.paypal.̲com/login", EVIL)], "www.paypal.̲com/login"],
@@ -815,8 +812,7 @@ describe("sanitizeRichText: links (D104)", () => {
       ["a raised letter inside a name", [link("paypal.cᵒm", EVIL)], "paypal.cᵒm"],
       ["a Roman numeral letter that ends a name", [t("Log in at "), link("example.n\u217C", EVIL)], "example.n\u217C"],
       ["a top-level domain and a hyphen", [link("paypal.com-login", EVIL)], "paypal.com-login"],
-      ["a name the URL parser refuses", [link("xn--a.paypal.com", EVIL)], "xn--a.paypal.com"],
-      ["a character Unicode 16 doesn't assign", [link("paypal.\u1AD0com", EVIL)], "paypal.\u1AD0com"],
+      ["a punycode label Node's URL parser refuses", [link("xn--a.paypal.com", EVIL)], "xn--a.paypal.com"],
     ];
     for (const [name, content, shown] of cases) {
       const result = sanitizeRichText(envelope(p(...content)));

@@ -1,5 +1,5 @@
 import { MAX_HREF_CHARS, checkLinkHref, emailAddressOf, type LinkRefusal } from "./link-url";
-import { addressesShown, showsAnotherAddress, visibleLinkText, type ShownAddresses } from "./link-text";
+import { addressesShown, showsAnotherAddress, visibleLinkText } from "./link-text";
 import { ownFileHost } from "./own-file-host";
 import {
   RT_LIMITS,
@@ -98,11 +98,7 @@ export interface LinkProblem {
   /** The link's text (for "misleading", the words it is in), cut to 60 characters. */
   text: string;
   reason: LinkProblemReason;
-  /**
-   * For "refused": why, as a sentence for authors (addressProblem). For
-   * "misleading": what the text does, when it isn't that it shows a
-   * different address (LOOKS_LIKE_WEB_ADDRESS).
-   */
+  /** For "refused": why, as a sentence for authors (addressProblem). */
   detail?: string;
 }
 
@@ -408,17 +404,14 @@ class Walker {
 
   /**
    * Name a link a save refuses; a refused one says why (an address that
-   * isn't a string: USE_WEB_OR_EMAIL), a misleading one what its text does
-   * when it doesn't show a different address (LOOKS_LIKE_WEB_ADDRESS).
+   * isn't a string: USE_WEB_OR_EMAIL).
    */
   private problem(reason: LinkProblemReason, text: string, detail?: string) {
     if (this.linkProblems.length < MAX_LINK_PROBLEMS) {
       this.linkProblems.push(
         reason === "refused"
           ? { text: problemText(text), reason, detail: detail ?? USE_WEB_OR_EMAIL }
-          : detail
-            ? { text: problemText(text), reason, detail }
-            : { text: problemText(text), reason }
+          : { text: problemText(text), reason }
       );
     }
   }
@@ -492,9 +485,8 @@ class Walker {
     if (!kept.length) return this.rebuild(nodes);
 
     // Where the words around a position start and end: the next and the
-    // previous whitespace (a line break included; not a hair space, which
-    // shows nothing between two letters), found once per paragraph.
-    const space = /(?!\u200A)\s/;
+    // previous whitespace (a line break included), found once per paragraph.
+    const space = /\s/;
     const wordEnd: number[] = new Array(joined.length + 1);
     wordEnd[joined.length] = joined.length;
     for (let k = joined.length - 1; k >= 0; k--) wordEnd[k] = space.test(joined[k]) ? k : wordEnd[k + 1];
@@ -528,18 +520,16 @@ class Walker {
     let wordTo = 0;
     const flush = () => {
       if (!cluster.length) return;
-      let misleading: { text: string; shown: ShownAddresses } | null = null;
+      let misleading: string | null = null;
       for (const reading of readings.values()) {
         const shown = addressesShown(reading.text);
         if (shown !== null && reading.runs.some((run) => showsAnotherAddress(shown, run.link.href))) {
-          misleading = { text: reading.text, shown };
+          misleading = reading.text;
           break;
         }
       }
-      if (misleading) {
-        // Text of names read only by the top-level domain they end in
-        // ("course-materials.zip") looks like a web address.
-        this.problem("misleading", misleading.text, misleading.shown.namesOnly ? LOOKS_LIKE_WEB_ADDRESS : undefined);
+      if (misleading !== null) {
+        this.problem("misleading", misleading);
         this.issues.add("dropped-link");
         cluster.forEach(unlink);
       } else {
@@ -822,15 +812,6 @@ const USE_WEB_OR_EMAIL = "Use an address starting with https:// or http://, or a
 const TWO_LINKS = "Its words hold two links. Keep one.";
 const SHOWS_ANOTHER_ADDRESS = "shows a different address than the link opens. Show the real address, or use a few words.";
 /**
- * What a misleading link's text does when every address it shows is a name
- * read only by the top-level domain it ends in ("paypal.com"), as a file's
- * name can be ("course-materials.zip"; refused all the same, the owner's
- * decision of 22 October 2026): LinkProblem.detail.
- */
-export const LOOKS_LIKE_WEB_ADDRESS =
-  "looks like a web address, but the link opens another one. Use a few words instead, or show the real address.";
-
-/**
  * Why an address can't be a link, as one sentence for authors (the Link
  * form's, and a save's after "the link … can't be used."): one sentence for
  * each problem, so an author knows what to change. Authoring-tool copy
@@ -868,7 +849,7 @@ export const LINK_PROBLEM: Record<LinkProblemReason, (text: string, detail?: str
   refused: (text, detail = USE_WEB_OR_EMAIL) => `the link “${text}” can't be used. ${detail}`,
   redirect: (text) =>
     `the link “${text}” is an Outlook safe link, which carries the address of the mailbox it was sent to. Use the original address instead.`,
-  misleading: (text, detail = SHOWS_ANOTHER_ADDRESS) => `the link text “${text}” ${detail}`,
+  misleading: (text) => `the link text “${text}” ${SHOWS_ANOTHER_ADDRESS}`,
   "own-file": (text) =>
     `the link “${text}” points to a file uploaded to the platform. Add the file to the lesson as a document instead.`,
 };

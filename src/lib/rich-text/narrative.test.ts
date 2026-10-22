@@ -583,7 +583,7 @@ describe("richTextForSave: links are refused by name, never cut (D104)", () => {
 
   it("refuses link text that shows another site as it reads, in a block and in the references list", () => {
     const looks = (name: string, text: string) =>
-      `${name}: the link text “${text}” looks like a web address, but the link opens another one. Use a few words instead, or show the real address.`;
+      `${name}: the link text “${text}” shows a different address than the link opens. Show the real address, or use a few words.`;
     for (const text of ["rabobank.n\u217C", "paypal.com-login", "xn--a.paypal.com"]) {
       const raw = v2(p(linked(text, "https://evil.example/login")));
       expect(richTextForSave(raw, "Block 2 (Paragraph)"), text).toEqual({ ok: false, issues: [looks("Block 2 (Paragraph)", text)] });

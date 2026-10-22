@@ -101,16 +101,18 @@ describe("checkLinkForm", () => {
     });
   });
 
-  it("says text of names that end in a top-level domain looks like a web address, a file's name too", () => {
-    for (const text of ["course-materials.zip", "intro.mov", "paypal.com", "paypal.ⅽom", "paypal.cᵒm", "rabobank.n\u217C", "paypal.com-login", "xn--a.paypal.com"]) {
+  it("says a name of another site shows a different address; a file's name is fine (D104, as narrowed on 22 October 2026)", () => {
+    for (const text of ["paypal.com", "paypal.ⅽom", "paypal.cᵒm", "rabobank.n\u217C", "paypal.com-login", "xn--a.paypal.com"]) {
       expect(checkLinkForm({ text, address: "https://example.org/files/x" }), text).toEqual({
         ok: false,
         field: "text",
-        message: "The text looks like a web address, but the link opens another one. Use a few words instead, or show the real address.",
+        message: "The text shows a different address than the link opens. Show the real address, or use a few words.",
       });
     }
-    // The link's own site, its registrable domain, and an abbreviation are fine.
+    // A file's name, the link's own site, its registrable domain, and an abbreviation are fine.
     for (const [text, address] of [
+      ["course-materials.zip", "https://example.org/files/x"],
+      ["intro.mov", "https://example.org/files/x"],
       ["europa.eu", "https://ec.europa.eu/info"],
       ["M.Sc. programme", "https://uni.example/msc"],
       ["Dr.in Maria Huber", "https://www.univie.ac.at/personen/huber"],

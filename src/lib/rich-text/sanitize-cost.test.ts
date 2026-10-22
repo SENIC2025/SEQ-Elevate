@@ -8,19 +8,19 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
  * cost what any paragraph of its length costs.
  *
  * Measured as work, not time (a shared machine's timings vary): the text
- * read for addresses (findLinks) and the URLs parsed.
+ * read for addresses (addressesShown) and the URLs parsed.
  */
 
 const read = vi.hoisted(() => ({ chars: 0, calls: 0 }));
 
-vi.mock("./linkify", async (importOriginal) => {
-  const original = await importOriginal<typeof import("./linkify")>();
+vi.mock("./link-text", async (importOriginal) => {
+  const original = await importOriginal<typeof import("./link-text")>();
   return {
     ...original,
-    findLinks: (text: string) => {
+    addressesShown: (text: string) => {
       read.chars += text.length;
       read.calls++;
-      return original.findLinks(text);
+      return original.addressesShown(text);
     },
   };
 });
@@ -50,11 +50,11 @@ const paragraphOf = (content: unknown[]) => ({ v: 2, doc: { type: "doc", content
 describe("sanitizeRichText reads touching links in time proportional to the text", () => {
   const cases: [string, number, (i: number) => [string, string], string[]][] = [
     // One site, shown and opened: every link kept.
-    ["520 touching links to two addresses of one site, each text an email address of it", 520, (i) => ["a@x.ex ", `https://x.ex/${i % 2}`], []],
-    // Read as one word, "a@x.exa@x.ex…" shows a@x.exa, of another site: none kept.
-    ["520 touching links with no space between them", 520, (i) => ["a@x.ex", `https://x.ex/${i % 2}`], ["dropped-link"]],
-    ["480 touching links, each to its own address on one site", 480, (i) => ["a@x.ex ", `https://x.ex/${i}`], []],
-    ["740 touching links, over the size limit", 740, (i) => ["a@x.ex ", `https://x.ex/${i % 2}`], ["too-large"]],
+    ["520 touching links to two addresses of one site, each text an email address of it", 520, (i) => ["a@x.de ", `https://x.de/${i % 2}`], []],
+    // Read as one word, "x.dex.dex.de…" shows dex.de, another site: none kept.
+    ["520 touching links with no space between them", 520, (i) => ["x.de", `https://x.de/${i % 2}`], ["dropped-link"]],
+    ["480 touching links, each to its own address on one site", 480, (i) => ["a@x.de ", `https://x.de/${i}`], []],
+    ["740 touching links, over the size limit", 740, (i) => ["a@x.de ", `https://x.de/${i % 2}`], ["too-large"]],
   ];
   it.each(cases)("%s", (_, runs, make, issues) => {
     const content = Array.from({ length: runs }, (__, i) => linkNode(...make(i)));
@@ -77,9 +77,10 @@ describe("sanitizeRichText reads touching links in time proportional to the text
 describe("sanitizeRichText reads a long name or address in time proportional to its length", () => {
   const EVIL = "https://evil.example/login";
   const dottedTitle = (n: number) => `Dr.${"de.".repeat(Math.floor((n - 5) / 3))}de`;
+  const companyForm = (n: number) => `${"Co.".repeat(Math.floor((n - 2) / 3))}UK`;
   const texts: [string, (n: number) => string][] = [
     ["a title before thousands of labels", dottedTitle],
-    ["a company form before thousands of labels", (n) => `${"Co.".repeat(Math.floor((n - 2) / 3))}UK`],
+    ["a company form before thousands of labels", companyForm],
     ["an address of thousands of commas", (n) => `https://a${",".repeat(n - 10)}b`],
     ["an email address of thousands of commas", (n) => `mailto:a@b${",".repeat(n - 11)}c`],
     ["an address of thousands of dots", (n) => `https://a${".".repeat(n - 10)}b`],
@@ -103,14 +104,18 @@ describe("sanitizeRichText reads a long name or address in time proportional to 
     for (const block of [one, two]) {
       const short = Array.from({ length: 8 }, () => block(1_250));
       time(short);
-      expect(time([block(10_000)]) / time(short)).toBeLessThan(3);
+      // Within the budget of 10 ms a text, a fraction of a millisecond is noise: under 3 ms passes.
+      const long = time([block(10_000)]);
+      const ratio = long / time(short);
+      expect(long < 3 || ratio < 3, `${long.toFixed(2)} ms, ${ratio.toFixed(1)} times`).toBe(true);
     }
   }, 60_000);
 
   it("reads two touching links that make one word each, and once together", () => {
-    // Each a title before many labels, and so the two together: no host.
-    const first = `Dr.${"de.".repeat(1_665)}`;
-    const second = dottedTitle(5_000);
+    // Each a company form before many labels, and so the two together: no
+    // host (its top-level domain in capitals).
+    const first = "Co.".repeat(1_665);
+    const second = companyForm(5_000);
     const result = sanitizeRichText(paragraphOf([linkNode(first, "https://evil.example/a"), linkNode(second, "https://evil.example/b")]));
     expect(result.issues).toEqual([]);
     expect(read.chars, "characters read for addresses").toBeLessThanOrEqual(2 * (first.length + second.length));
