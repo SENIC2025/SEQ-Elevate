@@ -221,6 +221,17 @@ export function LessonLinkManager({
   const [notice, setNotice] = React.useState("");
   const [listError, setListError] = React.useState("");
   const headingRef = React.useRef<HTMLHeadingElement>(null);
+  /**
+   * Once a form closes, focus goes back to where it was opened from: the
+   * row's Edit button, or "Add a link" (the heading when the page holds that
+   * button, whose own focus the page keeps).
+   */
+  const focusAfterForm = (linkId?: string) =>
+    requestAnimationFrame(() => {
+      const edit = linkId ? document.getElementById(`${ids}-edit-${linkId}`) : null;
+      const add = addingProp === undefined ? document.getElementById(`${ids}-add`) : null;
+      (edit ?? add ?? headingRef.current)?.focus();
+    });
   const report = React.useRef(onLinksChanged);
   React.useEffect(() => {
     report.current = onLinksChanged;
@@ -288,7 +299,7 @@ export function LessonLinkManager({
           Further reading
         </h4>
         {addingProp === undefined && !adding ? (
-          <Button type="button" size="sm" variant="outline" onClick={() => setAdding(true)}>
+          <Button id={`${ids}-add`} type="button" size="sm" variant="outline" onClick={() => setAdding(true)}>
             <Plus className="h-4 w-4" aria-hidden />
             Add a link
           </Button>
@@ -305,7 +316,10 @@ export function LessonLinkManager({
           label="Add a link"
           initial={EMPTY}
           busy={busy}
-          onCancel={() => setAdding(false)}
+          onCancel={() => {
+            setAdding(false);
+            focusAfterForm();
+          }}
           onSave={async (values, href) => {
             const answer = await addLessonLink(courseSlug, stageKey, {
               title: values.title,
@@ -316,6 +330,7 @@ export function LessonLinkManager({
             if (answer.ok) {
               setAdding(false);
               setNotice(ADDED);
+              focusAfterForm();
               await reread();
             }
             return answer;
@@ -334,7 +349,10 @@ export function LessonLinkManager({
                   label={`Edit “${l.title}”`}
                   initial={formOf(l)}
                   busy={busy}
-                  onCancel={() => setEditing(null)}
+                  onCancel={() => {
+                    setEditing(null);
+                    focusAfterForm(l.id);
+                  }}
                   onSave={async (values, href) => {
                     const answer = await updateLessonLink(l.id, {
                       title: values.title,
@@ -344,6 +362,7 @@ export function LessonLinkManager({
                     });
                     if (answer.ok) {
                       setEditing(null);
+                      focusAfterForm(l.id);
                       await reread();
                     }
                     return answer;
@@ -356,7 +375,10 @@ export function LessonLinkManager({
                   keepLabel="Keep it"
                   busy={busy}
                   error={null}
-                  onKeep={() => setRemoving(null)}
+                  onKeep={() => {
+                    setRemoving(null);
+                    requestAnimationFrame(() => document.getElementById(`${ids}-remove-${l.id}`)?.focus());
+                  }}
                   onConfirm={async () => {
                     headingRef.current?.focus();
                     setRemoving(null);
@@ -420,6 +442,7 @@ export function LessonLinkManager({
                       </Badge>
                     )}
                     <button
+                      id={`${ids}-edit-${l.id}`}
                       type="button"
                       disabled={busy}
                       onClick={() => setEditing(l.id)}
@@ -445,6 +468,7 @@ export function LessonLinkManager({
                       {l.published ? "Hide from learners" : "Show to learners"}
                     </button>
                     <button
+                      id={`${ids}-remove-${l.id}`}
                       type="button"
                       disabled={busy}
                       onClick={() => setRemoving(l.id)}
