@@ -93,6 +93,8 @@ Press the bin icon at the end of a row. The page asks first and says what will h
 - delete their account, progress, Comp Card, or notes about them;
 - sign them out or stop them signing in. On their next page they get the **Learner** role and show up as a learner.
 
+So Remove doesn't stop their data being used, and it is no answer to a request to restrict it: see the data-management guide (`docs/data-management.md`, §3).
+
 To erase an account, the person can use **Delete my account** on their account page. Or you can ask SENIC.
 
 ### Admins named in the server setting
