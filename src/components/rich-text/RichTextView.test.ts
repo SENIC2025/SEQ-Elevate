@@ -505,6 +505,33 @@ const named = (value: string, href: unknown, ...marks: string[]): Json => ({
 });
 const v2 = (...content: Json[]) => ({ v: 2, doc: { type: "doc", content } });
 
+/**
+ * The site a named link opens, after its words and inside it (the owner's
+ * decision of 22 October 2026): a ", " that only screen readers hear, then
+ * the site in a box. The ", " stays inline (not .sr-only, which is
+ * absolutely positioned): browsers put a space around a block in a link's
+ * name, which would read "the guide , example.org".
+ */
+const siteBox = (site: string) => `<span class="seq-link-sep">, </span><span class="seq-link-site">${site}</span>`;
+/** A named link drawn live: its words, the site's box (none for null), the new-tab cue. */
+const namedTo = (href: string, inner: string, site: string | null, cue = "(opens in a new tab)") =>
+  linkTo(href, `${inner}${site === null ? "" : siteBox(site)}`, cue);
+/** The same in an inert preview: a span that says where it goes. */
+const inertNamed = (title: string, inner: string, site: string | null) =>
+  `<span class="seq-link" title="${title}">${inner}${site === null ? "" : siteBox(site)}</span>`;
+
+/** What a link's text adds up to, in order, as a browser names an <a> whose parts are all inline but the cue. */
+const linkNames = (html: string) =>
+  [...html.matchAll(/<a\b[^>]*>([\s\S]*?)<\/a>/g)].map((m) =>
+    m[1]
+      .replace(/<[^>]+>/g, "")
+      .replace(/&amp;/g, "&")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&quot;/g, '"')
+      .replace(/&#x27;/g, "'")
+  );
+
 describe("RichTextView named links (D104)", () => {
   it("draws a link as one <a> opening in a new tab, bold and italic inside it", () => {
     expect(
@@ -520,26 +547,30 @@ describe("RichTextView named links (D104)", () => {
         ),
       })
     ).toBe(
-      wrap(`<p>Read ${linkTo("https://example.org/guide", "the <strong>guide</strong><em> now</em>")} today.</p>`)
+      wrap(`<p>Read ${namedTo("https://example.org/guide", "the <strong>guide</strong><em> now</em>", "example.org")} today.</p>`)
     );
   });
 
   it("draws the address as stored, normalised by the check on every render", () => {
     expect(renderIn("en", { rich: v2(p(named("Bücher", "https://bücher.example/straße"))) })).toBe(
-      wrap(`<p>${linkTo("https://xn--bcher-kva.example/stra%C3%9Fe", "Bücher")}</p>`)
+      wrap(`<p>${namedTo("https://xn--bcher-kva.example/stra%C3%9Fe", "Bücher", "xn--bcher-kva.example")}</p>`)
     );
   });
 
   it("draws neighbouring links to different addresses as two links", () => {
     expect(
       renderIn("en", { rich: v2(p(named("one", "https://example.org/a"), named("two", "https://example.org/b"))) })
-    ).toBe(wrap(`<p>${linkTo("https://example.org/a", "one")}${linkTo("https://example.org/b", "two")}</p>`));
+    ).toBe(
+      wrap(`<p>${namedTo("https://example.org/a", "one", "example.org")}${namedTo("https://example.org/b", "two", "example.org")}</p>`)
+    );
   });
 
   it("ends a link at a line break", () => {
     expect(
       renderIn("en", { rich: v2(p(named("one", "https://example.org/a"), br, named("two", "https://example.org/a"))) })
-    ).toBe(wrap(`<p>${linkTo("https://example.org/a", "one")}<br/>${linkTo("https://example.org/a", "two")}</p>`));
+    ).toBe(
+      wrap(`<p>${namedTo("https://example.org/a", "one", "example.org")}<br/>${namedTo("https://example.org/a", "two", "example.org")}</p>`)
+    );
   });
 
   it("finds quick links only in unlinked text: a typed address never runs into a named link", () => {
@@ -549,24 +580,25 @@ describe("RichTextView named links (D104)", () => {
       })
     ).toBe(
       wrap(
-        `<p>See ${linkTo("https://example.org/", "https://example.org/")}${linkTo("https://example.org/guide", "guide")} or ${linkTo(
-          "mailto:help@example.org",
-          "help@example.org"
-        )}</p>`
+        `<p>See ${linkTo("https://example.org/", "https://example.org/")}${namedTo(
+          "https://example.org/guide",
+          "guide",
+          "example.org"
+        )} or ${linkTo("mailto:help@example.org", "help@example.org")}</p>`
       )
     );
     // A named link whose text is an address is one link, not a link inside a link.
     const html = renderIn("en", { rich: v2(p(named("https://example.org/guide", "https://example.org/guide"))) });
-    expect(html).toBe(wrap(`<p>${linkTo("https://example.org/guide", "https://example.org/guide")}</p>`));
+    expect(html).toBe(wrap(`<p>${namedTo("https://example.org/guide", "https://example.org/guide", null)}</p>`));
   });
 
   it("draws links in list points", () => {
     expect(renderIn("en", { rich: v2(ul(li(p(named("Tips", "https://example.org/tips"))))) })).toBe(
-      wrap(`<ul><li>${linkTo("https://example.org/tips", "Tips")}</li></ul>`)
+      wrap(`<ul><li>${namedTo("https://example.org/tips", "Tips", "example.org")}</li></ul>`)
     );
   });
 
-  it("names where a link goes in an inert preview, as a title", () => {
+  it("names where a link goes in an inert preview, as a title, and shows its site as learners see it", () => {
     expect(
       render({
         rich: v2(p(named("the guide", "https://example.org/guide"), text(" or "), named("us", "mailto:team@example.org?subject=Hi"))),
@@ -574,7 +606,7 @@ describe("RichTextView named links (D104)", () => {
       })
     ).toBe(
       wrap(
-        '<p><span class="seq-link" title="https://example.org/guide">the guide</span> or <span class="seq-link" title="team@example.org">us</span></p>'
+        `<p>${inertNamed("https://example.org/guide", "the guide", "example.org")} or ${inertNamed("team@example.org", "us", null)}</p>`
       )
     );
   });
@@ -587,9 +619,126 @@ describe("RichTextView named links (D104)", () => {
 
   it("draws version 2 from its doc, and an unknown version from its text", () => {
     expect(renderIn("en", { rich: v2(p(named("x", "https://example.org/"))), text: "Fallback" })).toBe(
-      wrap(`<p>${linkTo("https://example.org/", "x")}</p>`)
+      wrap(`<p>${namedTo("https://example.org/", "x", "example.org")}</p>`)
     );
     expect(render({ rich: { v: 3, doc: v2(p(text("x"))).doc }, text: "Fallback" })).toBe(plainWrap("<p>Fallback</p>"));
+  });
+});
+
+describe("RichTextView shows the site each named link opens (the site label)", () => {
+  const GUIDE = "https://example.org/guide";
+
+  it("puts the site after the link's words, inside the link: heard as \"words, site\" before \"(opens in a new tab)\"", () => {
+    const html = renderIn("en", { rich: v2(p(text("Read "), named("the guide", GUIDE), text(" today."))) });
+    expect(html).toBe(wrap(`<p>Read ${namedTo(GUIDE, "the guide", "example.org")} today.</p>`));
+    expect(linkNames(html)).toEqual(["the guide, example.org (opens in a new tab)"]);
+    // Inline, so no browser puts a space before the comma.
+    expect(html).not.toContain('<span class="sr-only">, </span>');
+  });
+
+  it("says it in the interface language around it", () => {
+    const rich = v2(p(named("AMS-Seite", "https://www.ams.at/arbeitsuchende"), text(" und "), named("οδηγό του ΕΦΚΑ", "https://www.efka.gov.gr/el/odigos")));
+    expect(linkNames(renderIn("de", { rich }))).toEqual([
+      "AMS-Seite, ams.at (öffnet in einem neuen Tab)",
+      "οδηγό του ΕΦΚΑ, efka.gov.gr (öffnet in einem neuen Tab)",
+    ]);
+    expect(linkNames(renderIn("el", { rich }))).toEqual([
+      "AMS-Seite, ams.at (ανοίγει σε νέα καρτέλα)",
+      "οδηγό του ΕΦΚΑ, efka.gov.gr (ανοίγει σε νέα καρτέλα)",
+    ]);
+  });
+
+  it("shows the site for words that name no site, or another one the check doesn't read", () => {
+    const rows: [string, string, string][] = [
+      ["Click here to verify your account", "https://evil.example/verify", "evil.example"],
+      ["PayPal login", "https://evil.example/login", "evil.example"],
+      ["Ministry guidance", "https://www.minedu.gov.gr/guidance", "minedu.gov.gr"],
+      ["Wikipedia", "https://en.wikipedia.org/wiki/Mercury_(planet)", "wikipedia.org"],
+      ["the form", "https://docs.google.com/forms/d/e/x/viewform", "google.com"],
+    ];
+    for (const [words, href, site] of rows) {
+      const html = renderIn("en", { rich: v2(p(named(words, href))) });
+      expect(linkNames(html), words).toEqual([`${words}, ${site} (opens in a new tab)`]);
+    }
+  });
+
+  it("is left out only when the whole of the words is the link's address", () => {
+    const without = (words: string, href = GUIDE) => {
+      const html = renderIn("en", { rich: v2(p(named(words, href))) });
+      expect(html, words).not.toContain("seq-link-site");
+      expect(linkNames(html), words).toEqual([`${words} (opens in a new tab)`]);
+    };
+    without("https://example.org/guide");
+    without("example.org/guide");
+    without("www.example.org/guide/");
+    without("EXAMPLE.ORG/guide");
+    without("gov.gr", "https://www.gov.gr/");
+    const withSite = (words: string, href: string, site: string) => {
+      const html = renderIn("en", { rich: v2(p(named(words, href))) });
+      expect(linkNames(html), words).toEqual([`${words}, ${site} (opens in a new tab)`]);
+    };
+    // Words that begin with the site and go on, or only name it.
+    withSite("evil.example Login", "https://evil.example/", "evil.example");
+    withSite("evil.example/paypal.com", "https://evil.example/", "evil.example");
+    withSite("evil.example/paypal.\u217Dom", "https://evil.example/", "evil.example");
+    withSite("example.org", GUIDE, "example.org");
+    withSite("example.org/guide and more", GUIDE, "example.org");
+    withSite("bank.example", "https://login.bank.example/", "bank.example");
+    // The address across bold and plain parts of one link is still its address.
+    expect(renderIn("en", { rich: v2(p(named("example.org", GUIDE, "bold"), named("/guide", GUIDE))) })).not.toContain("seq-link-site");
+  });
+
+  it("shows an international site in punycode, also under words that spell it in Unicode", () => {
+    const html = renderIn("en", {
+      rich: v2(p(named("bücher.de", "https://xn--bcher-kva.de/"), text(" "), named("Bücher", "https://www.bücher.de/shop"))),
+    });
+    expect(linkNames(html)).toEqual([
+      "bücher.de, xn--bcher-kva.de (opens in a new tab)",
+      "Bücher, xn--bcher-kva.de (opens in a new tab)",
+    ]);
+  });
+
+  it("keeps the site after right-to-left words, and the words before it", () => {
+    const html = renderIn("en", {
+      rich: v2(p(text("Read "), named("\u05D4\u05DE\u05D3\u05E8\u05D9\u05DA", "https://example.org/he"), text(" and "), named("\u0627\u0644\u062F\u0644\u064A\u0644 example", "https://example.org/ar"), text("."))),
+    });
+    expect(html).toContain(namedTo("https://example.org/he", "\u05D4\u05DE\u05D3\u05E8\u05D9\u05DA", "example.org"));
+    expect(linkNames(html)).toEqual([
+      "\u05D4\u05DE\u05D3\u05E8\u05D9\u05DA, example.org (opens in a new tab)",
+      "\u0627\u0644\u062F\u0644\u064A\u0644 example, example.org (opens in a new tab)",
+    ]);
+  });
+
+  it("shows the site after very long words, at their end", () => {
+    const words = "A very long link text that goes on ".repeat(250).trim(); // 8,749 characters, within one text's limit
+    const html = renderIn("en", { rich: v2(p(named(words, "https://evil.example/x"))) });
+    expect(linkNames(html)).toEqual([`${words}, evil.example (opens in a new tab)`]);
+    expect(html.indexOf("seq-link-site")).toBeGreaterThan(html.indexOf(words.slice(-20)));
+  });
+
+  it("shows no site for an email link: its words are heard with what it opens", () => {
+    const html = renderIn("en", { rich: v2(p(named("our team", "mailto:help@example.org?subject=Course"))) });
+    expect(html).not.toContain("seq-link-site");
+    expect(linkNames(html)).toEqual(["our team (opens in a new tab)"]);
+  });
+
+  it("shows our own file store's site like any other link's", () => {
+    const html = renderIn("en", { rich: v2(p(named("the handout", "https://abc123.public.blob.vercel-storage.com/handout.pdf"))) });
+    expect(linkNames(html)).toEqual(["the handout, vercel-storage.com (opens in a new tab)"]);
+  });
+
+  it("never adds a site to a quick link: its words are the address", () => {
+    const html = renderIn("en", { rich: doc(p(text("Read https://example.org/guide or www.bpb.de/x or help@example.org."))) });
+    expect(html).not.toContain("seq-link-site");
+    expect(html).not.toContain("seq-link-sep");
+  });
+
+  it("shows the site in the inert block preview as learners see it, with no link", () => {
+    const html = render({ rich: v2(p(named("the guide", GUIDE), text(" or "), named("example.org/guide", GUIDE))), inertLinks: true });
+    expect(html).toBe(
+      wrap(`<p>${inertNamed(GUIDE, "the guide", "example.org")} or ${inertNamed(GUIDE, "example.org/guide", null)}</p>`)
+    );
+    expect(html).not.toMatch(/<a\b|href=/);
   });
 });
 
