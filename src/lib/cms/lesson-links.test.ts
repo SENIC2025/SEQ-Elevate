@@ -44,6 +44,13 @@ describe("titleMisleads: a title is compared as it reads", () => {
     expect(titleMisleads("Write to www.verein.de", "mailto:info@gmail.example")).toBe(true);
   });
 
+  it("refuses a bare host of another site, with or without www. (D104, the owner's decision of 22 October 2026)", () => {
+    for (const title of ["bank.example/login", "Log in at bank.example", "Visit PayPal.com", "awww.example is a site here", "bank\u200B.example"]) {
+      expect(titleMisleads(title, EVIL), title).toBe(true);
+    }
+    expect(titleMisleads("Kontakt: verein.de", "mailto:info@verein.de")).toBe(false);
+  });
+
   it("refuses what the shared rule refuses (D104)", () => {
     expect(titleMisleads("https://bank.example/login", EVIL)).toBe(true);
     expect(titleMisleads("Write to help@bank.example", EVIL)).toBe(true);
@@ -65,7 +72,11 @@ describe("titleMisleads: a title is compared as it reads", () => {
       "Οδηγός για εκπαιδευτικούς",
       "Team work 👩‍👩‍👧",
       "www",
-      "awww.example is a word here",
+      "awww, a word here",
+      // Ordinary words with a dot: a version, abbreviations, a sentence's end.
+      "Version v1.2 of the guide",
+      "e.g. the guide, z.B. Abb. 2, κ.λπ.",
+      "Read the guide.",
     ]) {
       expect(titleMisleads(title, EVIL), title).toBe(false);
     }

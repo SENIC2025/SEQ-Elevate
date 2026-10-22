@@ -12,12 +12,12 @@
  * never drawn as a link.
  *
  * A title and description are cleaned once, here, for the form and the
- * actions alike; a title is compared with the address it opens as it reads
- * (titleMisleads).
+ * actions alike; a title is compared with the address it opens as link text
+ * is (titleMisleads, linkTextProblem).
  */
 
 import { checkLinkHref, emailAddressOf } from "@/lib/rich-text/link-url";
-import { linkTextProblem } from "@/lib/rich-text/link-text";
+import { linkTextProblem, visibleLinkText } from "@/lib/rich-text/link-text";
 import { cleanPlainText } from "@/lib/rich-text/sanitize";
 import type { LessonLinkRef } from "./reading-types";
 import type { Locale } from "./types";
@@ -44,46 +44,22 @@ export function cleanLinkLine(value: string, max: number): string | null {
 }
 
 /**
- * Characters that show nothing: Unicode's default-ignorable code points
- * (zero-width spaces and joiners, direction marks, invisible operators,
- * Hangul fillers, variation selectors, the soft hyphen, and the like).
+ * A title that shows nothing at all: only spaces and characters that show
+ * nothing, as learners see it (visibleLinkText).
  */
-const SHOWS_NOTHING = /\p{Default_Ignorable_Code_Point}/gu;
-
-/**
- * Text as it reads: compatibility forms folded into the characters they
- * show (NFKC: "\u2024" is ".", a fullwidth ":" is ":"), then every character
- * that shows nothing removed.
- */
-function asItReads(text: string): string {
-  return text.normalize("NFKC").replace(SHOWS_NOTHING, "");
-}
-
-/** A title that shows nothing at all: only spaces and characters that show nothing. */
 export function titleShowsNothing(title: string): boolean {
-  return !asItReads(title).trim();
+  return !visibleLinkText(title).trim();
 }
 
 /**
- * "www." starting a word: a host as people write it ("www.bpb.de/x"), read
- * as the web address it names. Not when glued to what comes before it: a
- * letter or digit ("awww."), an address ("https://www.", "info@www."), a
- * host ("sub.www.").
- */
-const WWW_HOST = /(^|[^\p{L}\p{N}\p{M}_@./:+-])(www\.)/giu;
-
-/**
- * Whether a further-reading title shows another address than `href` opens
- * (D104's rule, linkTextProblem, as D107 applies it to titles). The title
- * is compared as written and as it reads (asItReads), so characters that
- * show nothing or only look like others never hide an address from the
- * comparison; and a host written with "www." counts as the web address it
- * names. A title that names the link's own site, however it is written, is
- * accepted.
+ * Whether a further-reading title shows another address than `href` opens:
+ * D104's rule for link text (linkTextProblem), as D107 applies it to
+ * titles. The title is read as learners see it, and a full address, an
+ * email address or a bare host ("www.bank.example", "bank.example/login")
+ * in it counts; a title that names the link's own site is accepted.
  */
 export function titleMisleads(title: string, href: string): boolean {
-  const read = asItReads(title).replace(WWW_HOST, "$1https://$2");
-  return linkTextProblem(title, href) === "misleading" || linkTextProblem(read, href) === "misleading";
+  return linkTextProblem(title, href) === "misleading";
 }
 
 /** The languages in the order they are stored and named (spec 4.2). */
