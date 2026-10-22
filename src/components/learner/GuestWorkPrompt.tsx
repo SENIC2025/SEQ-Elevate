@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { useDemoState } from "@/store/demo-state";
 
@@ -24,6 +24,7 @@ import { useDemoState } from "@/store/demo-state";
  */
 export function GuestWorkPrompt() {
   const t = useTranslations("guestWork");
+  const locale = useLocale();
   const tProfile = useTranslations("profile");
   const tCompCard = useTranslations("compCard");
   const { guestWork, guestWorkDone, claimGuestWork, discardGuestWork } = useDemoState();
@@ -58,12 +59,16 @@ export function GuestWorkPrompt() {
         {guestWork && guestWorkDone !== "added" && guestWorkDone !== "removed" ? (
           <>
             <p className="mt-1 text-sm">
-              {t("summary", {
-                n: guestWork.courses.length,
-                courses: guestWork.courses.join(", "),
-                compCard: guestWork.compCard ? "true" : "false",
-                badges: guestWork.badges,
-              })}
+              <CoursesIn
+                summary={t("summary", {
+                  n: guestWork.courses.length,
+                  courses: COURSES,
+                  compCard: guestWork.compCard ? "true" : "false",
+                  badges: guestWork.badges,
+                })}
+                courses={guestWork.courses}
+                pageLocale={locale}
+              />
             </p>
             <div className="mt-3 flex flex-wrap gap-2">
               <Button
@@ -102,5 +107,38 @@ export function GuestWorkPrompt() {
         </p>
       </div>
     </section>
+  );
+}
+
+/** Stands in for the course titles while the summary is formatted. */
+const COURSES = "\u2063courses\u2063";
+
+/**
+ * The summary with the course titles in it, each marked with the language
+ * it was recorded in when that isn't the page's (WCAG 3.1.2). A title with
+ * no recorded language (a store from before Release 3) is unmarked.
+ */
+function CoursesIn({
+  summary,
+  courses,
+  pageLocale,
+}: {
+  summary: string;
+  courses: { title: string; locale: string | null }[];
+  pageLocale: string;
+}) {
+  const [before, after] = summary.split(COURSES);
+  if (after === undefined) return <>{summary}</>;
+  return (
+    <>
+      {before}
+      {courses.map((c, i) => (
+        <React.Fragment key={i}>
+          {i > 0 ? ", " : null}
+          {c.locale && c.locale !== pageLocale ? <span lang={c.locale}>{c.title}</span> : c.title}
+        </React.Fragment>
+      ))}
+      {after}
+    </>
   );
 }

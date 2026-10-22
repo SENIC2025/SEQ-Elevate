@@ -3,6 +3,7 @@
 import * as React from "react";
 import { useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
+import { useContentLang } from "./CourseText";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import type {
@@ -102,6 +103,7 @@ export function InteractiveVideoPlayer({
   onCueAnswered?: (cueId: string, correct: boolean) => void;
 }) {
   const t = useTranslations("video");
+  const lang = useContentLang();
   const cues = React.useMemo(() => sortCues(video.cues ?? []), [video.cues]);
 
   const [answered, setAnswered] = React.useState<string[]>([]);
@@ -216,7 +218,8 @@ export function InteractiveVideoPlayer({
     >
       <div className="flex items-center gap-2 px-4 py-2.5 border-b border-[var(--border)]">
         <Film className="h-4 w-4 text-[var(--accent)]" />
-        <p className="text-sm font-semibold flex-1 truncate">
+        {/* The title is course text; the fallback is the player's own word. */}
+        <p lang={video.title ? lang : undefined} className="text-sm font-semibold flex-1 truncate">
           {video.title ?? t("regionLabel")}
         </p>
         {cues.length > 0 ? (
@@ -318,7 +321,7 @@ export function InteractiveVideoPlayer({
       ) : null}
 
       {video.caption ? (
-        <p className="px-4 pb-3 text-xs text-[var(--muted-foreground)]">
+        <p lang={lang} className="px-4 pb-3 text-xs text-[var(--muted-foreground)]">
           {video.caption}
         </p>
       ) : null}
@@ -363,7 +366,8 @@ export function YouTubeGate({
     >
       <p className="text-sm">{t("body")}</p>
       <p className="text-sm">
-        <Link href="/legal/privacy" className="text-[var(--accent)] underline underline-offset-2">
+        {/* At least 24 px high: in English it is one short line (WCAG 2.5.8). */}
+        <Link href="/legal/privacy" className="inline-flex min-h-6 items-center text-[var(--accent)] underline underline-offset-2">
           {t("privacyLink")}
         </Link>
       </p>
@@ -448,8 +452,10 @@ export function ExternalVideo({ src, inside = false }: { src: string; inside?: b
 /**
  * The question at a cue: over the paused video, or (`below`, a narrow
  * player) under it — there not modal, as the page around it stays usable.
+ * The question, its options and its explanation are course text, marked
+ * with the course's language when it isn't the page's (useContentLang).
  */
-function QuizOverlay({
+export function QuizOverlay({
   cue,
   onResolve,
   below = false,
@@ -464,6 +470,7 @@ function QuizOverlay({
   const headingRef = React.useRef<HTMLHeadingElement>(null);
   const uid = React.useId();
   const headingId = `${uid}-question`;
+  const lang = useContentLang();
 
   React.useEffect(() => {
     headingRef.current?.focus();
@@ -491,6 +498,7 @@ function QuizOverlay({
           id={headingId}
           ref={headingRef}
           tabIndex={-1}
+          lang={lang}
           className="mt-1 text-lg font-bold outline-none"
         >
           {cue.question}
@@ -523,7 +531,7 @@ function QuizOverlay({
                   onChange={() => setChoice(o.id)}
                   className="h-4 w-4 accent-[var(--accent)]"
                 />
-                <span className="flex-1">{o.text}</span>
+                <span lang={lang} className="flex-1">{o.text}</span>
                 {showState && isCorrect ? (
                   <CheckCircle2 className="h-4 w-4 text-[var(--success)]" />
                 ) : showState && isChoice && !isCorrect ? (
@@ -552,7 +560,7 @@ function QuizOverlay({
               {correct ? t("correct") : t("notQuite")}
             </p>
             {cue.explanation ? (
-              <p className="mt-1 text-sm text-[var(--muted-foreground)]">
+              <p lang={lang} className="mt-1 text-sm text-[var(--muted-foreground)]">
                 {cue.explanation}
               </p>
             ) : null}

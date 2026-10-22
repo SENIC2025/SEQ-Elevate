@@ -166,6 +166,8 @@ describe("Release 3 — safeguarding (F-E2, F-E4)", () => {
       expect(response?.status(), `/${locale}/help`).toBe(200);
       await expect(main(page).getByRole("heading", { level: 1 })).toHaveText(words.helpTitle);
       await expect(main(page).getByText(words.emergency)).toBeVisible();
+      // 112 can be called from the page, as every contact's number can.
+      await expect(main(page).locator('a[href="tel:112"]')).toHaveText("112");
       const headings = main(page).getByRole("heading", { level: 2 });
       await expect(headings).toHaveText(Object.values(CONTACT_FOR[locale]));
       // With nothing saved, whom to talk to instead, under every country.
@@ -365,6 +367,7 @@ describe("Release 3 — safeguarding (F-E2, F-E4)", () => {
       const box = page.getByRole("complementary", { name: words.title });
       await expect(box).toBeVisible();
       await expect(box).toContainText(words.emergency);
+      await expect(box.locator('a[href="tel:112"]')).toHaveText("112");
       await expect(box).toContainText(words.fallback);
       await expect(box.getByRole("link", { name: words.allContacts })).toHaveAttribute("href", "/en/help");
       // After the main area, never inside it.

@@ -372,7 +372,20 @@ describe("guestWorkOf: what a guest store holds, offered after sign-in (spec 5.5
       ...guest,
       course: { ...course, reflection: { p1: "One", p2: " ", p3: "Three" } },
     });
-    expect(work).toEqual({ courses: ["Workplace conflict"], compCard: true, reflections: 2, badges: guest.badges.length });
+    expect(work).toEqual({
+      courses: [{ title: "Workplace conflict", locale: course.courseLocale ?? null }],
+      compCard: true,
+      reflections: 2,
+      badges: guest.badges.length,
+    });
+  });
+
+  it("gives each course's title with the language it was recorded in (none for a store from before Release 3)", () => {
+    const work = (courseLocale: "en" | "de" | null | undefined) =>
+      guestWorkOf({ ...guest, course: { ...course, courseTitle: "Workplace conflict", courseLocale } })?.courses;
+    expect(work("en")).toEqual([{ title: "Workplace conflict", locale: "en" }]);
+    expect(work("de")).toEqual([{ title: "Workplace conflict", locale: "de" }]);
+    expect(work(undefined)).toEqual([{ title: "Workplace conflict", locale: null }]);
   });
 
   it("is a Comp Card alone, or badges alone, too, and counts the badges so the offer can name them", () => {

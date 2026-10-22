@@ -78,6 +78,14 @@ describe("SafeguardingBoxView", () => {
     expect(markup).toContain(MESSAGES[l].safeguarding.fallback);
   });
 
+  it.each(["en", "de", "el"] as const)("lets 112 be called from the box, as every contact's number can (%s)", (l) => {
+    locale = l;
+    const markup = html(createElement(SafeguardingBoxView, { groups: [] }));
+    expect(markup).toMatch(/<a [^>]*href="tel:112"[^>]*>112<\/a>/);
+    // The sentence reads as before.
+    expect(markup.replace(/<[^>]+>/g, "")).toContain(MESSAGES[l].safeguarding.emergency);
+  });
+
   it("is an aside named by its own heading", () => {
     const markup = html(createElement(SafeguardingBoxView, { groups: [] }));
     const labelled = /<aside aria-labelledby="([^"]+)"/.exec(markup)?.[1];

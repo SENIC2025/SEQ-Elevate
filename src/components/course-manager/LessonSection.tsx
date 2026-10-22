@@ -89,8 +89,11 @@ export function LessonSection(props: LessonSectionProps) {
   const addBlocked = !open && addLocked !== undefined;
   const whyId = `lesson-${key}-why-add`;
   const toggle = offersAdd(lesson) ? (
+    // Its label wraps on a narrow screen ("Προσθήκη καθοδηγούμενης
+    // εξάσκησης" is wider than a 320 px phone's column; WCAG 1.4.10).
     <Button
       size="sm"
+      className="h-auto min-h-9 whitespace-normal py-1.5 text-left"
       variant={open ? "outline" : "primary"}
       aria-expanded={open}
       aria-controls={panelId}

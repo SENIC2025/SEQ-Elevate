@@ -29,6 +29,7 @@
 import type { CompCardData, CourseProgress, DemoState } from "./demo-state";
 import { hasCourseProgress } from "./progress-merge";
 import type { CompCardInput } from "@/app/actions/learner";
+import type { Locale } from "@/lib/cms/types";
 import { COMP_CARD_FIELDS, COMP_CARD_TEXT_MAX } from "@/lib/comp-card-visibility";
 import { withRetry } from "./retry";
 import { isRefusedAward } from "@/lib/badge-award";
@@ -141,8 +142,12 @@ export async function migrateGuest(
 
 /** A summary of the work a guest store holds, for the prompt that offers it (spec 5.5). */
 export interface GuestWork {
-  /** The courses with progress in it, by title. */
-  courses: string[];
+  /**
+   * The courses with progress in it, by title, each with the language the
+   * title was recorded in (null when the store, written before Release 3,
+   * didn't record one: shown in the page's language).
+   */
+  courses: { title: string; locale: Locale | null }[];
   /** A Comp Card filled in. */
   compCard: boolean;
   /** Reflection answers written. */
@@ -171,7 +176,13 @@ export function guestWorkOf(guest: DemoState): GuestWork | null {
       ).length
     : 0;
   return {
-    courses: inCourse ? [course.courseTitle ?? course.courseSlug!] : [],
+    courses: inCourse
+      ? [
+          course.courseTitle
+            ? { title: course.courseTitle, locale: course.courseLocale ?? null }
+            : { title: course.courseSlug!, locale: null },
+        ]
+      : [],
     compCard,
     reflections,
     badges: (guest.badges ?? []).length,

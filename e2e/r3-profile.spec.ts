@@ -400,7 +400,7 @@ describe("Release 3 profile step", () => {
     expect(await learnerRoles(none.userId)).toBe(0);
   });
 
-  test("B-E10: the profile step passes axe and fits a 320px screen, in English, German and Greek", async ({ page, context }) => {
+  test("B-E10: the profile step has its own title, passes axe and fits a 320px screen, in English, German and Greek", async ({ page, context }) => {
     const person = await createPerson(prisma, { email: address("axe"), profile: "none", organisation: null });
     await signIn(context, person.sessionToken);
     for (const [locale, title] of [
@@ -411,6 +411,8 @@ describe("Release 3 profile step", () => {
       await page.setViewportSize({ width: 1280, height: 900 });
       await page.goto(`/${locale}/welcome`);
       await expect(page.getByRole("heading", { level: 1, name: title })).toBeVisible();
+      // The page's own title, in its language (WCAG 2.4.2).
+      await expect(page).toHaveTitle(`${title} · SEQ Elevate`);
       await noSeriousViolations(page, `/${locale}/welcome`);
       await page.setViewportSize({ width: 320, height: 800 });
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
