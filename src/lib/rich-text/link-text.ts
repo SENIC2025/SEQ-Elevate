@@ -5,10 +5,12 @@ import { checkLinkHref, emailAddressOf, isEmailAddress, isSafeLinkHost } from ".
  * What a link's words say, against where it goes (D104, D107): the text a
  * named link shows in a lesson, and the title of a further-reading link.
  *
- * - linkTextProblem: the text is blank, or shows an address that points
- *   somewhere else than the link opens ("https://bank.example" opening
- *   another site). A refusal, wherever links are made: the sanitizer, the
- *   Link form, paste, and the further-reading actions.
+ * - linkTextProblem: the text shows nothing, or shows an address that
+ *   points somewhere else than the link opens ("https://bank.example"
+ *   opening another site). A refusal, wherever links are made: the
+ *   sanitizer, the Link form, paste, and the further-reading actions.
+ *   (addressesShown and showsAnotherAddress are its two halves, for a text
+ *   compared with several links.)
  * - linkTextWarnings: words that don't say where the link goes ("click
  *   here"), or text too long to follow with a screen reader. The Link form's
  *   warnings only, never refusals.
@@ -16,6 +18,14 @@ import { checkLinkHref, emailAddressOf, isEmailAddress, isSafeLinkHost } from ".
  *   bare email address or host) and unwrapped (an Outlook safe link, a
  *   Google redirect) before it is checked. The form's only: the server never
  *   guesses, and checkLinkHref itself requires the scheme.
+ *
+ * A text is read as learners see it (visibleLinkText): characters that show
+ * nothing don't split an address, and compatibility forms (fullwidth
+ * letters, a one dot leader) read as the characters they show. An address
+ * is read wherever a quick link would find one, and also wherever a text
+ * shows "https:" or "http:" followed by a host with a dot, whether or not
+ * it could be a link (with a user name, as an Outlook safe link, over 2,048
+ * characters), and wherever it shows "mailto:" and an email address.
  *
  * Pure, like link-url.ts.
  */
@@ -25,6 +35,18 @@ export type LinkTextWarning = "vague" | "long";
 
 /** Link text over this many characters gets the "long" warning. */
 export const LONG_LINK_TEXT = 100;
+
+// Characters that show nothing by default (zero-width and direction marks,
+// a soft hyphen, fillers, invisible operators, variation selectors, …).
+const SHOWS_NOTHING = /\p{Default_Ignorable_Code_Point}/gu;
+
+/**
+ * A text as learners see it: without the characters that show nothing, and
+ * with compatibility forms as the characters they show (NFKC).
+ */
+export function visibleLinkText(text: string): string {
+  return text.replace(SHOWS_NOTHING, "").normalize("NFKC").replace(SHOWS_NOTHING, "");
+}
 
 /**
  * The site of an address, as compared here: the host of a web address or
@@ -46,11 +68,13 @@ function siteOf(host: string): string | null {
 /** Where an address goes: a mailbox (email) or a site (web). */
 type Target = { kind: "email"; mailbox: string; site: string | null } | { kind: "web"; site: string | null };
 
+function emailTarget(mailbox: string): Target {
+  return { kind: "email", mailbox: mailbox.toLowerCase(), site: siteOf(mailbox.slice(mailbox.indexOf("@") + 1)) };
+}
+
 function targetOf(href: string): Target | null {
   const mailbox = emailAddressOf(href);
-  if (mailbox !== null) {
-    return { kind: "email", mailbox: mailbox.toLowerCase(), site: siteOf(mailbox.slice(mailbox.indexOf("@") + 1)) };
-  }
+  if (mailbox !== null) return emailTarget(mailbox);
   if (!/^https?:\/\//i.test(href)) return null;
   try {
     return { kind: "web", site: siteOf(new URL(href).hostname) };
@@ -59,29 +83,131 @@ function targetOf(href: string): Target | null {
   }
 }
 
-/** Does an address shown in the text (`shown`) point somewhere else than `link`? */
-function pointsElsewhere(shown: Target, link: Target): boolean {
-  if (shown.kind === "email" && link.kind === "email") return shown.mailbox !== link.mailbox;
-  return shown.site === null || link.site === null || shown.site !== link.site;
+/** The addresses a text shows, as compared with a link (see addressesShown). */
+export interface ShownAddresses {
+  /** The sites of the web addresses shown. */
+  readonly webSites: ReadonlySet<string>;
+  /** The mailboxes (lower case) and the sites of the email addresses shown. */
+  readonly mailboxes: ReadonlySet<string>;
+  readonly emailSites: ReadonlySet<string>;
+  /**
+   * An address shown whose place can't be read, or one with a user name
+   * (which no link may have): somewhere else, whatever the link.
+   */
+  readonly elsewhere: boolean;
+}
+
+type Shown = { webSites: Set<string>; mailboxes: Set<string>; emailSites: Set<string>; elsewhere: boolean };
+
+function addTarget(shown: Shown, target: Target | null) {
+  if (!target || target.site === null) {
+    shown.elsewhere = true;
+  } else if (target.kind === "email") {
+    shown.mailboxes.add(target.mailbox);
+    shown.emailSites.add(target.site);
+  } else {
+    shown.webSites.add(target.site);
+  }
+}
+
+// Where a loose address starts, and the run of characters it can span (to
+// whitespace, quotes or angle brackets, as a quick link's run).
+const LOOSE_START = /https?:|mailto:/gi;
+const LOOSE_RUN = /[^\s<>"`\u0000-\u001f\u007f]*/uy;
+// Punctuation that ends a sentence, closes a quote or a bracket: not part of a host.
+const HOST_TRAILING = /[.,;:!?'"*_~…·\u0387“”‘’„«»‹›)\]}]+$/u;
+
+/**
+ * Addresses in `text` beyond what a quick link would find: every "https:"
+ * or "http:" followed by a host with a dot (by the site of its host; a user
+ * name makes it elsewhere), and every "mailto:" followed by an email
+ * address, whatever follows them. A run is read once: an address inside another's path
+ * ("https://web.archive.org/web/2020/https://example.org") is part of it.
+ */
+function addLooseAddresses(shown: Shown, text: string): boolean {
+  let any = false;
+  let consumed = 0;
+  const starts = new RegExp(LOOSE_START.source, LOOSE_START.flags);
+  let match: RegExpExecArray | null;
+  while ((match = starts.exec(text))) {
+    const at = match.index;
+    if (at < consumed) continue;
+    LOOSE_RUN.lastIndex = at;
+    const runEnd = at + (LOOSE_RUN.exec(text)?.[0].length ?? 0);
+    consumed = runEnd;
+    starts.lastIndex = runEnd;
+    let from = at + match[0].length;
+    if (match[0].toLowerCase() === "mailto:") {
+      const rest = text.slice(from, runEnd);
+      const q = rest.indexOf("?");
+      const address = (q < 0 ? rest : rest.slice(0, q)).replace(HOST_TRAILING, "");
+      if (isEmailAddress(address)) {
+        addTarget(shown, emailTarget(address));
+        any = true;
+      }
+      continue;
+    }
+    while (from < runEnd && (text[from] === "/" || text[from] === "\\")) from++;
+    let to = from;
+    while (to < runEnd && !"/\\?#".includes(text[to])) to++;
+    const authority = text.slice(from, to).replace(HOST_TRAILING, "");
+    const host = authority.slice(authority.lastIndexOf("@") + 1).replace(/:\d*$/, "");
+    // A host has a dot, as for any address on the platform ("https://bank." isn't one).
+    if (!host.replace(/\.+$/, "").includes(".")) continue;
+    any = true;
+    if (host !== authority.replace(/:\d*$/, "")) {
+      shown.elsewhere = true;
+      continue;
+    }
+    addTarget(shown, { kind: "web", site: siteOf(host) });
+  }
+  return any;
 }
 
 /**
- * "empty" when `text` is blank; "misleading" when it shows an address (as a
- * quick link would find it) that points somewhere else than `href`: another
- * mailbox, for an email address shown over an email link; another site, in
- * every other pairing. Else null. An `href` that isn't a web or email
- * address counts every address shown as somewhere else.
+ * The addresses `text` shows (see the module's note), read once; null when
+ * it shows none.
+ */
+export function addressesShown(text: string): ShownAddresses | null {
+  const shown: Shown = { webSites: new Set(), mailboxes: new Set(), emailSites: new Set(), elsewhere: false };
+  let any = false;
+  const visible = visibleLinkText(text);
+  for (const each of visible === text ? [text] : [text, visible]) {
+    for (const found of findLinks(each)) {
+      addTarget(shown, targetOf(found.href));
+      any = true;
+    }
+  }
+  if (addLooseAddresses(shown, visible)) any = true;
+  return any ? shown : null;
+}
+
+/** Does `set` hold anything but `value`? */
+const holdsOther = (set: ReadonlySet<string>, value: string) => set.size > 1 || (set.size === 1 && !set.has(value));
+
+/**
+ * Do the addresses shown (addressesShown) point somewhere else than `href`?
+ * Another mailbox, for an email address shown over an email link; another
+ * site, in every other pairing. An `href` that isn't a web or email address
+ * counts every address shown as somewhere else.
+ */
+export function showsAnotherAddress(shown: ShownAddresses | null, href: string): boolean {
+  if (!shown) return false;
+  if (shown.elsewhere) return true;
+  const link = targetOf(href);
+  if (!link || link.site === null) return true;
+  if (link.kind === "email") return holdsOther(shown.mailboxes, link.mailbox) || holdsOther(shown.webSites, link.site);
+  return holdsOther(shown.webSites, link.site) || holdsOther(shown.emailSites, link.site);
+}
+
+/**
+ * "empty" when `text` shows nothing (blank, or only characters that show
+ * nothing); "misleading" when it shows an address that points somewhere
+ * else than `href` (showsAnotherAddress). Else null.
  */
 export function linkTextProblem(text: string, href: string): LinkTextProblem | null {
-  if (!text.trim()) return "empty";
-  const shown = findLinks(text);
-  if (!shown.length) return null;
-  const link = targetOf(href);
-  for (const found of shown) {
-    const target = targetOf(found.href);
-    if (!link || !target || pointsElsewhere(target, link)) return "misleading";
-  }
-  return null;
+  if (!visibleLinkText(text).trim()) return "empty";
+  return showsAnotherAddress(addressesShown(text), href) ? "misleading" : null;
 }
 
 /**

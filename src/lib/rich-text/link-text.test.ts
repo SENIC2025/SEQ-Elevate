@@ -1,6 +1,14 @@
 import { describe, it, expect } from "vitest";
 import { checkLinkHref } from "./link-url";
-import { LONG_LINK_TEXT, linkTextProblem, linkTextWarnings, toLinkInput } from "./link-text";
+import {
+  LONG_LINK_TEXT,
+  addressesShown,
+  linkTextProblem,
+  linkTextWarnings,
+  showsAnotherAddress,
+  toLinkInput,
+  visibleLinkText,
+} from "./link-text";
 
 /*
  * Release 4 spec 3.2 (U2): what a link's words say against where it goes;
@@ -71,6 +79,70 @@ describe("linkTextProblem", () => {
   it("counts every address shown as elsewhere when the link is no web or email address", () => {
     expect(linkTextProblem("https://example.org", "javascript:alert(1)")).toBe("misleading");
     expect(linkTextProblem("the guide", "javascript:alert(1)")).toBeNull();
+  });
+
+  // D104: what the text shows is what learners read. Characters that show
+  // nothing, and compatibility forms, are read as learners see them.
+  const EVIL = "https://evil.example/login";
+  const INVISIBLE = ["\u200B", "\u200C", "\u200D", "\u200E", "\u200F", "\u2060", "\u2062", "\u180E", "\u3164", "\uFFA0", "\u115F", "\u00AD", "\u034F"];
+
+  it("reads an address through characters that show nothing", () => {
+    for (const mark of INVISIBLE) {
+      for (const text of [`https://bank${mark}.example/login`, `https:${mark}//bank.example/login`, `https://bank.${mark}example`]) {
+        expect(linkTextProblem(text, EVIL), JSON.stringify(text)).toBe("misleading");
+        expect(linkTextProblem(text, "https://bank.example/login"), JSON.stringify(text)).toBeNull();
+      }
+    }
+  });
+
+  it("reads compatibility forms as the characters they show", () => {
+    // ONE DOT LEADER, fullwidth letters and full stops, a circled letter.
+    for (const text of [
+      "https://bank.example\u2024login",
+      "\uFF48\uFF54\uFF54\uFF50\uFF53\uFF1A\uFF0F\uFF0F\uFF42\uFF41\uFF4E\uFF4B\uFF0E\uFF45\uFF58\uFF41\uFF4D\uFF50\uFF4C\uFF45",
+      "https://\u24D1ank.example",
+    ]) {
+      expect(linkTextProblem(text, EVIL), JSON.stringify(text)).toBe("misleading");
+    }
+  });
+
+  it("reads an address that couldn't be a link itself: a user name, an Outlook safe link, no slashes, over 2,048 characters", () => {
+    expect(linkTextProblem("https://login@bank.example/", EVIL)).toBe("misleading");
+    // A user name shows a host the link can't open, whatever the link.
+    expect(linkTextProblem("https://login@bank.example/", "https://bank.example/")).toBe("misleading");
+    expect(linkTextProblem("https://bank.example@evil.example/", EVIL)).toBe("misleading");
+    const safe = "https://eur01.safelinks.protection.outlook.com/?url=https%3A%2F%2Fexample.org%2Fguide&data=05%7Csomeone%40example.org";
+    expect(linkTextProblem(safe, "https://example.org/guide")).toBe("misleading");
+    expect(linkTextProblem("https:bank.example/login", EVIL)).toBe("misleading");
+    expect(linkTextProblem(`https://bank.example/${"a".repeat(2_100)}`, EVIL)).toBe("misleading");
+    expect(linkTextProblem("xhttps://bank.example", EVIL)).toBe("misleading");
+    expect(linkTextProblem("mailto:help@bank.example?cc=boss@bank.example", "mailto:help@evil.example")).toBe("misleading");
+  });
+
+  it("still accepts text that shows the link's own place, or no address", () => {
+    expect(linkTextProblem("the\u200Bguide", EVIL)).toBeNull();
+    expect(linkTextProblem("https://example.org/\u200B", "https://example.org/x")).toBeNull();
+    expect(linkTextProblem("https://example.org/guide.", "https://example.org/guide")).toBeNull();
+    expect(linkTextProblem("Use https:// addresses", EVIL)).toBeNull();
+    expect(linkTextProblem("Kontakt: info@verein.de", "https://verein.de/")).toBeNull();
+  });
+
+  it("is empty for text that shows nothing", () => {
+    for (const text of ["\u200B", " \u2060 ", "\u3164\u3164", "\u00AD"]) {
+      expect(linkTextProblem(text, "https://example.org/"), JSON.stringify(text)).toBe("empty");
+      expect(visibleLinkText(text).trim(), JSON.stringify(text)).toBe("");
+    }
+    expect(visibleLinkText("the\u200Bguide")).toBe("theguide");
+  });
+
+  it("reads the addresses a text shows once, for as many links as need comparing", () => {
+    const shown = addressesShown("https://example.org and help@example.org");
+    expect(showsAnotherAddress(shown, "https://example.org/a")).toBe(false);
+    expect(showsAnotherAddress(shown, "mailto:help@example.org")).toBe(false);
+    expect(showsAnotherAddress(shown, "mailto:other@example.org")).toBe(true);
+    expect(showsAnotherAddress(shown, "https://evil.example/")).toBe(true);
+    expect(addressesShown("the guide")).toBeNull();
+    expect(showsAnotherAddress(null, "https://evil.example/")).toBe(false);
   });
 });
 

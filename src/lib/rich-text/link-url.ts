@@ -1,3 +1,5 @@
+import { hostReadAlike, typedHost } from "./link-host";
+
 /**
  * The one address check for every link on the platform (D103): a named link
  * in lesson text, a pasted link, a quick link, a further-reading link, and
@@ -7,9 +9,11 @@
  * An address is accepted only when it is
  * - a web address, `https://…` or `http://…` (the scheme in any letter
  *   case), with a host that has a dot and no empty label, and no user name
- *   or password; or
+ *   or password; its host one that every browser and the server read alike
+ *   (link-host.ts: letters, marks, digits, "-" and "_", international names
+ *   that decode, right-to-left names by the Bidi Rule); or
  * - an email address, `mailto:` followed by the address and, at most, a
- *   `subject`;
+ *   `subject` (with no "&", "?" or "#" in it);
  * - at most MAX_HREF_CHARS characters, before and after it is normalised;
  * - free of whitespace inside, control characters, invisible direction and
  *   zero-width marks, a byte-order mark and unpaired surrogates;
@@ -49,7 +53,7 @@ export type LinkRefusal =
   | "scheme"
   /** A web address with a user name or password before its host. */
   | "credentials"
-  /** A web address the URL parser refuses, or whose host has no dot. */
+  /** A web address the URL parser refuses, or whose host has no dot or isn't read alike everywhere. */
   | "host"
   /** A mailto: that isn't one email address with, at most, a subject. */
   | "email"
@@ -153,11 +157,12 @@ function web(typed: string, opts?: { ownFileHost?: string | null }): LinkCheck {
   }
   if (url.protocol !== "https:" && url.protocol !== "http:") return refuse("scheme");
   // "https://bank.example@evil.example" goes to evil.example.
-  if (url.username || url.password) return refuse("credentials");
+  if (url.username || url.password || typedHost(typed) === null) return refuse("credentials");
   // A host with a dot ("example.org", "192.0.2.1"), its labels not empty.
   const host = comparableHost(url.hostname);
   const labels = host.split(".");
   if (labels.length < 2 || labels.some((label) => !label)) return refuse("host");
+  if (!hostReadAlike(typed, host)) return refuse("host");
   if (isSafeLinkHost(host)) return refuse("redirect");
   const href = url.href;
   if (href.length > MAX_HREF_CHARS) return refuse("too-long");
@@ -177,9 +182,10 @@ function email(rest: string): LinkCheck {
   if (!isEmailAddress(address)) return refuse("email");
   if (q >= 0) {
     // Only a subject: a link must not copy a learner's message to someone
-    // unseen (cc, bcc) or write it for them (body).
+    // unseen (cc, bcc) or write it for them (body), however a mail program
+    // splits it ("&", a second "?").
     const query = rest.slice(q + 1);
-    if (!/^subject=/i.test(query) || query.includes("&") || ENCODED_CONTROL.test(query)) {
+    if (!/^subject=[^&?#]*$/i.test(query) || ENCODED_CONTROL.test(query)) {
       return refuse("email");
     }
   }
