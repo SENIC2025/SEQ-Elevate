@@ -531,6 +531,54 @@ describe("Release 3 people and organisations", () => {
     }
   });
 
+  test("A-E7: a saved mapping shows from the save's own answer, not a reload of the page", async ({ page, context }) => {
+    // A router refresh of the page can be lost or come back with what was
+    // there before (Next's router, around the server action it follows).
+    // Here every reload of the page answers with Greece's mapping as it
+    // was before the save, so only the panel's own reading of the save's
+    // answer can show the new one.
+    const mappingOf = async () =>
+      (await prisma.countryMapping.findUnique({ where: { projectId_country: { projectId: PROJECT, country: "GR" } } }))
+        ?.organisationId ?? null;
+    const before = await mappingOf();
+    const { A, B } = world.organisations;
+    const target = before === B.id ? A : B;
+    await page.route(/\/en\/admin\/cohorts\?_rsc=/, async (route) => {
+      const response = await route.fetch();
+      const body = (await response.text()).replaceAll(
+        `{"country":"GR","organisationId":"${target.id}"}`,
+        `{"country":"GR","organisationId":"${before ?? ""}"}`
+      );
+      const headers = { ...response.headers() };
+      delete headers["content-encoding"];
+      delete headers["content-length"];
+      await route.fulfill({ status: response.status(), headers, body });
+    });
+    await signIn(context, world.people.AS.sessionToken);
+    await page.goto(COHORTS_PAGE);
+    const panel = page.getByRole("heading", { name: "Country mapping" }).locator("xpath=..");
+    const greece = panel.getByLabel("Greece", { exact: true });
+    try {
+      await expect(async () => {
+        await greece.selectOption({ label: target.name });
+        await panel.getByRole("button", { name: "Save the organisation for Greece" }).click({ timeout: 2000 });
+        await expect(panel.getByText(`Greece: learners join ${target.name}.`)).toBeVisible({ timeout: 3000 });
+      }).toPass({ timeout: 20_000 });
+      expect(await mappingOf()).toBe(target.id);
+      // Long enough for the refresh that follows the save to have landed.
+      await page.waitForLoadState("networkidle");
+      await expect(greece, "the panel shows what the save answered").toHaveValue(target.id);
+      await expect(panel.getByRole("button", { name: "Save the organisation for Greece" })).toBeDisabled();
+    } finally {
+      if (before) {
+        await prisma.countryMapping.update({
+          where: { projectId_country: { projectId: PROJECT, country: "GR" } },
+          data: { organisationId: before },
+        });
+      }
+    }
+  });
+
   test("A-E8: an organisation people belong to can't be deleted", async ({ page, context, request }) => {
     const org = await prisma.organisation.create({
       data: { projectId: PROJECT, name: `E2E People Org ${RUN}`, shortName: `People ${RUN}` },

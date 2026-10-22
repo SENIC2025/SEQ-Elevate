@@ -66,19 +66,25 @@ type Asking = { kind: "org" | "cohort"; id: string } | null;
 export function OrgCohortManager({
   orgs,
   canManageOrganisations,
+  onOrganisations,
 }: {
   orgs: AdminOrg[];
   /** An ADMIN: creates and deletes organisations. A partner admin manages its own's cohorts only. */
   canManageOrganisations: boolean;
+  /**
+   * Given the organisations a change answers, so the page shows them (the
+   * country mapping lists a new organisation) without a router refresh.
+   */
+  onOrganisations?: (orgs: AdminOrg[]) => void;
 }) {
   const router = useRouter();
   const [orgName, setOrgName] = React.useState("");
   const [orgShort, setOrgShort] = React.useState("");
   const [pending, setPending] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
-  // The list the last change returned, shown until the page's own list
-  // (`orgs`) is rendered again: the refresh after a change sometimes
-  // doesn't show until the next router update (see actions/admin.ts).
+  // The list the last change answered, shown until new props replace it.
+  // A change shows from its own answer: a router refresh after it can be
+  // dropped, or come back with the list from before the change.
   const [fresh, setFresh] = React.useState<{
     from: AdminOrg[];
     list: AdminOrg[];
@@ -121,9 +127,14 @@ export function OrgCohortManager({
 
   function report(res: { ok: boolean; error?: string; orgs?: AdminOrg[] | null }) {
     if (res.ok) {
-      if (res.orgs) setFresh({ from: orgs, list: res.orgs });
+      if (res.orgs) {
+        setFresh({ from: orgs, list: res.orgs });
+        onOrganisations?.(res.orgs);
+      } else {
+        // No list in the answer: the page reads it again.
+        router.refresh();
+      }
       setError(null);
-      router.refresh();
     } else {
       setError(errorText(res.error));
     }
