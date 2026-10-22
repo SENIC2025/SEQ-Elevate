@@ -24,7 +24,7 @@ import {
 import type { ItemLanguages } from "@/lib/cms/reading-types";
 import type { LessonDocumentRef, Locale } from "@/lib/cms/types";
 import { checkLinkHref, type LinkRefusal } from "@/lib/rich-text/link-url";
-import { toLinkInput } from "@/lib/rich-text/link-text";
+import { addressesShown, toLinkInput } from "@/lib/rich-text/link-text";
 import { ownFileHost } from "@/lib/rich-text/own-file-host";
 import { AlertTriangle, BookOpen, ChevronDown, ChevronUp, Eye, EyeOff, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 
@@ -72,6 +72,9 @@ export function addressMessage(reason: LinkRefusal | "own-file"): string {
 }
 
 const MISLEADING_TITLE = "The title shows a different address than the link opens. Use the real address, or a few words.";
+// A title of names read only by the top-level domain they end in, as a file's name can be ("course-materials.zip").
+const LOOKS_LIKE_ADDRESS_TITLE =
+  "The title looks like a web address, but the link opens another one. Use a few words instead, or the real address.";
 const HTTP_WARNING = "This address isn't secure (http). Use https:// if the site offers it.";
 const UNUSABLE = "This address can't be used. Edit it or remove the link.";
 /** What screen readers hear after a staff list's link, as QuickLink says it (English, like this screen, D106). */
@@ -103,7 +106,9 @@ export function checkLinkForm(values: LinkFormValues): {
   else if (check.ownFile) problems.url = addressMessage("own-file");
   else {
     href = check.href;
-    if (!problems.title && title !== null && titleMisleads(title, href)) problems.title = MISLEADING_TITLE;
+    if (!problems.title && title !== null && titleMisleads(title, href)) {
+      problems.title = addressesShown(title)?.namesOnly ? LOOKS_LIKE_ADDRESS_TITLE : MISLEADING_TITLE;
+    }
   }
 
   if (cleanLinkLine(values.description, LINK_LIMITS.description) === null) {

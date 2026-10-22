@@ -172,6 +172,16 @@ describe("checkLinkForm", () => {
     expect(checkLinkForm({ ...values, title: "www.bpb.de", url: "https://www.bpb.de/" }).problems).toEqual({});
   });
 
+  it("says a title of names that end in a top-level domain looks like a web address, a file's name too (refused all the same)", () => {
+    const LOOKS_LIKE = "The title looks like a web address, but the link opens another one. Use a few words instead, or the real address.";
+    for (const title of ["course-materials.zip", "intro.mov", "paypal.com", "paypal.соm"]) {
+      expect(checkLinkForm({ ...values, title, url: "https://example.org/files/x" }).problems.title, title).toBe(LOOKS_LIKE);
+    }
+    // The link's own site, by its registrable domain, and an abbreviation are fine.
+    expect(checkLinkForm({ ...values, title: "europa.eu", url: "https://ec.europa.eu/info" }).problems).toEqual({});
+    expect(checkLinkForm({ ...values, title: "M.Sc. Sustainable Entrepreneurship – programme page", url: "https://uni.example/msc" }).problems).toEqual({});
+  });
+
   it("measures and empties a title and description as the server stores them", () => {
     // Spaces typed stay (the server keeps them), so 201 characters with a double space are too many.
     expect(checkLinkForm({ ...values, title: `${"x".repeat(100)}  ${"x".repeat(99)}` }).problems.title).toMatch(/at most 200/);
