@@ -193,7 +193,10 @@ describe("the Release 3 migrations", () => {
   const index = (start: string, from = 0) => b.findIndex((s, i) => i >= from && s.startsWith(start));
 
   it("sort after every earlier migration", () => {
-    const dirs = readdirSync(`${root}${MIGRATIONS}`).filter((d) => /^\d{14}_/.test(d)).sort();
+    // A later release's migrations (named _r4_ onward) sort after these.
+    const dirs = readdirSync(`${root}${MIGRATIONS}`)
+      .filter((d) => /^\d{14}_/.test(d) && !/^\d{14}_r(?:[4-9]|\d{2,})_/.test(d))
+      .sort();
     expect(dirs.slice(-3)).toEqual([
       "20261120090000_r3_role_partner_admin",
       "20261120090100_r3_people_privacy_content",

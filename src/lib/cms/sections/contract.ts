@@ -25,6 +25,7 @@ import type {
   VideoContent,
 } from "@/lib/cms/types";
 import type { RichText } from "@/lib/rich-text/types";
+import type { ItemLanguages, LessonLinkRef } from "@/lib/cms/reading-types";
 import type {
   LocalizedText,
   StoredAssessment,
@@ -540,7 +541,10 @@ export interface SectionStage {
   title: string;
   subtitle?: string;
   video?: VideoContent;
-  documents?: LessonDocumentRef[];
+  /** Release 4 (D108): with the languages each is for. */
+  documents?: (LessonDocumentRef & ItemLanguages)[];
+  /** Release 4 (D107): further reading; never content, never counted. */
+  links?: LessonLinkRef[];
   parts: ResolvedPart[];
   /** Parts left out because they are only a draft or not ready (editor-only note). */
   skipped: number;
@@ -699,8 +703,21 @@ export type PartIssueField = (issue: PartIssue) => string | null;
 /** resolve.ts — one lesson for the sectioned preview; null when it has nothing to show. */
 export type ResolveSectionStage = (input: {
   section: ResolvedSection;
-  row: (SectionFacts & { video?: unknown; documents?: LessonDocumentRef[] }) | undefined;
+  row:
+    | (SectionFacts & {
+        video?: unknown;
+        documents?: (LessonDocumentRef & ItemLanguages)[];
+        /** Release 4 (D107): the lesson's published further reading, its addresses checked. */
+        links?: LessonLinkRef[];
+      })
+    | undefined;
   locale: Locale;
+  /**
+   * Release 4 (D108): the languages whose documents and links the stage
+   * shows (forLanguage): the effective content language and the requested
+   * one. Absent: every document and link, whatever its languages.
+   */
+  itemLocales?: readonly Locale[];
   label: string;
   standardTitle: string;
   defaults: PartDefaults & { reflectionTitle: string; reflectionIntro: string };

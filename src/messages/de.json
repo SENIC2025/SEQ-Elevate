@@ -1414,5 +1414,43 @@
     "version": "Version {version} · zuletzt aktualisiert am {date}",
     "versionInterim": "Vorläufige Fassung · zuletzt aktualisiert am {date}",
     "poweredBy": "SEQ Elevate · Entwickelt und betrieben von SENIC"
+  },
+  "furtherReading": {
+    "title": "Zum Weiterlesen",
+    "language": {
+      "en": "Auf Englisch",
+      "de": "Auf Deutsch",
+      "el": "Auf Griechisch"
+    }
+  },
+  "courseReferences": {
+    "title": "Quellen und Literatur",
+    "back": "Zurück zum Kurs",
+    "closeTab": "Schließe diesen Tab, um zu deiner Lektion zurückzukehren.",
+    "shownIn": {
+      "en": "Diese Liste ist auf Englisch.",
+      "de": "Diese Liste ist auf Deutsch.",
+      "el": "Diese Liste ist auf Griechisch."
+    },
+    "metaTitle": "Quellen und Literatur: {course}"
+  },
+  "courseReading": {
+    "references": {
+      "heading": "Quellen und Literatur",
+      "hint": "Ein Eintrag pro Absatz, im Stil APA 7; Titel kursiv. Lernende finden die Liste auf einer eigenen Seite, die im Kurs verlinkt ist. Sie ist sichtbar, sobald du speicherst.",
+      "languageNote": "Lernende mit Deutsch oder Griechisch sehen die Liste in ihrer Sprache, wenn du hier eine schreibst; sonst sehen sie die englische Liste.",
+      "empty": "In dieser Sprache gibt es noch keine Liste.",
+      "save": "Liste speichern",
+      "saved": "Gespeichert. Lernende sehen sie jetzt.",
+      "discard": "Änderungen verwerfen",
+      "changedElsewhere": "Jemand anderes hat diese Liste gespeichert, seit du sie geöffnet hast. Lade die neue Fassung und ändere sie dann noch einmal.",
+      "reload": "Neue Fassung laden"
+    },
+    "read": {
+      "links": "Zum Weiterlesen",
+      "noLinks": "Nichts zum Weiterlesen"
+    },
+    "for": "Für: {languages}",
+    "deleteLinks": "{count, plural, one {# Link zum Weiterlesen} other {# Links zum Weiterlesen}}"
   }
 }
