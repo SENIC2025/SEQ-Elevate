@@ -28,6 +28,8 @@ import { defineConfig, devices } from "@playwright/test";
  * database: the run erases every marked test account and ends every demo
  * session, whoever made them. It runs on the main server after every other
  * project has finished (dependencies), so no other spec loses its people.
+ * So does r3-integration-last.spec.ts (the partner story, I-E2): it sets
+ * the project's country mapping, which every other spec's sign-ups read.
  *
  * Only *.spec.ts files are specs: e2e/fixtures also holds unit tests
  * (*.test.ts) that vitest runs.
@@ -40,7 +42,7 @@ const CUTOFF_SPEC = /r2-cutoff\.spec\.ts$/;
 const SWITCHES_PORT = process.env.E2E_SWITCHES_PORT ?? String(Number(PORT) + 20);
 const SWITCHES_URL = `http://localhost:${SWITCHES_PORT}`;
 const SWITCHES_SPEC = /r3-(switches|profile-gate-off)\.spec\.ts$/;
-const LAST_SPEC = /r3-data-last\.spec\.ts$/;
+const LAST_SPEC = /r3-(data|integration)-last\.spec\.ts$/;
 
 // Demo sign-in is opt-in (D98): DEMO_LOGIN_ENABLED and an access code of at
 // least 12 characters, so the demo-access E2E can sign in.
