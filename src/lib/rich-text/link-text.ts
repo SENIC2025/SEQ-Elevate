@@ -1,5 +1,6 @@
 import { findLinks } from "./linkify";
 import { checkLinkHref, emailAddressOf, isEmailAddress, isSafeLinkHost } from "./link-url";
+import { TOP_LEVEL_DOMAINS } from "./top-level-domains";
 
 /**
  * What a link's words say, against where it goes (D104, D107): the text a
@@ -25,7 +26,11 @@ import { checkLinkHref, emailAddressOf, isEmailAddress, isSafeLinkHost } from ".
  * is read wherever a quick link would find one, and also wherever a text
  * shows "https:" or "http:" followed by a host with a dot, whether or not
  * it could be a link (with a user name, as an Outlook safe link, over 2,048
- * characters), and wherever it shows "mailto:" and an email address.
+ * characters), and wherever it shows "mailto:" and an email address. A bare
+ * host shown in the text ("www.bank.example", "bank.example/login",
+ * "paypal.com") is an address of its site too (D104, the owner's decision of
+ * 22 October 2026), while an ordinary word with a dot ("v1.2", "e.g.", the
+ * end of a sentence) is not (addBareHosts).
  *
  * Pure, like link-url.ts.
  */
@@ -61,7 +66,12 @@ function siteOf(host: string): string | null {
   } catch {
     return null;
   }
-  name = name.toLowerCase().replace(/\.$/, "");
+  return siteOfHostname(name);
+}
+
+/** The site of a hostname the URL parser gave (see siteOf). */
+function siteOfHostname(hostname: string): string {
+  const name = hostname.toLowerCase().replace(/\.$/, "");
   return name.startsWith("www.") ? name.slice(4) : name;
 }
 
@@ -123,8 +133,9 @@ const HOST_TRAILING = /[.,;:!?'"*_~…·\u0387“”‘’„«»‹›)\]}]+$/u
  * name makes it elsewhere), and every "mailto:" followed by an email
  * address, whatever follows them. A run is read once: an address inside another's path
  * ("https://web.archive.org/web/2020/https://example.org") is part of it.
+ * Each run read, an address or not, is added to `read` (start, end).
  */
-function addLooseAddresses(shown: Shown, text: string): boolean {
+function addLooseAddresses(shown: Shown, text: string, read: [number, number][]): boolean {
   let any = false;
   let consumed = 0;
   const starts = new RegExp(LOOSE_START.source, LOOSE_START.flags);
@@ -136,6 +147,7 @@ function addLooseAddresses(shown: Shown, text: string): boolean {
     const runEnd = at + (LOOSE_RUN.exec(text)?.[0].length ?? 0);
     consumed = runEnd;
     starts.lastIndex = runEnd;
+    read.push([at, runEnd]);
     let from = at + match[0].length;
     if (match[0].toLowerCase() === "mailto:") {
       const rest = text.slice(from, runEnd);
@@ -164,6 +176,108 @@ function addLooseAddresses(shown: Shown, text: string): boolean {
   return any;
 }
 
+// A name as hosts are written: labels of letters, marks and digits, with
+// hyphens inside, joined by dots (an ideographic full stop is one, as the
+// URL parser reads it).
+const NAME_RUN = /[\p{L}\p{N}\p{M}.\u3002-]+/gu;
+const LABEL = /^[\p{L}\p{N}](?:[\p{L}\p{N}\p{M}-]*[\p{L}\p{N}\p{M}])?$/u;
+// The last label of a host: two letters or more (with their marks), or punycode.
+const TOP_LABEL = /^(?:\p{L}\p{M}*){2,}$|^xn--[a-z0-9-]+$/iu;
+const ASCII_TOP_LABEL = /^[a-z]+$/i;
+const IPV4 = /^(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/;
+// What a name right after it belongs to: a path ("docs/report.de"), a word
+// ("my_site.de"), an encoded or a query's value ("%2Fbank.example",
+// "?next=bank.example").
+const CONTINUES = /[/\\_%=&~]/;
+// After a name: a path or a port, which only a host has.
+const PATH_OR_PORT = /^(?:[/\\]|:\d)/;
+// After a host: its path, query or fragment, to the end of the word.
+const HOST_GOES_ON = /^[/\\?#:]/;
+const WORD_END = /[\s<>"`]/u;
+
+/**
+ * The site of `name` when it is a bare host; "elsewhere" when it is one
+ * whose place can't be read; null when it isn't one. `after` is the text
+ * right after it. See addBareHosts.
+ */
+function bareHostSite(name: string, after: string): string | "elsewhere" | null {
+  const labels = name.split(".");
+  if (labels.length < 2 || !labels.every((label) => LABEL.test(label))) return null;
+  const pathOrPort = PATH_OR_PORT.test(after);
+  if (IPV4.test(name)) return pathOrPort ? name : null;
+  const top = labels[labels.length - 1];
+  if (!TOP_LABEL.test(top)) return null;
+  const sure = pathOrPort || labels[0].toLowerCase() === "www";
+  // Most words with a dot end in no top-level domain: no parse for them.
+  if (!sure && ASCII_TOP_LABEL.test(top) && !TOP_LEVEL_DOMAINS.has(top.toLowerCase())) return null;
+  let hostname: string;
+  try {
+    hostname = new URL(`https://${name}`).hostname;
+  } catch {
+    return sure ? "elsewhere" : null;
+  }
+  if (!sure && !TOP_LEVEL_DOMAINS.has(hostname.slice(hostname.lastIndexOf(".") + 1).toLowerCase())) return null;
+  return siteOfHostname(hostname);
+}
+
+/**
+ * Bare hosts in `text`, each read as a web address of its site (D104, the
+ * owner's decision of 22 October 2026). A name of two labels or more whose
+ * last is two letters or more (or punycode) is a host when it starts with
+ * "www." or a path or a port follows it ("www.bank.example",
+ * "bank.example/login", "bank.example:8443"), or when it ends in a
+ * top-level domain (TOP_LEVEL_DOMAINS: "paypal.com", "bank.example"); an
+ * IPv4 address is one with a path or a port. So an ordinary word with a dot
+ * isn't one: a version ("v1.2"), an abbreviation ("e.g.", "z.B.", "κ.λπ."),
+ * the end of a sentence (a trailing dot ends it), a file's name
+ * ("report.pdf"). Two dots or more ("wait...then") part names; a name right
+ * after a path, a word or a value (CONTINUES) belongs to it, and so does
+ * what follows a host's path. `text` is as learners see it, with what was
+ * already read as an address blanked out.
+ */
+function addBareHosts(shown: Shown, text: string): boolean {
+  let any = false;
+  // A host's path, query or fragment runs to here: none of it is read again.
+  let skipTo = 0;
+  const runs = new RegExp(NAME_RUN.source, NAME_RUN.flags);
+  let match: RegExpExecArray | null;
+  while ((match = runs.exec(text))) {
+    const at = match.index;
+    if (at < skipTo || (at > 0 && CONTINUES.test(text[at - 1]))) continue;
+    const end = at + match[0].length;
+    const after = text.slice(end, end + 2);
+    const names = match[0].replace(/\u3002/g, ".").split(/\.{2,}/);
+    names.forEach((raw, i) => {
+      const last = i === names.length - 1;
+      const site = bareHostSite(raw.replace(/^[.-]+|[.-]+$/g, ""), last ? after : "..");
+      if (site === null) return;
+      any = true;
+      if (site === "elsewhere") shown.elsewhere = true;
+      else shown.webSites.add(site);
+      if (last && HOST_GOES_ON.test(after)) {
+        let stop = end;
+        while (stop < text.length && !WORD_END.test(text[stop])) stop++;
+        skipTo = stop;
+      }
+    });
+  }
+  return any;
+}
+
+/** `text` with each span of `read` blanked out (spaces), so nothing in it is read again. */
+function blankOut(text: string, read: readonly [number, number][]): string {
+  if (!read.length) return text;
+  let out = "";
+  let from = 0;
+  for (const [start, end] of [...read].sort((a, b) => a[0] - b[0])) {
+    if (end <= from) continue;
+    const begin = Math.max(start, from);
+    out += text.slice(from, begin) + " ".repeat(end - begin);
+    from = end;
+  }
+  return out + text.slice(from);
+}
+
 /**
  * The addresses `text` shows (see the module's note), read once; null when
  * it shows none.
@@ -172,13 +286,17 @@ export function addressesShown(text: string): ShownAddresses | null {
   const shown: Shown = { webSites: new Set(), mailboxes: new Set(), emailSites: new Set(), elsewhere: false };
   let any = false;
   const visible = visibleLinkText(text);
+  // What has been read of `visible` as an address: not read again as a bare host.
+  const read: [number, number][] = [];
   for (const each of visible === text ? [text] : [text, visible]) {
     for (const found of findLinks(each)) {
       addTarget(shown, targetOf(found.href));
       any = true;
+      if (each === visible) read.push([found.start, found.end]);
     }
   }
-  if (addLooseAddresses(shown, visible)) any = true;
+  if (addLooseAddresses(shown, visible, read)) any = true;
+  if (addBareHosts(shown, blankOut(visible, read))) any = true;
   return any ? shown : null;
 }
 

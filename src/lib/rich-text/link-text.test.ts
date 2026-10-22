@@ -135,6 +135,104 @@ describe("linkTextProblem", () => {
     expect(visibleLinkText("the\u200Bguide")).toBe("theguide");
   });
 
+  // D104 (owner decision, 22 October 2026): a bare host shown in the text,
+  // with or without "www." and a path, is an address of that site, compared
+  // with the link exactly as a full address is.
+  it("reads a bare host as an address of its site", () => {
+    for (const text of [
+      "www.bank.example",
+      "WWW.BANK.EXAMPLE",
+      "www.bank.example/login",
+      "bank.example/login",
+      "bank.example",
+      "Log in at bank.example.",
+      "Log in at www.bank.example today",
+      "(bank.example)",
+      "„bank.example“",
+      "bank.example:8443/login",
+      "Bank.Example/Login",
+      "Visit PayPal.com",
+      "paypal.com/signin?return=1",
+      "login.bank.example",
+      "τράπεζα.ελ",
+      "ΤΡΑΠΕΖΑ.ΕΛ/σύνδεση",
+      "Website:bank.example",
+      "wait...bank.example",
+      "192.168.0.1/login",
+      "bank.example/login, then evil.example",
+      // Read as learners see it: characters that show nothing, compatibility forms.
+      "bank\u200B.example/login",
+      "www.\u2060bank.example",
+      "bank\uFF0Eexample/login",
+      "bank\u3002example/login",
+      "bank\uFF61example",
+      "\uFF57\uFF57\uFF57.bank.example",
+    ]) {
+      expect(linkTextProblem(text, EVIL), JSON.stringify(text)).toBe("misleading");
+    }
+    // Against an email link, a bare host of another site points elsewhere too.
+    expect(linkTextProblem("www.bank.example", "mailto:help@evil.example")).toBe("misleading");
+    expect(linkTextProblem("Kontakt: verein.de", "mailto:info@evil.example")).toBe("misleading");
+    // And against a link that is no web or email address.
+    expect(linkTextProblem("bank.example", "javascript:alert(1)")).toBe("misleading");
+  });
+
+  it("accepts a bare host of the link's own site", () => {
+    expect(linkTextProblem("www.example.org", "https://example.org/x")).toBeNull();
+    expect(linkTextProblem("example.org/guide", "https://www.example.org/guide")).toBeNull();
+    expect(linkTextProblem("Mehr unter www.bpb.de", "https://www.bpb.de/themen")).toBeNull();
+    expect(linkTextProblem("Booking.com", "https://www.booking.com/")).toBeNull();
+    expect(linkTextProblem("bücher.example/katalog", "https://xn--bcher-kva.example/")).toBeNull();
+    expect(linkTextProblem("Kontakt: verein.de", "mailto:info@verein.de")).toBeNull();
+    expect(linkTextProblem("Kontakt: info@verein.de oder verein.de", "https://verein.de/kontakt")).toBeNull();
+    // A name in an address's path, or after a host's path, is part of that address.
+    expect(linkTextProblem("https://example.org/bank.example", "https://example.org/")).toBeNull();
+    expect(linkTextProblem("example.org/files/bank.example", "https://example.org/")).toBeNull();
+    expect(linkTextProblem("example.org/?next=bank.example", "https://example.org/")).toBeNull();
+    // An email address is read as that address, its domain not again as a host.
+    expect(linkTextProblem("help@bank.example", "mailto:help@bank.example")).toBeNull();
+  });
+
+  it("doesn't read an ordinary word with a dot as a host", () => {
+    for (const text of [
+      // Versions, numbers and dates.
+      "v1.2",
+      "Version v1.2 of the guide",
+      "Web 2.0",
+      "3.5 hours",
+      "22.10.2026",
+      "1.000 Euro",
+      // Abbreviations, in English, German and Greek.
+      "e.g. the guide",
+      "i.e.",
+      "etc.",
+      "U.S.",
+      "Ph.D.",
+      "a.m.",
+      "Fig. 2",
+      "z.B.",
+      "z. B.",
+      "d.h.",
+      "u.a.",
+      "π.χ.",
+      "κ.λπ.",
+      // Sentence ends, and an ellipsis.
+      "Read the guide.",
+      "Read the guide. Then practise.",
+      "the end.",
+      "wait...then",
+      // Names and files that end in no top-level domain.
+      "Node.js",
+      "report.pdf",
+      "the slides (guide.pptx)",
+      // A name inside a path.
+      "docs/report.de",
+      "www",
+    ]) {
+      expect(linkTextProblem(text, EVIL), JSON.stringify(text)).toBeNull();
+    }
+  });
+
   it("reads the addresses a text shows once, for as many links as need comparing", () => {
     const shown = addressesShown("https://example.org and help@example.org");
     expect(showsAnotherAddress(shown, "https://example.org/a")).toBe(false);
