@@ -5,8 +5,10 @@ import { removeECourse, seedECourse } from "./r3-e-course";
 /**
  * Release 4 (spec 9.1, 10.2): a course created in the CMS for the links,
  * further-reading, language and references specs, seeded so the old
- * build's database takes it too. The course, its lessons and its documents
- * are seeded as Release 3's Stream E seeds them (seedECourse); what only
+ * build's database takes it too. The course and its lessons are seeded as
+ * Release 3's Stream E seeds them (seedECourse), the documents by raw SQL
+ * (seedDocuments: a Prisma client generated from Release 4's schema names
+ * their languages, which the old build's database doesn't have); what only
  * Release 4's database has is added where it exists: the documents'
  * languages, the further-reading links (LessonLink) and the references list
  * (CourseBibliography). So the same spec runs on both builds and fails on
@@ -140,6 +142,28 @@ const LINKS: Record<LinkKey, { title: string; url: string; description: string; 
   en: { title: "R4 English reading", url: "https://example.org/r4-en", description: "English only.", languages: ["en"], published: true },
 };
 
+/**
+ * Published documents of a lesson, by raw SQL, so either build's database
+ * takes them; with the languages each is for where the database has them.
+ * Answers their ids, in order.
+ */
+export async function seedDocuments(
+  prisma: PrismaClient,
+  lessonId: string,
+  documents: readonly { id: string; name: string; url: string; languages?: Locale[]; published?: boolean }[]
+): Promise<string[]> {
+  const { documentLanguages } = await r4Tables(prisma);
+  for (const [order, d] of documents.entries()) {
+    await prisma.$executeRaw`
+      INSERT INTO "LessonDocument" ("id", "lessonId", "name", "url", "mimeType", "sizeBytes", "order", "published")
+      VALUES (${d.id}, ${lessonId}, ${d.name}, ${d.url}, 'application/pdf', 1024, ${order}, ${d.published ?? true})`;
+    if (documentLanguages && d.languages?.length) {
+      await prisma.$executeRaw`UPDATE "LessonDocument" SET "languages" = ${d.languages}::text[] WHERE "id" = ${d.id}`;
+    }
+  }
+  return documents.map((d) => d.id);
+}
+
 /** Seeds the course (any earlier one with the slug is removed first). */
 export async function seedR4Course(prisma: PrismaClient, seed: R4CourseSeed): Promise<R4Course> {
   const one = ownLessonId();
@@ -157,10 +181,6 @@ export async function seedR4Course(prisma: PrismaClient, seed: R4CourseSeed): Pr
           en: { title: "Lesson with links", blocks: [namedLinkParagraph()] },
           de: { title: "Lektion mit Links", blocks: [para("E2E: eine Lektion mit Links.")] },
         },
-        documents: (Object.keys(DOCUMENTS) as DocumentKey[]).map((k) => ({
-          name: DOCUMENTS[k].name,
-          url: `https://e2e-store.public.blob.vercel-storage.com/r4-${seed.slug}-${k}.pdf`,
-        })),
       },
       {
         id: two,
@@ -176,17 +196,20 @@ export async function seedR4Course(prisma: PrismaClient, seed: R4CourseSeed): Pr
     where: { projectId: "seq-elevate", courseSlug: seed.slug, stageKey: one },
     select: { id: true },
   });
-  const stored = await prisma.$queryRaw<{ id: string; name: string }[]>`
-    SELECT "id", "name" FROM "LessonDocument" WHERE "lessonId" = ${lesson.id}`;
+  const keys = Object.keys(DOCUMENTS) as DocumentKey[];
+  await seedDocuments(
+    prisma,
+    lesson.id,
+    keys.map((k) => ({
+      id: `e2e-r4-document-${seed.slug}-${k}`,
+      name: DOCUMENTS[k].name,
+      url: `https://e2e-store.public.blob.vercel-storage.com/r4-${seed.slug}-${k}.pdf`,
+      languages: DOCUMENTS[k].languages,
+    }))
+  );
   const documents = Object.fromEntries(
-    (Object.keys(DOCUMENTS) as DocumentKey[]).map((k) => [k, stored.find((d) => d.name === DOCUMENTS[k].name)!])
+    keys.map((k) => [k, { id: `e2e-r4-document-${seed.slug}-${k}`, name: DOCUMENTS[k].name }])
   ) as R4Course["documents"];
-  if (tables.documentLanguages) {
-    for (const k of Object.keys(DOCUMENTS) as DocumentKey[]) {
-      await prisma.$executeRaw`
-        UPDATE "LessonDocument" SET "languages" = ${DOCUMENTS[k].languages}::text[] WHERE "id" = ${documents[k].id}`;
-    }
-  }
 
   let links: R4Course["links"] = null;
   if (tables.links) {
