@@ -12,8 +12,11 @@ import type { LinkRefusal } from "@/lib/rich-text/link-url";
  *   addresses (STORED_LINK_URLS).
  * - HOSTILE_MARKS: link marks that are wrong in their shape rather than
  *   their address (two on one text, extra attributes, a misleading label,
- *   a bare host of another site as the label, touching links that together
- *   show another address), as rich text.
+ *   a bare host of another site as the label, written with look-alike
+ *   letters, wrapped for emphasis or in front of the link's site, touching
+ *   links that together show another address), as rich text.
+ * - ACCEPTED_LABELS: link text with a dot that shows no other site than
+ *   the link's (an abbreviation, the link's registrable domain): kept.
  * - RENDER_ONLY_MARKS: shapes only a direct database write can make
  *   (nested objects, unknown mark types), for the pages that draw them.
  * - overLimitDoc: a version-2 block over the node limit holding hostile
@@ -163,6 +166,21 @@ export const HOSTILE_MARKS: readonly HostileMarks[] = [
     save: "refused",
   },
   {
+    name: "a label that shows another site through look-alike letters",
+    rich: linkedParagraph("https://evil.example/login", "paypal.соm"),
+    save: "refused",
+  },
+  {
+    name: "a label that shows another site as a host wrapped for emphasis",
+    rich: linkedParagraph("https://evil.example/login", "_paypal.com_"),
+    save: "refused",
+  },
+  {
+    name: "a label that shows another site in front of the link's",
+    rich: linkedParagraph("https://evil.example/login", "paypal.com.evil.example"),
+    save: "refused",
+  },
+  {
     name: "two touching links that together show another address",
     rich: paragraphDoc([
       { type: "text", text: "Log in at " },
@@ -172,6 +190,22 @@ export const HOSTILE_MARKS: readonly HostileMarks[] = [
     ]),
     save: "refused",
   },
+];
+
+/**
+ * Link text with a dot that shows no other site than the link's (D104, the
+ * owner's decisions of 22 October 2026): an abbreviation is no host, and a
+ * host of the link's registrable domain is its site. Each is saved, and
+ * drawn, as a link.
+ */
+export const ACCEPTED_LABELS: readonly { label: string; href: string }[] = [
+  { label: "M.Sc. programme", href: "https://uni.example/msc" },
+  { label: "B.Com.", href: "https://uni.example/bcom" },
+  { label: "Dr.med.vet.", href: "https://uni.example/vet" },
+  { label: "Univ.Prof.", href: "https://uni.example/staff" },
+  { label: "Müller GmbH & Co.KG", href: "https://mueller.example/" },
+  { label: "europa.eu", href: "https://ec.europa.eu/info/index_en" },
+  { label: "bank.example", href: "https://login.bank.example/" },
 ];
 
 /** Link marks only a direct database write can make: each must be drawn as text, without a link. */
@@ -211,4 +245,11 @@ export const MISLEADING_TITLES: readonly string[] = [
   "www.bank.example/login",
   "bank.example/login",
   "Log in at bank.example",
+  // Written with look-alike letters, wrapped for emphasis, or in front of the link's site.
+  "paypal.соm",
+  "PAYPAL.СОМ",
+  "paypal.cοm",
+  "Log in at _www.paypal.com_",
+  "~paypal.com~",
+  "paypal.com.evil.example",
 ];
