@@ -29,7 +29,7 @@ export default async function Page({
 
   if (!orgs) {
     return (
-      <div className="mx-auto max-w-md px-4 py-16 text-center">
+      <div lang="en" className="mx-auto max-w-md px-4 py-16 text-center">
         <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-[var(--accent)]/10 text-[var(--accent)]">
           <ShieldAlert className="h-6 w-6" />
         </div>
@@ -43,8 +43,10 @@ export default async function Page({
     );
   }
 
+  // English on every locale's address, like the other staff screens, and
+  // marked so (WCAG 3.1.2).
   return (
-    <div className="mx-auto max-w-4xl px-4 py-8">
+    <div lang="en" className="mx-auto max-w-4xl px-4 py-8">
       <Link
         href="/admin"
         className="inline-flex items-center gap-1 text-sm text-[var(--muted-foreground)] hover:text-[var(--foreground)] mb-3"

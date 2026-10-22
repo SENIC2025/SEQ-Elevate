@@ -7,12 +7,15 @@ import { ShieldAlert } from "lucide-react";
 export function AccessNotice({
   title,
   children,
+  lang,
 }: {
   title: string;
   children: React.ReactNode;
+  /** The notice's language when it isn't the page's: "en" on the English-only staff screens (WCAG 3.1.2). */
+  lang?: string;
 }) {
   return (
-    <div className="mx-auto max-w-md px-4 py-16 text-center">
+    <div lang={lang} className="mx-auto max-w-md px-4 py-16 text-center">
       <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-[var(--accent)]/10 text-[var(--accent)]">
         <ShieldAlert className="h-6 w-6" aria-hidden />
       </div>

@@ -20,7 +20,7 @@ export default async function Page({
   const viewer = await getViewer();
   if (!canManagePeople(viewer.roles)) {
     return (
-      <AccessNotice title="Admins only">
+      <AccessNotice lang="en" title="Admins only">
         Sign in with an admin account to see the project overview.
       </AccessNotice>
     );
@@ -29,7 +29,7 @@ export default async function Page({
   // (a partner admin) no organisation, or partner access isn't on yet.
   if (viewer.scope.kind === "none") {
     return (
-      <AccessNotice title="Nothing to show yet">
+      <AccessNotice lang="en" title="Nothing to show yet">
         Your profile isn&apos;t complete, or your account isn&apos;t linked to
         an organisation yet. Ask DIESIS if this doesn&apos;t change.
       </AccessNotice>

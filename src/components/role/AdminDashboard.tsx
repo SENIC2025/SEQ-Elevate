@@ -76,8 +76,9 @@ export function AdminDashboard({
         />
       </div>
 
-      {/* Management entry points */}
-      <div className="mt-6 grid sm:grid-cols-2 gap-4">
+      {/* Management entry points: English, like the screens they open, and
+          marked so under /de and /el (WCAG 3.1.2); so is the English below. */}
+      <div lang="en" className="mt-6 grid sm:grid-cols-2 gap-4">
         <ManageLink
           href="/admin/people"
           icon={<Users className="h-5 w-5" />}
@@ -124,13 +125,13 @@ export function AdminDashboard({
             <ShieldCheck className="h-5 w-5 text-[var(--accent)]" />
             {t("gdpr")}
           </h2>
-          <p className="text-sm text-[var(--muted-foreground)] mt-1 mb-4">
+          <p lang="en" className="text-sm text-[var(--muted-foreground)] mt-1 mb-4">
             Everyone can do both themselves from their account page.{" "}
             {admin
               ? "A request that reaches DIESIS another way is handled on the Data page."
               : "Pass a request that reaches you another way to DIESIS."}
           </p>
-          <ul className="grid sm:grid-cols-2 gap-2 text-sm">
+          <ul lang="en" className="grid sm:grid-cols-2 gap-2 text-sm">
             <li className="flex items-center gap-3 rounded-lg border border-[var(--border)] px-3 py-2">
               <Download className="h-4 w-4 text-[var(--muted-foreground)]" />
               <span>Download a copy of their data</span>
@@ -141,6 +142,7 @@ export function AdminDashboard({
             </li>
           </ul>
           <Link
+            lang="en"
             href="/account"
             className="mt-4 inline-flex items-center gap-1 text-sm font-medium text-[var(--accent)] hover:underline"
           >
@@ -150,7 +152,7 @@ export function AdminDashboard({
         </CardContent>
       </Card>
 
-      <p className="mt-8 rounded-xl border border-[var(--border)] bg-[var(--surface-muted)] p-4 text-sm text-[var(--muted-foreground)]">
+      <p lang="en" className="mt-8 rounded-xl border border-[var(--border)] bg-[var(--surface-muted)] p-4 text-sm text-[var(--muted-foreground)]">
         Counts above are live. {admin ? "Organisations, cohorts" : "Cohorts"},
         people and roles are editable from the panels above — every change is
         written to the database and recorded in the audit log.
