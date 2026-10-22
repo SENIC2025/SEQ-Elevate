@@ -1,8 +1,15 @@
 "use client";
 
 import * as React from "react";
-import { checkLinkHref, emailAddressOf, MAX_HREF_CHARS, type LinkRefusal } from "@/lib/rich-text/link-url";
-import { linkTextProblem, linkTextWarnings, toLinkInput, type LinkTextWarning } from "@/lib/rich-text/link-text";
+import { checkLinkHref, emailAddressOf } from "@/lib/rich-text/link-url";
+import {
+  linkTextProblem,
+  linkTextWarnings,
+  toLinkInput,
+  visibleLinkText,
+  type LinkTextWarning,
+} from "@/lib/rich-text/link-text";
+import { addressProblem } from "@/lib/rich-text/sanitize";
 import { ownFileHost } from "@/lib/rich-text/own-file-host";
 import { cn } from "@/lib/utils";
 
@@ -16,8 +23,10 @@ import { cn } from "@/lib/utils";
  *
  * - Apply (or Enter in either field): the address is completed, then
  *   checked (checkLinkHref, our own files refused), then the text against
- *   it (linkTextProblem). A refusal shows under its field, which gets focus.
- *   With no text, the link's text is its address.
+ *   it (linkTextProblem). A refusal shows under its field, which gets focus,
+ *   and is announced (an alert, each time Apply is refused: focus may
+ *   already be on that field). With no text, the link's text is its
+ *   address.
  * - "Will open: …" describes the address field (not a live region).
  * - Warnings (http, vague or long link text) never refuse. They go to a
  *   polite status line only when one first appears (after a pause), when a
@@ -36,21 +45,8 @@ export type LinkFormCheck =
   | { ok: true; href: string; text: string; warnings: LinkFormWarning[] }
   | { ok: false; field: "address" | "text"; message: string };
 
-const USE_WEB_OR_EMAIL = "Use an address starting with https:// or http://, or an email address.";
-
-/** Why an address is refused, for authors. */
-const REFUSAL: Record<LinkRefusal | "own-file", string> = {
-  empty: USE_WEB_OR_EMAIL,
-  characters: USE_WEB_OR_EMAIL,
-  scheme: USE_WEB_OR_EMAIL,
-  host: USE_WEB_OR_EMAIL,
-  email: USE_WEB_OR_EMAIL,
-  credentials: "Addresses can't contain a user name or password.",
-  "too-long": `This address is too long (at most ${MAX_HREF_CHARS.toLocaleString("en")} characters).`,
-  redirect:
-    "This is an Outlook safe link, which carries the address of the mailbox it was sent to. Use the original address instead.",
-  "own-file": "This is a file uploaded to the platform. Add it to the lesson as a document instead.",
-};
+const NO_ADDRESS = "Type the address the link should open.";
+const OWN_FILE = "This is a file uploaded to the platform. Add it to the lesson as a document instead.";
 
 const MISLEADING = "The text shows a different address than the link opens. Show the real address, or use a few words.";
 
@@ -65,10 +61,14 @@ export const shownAddress = (href: string) => emailAddressOf(href) ?? href;
 
 /** The form's rules, pure: what Apply does with `text` and `address` as typed. */
 export function checkLinkForm({ text, address }: { text: string; address: string }): LinkFormCheck {
-  const check = checkLinkHref(toLinkInput(address), { ownFileHost: ownFileHost() });
-  if (!check.ok) return { ok: false, field: "address", message: REFUSAL[check.reason] };
-  if (check.ownFile) return { ok: false, field: "address", message: REFUSAL["own-file"] };
-  const given = text.trim() !== "";
+  const typed = toLinkInput(address);
+  const check = checkLinkHref(typed, { ownFileHost: ownFileHost() });
+  if (!check.ok) {
+    return { ok: false, field: "address", message: typed.trim() ? addressProblem(check.reason, typed) : NO_ADDRESS };
+  }
+  if (check.ownFile) return { ok: false, field: "address", message: OWN_FILE };
+  // Text that shows nothing (spaces, or characters that show nothing) is no text.
+  const given = visibleLinkText(text).trim() !== "";
   const shown = given ? text : shownAddress(check.href);
   if (linkTextProblem(shown, check.href) === "misleading") return { ok: false, field: "text", message: MISLEADING };
   const warnings: LinkFormWarning[] = [];
@@ -111,7 +111,8 @@ export function LinkForm({
 }: LinkFormProps) {
   const [text, setText] = React.useState(initialText);
   const [address, setAddress] = React.useState(initialAddress);
-  const [error, setError] = React.useState<{ field: "address" | "text"; message: string } | null>(null);
+  // A refusal, and how many Apply has had (a new alert each time).
+  const [error, setError] = React.useState<{ field: "address" | "text"; message: string; tries: number } | null>(null);
   // The warnings last put in the status line, and the editor box's blur
   // count when the input last changed.
   const [announced, setAnnounced] = React.useState("");
@@ -156,7 +157,7 @@ export function LinkForm({
   const apply = () => {
     const result = checkLinkForm({ text, address });
     if (!result.ok) {
-      setError({ field: result.field, message: result.message });
+      setError((was) => ({ field: result.field, message: result.message, tries: (was?.tries ?? 0) + 1 }));
       (result.field === "address" ? addressRef : textRef).current?.focus();
       return;
     }
@@ -183,7 +184,7 @@ export function LinkForm({
     "w-full rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--accent)]";
   const errorLine = (which: "text" | "address") =>
     error?.field === which ? (
-      <p id={ids.error} className="mt-1 text-xs text-[var(--danger)]">
+      <p key={error.tries} id={ids.error} role="alert" className="mt-1 text-xs text-[var(--danger)]">
         {error.message}
       </p>
     ) : null;

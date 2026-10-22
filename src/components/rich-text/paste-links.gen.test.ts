@@ -49,12 +49,24 @@ for (const seed of SEEDS) {
     it("never keeps a refused, own-file, safe-link or misrepresented address", () => {
       anchors.forEach((anchor, i) => {
         const result = classifyPastedLink(anchor);
-        if (!result.keep) return;
         const name = caseName(seed, i, anchor);
+        // Whatever happens to the link, the text shown holds no Outlook safe
+        // link: at most a wrapper's host, never what follows it.
+        const shown = result.text ?? anchor.text;
+        for (const [address] of shown.matchAll(/https?:\/\/[^\s<>"`]+/gi)) {
+          let url: URL;
+          try {
+            url = new URL(address);
+          } catch {
+            continue;
+          }
+          if (isSafeLinkHost(url.hostname)) expect(address.replace(/[.,;:!?'")\]}»”’]+$/u, ""), name).toBe(`${url.protocol}//${url.host}/`);
+        }
+        if (!result.keep) return;
         const check = checkLinkHref(result.href, { ownFileHost: ownFileHost() });
         expect(check, name).toMatchObject({ ok: true, href: result.href, ownFile: false, insecure: result.http });
         if (check.ok && check.kind === "web") expect(isSafeLinkHost(new URL(result.href).hostname), name).toBe(false);
-        expect(linkTextProblem(anchor.text, result.href), name).toBeNull();
+        expect(linkTextProblem(shown, result.href), name).toBeNull();
       });
     });
   });

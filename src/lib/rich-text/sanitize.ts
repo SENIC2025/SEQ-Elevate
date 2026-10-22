@@ -1,5 +1,5 @@
-import { checkLinkHref } from "./link-url";
-import { linkTextProblem } from "./link-text";
+import { MAX_HREF_CHARS, checkLinkHref, emailAddressOf, type LinkRefusal } from "./link-url";
+import { addressesShown, showsAnotherAddress, visibleLinkText } from "./link-text";
 import { ownFileHost } from "./own-file-host";
 import {
   RT_LIMITS,
@@ -31,9 +31,9 @@ import {
  * Links (D104): a text keeps at most one link mark, holding only its
  * address, and only when the one address check (checkLinkHref, link-url.ts)
  * accepts it; the address stored is the normalised one. A link is also
- * dropped when its text, read together with any link it touches, shows
- * another address than it opens (linkTextProblem, link-text.ts), and,
- * silently, when its text is only spaces. Its text is always kept. A doc
+ * dropped when the word it is in, read as learners see it (with any link
+ * or text it touches), shows another address than it opens (link-text.ts),
+ * and, silently, when its text shows nothing. Its text is always kept. A doc
  * that still holds a link comes back as version 2, any other as version 1,
  * whatever the input claimed. A save refuses what was dropped (narrative.ts,
  * richTextForSave); a render shows the text without the link.
@@ -95,9 +95,11 @@ export type LinkProblemReason = "refused" | "redirect" | "misleading" | "own-fil
  * link), "misleading" (its text shows another address) or "own-file".
  */
 export interface LinkProblem {
-  /** The link's text (for "misleading", with the links it touches), cut to 60 characters. */
+  /** The link's text (for "misleading", the words it is in), cut to 60 characters. */
   text: string;
   reason: LinkProblemReason;
+  /** For "refused": why, as a sentence for authors (addressProblem). */
+  detail?: string;
 }
 
 /** At most this many link problems are named. */
@@ -193,7 +195,7 @@ const isList = (type: string | null): type is RtList["type"] =>
  */
 type WalkLink =
   | { ok: true; href: string; ownFile: boolean }
-  | { ok: false; reason: "refused" | "redirect"; key: unknown };
+  | { ok: false; reason: "refused" | "redirect"; key: unknown; detail?: string };
 type WalkText = { type: "text"; text: string; bold: boolean; italic: boolean; link: WalkLink | null };
 type WalkInline = WalkText | RtHardBreak;
 
@@ -374,7 +376,7 @@ class Walker {
       } else this.issues.add("dropped-mark");
     }
     // Two links on one text: which one would a learner get? Neither.
-    if (links > 1) link = { ok: false, reason: "refused", key: {} };
+    if (links > 1) link = { ok: false, reason: "refused", key: {}, detail: TWO_LINKS };
     return { bold, italic, link };
   }
 
@@ -393,14 +395,20 @@ class Walker {
     }
     const check = checkLinkHref(href, { ownFileHost: ownFileHost() });
     if (!check.ok) {
-      return { ok: false, reason: check.reason === "redirect" ? "redirect" : "refused", key: href };
+      if (check.reason === "redirect") return { ok: false, reason: "redirect", key: href };
+      return { ok: false, reason: "refused", key: href, detail: addressProblem(check.reason, href) };
     }
     return { ok: true, href: check.href, ownFile: check.ownFile };
   }
 
-  private problem(reason: LinkProblemReason, text: string) {
+  /** Name a link a save refuses; a refused one says why (an address that isn't a string: USE_WEB_OR_EMAIL). */
+  private problem(reason: LinkProblemReason, text: string, detail?: string) {
     if (this.linkProblems.length < MAX_LINK_PROBLEMS) {
-      this.linkProblems.push({ text: problemText(text), reason });
+      this.linkProblems.push(
+        reason === "refused"
+          ? { text: problemText(text), reason, detail: detail ?? USE_WEB_OR_EMAIL }
+          : { text: problemText(text), reason }
+      );
     }
   }
 
@@ -408,16 +416,31 @@ class Walker {
    * A paragraph's links, once its text is read. A link is the run of
    * neighbouring text with the same address (a line break ends it):
    * - a refused one loses its link (dropped-link);
-   * - one whose text is only spaces loses its link, silently (learners
-   *   would see an underlined space);
-   * - links that touch (no unlinked character between them) are read
-   *   together, as learners see them: when their text shows another address
-   *   than any of them opens, all of them lose their link (dropped-link) —
-   *   "https://bank." and "example" linked apart read "https://bank.example";
+   * - one whose text shows nothing (spaces, or characters that show
+   *   nothing) loses its link, silently (learners would see an underlined
+   *   space, or nothing);
+   * - each link is read as learners read it: with the rest of the words it
+   *   starts and ends in, up to a space or a line break, so with any link
+   *   or text it touches. When those words show another address than a link
+   *   in them opens, every link in them loses its link (dropped-link):
+   *   "https://bank." and "example" linked apart, or a typed
+   *   "https://bank.example" and a link on "/login", read as one address;
    * - a kept link to our own file store is reported (own-file-link).
-   * Then the text nodes are rebuilt, neighbours with the same marks joined.
+   * Each stretch of words is read once, so the cost follows the paragraph's
+   * length, however many links touch. Then the text nodes are rebuilt,
+   * neighbours with the same marks joined.
    */
   private finishLinks(nodes: WalkInline[]): RtInline[] {
+    // The paragraph's text as learners read it, a line break as "\n";
+    // `at[i]` is where node i starts in it.
+    const at: number[] = [];
+    let joined = "";
+    for (const node of nodes) {
+      at.push(joined.length);
+      joined += node.type === "text" ? node.text : "\n";
+    }
+    at.push(joined.length);
+
     type Run = { start: number; end: number; link: WalkLink };
     const runs: Run[] = [];
     for (let i = 0; i < nodes.length; ) {
@@ -435,11 +458,7 @@ class Walker {
       runs.push({ start: i, end, link: node.link });
       i = end;
     }
-    const textOf = (run: Run) =>
-      nodes
-        .slice(run.start, run.end)
-        .map((n) => (n.type === "text" ? n.text : ""))
-        .join("");
+    const textOf = (run: Run) => joined.slice(at[run.start], at[run.end]);
     const unlink = (run: Run) => {
       for (let k = run.start; k < run.end; k++) {
         const n = nodes[k];
@@ -447,48 +466,114 @@ class Walker {
       }
     };
 
-    const kept: Run[] = [];
+    const kept: (Run & { link: { ok: true; href: string; ownFile: boolean } })[] = [];
     for (const run of runs) {
       if (!run.link.ok) {
-        this.problem(run.link.reason, textOf(run));
+        this.problem(run.link.reason, textOf(run), run.link.detail);
         this.issues.add("dropped-link");
         unlink(run);
-      } else if (!textOf(run).trim()) {
+      } else if (!visibleLinkText(textOf(run)).trim()) {
         unlink(run);
       } else {
-        kept.push(run);
+        kept.push(run as Run & { link: { ok: true; href: string; ownFile: boolean } });
       }
     }
+    if (!kept.length) return this.rebuild(nodes);
 
-    // Touching links, read together.
-    let group: Run[] = [];
+    // Where the words around a position start and end: the next and the
+    // previous whitespace (a line break included), found once per paragraph.
+    const space = /\s/;
+    const wordEnd: number[] = new Array(joined.length + 1);
+    wordEnd[joined.length] = joined.length;
+    for (let k = joined.length - 1; k >= 0; k--) wordEnd[k] = space.test(joined[k]) ? k : wordEnd[k + 1];
+    const wordStart = (from: number) => {
+      let k = from;
+      while (k > 0 && !space.test(joined[k - 1])) k--;
+      return k;
+    };
+
+    // Each link is read three ways, as learners may read it: its own text;
+    // the text of the links it touches, joined; and the words it is in.
+    // Links joined by touching or by sharing words form one cluster, and a
+    // cluster that shows another address in any of these readings loses all
+    // its links. Each reading is of a stretch of text read once.
+    type Kept = (typeof kept)[number];
+    type Reading = { text: string; runs: Kept[] };
+    const elsewhere = (reading: Reading) => {
+      const shown = addressesShown(reading.text);
+      return shown !== null && reading.runs.some((run) => showsAnotherAddress(shown, run.link.href));
+    };
+    let cluster: Kept[] = [];
+    let readings: Reading[] = [];
+    // The links touching the last one, and the links sharing its words
+    // (from wordFrom to wordTo).
+    let touching: Kept[] = [];
+    let words: Kept[] = [];
+    let wordFrom = 0;
+    let wordTo = 0;
     const flush = () => {
-      if (!group.length) return;
-      const joined = group.map(textOf).join("");
-      const misleading = group.some(
-        (run) => run.link.ok && linkTextProblem(joined, run.link.href) === "misleading"
-      );
+      if (!cluster.length) return;
+      const misleading = readings.find(elsewhere);
       if (misleading) {
-        this.problem("misleading", joined);
+        this.problem("misleading", misleading.text);
         this.issues.add("dropped-link");
-        group.forEach(unlink);
+        cluster.forEach(unlink);
       } else {
-        for (const run of group) {
-          if (run.link.ok && run.link.ownFile) {
+        for (const run of cluster) {
+          if (run.link.ownFile) {
             this.problem("own-file", textOf(run));
             this.issues.add("own-file-link");
           }
         }
       }
-      group = [];
+      cluster = [];
+      readings = [];
+    };
+    const closeTouching = () => {
+      if (touching.length > 1) {
+        readings.push({ text: joined.slice(at[touching[0].start], at[touching[touching.length - 1].end]), runs: touching });
+      }
+      touching = [];
+    };
+    const closeWords = () => {
+      const text = joined.slice(wordFrom, wordTo);
+      // Words that are one link's own text were read with it.
+      if (words.length > 1 || (words.length === 1 && text !== textOf(words[0]))) readings.push({ text, runs: words });
+      words = [];
     };
     for (const run of kept) {
-      const last = group[group.length - 1];
-      if (last && last.end !== run.start) flush();
-      group.push(run);
+      // Its words: from the start of the word its first visible character
+      // is in, to the end of the word its last one is in.
+      let first = at[run.start];
+      let last = at[run.end] - 1;
+      while (first < last && space.test(joined[first])) first++;
+      while (last > first && space.test(joined[last])) last--;
+      const to = Math.max(wordEnd[last], last + 1);
+      const touches = touching.length > 0 && touching[touching.length - 1].end === run.start;
+      // Its words overlap the last link's: no whitespace between them.
+      const sharesWords = words.length > 0 && first < wordTo;
+      if (!touches) closeTouching();
+      if (!sharesWords) closeWords();
+      if (!touches && !sharesWords) flush();
+      readings.push({ text: textOf(run), runs: [run] });
+      touching.push(run);
+      if (sharesWords) {
+        wordTo = Math.max(wordTo, to);
+      } else {
+        wordFrom = wordStart(first);
+        wordTo = to;
+      }
+      words.push(run);
+      cluster.push(run);
     }
+    closeTouching();
+    closeWords();
     flush();
+    return this.rebuild(nodes);
+  }
 
+  /** The text nodes, rebuilt: neighbours with the same marks joined. */
+  private rebuild(nodes: WalkInline[]): RtInline[] {
     const out: RtInline[] = [];
     let prev: WalkText | null = null;
     for (const node of nodes) {
@@ -694,13 +779,45 @@ export function richTextProblem(
   return RT_PROBLEM[fatal](subject);
 }
 
+const USE_WEB_OR_EMAIL = "Use an address starting with https:// or http://, or an email address.";
+const TWO_LINKS = "Its words hold two links. Keep one.";
+
+/**
+ * Why an address can't be a link, as one sentence for authors (the Link
+ * form's, and a save's after "the link … can't be used."): one sentence for
+ * each problem, so an author knows what to change. Authoring-tool copy
+ * (English). `address` is the address as given (an email link's problem
+ * depends on it).
+ */
+export function addressProblem(reason: LinkRefusal, address: unknown): string {
+  switch (reason) {
+    case "too-long":
+      return `This address is too long (at most ${MAX_HREF_CHARS.toLocaleString("en")} characters).`;
+    case "characters":
+      return "Addresses can't contain spaces or invisible characters. Copy the address from the browser's address bar.";
+    case "credentials":
+      return "Addresses can't contain a user name or password.";
+    case "host":
+      return "This address has no full site name (like example.org), or one that can't be used. Copy the address from the browser's address bar.";
+    case "email":
+      return typeof address === "string" && emailAddressOf(address.trim()) !== null
+        ? "Email links can only carry a subject (no cc, bcc or message text)."
+        : "This email address isn't complete (like help@example.org).";
+    case "redirect":
+      return "This is an Outlook safe link, which carries the address of the mailbox it was sent to. Use the original address instead.";
+    case "empty":
+    case "scheme":
+      return USE_WEB_OR_EMAIL;
+  }
+}
+
 /**
  * Why a link can't be saved, naming it by its text (authoring-tool copy,
- * English), as a sentence to follow "Block 2 (Paragraph): ".
+ * English), as a sentence to follow "Block 2 (Paragraph): ". `detail` says
+ * why a refused link is refused (LinkProblem.detail).
  */
-export const LINK_PROBLEM: Record<LinkProblemReason, (text: string) => string> = {
-  refused: (text) =>
-    `the link “${text}” can't be used. Use an address starting with https:// or http://, or an email address.`,
+export const LINK_PROBLEM: Record<LinkProblemReason, (text: string, detail?: string) => string> = {
+  refused: (text, detail = USE_WEB_OR_EMAIL) => `the link “${text}” can't be used. ${detail}`,
   redirect: (text) =>
     `the link “${text}” is an Outlook safe link, which carries the address of the mailbox it was sent to. Use the original address instead.`,
   misleading: (text) =>
@@ -714,6 +831,6 @@ export const LINK_PROBLEM: Record<LinkProblemReason, (text: string) => string> =
  * or, without `subject`, as the editor does, on its own ("The link …").
  */
 export function linkProblemMessage(problem: LinkProblem, subject?: string): string {
-  const sentence = LINK_PROBLEM[problem.reason](problem.text);
+  const sentence = LINK_PROBLEM[problem.reason](problem.text, problem.detail);
   return subject ? `${subject}: ${sentence}` : sentence.charAt(0).toUpperCase() + sentence.slice(1);
 }

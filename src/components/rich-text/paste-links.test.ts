@@ -75,6 +75,44 @@ describe("classifyPastedLink", () => {
     );
   });
 
+  it("shows the original address instead of an Outlook safe link in an anchor's text, counted", () => {
+    // Word's text for a link copied from Outlook is the safe link itself,
+    // with the mailbox it was sent to: learners must never see that.
+    const target = "https://example.org/guide";
+    expect(classifyPastedLink({ href: SAFE(target), name: null, text: SAFE(target) })).toEqual({
+      keep: true,
+      href: target,
+      http: false,
+      text: target,
+    });
+    expect(classifyPastedLink({ href: SAFE(target), name: null, text: `See ${SAFE(target)}.` })).toEqual({
+      keep: true,
+      href: target,
+      http: false,
+      text: `See ${target}.`,
+    });
+    // A safe link whose target can't be a link: not kept, and its text shows the target, not the mailbox.
+    const file = "file:///C:/Users/staff/handout.docx";
+    expect(classifyPastedLink({ href: SAFE(file), name: null, text: SAFE(file) })).toEqual({
+      keep: false,
+      counted: "not-kept",
+      text: file,
+    });
+    // One without a target shows only its host.
+    const bare = "https://eur01.safelinks.protection.outlook.com/?data=05%7C02%7Csomeone%40example.org";
+    expect(classifyPastedLink({ href: bare, name: null, text: bare })).toEqual({
+      keep: false,
+      counted: "not-kept",
+      text: "https://eur01.safelinks.protection.outlook.com/",
+    });
+    for (const result of [
+      classifyPastedLink({ href: SAFE(target), name: null, text: SAFE(target) }),
+      classifyPastedLink({ href: SAFE(file), name: null, text: SAFE(file) }),
+    ]) {
+      expect(JSON.stringify(result)).not.toMatch(/safelinks|someone/);
+    }
+  });
+
   it("unwraps a link to our own file store, counted as an uploaded file", () => {
     expect(
       classifyPastedLink({ href: "https://e2e-store.public.blob.vercel-storage.com/handout.pdf", name: null, text: "handout" })
@@ -116,17 +154,26 @@ describe("classifyPastedLink", () => {
 
 describe("pasteNotes", () => {
   it("says nothing when every link was kept, or there was none", () => {
-    expect(pasteNotes({ notKept: 0, uploaded: 0, misleading: 0, http: 0 })).toEqual([]);
+    expect(pasteNotes({ notKept: 0, uploaded: 0, misleading: 0, http: 0, safeLinkText: 0 })).toEqual([]);
+  });
+
+  it("says when a link's text was an Outlook safe link", () => {
+    expect(pasteNotes({ notKept: 0, uploaded: 0, misleading: 0, http: 0, safeLinkText: 1 })).toEqual([
+      "1 link's text was an Outlook safe link, which carries the address of the mailbox it was sent to: it now shows the original address.",
+    ]);
+    expect(pasteNotes({ notKept: 0, uploaded: 0, misleading: 0, http: 0, safeLinkText: 2 })).toEqual([
+      "2 links' text was an Outlook safe link, which carries the address of the mailbox it was sent to: they now show the original address.",
+    ]);
   });
 
   it("gives one sentence per count, singular or plural", () => {
-    expect(pasteNotes({ notKept: 2, uploaded: 1, misleading: 1, http: 1 })).toEqual([
+    expect(pasteNotes({ notKept: 2, uploaded: 1, misleading: 1, http: 1, safeLinkText: 0 })).toEqual([
       "2 links weren't kept: only web and email links can be used. Add them again with the Link button.",
       "1 link to a file uploaded to the platform wasn't kept. Add the file to the lesson as a document instead.",
       "1 link wasn't kept because its text shows a different address. Add it again with the Link button, using a few words.",
       "1 pasted link uses http://, which isn't secure. Change it to https:// if the site offers it.",
     ]);
-    expect(pasteNotes({ notKept: 1, uploaded: 2, misleading: 3, http: 2 })).toEqual([
+    expect(pasteNotes({ notKept: 1, uploaded: 2, misleading: 3, http: 2, safeLinkText: 0 })).toEqual([
       "1 link wasn't kept: only web and email links can be used. Add it again with the Link button.",
       "2 links to files uploaded to the platform weren't kept. Add the files to the lesson as documents instead.",
       "3 links weren't kept because their text shows a different address. Add them again with the Link button, using a few words.",

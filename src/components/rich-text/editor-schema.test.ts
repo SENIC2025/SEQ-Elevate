@@ -9,7 +9,7 @@ import {
 } from "./editor-extensions";
 import { canSinkWithin } from "./indent-extension";
 import { linkRange } from "./link-extension";
-import { VARIANT, openingDoc } from "./RichTextEditor";
+import { VARIANT, editorChange, openingDoc, removedLinksNote } from "./RichTextEditor";
 import { NARRATIVE_TEXT_CLASS } from "@/components/course/NarrativeStage";
 import { REFLECTION_INTRO_CLASS } from "@/components/course/ReflectionIntro";
 import { legacyTextToDoc } from "@/lib/rich-text/from-legacy";
@@ -698,6 +698,67 @@ describe("openingDoc (what the editor opens)", () => {
       content: [{ type: "paragraph", content: [{ type: "text", text: "bad " }, linked("good", "https://example.org/")] }],
     });
     expect(() => schema.nodeFromJSON(opened.doc).check()).not.toThrow();
+  });
+});
+
+describe("removedLinksNote (a stored link the check refuses, named when the editor opens)", () => {
+  const linked = (text: string, href: string) => ({ type: "text", text, marks: [{ type: "link", attrs: { href } }] });
+  const stored = (...content: unknown[]) => ({ v: 2, doc: { type: "doc", content: [{ type: "paragraph", content }] } });
+
+  it("names the one link removed, and says what to do", () => {
+    const opened = openingDoc(stored(linked("the guide", "javascript:alert(1)"), { type: "text", text: " today" }), "unused");
+    expect(removedLinksNote(opened.removedLinks)).toBe(
+      "The link “the guide” can't be used and was removed. Add it again with the Link button."
+    );
+  });
+
+  it("names the first of several, misleading ones included", () => {
+    const opened = openingDoc(
+      stored(linked("https://bank.example", "https://evil.example/"), { type: "text", text: " and " }, linked("old", "file:///C:/x")),
+      "unused"
+    );
+    expect(removedLinksNote(opened.removedLinks)).toBe(
+      "Links that can't be used were removed, the first “old”. Add them again with the Link button."
+    );
+  });
+
+  it("says nothing when no link was removed (a link to our own files stays, named as a problem)", () => {
+    const opened = openingDoc(stored(linked("handout", "https://e2e-store.public.blob.vercel-storage.com/x.pdf")), "unused");
+    expect(opened.removedLinks).toEqual([]);
+    expect(removedLinksNote(opened.removedLinks)).toBeNull();
+    expect(opened.linkProblems).toEqual([{ text: "handout", reason: "own-file" }]);
+  });
+});
+
+describe("editorChange (what the editor hands up after an edit)", () => {
+  const linked = (text: string, href: string) => ({ type: "text", text, marks: [{ type: "link", attrs: { href } }] });
+  const docOf = (...content: unknown[]): JSONContent => ({ type: "doc", content: [{ type: "paragraph", content }] as JSONContent[] });
+  const change = (doc: JSONContent) => editorChange(doc, sanitizeRichText({ v: 1, doc }));
+
+  it("hands up a text it can save as it is, and its plain text", () => {
+    const doc = docOf({ type: "text", text: "Read " }, linked("the guide", "https://example.org/guide"));
+    expect(change(doc)).toEqual({
+      rich: { v: 2, doc },
+      text: "Read the guide (https://example.org/guide)",
+    });
+  });
+
+  it("hands up a link the save would refuse as it is, with the paragraph's words beside it", () => {
+    // An older save (a rollback to Release 3) stores the words, never an empty paragraph.
+    const doc = docOf({ type: "text", text: "Read " }, linked("the https://bank.example guide", "https://evil.example/"), { type: "text", text: " today." });
+    const { rich, text } = change(doc);
+    expect(rich).toEqual({ v: 2, doc });
+    expect(text).toBe("Read the https://bank.example guide today.");
+  });
+
+  it("hands up text over a limit as it is, with its words and its links' addresses beside it", () => {
+    const doc = docOf(
+      linked("the guide", "https://example.org/guide"),
+      ...Array.from({ length: 1_500 }, (_, i) => ({ type: "text", text: ` w${i}`, marks: [{ type: i % 2 ? "bold" : "italic" }] }))
+    );
+    const { rich, text } = change(doc);
+    expect(rich.v).toBe(2);
+    expect(text.startsWith("the guide (https://example.org/guide) w0 w1")).toBe(true);
   });
 });
 

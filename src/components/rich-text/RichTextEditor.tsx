@@ -33,9 +33,10 @@ import {
   sanitizeRichText,
   type LinkProblem,
   type RtIssue,
+  type RtSanitized,
 } from "@/lib/rich-text/sanitize";
 import { docToPlainText } from "@/lib/rich-text/to-plain";
-import { RT_LIMITS, type RichText } from "@/lib/rich-text/types";
+import { RT_LIMITS, type RichText, type RtDoc } from "@/lib/rich-text/types";
 import { editorExtensions, plainTextSlice } from "./editor-extensions";
 import { linkRange, newLinkHref } from "./link-extension";
 import { LinkForm, shownAddress } from "./LinkForm";
@@ -126,18 +127,22 @@ export const VARIANT = {
  *   start over, e.g. on "Discard changes" or another language.
  * - Pasting: Word and Google Docs HTML is tidied (paste-cleanup.ts) and read
  *   against the schema, which keeps only the formatting above; the status
- *   line says how many links weren't kept, and why. Plain text with line
- *   breaks follows Round 1's rules ("•" and "1." lines are lists).
+ *   line says how many links weren't kept, and why, until the text next
+ *   changes (an undo included). Plain text with line breaks follows Round
+ *   1's rules ("•" and "1." lines are lists).
  * - Links (D104, D106): Link (Ctrl+K, ⌘K) opens the Link form (LinkForm)
  *   for the selected words, or for the link the cursor is in; Remove link
  *   takes the whole link off. Where a link goes shows under the toolbar
  *   while the cursor is in it. A link that can't be saved — its address
  *   refused, its text showing another address, a file of our own — is
  *   named at once, and the text goes up with it, so Save refuses it by name
- *   rather than storing the text without the link the author sees.
+ *   rather than storing the text without the link the author sees. A
+ *   stored link the check refuses is left out when the editor opens, and
+ *   the status line names it.
  * - Keyboard: the usual shortcuts; Tab and Shift+Tab move a list point in
  *   and out (and leave the editor at the deepest level or outside lists);
- *   Escape or Alt+F10 goes to the toolbar.
+ *   Escape or Alt+F10 goes to the toolbar. Ctrl+K on words across
+ *   paragraphs says in the status line why it can't link them.
  *
  * Authoring only: it imports Tiptap, so it is loaded through
  * LazyRichTextEditor and never reaches learner pages.
@@ -162,7 +167,13 @@ export function RichTextEditor({
       firstLinkProblem(opening.linkProblems)
   );
   const [flattened, setFlattened] = React.useState(false);
+  // The status line's notes: after a paste, or the links left out when the
+  // editor opened. They stay until the text next changes otherwise (the
+  // paste's own change aside: `pasting`).
   const [notes, setNotes] = React.useState<string[]>([]);
+  const pasting = React.useRef(false);
+  // Why Ctrl+K did nothing, until the selection or the text changes.
+  const [hint, setHint] = React.useState<string | null>(null);
   const [linkForm, setLinkForm] = React.useState<LinkFormState | null>(null);
   const [blurTick, setBlurTick] = React.useState(0);
   // Where the Link form's link goes, and the selection it opened on: kept
@@ -193,6 +204,7 @@ export function RichTextEditor({
       transformPastedHTML: (html: string) => {
         const cleaned = cleanPastedHtmlWithReport(html);
         setNotes(pasteNotes(cleaned));
+        pasting.current = true;
         return cleaned.html;
       },
       handlePaste: pastePlainText,
@@ -220,23 +232,24 @@ export function RichTextEditor({
     ...options,
     onUpdate: ({ editor: e }) => {
       const doc = e.getJSON();
-      const { value, issues, linkProblems, hasLinks } = sanitizeRichText({ v: 1, doc });
-      setProblem(richTextProblem(issues, v.subject, hasLinks) ?? firstLinkProblem(linkProblems));
-      setFlattened(issues.includes("list-flattened"));
-      // A link the author sees but a save would refuse goes up as it is, so
-      // Save names it; so does text that can't be stored at all. As plain
-      // JSON: ProseMirror's attribute objects have no prototype, and a
-      // server action would receive them as opaque references, unreadable.
-      if (value && linkProblems.length === 0) onChange(value, docToPlainText(value.doc));
-      else onChange({ v: hasLinks ? 2 : 1, doc: JSON.parse(JSON.stringify(doc)) } as RichText, "");
+      const sanitized = sanitizeRichText({ v: 1, doc });
+      setProblem(richTextProblem(sanitized.issues, v.subject, sanitized.hasLinks) ?? firstLinkProblem(sanitized.linkProblems));
+      setFlattened(sanitized.issues.includes("list-flattened"));
+      const { rich: changed, text: plain } = editorChange(doc, sanitized, () => e.getText({ blockSeparator: "\n\n" }));
+      onChange(changed, plain);
     },
   });
 
-  // Keep the Link form's place as the text around it changes.
+  // Keep the Link form's place as the text around it changes. A note is
+  // about the text as it was, so it goes once the text changes (a paste's
+  // own change aside), and a hint once the text or the selection does.
   React.useEffect(() => {
     if (!editor) return;
     const follow = ({ transaction }: { transaction: Transaction }) => {
+      if (transaction.docChanged || transaction.selectionSet) setHint(null);
       if (!transaction.docChanged) return;
+      if (pasting.current) pasting.current = false;
+      else setNotes((was) => (was.length ? [] : was));
       for (const at of [linkAt, selectionAt]) {
         if (at.current) {
           const from = transaction.mapping.map(at.current.from, 1);
@@ -266,9 +279,17 @@ export function RichTextEditor({
     chain.run();
   };
 
-  /** Open the Link form for the selection, or for the link the cursor is in; nothing when the selection spans paragraphs. */
+  /**
+   * Open the Link form for the selection, or for the link the cursor is in;
+   * when the selection spans paragraphs, the status line says why it can't.
+   */
   const openLinkForm = () => {
-    if (!editor || !canLinkSelection(editor)) return;
+    if (!editor) return;
+    if (!canLinkSelection(editor)) {
+      setHint(CANT_LINK);
+      return;
+    }
+    setHint(null);
     const { state } = editor;
     const selection = state.selection;
     const range = linkRange(state) ?? { from: selection.from, to: selection.to };
@@ -336,10 +357,20 @@ export function RichTextEditor({
     if (editor && focusOnMount) editor.commands.focus("end");
   }, [editor, focusOnMount]);
 
+  // Links the editor left out when it opened, named just after it is on
+  // the page, so screen readers hear the status line fill.
+  const [removedNote] = React.useState(() => removedLinksNote(opening.removedLinks));
+  React.useEffect(() => {
+    if (!editor || !removedNote) return;
+    const timer = setTimeout(() => setNotes([removedNote]), 0);
+    return () => clearTimeout(timer);
+  }, [editor, removedNote]);
+
   if (!editor) return <EditorLoading />;
 
   const status = [
     flattened ? "Points nested more than 3 levels deep show at the third level for learners." : null,
+    hint,
     ...notes,
   ]
     .filter(Boolean)
@@ -424,6 +455,9 @@ interface LinkFormState {
   focus: "text" | "address";
 }
 
+/** Why Link can't be used on the selection: the status line's words for Ctrl+K, the Link button's tooltip. */
+const CANT_LINK = "Select words in one paragraph to link them.";
+
 /** The first link problem, as the editor says it ("The link “…” can't be used. …"), or null. */
 function firstLinkProblem(problems: readonly LinkProblem[]): string | null {
   return problems.length ? linkProblemMessage(problems[0]) : null;
@@ -483,25 +517,68 @@ function LinkLine({ editor, id }: { editor: Editor; id: string }) {
  * nothing would have checked: it opens as its plain text instead, with the
  * problem. Anything else opens the plain text by Round 1's rules.
  * (The link mark checks every address it draws too, link-extension.ts.)
+ *
+ * `linkProblems`: links it keeps that a save would refuse (our own files),
+ * named at once; `removedLinks`: links it left out (removedLinksNote).
  */
 export function openingDoc(
   rich: unknown,
   text: string | undefined
-): { doc: JSONContent; issues: RtIssue[]; hasLinks: boolean; linkProblems: LinkProblem[] } {
+): { doc: JSONContent; issues: RtIssue[]; hasLinks: boolean; linkProblems: LinkProblem[]; removedLinks: LinkProblem[] } {
   const { value, issues, hasLinks, linkProblems } = sanitizeRichText(rich);
   if (value) {
-    // Links it left out aren't in the text it opens; a link it keeps that a
-    // save would refuse (one of our own files) is named at once.
-    const shown = linkProblems.filter((problem) => problem.reason === "own-file");
-    return { doc: value.doc, issues: [], hasLinks, linkProblems: shown };
+    const ownFile = linkProblems.filter((problem) => problem.reason === "own-file");
+    const removed = linkProblems.filter((problem) => problem.reason !== "own-file");
+    return { doc: value.doc, issues: [], hasLinks, linkProblems: ownFile, removedLinks: removed };
   }
   if (!issues.includes("bad-envelope")) {
     // Past the envelope check, so `rich` is { v: 1 or 2, doc: { type: "doc", … } }.
     const doc = (rich as { doc: JSONContent }).doc;
-    if (mayHoldLink(doc)) return { doc: legacyTextToDoc(text), issues, hasLinks: true, linkProblems: [] };
-    return { doc, issues, hasLinks, linkProblems: [] };
+    if (mayHoldLink(doc)) return { doc: legacyTextToDoc(text), issues, hasLinks: true, linkProblems: [], removedLinks: [] };
+    return { doc, issues, hasLinks, linkProblems: [], removedLinks: [] };
   }
-  return { doc: legacyTextToDoc(text), issues: [], hasLinks: false, linkProblems: [] };
+  return { doc: legacyTextToDoc(text), issues: [], hasLinks: false, linkProblems: [], removedLinks: [] };
+}
+
+/**
+ * The status line's note for stored links the editor left out when it
+ * opened (openingDoc's removedLinks), naming the first; null for none. The
+ * next save stores the text without them, so the author is told once.
+ */
+export function removedLinksNote(removed: readonly LinkProblem[]): string | null {
+  if (!removed.length) return null;
+  if (removed.length === 1) {
+    return `The link “${removed[0].text}” can't be used and was removed. Add it again with the Link button.`;
+  }
+  return `Links that can't be used were removed, the first “${removed[0].text}”. Add them again with the Link button.`;
+}
+
+/**
+ * What the editor hands up after an edit (`doc`: the editor's JSON;
+ * `sanitized`: it through the sanitizer): text that can be saved as it is,
+ * with its plain text; otherwise the text as the author sees it, so Save
+ * names what it can't store rather than quietly storing an older version,
+ * or the text without its link. Its plain text still carries the words (a
+ * version-2 envelope beside them is what an older save keeps, as the
+ * paragraph's text): through the sanitizer when it read the text, or else
+ * (text over a limit) from the doc as it is, by `fallback` if that fails.
+ * As plain JSON: ProseMirror's attribute objects have no prototype, and a
+ * server action would receive them as opaque references, unreadable.
+ */
+export function editorChange(
+  doc: JSONContent,
+  sanitized: RtSanitized,
+  fallback: () => string = () => ""
+): { rich: RichText; text: string } {
+  const { value, linkProblems, hasLinks } = sanitized;
+  if (value && linkProblems.length === 0) return { rich: value, text: docToPlainText(value.doc) };
+  const rich = { v: hasLinks ? 2 : 1, doc: JSON.parse(JSON.stringify(doc)) } as RichText;
+  if (value) return { rich, text: docToPlainText(value.doc) };
+  try {
+    return { rich, text: docToPlainText(doc as RtDoc) };
+  } catch {
+    return { rich, text: fallback() };
+  }
 }
 
 /**
@@ -636,7 +713,7 @@ const TOOLS: readonly Tool[] = [
     icon: Link2,
     keys: "Control+K Meta+K",
     hint: ["Ctrl+K", "⌘K"],
-    disabledHint: "Select words in one paragraph to link them",
+    disabledHint: CANT_LINK,
     enabled: (s) => s.canLink,
     run: "link",
   },

@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  addressProblem,
   cleanInlineText,
   cleanPlainText,
   isEmptyDoc,
@@ -13,6 +14,8 @@ import { checkLinkHref } from "./link-url";
 import { LINK_INPUTS } from "./link-fixtures";
 import { ownFileHost } from "./own-file-host";
 import { HOSTILE_ADDRESSES, HOSTILE_MARKS, RENDER_ONLY_MARKS } from "../../../e2e/fixtures/r4-hostile-links";
+
+const USE_WEB_OR_EMAIL = "Use an address starting with https:// or http://, or an email address.";
 
 // Builders for raw (unchecked) editor JSON.
 const envelope = (...content: unknown[]) => ({
@@ -110,7 +113,7 @@ describe("sanitizeRichText", () => {
     // Release 4: a link mark is read, and this one's address refused
     // (dropped-link, named in linkProblems); the other marks are unknown.
     expect(result.issues).toEqual(["dropped-node", "dropped-mark", "dropped-link"]);
-    expect(result.linkProblems).toEqual([{ text: "Click", reason: "refused" }]);
+    expect(result.linkProblems).toEqual([{ text: "Click", reason: "refused", detail: USE_WEB_OR_EMAIL }]);
     const json = JSON.stringify(result.value);
     for (const word of ["heading", "image", "link", "href", "javascript", "style", "onclick", "class", "underline", "Title", "Quoted"]) {
       expect(json).not.toContain(word);
@@ -551,7 +554,9 @@ describe("sanitizeRichText: links (D104)", () => {
         expect(result.value, label).toEqual(envelope(p(t("Read the guide today."))));
         expect(result.issues, label).toEqual(["dropped-link"]);
         expect(result.linkProblems, label).toEqual([
-          { text: "the guide", reason: check.reason === "redirect" ? "redirect" : "refused" },
+          check.reason === "redirect"
+            ? { text: "the guide", reason: "redirect" }
+            : { text: "the guide", reason: "refused", detail: addressProblem(check.reason, href) },
         ]);
       }
     }
@@ -605,7 +610,7 @@ describe("sanitizeRichText: links (D104)", () => {
     );
     expect(result.value).toEqual(envelope(p(t("the guide"))));
     expect(result.issues).toEqual(["dropped-link"]);
-    expect(result.linkProblems).toEqual([{ text: "the guide", reason: "refused" }]);
+    expect(result.linkProblems).toEqual([{ text: "the guide", reason: "refused", detail: "Its words hold two links. Keep one." }]);
   });
 
   it("orders marks bold, italic, link, and merges text with the same address", () => {
@@ -687,6 +692,50 @@ describe("sanitizeRichText: links (D104)", () => {
     }
   });
 
+  it("reads a link's text as learners see it: characters that show nothing don't hide an address", () => {
+    for (const mark of ["\u200B", "\u200C", "\u200E", "\u180E", "\u2062", "\u3164"]) {
+      const label = `https://bank${mark}.example/login`;
+      const result = sanitizeRichText(envelope(p(t("Log in at "), link(label, "https://evil.example/login"))));
+      expect(result.value, JSON.stringify(mark)).toEqual(envelope(p(t(`Log in at ${label}`))));
+      expect(result.issues, JSON.stringify(mark)).toEqual(["dropped-link"]);
+      expect(result.linkProblems[0]?.reason, JSON.stringify(mark)).toBe("misleading");
+    }
+    for (const label of ["https://bank.example\u2024login", "https://login@bank.example/"]) {
+      expect(sanitizeRichText(envelope(p(link(label, "https://evil.example/login")))).issues, label).toEqual(["dropped-link"]);
+    }
+    // A link on characters that show nothing is dropped as one on spaces is: silently.
+    const invisible = sanitizeRichText(envelope(p(t("Read"), link("\u200B\u2060", "https://example.org/"), t(" on"))));
+    expect(invisible.value).toEqual(envelope(p(t("Read\u200B\u2060 on"))));
+    expect(invisible.issues).toEqual([]);
+  });
+
+  it("reads a link together with the text touching it, as learners read the word it is in", () => {
+    const EVIL = "https://evil.example/login";
+    const cases: [string, unknown[], string][] = [
+      // Two touching links with a character between them that shows nothing.
+      ["a zero-width space between two links", [link("https://bank.", "https://evil.example/a"), t("\u200B"), link("example/login", EVIL)], "https://bank.\u200Bexample/login"],
+      // An address typed before a named link, and one a named link starts.
+      ["an address typed right before a named link", [t("Log in at https://bank.example"), link("/login", EVIL)], "https://bank.example/login"],
+      ["a named link that typed text continues", [link("https://bank", EVIL), t(".example/login today")], "https://bank.example/login"],
+    ];
+    for (const [name, content, word] of cases) {
+      const result = sanitizeRichText(envelope(p(...content)));
+      expect(result.issues, name).toEqual(["dropped-link"]);
+      expect(result.linkProblems, name).toEqual([{ text: word, reason: "misleading" }]);
+      expect(result.value?.v, name).toBe(1);
+    }
+    // Text touching a link that shows the link's own site, or no address, keeps it.
+    for (const content of [
+      [t("See "), link("https://example.org/guide", "https://example.org/guide"), t(", the guide.")],
+      [t("("), link("https://example.org", "https://example.org/"), t(")")],
+      [link("the guide", "https://example.org/guide"), t("’s second part")],
+      [t("https://example.org"), link("/guide", "https://example.org/guide")],
+      [link("https://web.archive.org/web/2020/https://example.org/", "https://web.archive.org/web/2020/https://example.org/")],
+    ]) {
+      expect(sanitizeRichText(envelope(p(...content))).issues, JSON.stringify(content).slice(0, 120)).toEqual([]);
+    }
+  });
+
   it("keeps a link to our own file store, reporting own-file-link", () => {
     const file = "https://e2e-store.public.blob.vercel-storage.com/handout.pdf";
     const result = sanitizeRichText(envelope(p(link("handout", file))));
@@ -706,11 +755,11 @@ describe("sanitizeRichText: links (D104)", () => {
       )
     );
     expect(result.linkProblems).toEqual([
-      { text: "the guide", reason: "refused" },
+      { text: "the guide", reason: "refused", detail: USE_WEB_OR_EMAIL },
       { text: "safe", reason: "redirect" },
-      { text: `${"w".repeat(59)}…`, reason: "refused" },
-      { text: "a", reason: "refused" },
-      { text: "b", reason: "refused" },
+      { text: `${"w".repeat(59)}…`, reason: "refused", detail: USE_WEB_OR_EMAIL },
+      { text: "a", reason: "refused", detail: USE_WEB_OR_EMAIL },
+      { text: "b", reason: "refused", detail: USE_WEB_OR_EMAIL },
     ]);
     expect(result.value?.v).toBe(1);
   });

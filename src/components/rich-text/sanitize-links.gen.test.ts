@@ -26,8 +26,9 @@ import { RichTextView } from "./RichTextView";
  * links, line breaks. Whatever is generated:
  * - the sanitized doc holds only bold, italic and link marks, a link with
  *   its address only, an address the check accepts as it is stored; it is
- *   version 2 exactly when it holds a link; touching links never read as
- *   another address; sanitizing it again changes nothing;
+ *   version 2 exactly when it holds a link; no link's text, touching links
+ *   and the words a link is in never read as another address; sanitizing
+ *   it again changes nothing;
  * - the HTML drawn holds only p, ul, ol, li, br, strong, em, a and span,
  *   with only href, target, rel, class, lang, title, start and a
  *   paragraph's style, no link inside a link, and every href one the check
@@ -113,6 +114,44 @@ function touchingGroups(content: readonly RtInline[]): { text: string; hrefs: st
   return groups;
 }
 
+/**
+ * Each link run of a paragraph with the words it is in, as learners read
+ * it: from the start of the word of its first visible character to the end
+ * of the word of its last one (a line break ends a word).
+ */
+function linkWords(content: readonly RtInline[]): { own: string; words: string; href: string }[] {
+  const text = content.map((node) => (node.type === "text" ? node.text : "\n")).join("");
+  const out: { own: string; words: string; href: string }[] = [];
+  let at = 0;
+  let run: { from: number; to: number; href: string } | null = null;
+  const close = () => {
+    if (!run) return;
+    let first = run.from;
+    let last = run.to - 1;
+    while (first < last && /\s/.test(text[first])) first++;
+    while (last > first && /\s/.test(text[last])) last--;
+    let from = first;
+    while (from > 0 && !/\s/.test(text[from - 1])) from--;
+    let to = last + 1;
+    while (to < text.length && !/\s/.test(text[to])) to++;
+    out.push({ own: text.slice(run.from, run.to), words: text.slice(from, to), href: run.href });
+    run = null;
+  };
+  for (const node of content) {
+    const length = node.type === "text" ? node.text.length : 1;
+    const mark = node.type === "text" ? node.marks?.find((m) => m.type === "link") : undefined;
+    const href = mark?.type === "link" ? mark.attrs.href : null;
+    if (run && run.href !== href) close();
+    if (href !== null) {
+      if (run) run.to = at + length;
+      else run = { from: at, to: at + length, href };
+    }
+    at += length;
+  }
+  close();
+  return out;
+}
+
 for (const seed of SEEDS) {
   describe(`links in generated docs (seed ${seed})`, () => {
     const random = mulberry32(seed);
@@ -140,6 +179,11 @@ for (const seed of SEEDS) {
           }
           for (const group of touchingGroups(content)) {
             for (const href of group.hrefs) expect(linkTextProblem(group.text, href), name).not.toBe("misleading");
+          }
+          // Nor does a link's own text, or the words it is in (with the text touching it).
+          for (const { own, words, href } of linkWords(content)) {
+            expect(linkTextProblem(own, href), name).toBeNull();
+            expect(linkTextProblem(words, href), name).not.toBe("misleading");
           }
         }
         expect(value.v, name).toBe(links ? 2 : 1);

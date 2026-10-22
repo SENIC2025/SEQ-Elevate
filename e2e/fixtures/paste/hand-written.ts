@@ -14,6 +14,8 @@
  *
  * DOCS_LINKS: Google Docs' markup, its links once through Google's
  * redirect, in a paragraph and a list point.
+ *
+ * WORD_SAFE_LINK_TEXT: a Word link whose text is an Outlook safe link.
  */
 
 const SAFE = (target: string) =>
@@ -33,6 +35,20 @@ export const WORD_LINKS = `<html xmlns:o="urn:schemas-microsoft-com:office:offic
 /** What Word puts beside it as plain text. */
 export const WORD_LINKS_TEXT =
   "See the guide, the old site and write to us.\nIntroduction[1] and the handout and the safe one and the unsafe one and the uploaded one and https://bank.example/login.\n·\tTips: our tips\n·\tNo link here";
+
+/**
+ * A Word link copied from an Outlook email: its text is the safe link itself
+ * (the mailbox it was sent to in its `data`), beside a link to a file on the
+ * author's computer.
+ */
+export const SAFE_LINK_TARGET = "https://example.org/report";
+export const WORD_SAFE_LINK_TEXT = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
+<body lang=EN-GB link="#0563C1">
+<!--StartFragment-->
+<p class=MsoNormal>The report: <a href="${SAFE(SAFE_LINK_TARGET)}">${SAFE(SAFE_LINK_TARGET)}</a> and the draft <a href="file:///C:/Users/staff/draft.docx">here</a>.<o:p></o:p></p>
+<!--EndFragment-->
+</body></html>`;
+export const WORD_SAFE_LINK_TEXT_PLAIN = `The report: ${SAFE(SAFE_LINK_TARGET).replace(/&amp;/g, "&")} and the draft here.`;
 
 const SPAN = 'style="font-size:11pt;font-family:Arial,sans-serif;color:#000000;background-color:transparent;font-weight:400;white-space:pre-wrap;"';
 const LINK_SPAN = 'style="font-size:11pt;font-family:Arial,sans-serif;color:#1155cc;background-color:transparent;font-weight:400;text-decoration:underline;-webkit-text-decoration-skip:none;text-decoration-skip-ink:none;white-space:pre-wrap;"';

@@ -493,7 +493,28 @@ describe("richTextForSave: links are refused by name, never cut (D104)", () => {
       ],
       [
         v2(p(t("x", { type: "link", attrs: { href: "https://example.org/a" } }, { type: "link", attrs: { href: "https://example.org/b" } }))),
-        "Block 2 (Paragraph): the link “x” can't be used. Use an address starting with https:// or http://, or an email address.",
+        "Block 2 (Paragraph): the link “x” can't be used. Its words hold two links. Keep one.",
+      ],
+      // One sentence for each problem with an address.
+      [
+        v2(p(linked("the guide", "https://user:pw@example.org/"))),
+        "Block 2 (Paragraph): the link “the guide” can't be used. Addresses can't contain a user name or password.",
+      ],
+      [
+        v2(p(linked("the guide", "https://example.org/my file.pdf"))),
+        "Block 2 (Paragraph): the link “the guide” can't be used. Addresses can't contain spaces or invisible characters. Copy the address from the browser's address bar.",
+      ],
+      [
+        v2(p(linked("the guide", "https://intranet/x"))),
+        "Block 2 (Paragraph): the link “the guide” can't be used. This address has no full site name (like example.org), or one that can't be used. Copy the address from the browser's address bar.",
+      ],
+      [
+        v2(p(linked("Write to us", "mailto:help@example.org?cc=boss@example.org"))),
+        "Block 2 (Paragraph): the link “Write to us” can't be used. Email links can only carry a subject (no cc, bcc or message text).",
+      ],
+      [
+        v2(p(linked("the guide", "https://example.org/" + "a".repeat(2_100)))),
+        "Block 2 (Paragraph): the link “the guide” can't be used. This address is too long (at most 2,048 characters).",
       ],
     ];
     for (const [raw, message] of cases) {

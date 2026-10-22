@@ -44,7 +44,6 @@ describe("checkLinkForm", () => {
 
   it("refuses what can't be a link, saying why, under the address", () => {
     const cases: [string, string][] = [
-      ["", "Use an address starting with https:// or http://, or an email address."],
       ["javascript:alert(1)", "Use an address starting with https:// or http://, or an email address."],
       ["file:///C:/x", "Use an address starting with https:// or http://, or an email address."],
       ["https://user:pw@example.org", "Addresses can't contain a user name or password."],
@@ -61,6 +60,37 @@ describe("checkLinkForm", () => {
     for (const [address, message] of cases) {
       expect(checkLinkForm({ text: "x", address }), address.slice(0, 40)).toEqual({ ok: false, field: "address", message });
     }
+  });
+
+  it("says what is wrong with an address, one sentence for each problem", () => {
+    const cases: [string, string][] = [
+      ["", "Type the address the link should open."],
+      ["https://example.org/my file.pdf", "Addresses can't contain spaces or invisible characters. Copy the address from the browser's address bar."],
+      ["https://exa\u200Bmple.org/", "Addresses can't contain spaces or invisible characters. Copy the address from the browser's address bar."],
+      ["https://intranet/x", "This address has no full site name (like example.org), or one that can't be used. Copy the address from the browser's address bar."],
+      ["https://xn--a.example/", "This address has no full site name (like example.org), or one that can't be used. Copy the address from the browser's address bar."],
+      ["mailto:help@example.org?cc=boss@example.org", "Email links can only carry a subject (no cc, bcc or message text)."],
+      ["mailto:help@verein", "This email address isn't complete (like help@example.org)."],
+      ["ftp://example.org/x", "Use an address starting with https:// or http://, or an email address."],
+    ];
+    const generic = "Use an address starting with https:// or http://, or an email address.";
+    for (const [address, message] of cases) {
+      const check = checkLinkForm({ text: "", address });
+      expect(check, address).toEqual({ ok: false, field: "address", message });
+      if (address.startsWith("https://") || address.startsWith("mailto:")) expect(message, address).not.toBe(generic);
+    }
+  });
+
+  it("refuses text that shows another address through characters that show nothing, under the text", () => {
+    expect(checkLinkForm({ text: "https://bank\u200B.example/login", address: "https://evil.example/login" })).toMatchObject({
+      ok: false,
+      field: "text",
+    });
+    // Text that shows nothing is no text: the link shows its address.
+    expect(checkLinkForm({ text: "\u200B", address: "https://example.org/guide" })).toMatchObject({
+      ok: true,
+      text: "https://example.org/guide",
+    });
   });
 
   it("refuses text that shows another address, under the text", () => {

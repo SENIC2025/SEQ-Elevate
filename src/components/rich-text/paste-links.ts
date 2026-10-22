@@ -1,5 +1,5 @@
-import { checkLinkHref } from "@/lib/rich-text/link-url";
-import { linkTextProblem, toLinkInput } from "@/lib/rich-text/link-text";
+import { checkLinkHref, isSafeLinkHost } from "@/lib/rich-text/link-url";
+import { linkTextProblem, toLinkInput, visibleLinkText } from "@/lib/rich-text/link-text";
 import { ownFileHost } from "@/lib/rich-text/own-file-host";
 
 /**
@@ -8,7 +8,9 @@ import { ownFileHost } from "@/lib/rich-text/own-file-host";
  * paste-cleanup.ts applies this to every <a> of a paste (in the browser);
  * this is the pure part, so every rule is unit-tested in node.
  *
- * An anchor's text is always kept; only its link is kept or not:
+ * An anchor's text is always kept (an Outlook safe link in it shows the
+ * original address instead, as it carries the address of the mailbox it was
+ * sent to); only its link is kept or not:
  * - no address (Word's bookmarks, `_Toc…`, `_Hlk…`), or one within the
  *   document (`#_ftn1` footnotes, a table of contents): not a link a
  *   learner could use, and not worth a word — unwrapped, not counted;
@@ -26,19 +28,60 @@ import { ownFileHost } from "@/lib/rich-text/own-file-host";
  *   javascript:, tel:, …): not kept ("not-kept").
  */
 
+/** `text`: the anchor's text to show instead, when it held an Outlook safe link. */
 export type PastedLink =
-  | { keep: true; href: string; http: boolean }
-  | { keep: false; counted: "not-kept" | "uploaded" | "misleading" | null };
+  | { keep: true; href: string; http: boolean; text?: string }
+  | { keep: false; counted: "not-kept" | "uploaded" | "misleading" | null; text?: string };
 
-/** What a paste did with its links: how many weren't kept, and why; how many use http. */
+/**
+ * What a paste did with its links: how many weren't kept, and why; how many
+ * use http; how many showed an Outlook safe link as their text.
+ */
 export interface PasteReport {
   notKept: number;
   uploaded: number;
   misleading: number;
   http: number;
+  safeLinkText: number;
 }
 
-export const NO_LINKS_DROPPED: PasteReport = { notKept: 0, uploaded: 0, misleading: 0, http: 0 };
+export const NO_LINKS_DROPPED: PasteReport = { notKept: 0, uploaded: 0, misleading: 0, http: 0, safeLinkText: 0 };
+
+// An address in an anchor's text: to whitespace, quotes or angle brackets.
+const ADDRESS_IN_TEXT = /https?:\/\/[^\s<>"`]+/gi;
+// Punctuation that ends a sentence or closes a bracket, after an address.
+const AFTER_ADDRESS = /[.,;:!?'")\]}»”’]+$/u;
+
+/** How many safe links inside safe links are unwrapped before only the wrapper's host is shown. */
+const MAX_WRAPPED = 4;
+
+/**
+ * An anchor's text with every Outlook safe link in it replaced by the
+ * address it wraps (the `url` parameter, decoded, itself unwrapped if it is
+ * one too), or by the wrapper's own host when it wraps none, so the mailbox
+ * address in its `data` never shows. Null when the text holds none.
+ */
+export function withoutSafeLinks(text: string): string | null {
+  let found = false;
+  const unwrap = (match: string, depth: number): string => {
+    const trailing = AFTER_ADDRESS.exec(match)?.[0] ?? "";
+    const address = match.slice(0, match.length - trailing.length);
+    let url: URL;
+    try {
+      url = new URL(address);
+    } catch {
+      return match;
+    }
+    if (!isSafeLinkHost(url.hostname)) return match;
+    found = true;
+    const target = url.searchParams.get("url")?.trim();
+    const host = `${url.protocol}//${url.host}/`;
+    if (!target || depth >= MAX_WRAPPED) return host + trailing;
+    return target.replace(ADDRESS_IN_TEXT, (inner) => unwrap(inner, depth + 1)) + trailing;
+  };
+  const replaced = text.replace(ADDRESS_IN_TEXT, (match) => unwrap(match, 0));
+  return found ? replaced : null;
+}
 
 /**
  * What to do with one pasted anchor: its `href` and `name` attributes (null
@@ -49,17 +92,20 @@ export function classifyPastedLink(anchor: {
   name: string | null;
   text: string;
 }): PastedLink {
+  const shown = withoutSafeLinks(anchor.text);
+  const text = shown ?? anchor.text;
+  const result = (link: PastedLink): PastedLink => (shown === null ? link : { ...link, text: shown });
   const typed = anchor.href?.trim() ?? "";
-  if (!typed || typed.startsWith("#")) return { keep: false, counted: null };
-  if (!anchor.text.trim()) return { keep: false, counted: null };
+  if (!typed || typed.startsWith("#")) return result({ keep: false, counted: null });
+  if (!visibleLinkText(text).trim()) return result({ keep: false, counted: null });
   // Only an absolute web address can be a wrapper; anything else is judged
   // as it is (a relative "page.html" must not become "https://page.html").
   const target = /^https?:\/\//i.test(typed) ? toLinkInput(typed) : typed;
   const check = checkLinkHref(target, { ownFileHost: ownFileHost() });
-  if (!check.ok) return { keep: false, counted: "not-kept" };
-  if (check.ownFile) return { keep: false, counted: "uploaded" };
-  if (linkTextProblem(anchor.text, check.href) === "misleading") return { keep: false, counted: "misleading" };
-  return { keep: true, href: check.href, http: check.insecure };
+  if (!check.ok) return result({ keep: false, counted: "not-kept" });
+  if (check.ownFile) return result({ keep: false, counted: "uploaded" });
+  if (linkTextProblem(text, check.href) === "misleading") return result({ keep: false, counted: "misleading" });
+  return result({ keep: true, href: check.href, http: check.insecure });
 }
 
 const plural = (n: number, one: string, other: string) => (n === 1 ? one : other);
@@ -67,7 +113,7 @@ const plural = (n: number, one: string, other: string) => (n === 1 ? one : other
 /** The status line's notes after a paste: one sentence per count that isn't zero (authoring copy, English). */
 export function pasteNotes(report: PasteReport): string[] {
   const notes: string[] = [];
-  const { notKept, uploaded, misleading, http } = report;
+  const { notKept, uploaded, misleading, http, safeLinkText } = report;
   if (notKept) {
     notes.push(
       plural(
@@ -92,6 +138,15 @@ export function pasteNotes(report: PasteReport): string[] {
         misleading,
         "1 link wasn't kept because its text shows a different address. Add it again with the Link button, using a few words.",
         `${misleading} links weren't kept because their text shows a different address. Add them again with the Link button, using a few words.`
+      )
+    );
+  }
+  if (safeLinkText) {
+    notes.push(
+      plural(
+        safeLinkText,
+        "1 link's text was an Outlook safe link, which carries the address of the mailbox it was sent to: it now shows the original address.",
+        `${safeLinkText} links' text was an Outlook safe link, which carries the address of the mailbox it was sent to: they now show the original address.`
       )
     );
   }

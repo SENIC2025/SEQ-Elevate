@@ -20,7 +20,9 @@ import {
  * - Links (D106, paste-links.ts): each <a> is kept, with nothing but its
  *   normalised address, or unwrapped to its text — and counted, so the
  *   editor can say how many links weren't kept and why, and how many use
- *   http. Done first, so a link inside a Word list point is rebuilt with it.
+ *   http. An Outlook safe link in an anchor's text shows the original
+ *   address instead (counted too). Done first, so a link inside a Word list
+ *   point is rebuilt with it.
  * - Word: each list point is a paragraph styled `mso-list:l0 level2 …`, its
  *   bullet or number drawn by a marker span Word asks others to ignore. They
  *   become real <ul>/<ol> (word-list.ts), and Word's empty <o:p> fillers go.
@@ -73,6 +75,11 @@ function cleanLinks(root: HTMLElement): PasteReport {
       name: anchor.getAttribute("name"),
       text: anchor.textContent ?? "",
     });
+    if (result.text !== undefined) {
+      // Its formatting goes with the safe link: the text is one run now.
+      anchor.textContent = result.text;
+      report.safeLinkText++;
+    }
     if (result.keep) {
       for (const attribute of Array.from(anchor.attributes)) anchor.removeAttribute(attribute.name);
       anchor.setAttribute("href", result.href);

@@ -3,7 +3,15 @@ import AxeBuilder from "@axe-core/playwright";
 import { Prisma, PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { createPerson } from "./fixtures/people";
-import { DOCS_LINKS, DOCS_LINKS_TEXT, WORD_LINKS, WORD_LINKS_TEXT } from "./fixtures/paste/hand-written";
+import {
+  DOCS_LINKS,
+  DOCS_LINKS_TEXT,
+  SAFE_LINK_TARGET,
+  WORD_LINKS,
+  WORD_LINKS_TEXT,
+  WORD_SAFE_LINK_TEXT,
+  WORD_SAFE_LINK_TEXT_PLAIN,
+} from "./fixtures/paste/hand-written";
 
 /**
  * The lesson text editor (D36) on the course page: an author formats a
@@ -613,6 +621,38 @@ describe("Rich text — the lesson text editor", () => {
     }
     expect(links).toEqual(inEditor);
     expect(plainSpaces(saved[1].text)).toContain("See the guide (https://example.org/guide), the old site (http://example.org/old) and write to us (help@example.org).");
+  });
+
+  test("R4-E4: a Word link whose text is an Outlook safe link shows the original address; the paste's notes go when it is undone", async ({
+    page,
+    context,
+  }) => {
+    await seedConcept([{ kind: "paragraph", text: "Intro." }]);
+    await useSession(context, editorSession);
+    const { region, blocks } = await openLesson(page);
+
+    await addBlock(region, /^paragraph$/i);
+    const box = blocks.nth(1).getByRole("textbox", { name: /^paragraph text$/i });
+    await expect(box).toBeFocused({ timeout: 15000 });
+    await paste(box, { "text/html": WORD_SAFE_LINK_TEXT, "text/plain": WORD_SAFE_LINK_TEXT_PLAIN });
+    // The link is kept to its target, and shows it: never the safe link,
+    // which carries the address of the mailbox it was sent to.
+    await expect(box.locator("a")).toHaveText([SAFE_LINK_TARGET]);
+    await expect(box.locator("a")).toHaveAttribute("href", SAFE_LINK_TARGET);
+    await expect(box).toContainText(`The report: ${SAFE_LINK_TARGET} and the draft here.`);
+    await expect(box).not.toContainText("safelinks");
+    await expect(box).not.toContainText("someone");
+    const status = blocks.nth(1).getByRole("status").last();
+    await expect(status).toContainText(
+      "1 link's text was an Outlook safe link, which carries the address of the mailbox it was sent to: it now shows the original address."
+    );
+    await expect(status).toContainText("1 link wasn't kept: only web and email links can be used. Add it again with the Link button.");
+
+    // Undone, the paste's notes go with it.
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect(box.locator("a")).toHaveCount(0);
+    await expect(box).not.toContainText("The report");
+    await expect(status).toBeEmpty();
   });
 
   test("a list block shows bullets or numbers; a bulleted list comes from the templates", async ({

@@ -15,6 +15,10 @@ import {
   richBlock,
 } from "./fixtures/r4-hostile-links";
 import { callAction } from "./fixtures/server-action";
+import { LINK_INPUTS } from "@/lib/rich-text/link-fixtures";
+import { toLinkInput } from "@/lib/rich-text/link-text";
+import { checkLinkHref, emailAddressOf, type LinkRefusal } from "@/lib/rich-text/link-url";
+import { addressProblem } from "@/lib/rich-text/sanitize";
 
 /**
  * Release 4, Part A (spec 3, 10.2, 10.3): named links in lesson text.
@@ -25,21 +29,27 @@ import { callAction } from "./fixtures/server-action";
  *   R4-E2  an http address: the warning is announced once, "Will open: …"
  *          describes the field (not a live region); the learner's link opens
  *          http under Release 3's headers.
- *   R4-E3  the form refuses what can't be a link, by name; focus; Escape; a
- *          bare email address and host are completed, never blocked; the
- *          "Link: …" line.
+ *   R4-E3  the form refuses what can't be a link, by name, announced each
+ *          time; focus; Escape; a bare email address and host are
+ *          completed, never blocked; the "Link: …" line; Ctrl+K on words
+ *          across paragraphs says why it can't link them.
  *   R4-E5  email links keep target="_blank" (their screen-reader words change
  *          in L2, with QuickLink).
  *   R4-E6  (guard) every hostile address and mark sent straight to
  *          saveLessonNarrative and savePartText is refused by name (extra
- *          attributes: stored without them), and nothing changes.
+ *          attributes: stored without them), and nothing changes; so are
+ *          links read with the text touching them (WORD_MARKS).
  *   R4-E7  (guard) hostile links written straight into the database: no page
- *          draws an href outside https, http and mailto, the text of every
- *          refused link shows, and the editor opens them safely.
+ *          draws an href outside https, http and mailto, nor one whose text
+ *          shows another address; the text of every refused link shows; the
+ *          editor opens them safely and names the links it left out.
  *   R4-E7b editing a link's text into another address: named at once, Save
- *          refused by name, nothing stored without the link.
+ *          refused by name, nothing stored without the link; the words go
+ *          to Save beside the text, so an older save keeps them.
  *   R4-E8  international and percent-encoded addresses: the same href from
- *          the server and after hydration, no hydration warning.
+ *          the server and after hydration, no hydration warning, hosts the
+ *          engines read differently never a link; the address check answers
+ *          alike in the browser (the Link form) and on the server.
  * R4-E4 (pasting) is in rich-text-editor.spec.ts.
  *
  * Requires a real database (E2E_DB=1). Seeds a course of its own, removed
@@ -99,7 +109,43 @@ const HOSTILE_BLOCKS = HOSTILE_ADDRESSES.filter(
 )
   .map((row) => row.href)
   .map(hostileBlock);
-const HOSTILE_SHAPES = [...HOSTILE_MARKS, ...RENDER_ONLY_MARKS].map((row, i) =>
+/**
+ * Links read with the text touching them (D104, as learners read the word
+ * a link is in): each shows another address than one of its links opens.
+ */
+const EVIL = "https://evil.example/login";
+const WORD_MARKS: readonly { name: string; rich: ReturnType<typeof paragraphDoc>; shown: string }[] = [
+  {
+    name: "two links with a zero-width space between them",
+    rich: paragraphDoc([
+      { type: "text", text: "Log in at " },
+      { type: "text", text: "https://bank.", marks: [{ type: "link", attrs: { href: "https://evil.example/a" } }] },
+      { type: "text", text: "\u200B" },
+      { type: "text", text: "example/login", marks: [{ type: "link", attrs: { href: EVIL } }] },
+      { type: "text", text: " today." },
+    ]),
+    shown: "https://bank.\u200Bexample/login",
+  },
+  {
+    name: "an address typed right before a named link",
+    rich: paragraphDoc([
+      { type: "text", text: "Log in at https://bank.example" },
+      { type: "text", text: "/login", marks: [{ type: "link", attrs: { href: EVIL } }] },
+      { type: "text", text: " today." },
+    ]),
+    shown: "https://bank.example/login",
+  },
+  {
+    name: "a named link that typed text continues",
+    rich: paragraphDoc([
+      { type: "text", text: "Log in at " },
+      { type: "text", text: "https://bank", marks: [{ type: "link", attrs: { href: EVIL } }] },
+      { type: "text", text: ".example/login today." },
+    ]),
+    shown: "https://bank.example/login",
+  },
+];
+const HOSTILE_SHAPES = [...HOSTILE_MARKS, ...RENDER_ONLY_MARKS, ...WORD_MARKS].map((row, i) =>
   richBlock(row.rich, `Shape ${i}`)
 );
 
@@ -168,6 +214,9 @@ async function saveByKeyboard(page: Page, region: Locator) {
   await save.focus();
   await page.keyboard.press("Enter");
 }
+
+/** `text` in a regular expression, as it is. */
+const literally = (text: string) => text.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
 
 /** The visible main landmark. */
 const main = (page: Page) => page.getByRole("main").filter({ visible: true });
@@ -396,6 +445,13 @@ describe("Release 4 — links in lesson text", () => {
     const refusals: [string, string][] = [
       ["javascript:alert(1)", "Use an address starting with https:// or http://, or an email address."],
       ["https://user:pw@example.org/", "Addresses can't contain a user name or password."],
+      // One sentence for each problem.
+      ["https://example.org/my file.pdf", "Addresses can't contain spaces or invisible characters. Copy the address from the browser's address bar."],
+      [
+        "https://intranet/x",
+        "This address has no full site name (like example.org), or one that can't be used. Copy the address from the browser's address bar.",
+      ],
+      ["mailto:help@example.org?cc=boss@example.org", "Email links can only carry a subject (no cc, bcc or message text)."],
       [
         "https://e2e-store.public.blob.vercel-storage.com/handout.pdf",
         "This is a file uploaded to the platform. Add it to the lesson as a document instead.",
@@ -412,7 +468,12 @@ describe("Release 4 — links in lesson text", () => {
       await expect(address).toBeFocused();
       await expect(address).toHaveAttribute("aria-invalid", "true");
       await expect(await errorOf(address)).toContainText([message]);
+      // Focus was on the field already: the refusal is announced, as an alert.
+      await expect(form.getByRole("alert")).toHaveText(message);
     }
+    // Enter again on the same refusal: announced again.
+    await page.keyboard.press("Enter");
+    await expect(form.getByRole("alert")).toHaveText(refusals[refusals.length - 1][1]);
     // Text that shows another address: refused under the text.
     await text.fill("https://bank.example");
     await address.fill("https://evil.example/");
@@ -421,6 +482,12 @@ describe("Release 4 — links in lesson text", () => {
     await expect(await errorOf(text)).toContainText([
       "The text shows a different address than the link opens. Show the real address, or use a few words.",
     ]);
+    // Through a zero-width space, too.
+    await text.fill("https://bank\u200B.example");
+    await text.press("Enter");
+    await expect(form.getByRole("alert")).toHaveText(
+      "The text shows a different address than the link opens. Show the real address, or use a few words."
+    );
 
     // The form, open and refusing, passes axe.
     const axe = await new AxeBuilder({ page })
@@ -468,6 +535,22 @@ describe("Release 4 — links in lesson text", () => {
     await toolbarOf(block).getByRole("button", { name: "Remove link", exact: true }).click();
     await expect(textbox.locator("a")).toHaveCount(1);
     await expect(line).toHaveCount(0);
+
+    // Words across two paragraphs can't be linked: Ctrl+K says so in the
+    // status line, until the selection changes.
+    await textbox.focus();
+    await page.keyboard.press(TEXT_END);
+    await page.keyboard.press("Enter");
+    await page.keyboard.type("A second paragraph");
+    await page.keyboard.press("Shift+ArrowUp");
+    // The editor has read the selection from the page: Link can't be used.
+    await expect(toolbarOf(block).getByRole("button", { name: "Link", exact: true })).toBeDisabled();
+    await page.keyboard.press("ControlOrMeta+k");
+    const cantLink = block.getByRole("status").filter({ hasText: "Select words in one paragraph to link them." });
+    await expect(cantLink).toHaveCount(1);
+    await expect(form).toHaveCount(0);
+    await page.keyboard.press("ArrowDown");
+    await expect(cantLink).toHaveCount(0);
   });
 
   test("R4-E5 (Part A): a named email link keeps target=_blank and opens the email address", async ({ page, context }) => {
@@ -534,11 +617,14 @@ describe("Release 4 — links in lesson text", () => {
       "own-file": /: the link “the guide” points to a file uploaded to the platform\./,
       redirect: /: the link “the guide” is an Outlook safe link/,
     };
+    // Every other address: refused with the sentence for its problem.
+    const refusedFor = (row: (typeof HOSTILE_ADDRESSES)[number]) =>
+      new RegExp(`: the link “the guide” can't be used\\. ${literally(addressProblem(row.reason as LinkRefusal, row.href))}$`);
     for (const row of HOSTILE_ADDRESSES) {
       const expected =
         row.name === "1,000,000 characters"
           ? /^(?:Content 2: )?Block 1 \(Paragraph\) is too long/
-          : (why[row.reason] ?? /: the link “the guide” can't be used\. Use an address starting with https:\/\/ or http:\/\/, or an email address\./);
+          : (why[row.reason] ?? refusedFor(row));
       for (const send of [saveNarrative, savePiece]) {
         const started = Date.now();
         const answer = await send(linkedParagraph(row.href));
@@ -551,13 +637,22 @@ describe("Release 4 — links in lesson text", () => {
       }
     }
     const named: Record<string, RegExp> = {
-      "two link marks on one text": /Block 1 \(Paragraph\): the link “the guide” can't be used\./,
+      "two link marks on one text": /Block 1 \(Paragraph\): the link “the guide” can't be used\. Its words hold two links\. Keep one\./,
       "a label that shows another address":
         /Block 1 \(Paragraph\): the link text “https:\/\/bank\.example\/login” shows a different address than the link opens\./,
+      "a label that shows another address through a zero-width space":
+        /Block 1 \(Paragraph\): the link text “https:\/\/bank\u200B\.example\/login” shows a different address than the link opens\./,
+      "a label that shows another address after a user name":
+        /Block 1 \(Paragraph\): the link text “https:\/\/login@bank\.example\/” shows a different address than the link opens\./,
       "two touching links that together show another address":
         /Block 1 \(Paragraph\): the link text “https:\/\/bank\.example” shows a different address than the link opens\./,
     };
-    for (const row of HOSTILE_MARKS.filter((r) => r.save === "refused")) {
+    for (const row of WORD_MARKS) {
+      named[row.name] = new RegExp(
+        `Block 1 \\(Paragraph\\): the link text “${literally(row.shown)}” shows a different address than the link opens\\.`
+      );
+    }
+    for (const row of [...HOSTILE_MARKS.filter((r) => r.save === "refused"), ...WORD_MARKS]) {
       for (const send of [saveNarrative, savePiece]) {
         const answer = await send(row.rich);
         expect(answer.result, row.name).toMatchObject({ ok: false, error: "invalid" });
@@ -592,6 +687,8 @@ describe("Release 4 — links in lesson text", () => {
       for (const href of [...htmlHrefs, ...rscHrefs]) {
         if (href.startsWith("/") || href.startsWith("#")) continue; // the site's own pages
         expect(href, `${name}: ${href.slice(0, 80)}`).toMatch(SAFE_SCHEME);
+        // Every link to evil.example shows another address (or is refused): none is drawn.
+        expect(href, `${name}: ${href.slice(0, 80)}`).not.toContain("evil.example");
       }
     }
 
@@ -638,6 +735,12 @@ describe("Release 4 — links in lesson text", () => {
     await second.getByRole("button", { name: /^edit paragraph$/i }).click();
     const within = second.getByRole("textbox");
     await expect(within).toHaveText("Within limits javascript one and data one");
+    // The links it left out are named once, in the status line.
+    await expect(
+      second
+        .getByRole("status")
+        .filter({ hasText: "Links that can't be used were removed, the first “javascript one”. Add them again with the Link button." })
+    ).toHaveCount(1);
     for (const editorHref of await region.locator("a[href]").evaluateAll((links) => links.map((a) => a.getAttribute("href") ?? ""))) {
       if (editorHref.startsWith("/") || editorHref.startsWith("#")) continue;
       expect(editorHref).toMatch(SAFE_SCHEME);
@@ -664,6 +767,9 @@ describe("Release 4 — links in lesson text", () => {
       "The link text “the https://bank.example guide” shows a different address than the link opens. Show the real address, or use a few words."
     );
 
+    const sent = page.waitForRequest(
+      (request) => request.method() === "POST" && "next-action" in request.headers() && (request.postData() ?? "").includes("bank.example")
+    );
     await region.getByRole("button", { name: /^save english$/i }).click();
     await expect(
       region.getByText(
@@ -671,6 +777,9 @@ describe("Release 4 — links in lesson text", () => {
       )
     ).toBeVisible({ timeout: 15_000 });
     expect(await storedBlocks(EDITED)).toEqual((stored as { en: { blocks: unknown[] } }).en.blocks);
+    // The paragraph's words went to Save beside the version-2 text, so a save
+    // that keeps only the text (Release 3's, after a rollback) keeps them.
+    expect((await sent).postData()).toContain('"text":"Read the https://bank.example guide today."');
   });
 
   test("R4-E8: international and percent-encoded addresses: the same href from the server and after hydration", async ({
@@ -685,14 +794,25 @@ describe("Release 4 — links in lesson text", () => {
       ["Query", "https://example.org/a?x=ü&y=%20", "https://example.org/a?x=%C3%BC&y=%20"],
       ["Mail", "mailto:info@bücher.example", "mailto:info@bücher.example"],
     ] as const;
+    // Hosts the browser and the server read differently: never a link, named or typed.
+    const DIVERGENT = [
+      ["https://xn--a.example/", "xn--a.example"],
+      ["https://xn--zz.example/", "xn--zz.example"],
+      ["https://xn--.example/", "xn--.example"],
+      ["https://a\u1806b.example/", "xn--ab-h0o.example"],
+      ["https://a.\u0661\u0662/", "a.xn--9hbc"],
+    ] as const;
     await setNarrative(
       EDITED,
-      narrative(
-        "R4 links lesson",
-        ADDRESSES.map(([label, href]) =>
+      narrative("R4 links lesson", [
+        ...ADDRESSES.map(([label, href]) =>
           richBlock(paragraphDoc([{ type: "text", text: label, marks: [{ type: "link", attrs: { href } }] }]), label)
-        )
-      )
+        ),
+        ...DIVERGENT.map(([href], i) =>
+          richBlock(paragraphDoc([{ type: "text", text: `Divergent ${i}`, marks: [{ type: "link", attrs: { href } }] }]), `Divergent ${i}`)
+        ),
+        plain(`Typed: ${DIVERGENT.map(([href]) => href).join(" and ")} today.`),
+      ])
     );
     const { htmlHrefs } = await served(request, learner.sessionToken, `/en/learner/course/${SLUG}`);
     const expected: string[] = ADDRESSES.flatMap(([, , href]) => (href ? [href] : []));
@@ -713,6 +833,44 @@ describe("Release 4 — links in lesson text", () => {
     expect(htmlHrefs.filter((href) => expected.includes(href))).toEqual(expected);
     // The address with a space can't be a link: its text shows, unlinked.
     await expect(main(page).getByText("Path", { exact: true })).toBeVisible();
+    for (const [, host] of DIVERGENT) {
+      for (const href of [...htmlHrefs, ...after]) expect(href, host).not.toContain(host);
+    }
+    await expect(main(page).getByText("Divergent 4", { exact: true })).toBeVisible();
     expect(warnings).toEqual([]);
+
+    // The address check answers alike in the browser (the Link form's "Will
+    // open") and on the server (this test runs in the server's Node):
+    // U1's inputs, and the hosts the engines read differently.
+    await signIn(context, editor.sessionToken);
+    const region = await openLesson(page, EDITED);
+    const block = region.getByRole("group", { name: /^block 1 of /i });
+    await openParagraph(page, block);
+    await page.keyboard.press("ControlOrMeta+k");
+    const form = linkForm(block);
+    const address = form.getByLabel("Address");
+    await expect(form).toBeVisible();
+    const willOpen = form.locator('[id$="-will-open"]');
+    const rows = [
+      ...LINK_INPUTS.filter((row): row is string => typeof row === "string"),
+      ...DIVERGENT.map(([href]) => href),
+      "https://\u05D1\u05D3\u05D9\u05E7\u05D4.example/",
+      "https://a\u3164.example/",
+      "https://BÜCHER.example/",
+      "mailto:help@example.org?subject=Hi?cc=boss@example.org",
+      "www.bpb.de",
+      "help@verein.de",
+    ];
+    const differ: string[] = [];
+    for (const row of rows) {
+      await address.fill(row);
+      const typed = await address.inputValue();
+      const check = checkLinkHref(toLinkInput(typed), { ownFileHost: null });
+      const server = check.ok && !check.ownFile ? `Will open: ${emailAddressOf(check.href) ?? check.href}` : "";
+      const browser = (await willOpen.textContent()) ?? "";
+      if (browser !== server) differ.push(`${JSON.stringify(typed.slice(0, 80))}: browser ${JSON.stringify(browser.slice(0, 90))}, server ${JSON.stringify(server.slice(0, 90))}`);
+    }
+    expect(differ).toEqual([]);
+    await page.keyboard.press("Escape");
   });
 });
