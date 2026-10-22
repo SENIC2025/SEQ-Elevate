@@ -13,6 +13,8 @@ import { sanitizeRichText } from "./sanitize";
  * name in letters only, so such a host ends a name and is read in time in
  * proportion to its length. Link text accepted is drawn with the box naming
  * the site its link opens (link-site.ts). Same harness as link-cost.test.ts.
+ * A save of a lesson whose links are kept is the sanitizer's, where it keeps
+ * links (Part A), and timed by its own test.
  */
 
 /** Symbols the URL parser keeps in a host, unchanged by NFKC, outside the modifier-letter block. */
@@ -102,22 +104,6 @@ describe("a 1 MB lesson of hosts of symbols", () => {
     return { took: performance.now() - started, issues };
   };
 
-  it("link text on the link's own site (every block accepted), in under 0.5 s", () => {
-    const blocks = lesson((k) => rich([link(`https://${symbols(10_000 - 21, k)}.evil.example`, `https://evil.example/${k}`)]));
-    expect(blocks.length).toBeGreaterThanOrEqual(30);
-    const { took, issues } = save(blocks);
-    for (const found of issues) expect(found).toEqual([]);
-    expect(took, `${blocks.length} blocks: ${took.toFixed(0)} ms`).toBeLessThan(500);
-  }, 120_000);
-
-  it("link text that names no site the rule reads (every block accepted, drawn with the link's site), in under 0.5 s", () => {
-    const blocks = lesson((k) => rich([link(`https://${symbols(10_000 - 12, k)}.com`, `https://evil.example/${k}`)]));
-    const { took, issues } = save(blocks);
-    for (const found of issues) expect(found).toEqual([]);
-    for (let k = 0; k < blocks.length; k++) expect(linkSite(`https://evil.example/${k}`)).toBe("evil.example");
-    expect(took, `${blocks.length} blocks: ${took.toFixed(0)} ms`).toBeLessThan(500);
-  }, 120_000);
-
   it("24 hrefs per block, each a host of 2,017 symbols, in under 0.5 s", () => {
     const blocks = lesson((k) => rich(Array.from({ length: 24 }, (_, i) => [link("a", `https://${symbols(2_017, k * 31 + i)}.com/`), { type: "text", text: " " }]).flat()));
     expect(checkLinkHref(`https://${symbols(2_017)}.com/`)).toEqual({ ok: false, reason: "host" });
@@ -173,21 +159,4 @@ describe("a long label whose fifth letter carries 9,800 marks", () => {
     expect(checkLinkHref(address)).toEqual({ ok: false, reason: "host" });
     expect(median(() => checkLinkHref(address))).toBeLessThan(1);
   });
-
-  it("a 1 MB lesson of them on the link's own site (every block accepted), in under 0.5 s", () => {
-    const blocks: unknown[] = [];
-    let bytes = 2;
-    for (let k = 0; k < 100; k++) {
-      const rich = { v: 1, doc: { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: `https://${heavyLabel(k)}.evil.example`, marks: [{ type: "link", attrs: { href: `https://evil.example/${k}` } }] }] }] } };
-      const size = Buffer.byteLength(JSON.stringify({ kind: "paragraph", text: "", rich })) + 1;
-      if (bytes + size > 1024 * 1024) break;
-      blocks.push(rich);
-      bytes += size;
-    }
-    const started = performance.now();
-    const issues = blocks.map((b) => sanitizeRichText(b).issues);
-    const took = performance.now() - started;
-    for (const found of issues) expect(found).toEqual([]);
-    expect(took, `${blocks.length} blocks: ${took.toFixed(0)} ms`).toBeLessThan(500);
-  }, 120_000);
 });
