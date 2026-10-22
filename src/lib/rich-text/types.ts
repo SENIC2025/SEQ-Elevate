@@ -1,18 +1,26 @@
 /**
  * The stored rich-text format for lesson paragraphs and key messages (D36).
  *
- * A narrative block keeps `rich = { v: 1, doc }` next to its plain `text`.
+ * A narrative block keeps `rich = { v, doc }` next to its plain `text`.
  * `doc` is a small subset of the editor's (ProseMirror) JSON: paragraphs with
  * bold and italic text and line breaks, an optional indent, and bulleted or
- * numbered lists nested up to three levels. Nothing else is ever stored —
- * no links, images, styles or headings — and every read and write goes
- * through sanitizeRichText, which rebuilds the doc from this whitelist.
+ * numbered lists nested up to three levels; and, from Release 4 (D104), a
+ * named link: a link mark holding its address (`href`) and nothing else.
+ * Nothing else is ever stored — no images, styles or headings — and every
+ * read and write goes through sanitizeRichText, which rebuilds the doc from
+ * this whitelist.
+ *
+ * Versions (D104): a doc that holds at least one link mark is stored as
+ * version 2, every other doc as version 1. Code that reads only version 1
+ * draws, opens and keeps a version-2 block's plain `text`, which names
+ * each link's address, so no link is lost to it silently.
  *
  * Canonical form (what sanitizeRichText returns, and what legacyTextToDoc
  * builds): default attributes are omitted (indent 0, start 1); marks are
- * ordered bold, then italic; neighbouring text with the same marks is one
- * node; blank paragraphs at the top level are dropped (learners never see
- * blank lines), keeping one when the doc would otherwise be empty.
+ * ordered bold, then italic, then link; neighbouring text with the same
+ * marks (the same address, for links) is one node; blank paragraphs at the
+ * top level are dropped (learners never see blank lines), keeping one when
+ * the doc would otherwise be empty.
  *
  * Pure types and limits, safe to import anywhere.
  */
@@ -33,7 +41,14 @@ export const RT_LIMITS = {
   maxBlocks: 100,
 } as const;
 
-export type RtMark = { type: "bold" } | { type: "italic" };
+/**
+ * A link mark stores its address only (checked by checkLinkHref, link-url.ts):
+ * `target`, `rel`, `class` and `title` are never stored; the renderer sets
+ * them.
+ */
+export type RtLinkMark = { type: "link"; attrs: { href: string } };
+
+export type RtMark = { type: "bold" } | { type: "italic" } | RtLinkMark;
 
 export type RtText = { type: "text"; text: string; marks?: RtMark[] };
 export type RtHardBreak = { type: "hardBreak" };
@@ -66,8 +81,15 @@ export type RtBlock = RtParagraph | RtList;
 /** Never empty: an empty doc holds one empty paragraph. */
 export type RtDoc = { type: "doc"; content: RtBlock[] };
 
+/** A doc without a link mark. */
 export interface RichTextV1 {
   v: 1;
+  doc: RtDoc;
+}
+
+/** A doc with at least one link mark (D104). */
+export interface RichTextV2 {
+  v: 2;
   doc: RtDoc;
 }
 
@@ -75,4 +97,4 @@ export interface RichTextV1 {
  * Every stored version. An unknown `v` (a newer format read by an older
  * deployment) is rendered from the block's plain `text` instead.
  */
-export type RichText = RichTextV1;
+export type RichText = RichTextV1 | RichTextV2;

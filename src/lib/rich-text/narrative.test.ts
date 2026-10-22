@@ -4,6 +4,7 @@ import {
   blockPlainText,
   cleanNarrativeLine,
   introFromBlocks,
+  richTextForSave,
   sanitizeNarrativeBlocks,
 } from "./narrative";
 
@@ -392,5 +393,39 @@ describe("cleanNarrativeLine", () => {
   it("is empty for anything but a string", () => {
     expect(cleanNarrativeLine(undefined, 10)).toBe("");
     expect(cleanNarrativeLine(42, 10)).toBe("");
+  });
+});
+
+describe("richTextForSave (any rich text an action stores)", () => {
+  it("answers the sanitized doc and its plain text, as a block's save does", () => {
+    const raw = rich(p(t("APA ", { type: "bold" }), t("entry")), p(t("Second")));
+    const result = richTextForSave(raw, "The references list");
+    expect(result).toEqual({
+      ok: true,
+      rich: rich(p(t("APA ", { type: "bold" }), t("entry")), p(t("Second"))),
+      text: "APA entry\n\nSecond",
+    });
+    const [block] = saved([{ kind: "paragraph", rich: raw }]);
+    expect(result.ok && { rich: result.rich, text: result.text }).toEqual({ rich: block.rich, text: block.text });
+  });
+
+  it("names the text in each refusal", () => {
+    const tooLong = rich(p(t("x".repeat(10_001))));
+    expect(richTextForSave(tooLong, "The references list")).toEqual({
+      ok: false,
+      issues: [expect.stringMatching(/^The references list is too long/)],
+    });
+  });
+
+  it("refuses what isn't an envelope of a version it reads as unreadable, where a block keeps its text", () => {
+    for (const raw of [undefined, null, "text", { v: 2, doc: { type: "doc", content: [] } }, { v: 1 }]) {
+      expect(richTextForSave(raw, "The references list")).toEqual({
+        ok: false,
+        issues: [expect.stringMatching(/^The references list couldn't be read\./)],
+      });
+    }
+    expect(saved([{ kind: "paragraph", rich: { v: 2, doc: {} }, text: "Kept" }])).toEqual([
+      { kind: "paragraph", text: "Kept" },
+    ]);
   });
 });

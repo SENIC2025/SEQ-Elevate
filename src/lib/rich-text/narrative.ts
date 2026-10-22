@@ -119,17 +119,16 @@ function sanitizeBlock(
   const name = `Block ${n} (${KIND_LABEL[kind]})`;
 
   if (kind === "paragraph" || kind === "callout") {
-    // Anything but a version-1 envelope — none, or a newer version sent
-    // back by an older page — is kept as the plain text beside it.
-    if (isRecord(raw.rich) && raw.rich.v === 1) {
-      const { value, issues: found } = sanitizeRichText(raw.rich);
-      if (!value) {
-        issues.push(
-          richTextProblem(found, name) ?? RT_PROBLEM["bad-envelope"](name)
-        );
+    // Anything but an envelope of a version a save reads — none, or a newer
+    // version sent back by an older page — is kept as the plain text beside
+    // it.
+    if (isSavedEnvelope(raw.rich)) {
+      const saved = richTextForSave(raw.rich, name);
+      if (!saved.ok) {
+        issues.push(...saved.issues);
         return null;
       }
-      return { kind, rich: value, text: docToPlainText(value.doc) };
+      return { kind, rich: saved.rich, text: saved.text };
     }
     const text = plainWithin(raw.text, NARRATIVE_LIMITS.maxTextChars);
     if (text === null) {
@@ -199,6 +198,36 @@ function sanitizeBlock(
       };
     });
   return ok ? { kind, compare: sides } : null;
+}
+
+/** Is `raw` a rich-text envelope of a version a save reads (see richTextForSave)? */
+function isSavedEnvelope(raw: unknown): raw is Rec {
+  return isRecord(raw) && raw.v === 1;
+}
+
+export type RichTextForSave =
+  | { ok: true; rich: RichText; text: string }
+  | { ok: false; issues: string[] };
+
+/**
+ * Rich text as it is saved (D36), wherever it is saved: a lesson's
+ * paragraphs and key messages (through sanitizeNarrativeBlocks) and any
+ * other rich text an action stores. `raw` is the envelope the browser sent;
+ * it is sanitized, and its plain `text` is derived here from the doc. When
+ * it can't be stored, `issues` holds one sentence per problem, naming the
+ * text as `name` ("Block 2 (Paragraph)", "The references list"). An
+ * envelope of a version a save doesn't read is refused as unreadable.
+ */
+export function richTextForSave(raw: unknown, name: string): RichTextForSave {
+  if (!isSavedEnvelope(raw)) return { ok: false, issues: [RT_PROBLEM["bad-envelope"](name)] };
+  const { value, issues: found } = sanitizeRichText(raw);
+  if (!value) {
+    return {
+      ok: false,
+      issues: [richTextProblem(found, name) ?? RT_PROBLEM["bad-envelope"](name)],
+    };
+  }
+  return { ok: true, rich: value, text: docToPlainText(value.doc) };
 }
 
 /**

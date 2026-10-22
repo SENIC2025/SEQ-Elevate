@@ -40,10 +40,10 @@ export interface RichTextEditorProps {
   /** The block's plain text: what the editor opens without a readable `rich`. */
   text?: string;
   /**
-   * A paragraph, a key message or a reflection lesson's introduction: its
-   * look (the learner's) and names.
+   * A paragraph, a key message, a reflection lesson's introduction or a
+   * course's references list: its look (the learner's) and names.
    */
-  variant: "paragraph" | "callout" | "reflection-intro";
+  variant: "paragraph" | "callout" | "reflection-intro" | "references";
   /**
    * The id of a visible label for the text, which then names it (instead of
    * the variant's own name), as a form field's label would.
@@ -89,6 +89,16 @@ export const VARIANT = {
     label: "Introduction",
     placeholder: "Write a short introduction…",
     prose: "text-sm text-[var(--muted-foreground)]",
+    box: "px-3 py-2",
+  },
+  // A course's references and bibliography (D109): set as the learner's
+  // references page sets it (.seq-references, a hanging indent per entry).
+  references: {
+    name: "References",
+    subject: "The references list",
+    label: "References & bibliography",
+    placeholder: "Write the paragraph…",
+    prose: "seq-references",
     box: "px-3 py-2",
   },
 } as const;

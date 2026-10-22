@@ -1,3 +1,4 @@
+import { isEmailAddress } from "./link-url";
 import type { RtInline, RtText } from "./types";
 
 /**
@@ -77,8 +78,6 @@ const GLUED_BEFORE_SCHEME = /[\p{L}\p{N}\p{M}_:/@.+-]/u;
 const LOCAL_CHAR = /[\p{L}\p{N}\p{M}._+-]/u;
 const GLUED_BEFORE_EMAIL = /[\p{L}\p{N}\p{M}_/:@.+-]/u;
 const DOMAIN_CHAR = /[\p{L}\p{N}\p{M}.-]/u;
-const DOMAIN_LABEL = /^[\p{L}\p{N}\p{M}](?:[\p{L}\p{N}\p{M}-]*[\p{L}\p{N}\p{M}])?$/u;
-const TOP_LEVEL = /^[\p{L}\p{M}]{2,}$/u;
 
 /** Every address in `text`, in order and never overlapping. */
 export function findLinks(text: string): FoundLink[] {
@@ -149,7 +148,7 @@ function mailtoHref(typed: string): string | null {
   const rest = typed.slice("mailto:".length);
   const query = rest.indexOf("?");
   const address = query < 0 ? rest : rest.slice(0, query);
-  return isEmail(address) ? `mailto:${rest}` : null;
+  return isEmailAddress(address) ? `mailto:${rest}` : null;
 }
 
 /**
@@ -173,24 +172,9 @@ function email(
   }
   if (start > 0 && GLUED_BEFORE_EMAIL.test(text[start - 1])) return at + 1;
   const address = text.slice(start, end);
-  if (!isEmail(address)) return at + 1;
+  if (!isEmailAddress(address)) return at + 1;
   found.push({ start, end, href: `mailto:${address}`, kind: "email" });
   return end;
-}
-
-/** "user@example.org": a user part and a domain with a dot, nothing else. */
-function isEmail(address: string): boolean {
-  const at = address.indexOf("@");
-  if (at <= 0 || at !== address.lastIndexOf("@")) return false;
-  const local = address.slice(0, at);
-  for (const char of local) if (!LOCAL_CHAR.test(char)) return false;
-  if (local.startsWith(".") || local.endsWith(".") || local.includes("..")) {
-    return false;
-  }
-  const labels = address.slice(at + 1).split(".");
-  if (labels.length < 2) return false;
-  if (!labels.every((label) => DOMAIN_LABEL.test(label))) return false;
-  return TOP_LEVEL.test(labels[labels.length - 1]);
 }
 
 /**
