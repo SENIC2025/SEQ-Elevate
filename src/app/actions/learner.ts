@@ -16,6 +16,8 @@
 import { getCurrentUser, getProjectMemberships } from "@/lib/auth-helpers";
 import { isBootstrapAdmin } from "@/lib/admin-bootstrap";
 import {
+  COMP_CARD_BLANK_CONFIDENCE,
+  COMP_CARD_FIELDS,
   SHARING_TEXT_VERSION,
   compCardFill,
   effectiveSharing,
@@ -23,6 +25,14 @@ import {
   type CompCardField,
   type Sharing,
 } from "@/lib/comp-card-visibility";
+import {
+  parseGuestClaim,
+  type ClaimCardOutcome,
+  type ClaimCourseOutcome,
+  type ClaimedCard,
+  type GuestClaimResult,
+  type ParsedClaim,
+} from "@/lib/guest-claim";
 import { isProfileComplete, profileRules } from "@/lib/profile";
 import { needsLearnerMembership } from "@/lib/learner-membership";
 import { releaseIfCountryElsewhere } from "@/lib/person-organisation";
@@ -52,12 +62,13 @@ import {
   type MergeResult,
   type ProgressColumn,
 } from "@/lib/learner-progress/merge-server";
-import { parseProgressPatch, readIds, readResponses } from "@/lib/learner-progress/parse";
+import { parseProgressPatch, readIds, readResponses, type ParsedPatch } from "@/lib/learner-progress/parse";
 import { Prisma, type StageKey } from "@prisma/client";
 
-// SaveProgressResult is imported from @/lib/learner-progress/contract, not
-// from here: a "use server" module may export only async functions, and
-// Next's action transform takes a re-exported type for a value.
+// SaveProgressResult is imported from @/lib/learner-progress/contract, and
+// GuestClaimResult from @/lib/guest-claim, not from here: a "use server"
+// module may export only async functions, and Next's action transform takes
+// a re-exported type for a value.
 
 const PROJECT = "seq-elevate";
 
@@ -490,48 +501,66 @@ async function saveProgress(
   mayComplete: boolean,
   merge: (row: EnrollmentProgress | null) => MergeResult
 ): Promise<RefusedKey[] | "not-open"> {
-  return prisma.$transaction(async (tx) => {
-    let badgeId = course.badgeId;
-    if (mayComplete && badgeId === null && course.meta !== null) {
-      badgeId = await ensureCourseBadge(tx, course.id);
-    } else {
-      await tx.$queryRaw`SELECT id FROM "Course" WHERE "id" = ${course.id} FOR KEY SHARE`;
-    }
+  return prisma.$transaction((tx) => progressInTx(tx, userId, course, mayComplete, merge));
+}
 
-    const where = { userId_courseId: { userId, courseId: course.id } };
-    const lockRow = async () => {
-      await tx.$queryRaw`SELECT id FROM "CourseEnrollment" WHERE "userId" = ${userId} AND "courseId" = ${course.id} FOR UPDATE`;
-      return tx.courseEnrollment.findUnique({ where, select: PROGRESS_SELECT });
-    };
-    // A completion this save makes, checked once (the kill switch only).
-    let stands: Promise<boolean> | null = null;
-    const checked = async (m: MergeResult, before: EnrollmentProgress) => {
-      if (!m.completedNow) return m;
-      stands ??= completionStands(tx, course, completedLessonIds(m.next));
-      return (await stands) ? m : withoutCompletion(m, before);
-    };
+/**
+ * saveProgress's work on the caller's transaction, in its lock order (the
+ * Course row, then the enrolment, then the badge): a guest's course added
+ * to the account takes the same path (claimGuestWork), which writes the
+ * badge itself, last (`badgeLater` is handed the badge to write). `merge`
+ * may be called twice, the second time with the row another tab created
+ * meanwhile.
+ */
+async function progressInTx(
+  tx: Prisma.TransactionClient,
+  userId: string,
+  course: ProgressCourse,
+  mayComplete: boolean,
+  merge: (row: EnrollmentProgress | null) => MergeResult,
+  badgeLater?: (badgeId: string) => void
+): Promise<RefusedKey[] | "not-open"> {
+  let badgeId = course.badgeId;
+  if (mayComplete && badgeId === null && course.meta !== null) {
+    badgeId = await ensureCourseBadge(tx, course.id);
+  } else {
+    await tx.$queryRaw`SELECT id FROM "Course" WHERE "id" = ${course.id} FOR KEY SHARE`;
+  }
 
-    let row = await lockRow();
-    if (!row) {
-      // Nobody is enrolled in a course no learner could ever open; one
-      // already enrolled keeps saving whatever its status (D62.f).
-      if (!takesLearners(course)) return "not-open";
-      const fresh = await checked(merge(null), EMPTY_ENROLLMENT);
-      if (!fresh.changed.length) return fresh.refused;
-      await tx.courseEnrollment.createMany({ data: [{ userId, courseId: course.id }], skipDuplicates: true });
-      row = await lockRow();
-      if (!row) throw new Error("The enrolment just created can't be read");
-    }
+  const where = { userId_courseId: { userId, courseId: course.id } };
+  const lockRow = async () => {
+    await tx.$queryRaw`SELECT id FROM "CourseEnrollment" WHERE "userId" = ${userId} AND "courseId" = ${course.id} FOR UPDATE`;
+    return tx.courseEnrollment.findUnique({ where, select: PROGRESS_SELECT });
+  };
+  // A completion this save makes, checked once (the kill switch only).
+  let stands: Promise<boolean> | null = null;
+  const checked = async (m: MergeResult, before: EnrollmentProgress) => {
+    if (!m.completedNow) return m;
+    stands ??= completionStands(tx, course, completedLessonIds(m.next));
+    return (await stands) ? m : withoutCompletion(m, before);
+  };
 
-    const merged = await checked(merge(row), row);
-    if (merged.changed.length) {
-      await tx.courseEnrollment.update({ where, data: columnsOf(merged) });
-    }
-    if (merged.completedNow && badgeId) {
-      await tx.userBadge.createMany({ data: [{ userId, badgeId }], skipDuplicates: true });
-    }
-    return merged.refused;
-  });
+  let row = await lockRow();
+  if (!row) {
+    // Nobody is enrolled in a course no learner could ever open; one
+    // already enrolled keeps saving whatever its status (D62.f).
+    if (!takesLearners(course)) return "not-open";
+    const fresh = await checked(merge(null), EMPTY_ENROLLMENT);
+    if (!fresh.changed.length) return fresh.refused;
+    await tx.courseEnrollment.createMany({ data: [{ userId, courseId: course.id }], skipDuplicates: true });
+    row = await lockRow();
+    if (!row) throw new Error("The enrolment just created can't be read");
+  }
+
+  const merged = await checked(merge(row), row);
+  if (merged.changed.length) {
+    await tx.courseEnrollment.update({ where, data: columnsOf(merged) });
+  }
+  if (merged.completedNow && badgeId) {
+    if (badgeLater) badgeLater(badgeId);
+    else await tx.userBadge.createMany({ data: [{ userId, badgeId }], skipDuplicates: true });
+  }
+  return merged.refused;
 }
 
 /**
@@ -791,6 +820,33 @@ export async function setCompCardSharing(choice: Sharing, forUser: string): Prom
 }
 
 /**
+ * May the badge `badgeId` be given to `userId`? Always, but under the kill
+ * switch, where a created course's badge whose lessons the Release 1 view
+ * doesn't hold follows the completion the server holds (completionStands):
+ * the save that completes the course writes the badge too.
+ */
+async function badgeMayBeGiven(
+  client: Pick<Prisma.TransactionClient, "course" | "lesson" | "courseEnrollment">,
+  userId: string,
+  badgeId: string
+): Promise<boolean> {
+  if (!learnerPlayerOff()) return true;
+  const courses = await client.course.findMany({
+    where: { projectId: PROJECT, badgeId, NOT: { meta: { equals: Prisma.DbNull } } },
+    select: { id: true, slug: true, meta: true },
+  });
+  for (const c of courses) {
+    if ((await lessonsTheSwitchHides(client, c)) === null) continue;
+    const enrolled = await client.courseEnrollment.findUnique({
+      where: { userId_courseId: { userId, courseId: c.id } },
+      select: { completedAt: true },
+    });
+    if (!enrolled?.completedAt) return false;
+  }
+  return true;
+}
+
+/**
  * Award a badge to the current user (idempotent); they must be `forUser`
  * (isLearner). A badge with no Badge row is refused rather than answered as
  * if it were saved: the learner would lose the badge on the next reload
@@ -814,26 +870,231 @@ export async function awardBadgeAction(
     where: { projectId_slug: { projectId: PROJECT, slug } },
   });
   if (!badge) return { ok: false, reason: "no-badge" };
-  // Under the kill switch, a created course's badge whose lessons the
-  // Release 1 view doesn't hold follows the completion the server holds
-  // (completionStands): the save that completes it writes the badge too.
-  if (learnerPlayerOff()) {
-    const courses = await prisma.course.findMany({
-      where: { projectId: PROJECT, badgeId: badge.id, NOT: { meta: { equals: Prisma.DbNull } } },
-      select: { id: true, slug: true, meta: true },
-    });
-    for (const c of courses) {
-      if ((await lessonsTheSwitchHides(prisma, c)) === null) continue;
-      const enrolled = await prisma.courseEnrollment.findUnique({
-        where: { userId_courseId: { userId: user.id, courseId: c.id } },
-        select: { completedAt: true },
-      });
-      if (!enrolled?.completedAt) return { ok: false, reason: "not-finished" };
-    }
-  }
+  if (!(await badgeMayBeGiven(prisma, user.id, badge.id))) return { ok: false, reason: "not-finished" };
   await prisma.userBadge.createMany({
     data: [{ userId: user.id, badgeId: badge.id }],
     skipDuplicates: true,
   });
   return { ok: true };
+}
+
+/** A Comp Card's columns, as the claim reads and answers them. */
+const CLAIM_CARD_SELECT = {
+  wentWell: true,
+  difficult: true,
+  improve: true,
+  behaviour: true,
+  confidence: true,
+  privacy: true,
+  sharedAt: true,
+  sharedWithOrganisationId: true,
+  updatedAt: true,
+} as const;
+
+/**
+ * "Add it to my account" (D37, D69, D79, D80): the browser's guest work,
+ * sent once, added to the signed-in learner's account — who must be
+ * `forUser` (isLearner) — part by part, in one transaction, as the account
+ * is then (src/lib/guest-claim.ts says what each answer means):
+ *
+ *   - the course only into an account with no progress in it, through the
+ *     same transaction as a save (progressInTx: its completion, the
+ *     kill switch's rule for it, and its badge); an account with progress
+ *     in it gets nothing, and is told apart as already holding all of the
+ *     guest's ("already": the fill merge, read only, changes nothing and
+ *     keeps nothing of its own over it) or not ("kept"); a course nobody
+ *     can open is "unavailable" (D62.f: one unpublished after it was
+ *     published still is);
+ *   - the Comp Card only into no card or a blank one ("blank": no answer,
+ *     the confidence untouched) that isn't shared, written as "Only me";
+ *     never shares (D80);
+ *   - badges as a union, each as the award action gives it (no badge row,
+ *     the kill switch: refused).
+ *
+ * The locks, in this order, so it can't deadlock with a save, the award,
+ * the sharing choice or an erasure: the User row (KEY SHARE: an erasure
+ * waits for it, or it for the erasure); the Course row (KEY SHARE, or
+ * UPDATE when its completion may make the course's badge); the enrolment
+ * and then the Comp Card, each inserted unless it is there, then locked,
+ * then read, and decided on as read under the lock (another device's
+ * first save waits for this, or this for it); the badges, inserted unless
+ * there.
+ *
+ * Nothing is written for another account's session, an incomplete profile,
+ * a claim that isn't one, or one with a text too long to add or too big:
+ * answered, never thrown, so the browser doesn't send it again. What
+ * became of each part is logged as counts, without the learner, the course
+ * or a text: whether adding more (filling, a subset rule) is worth building
+ * comes from them.
+ */
+export async function claimGuestWork(claim: unknown, forUser: string): Promise<GuestClaimResult> {
+  const user = await requireLearner();
+  if (!isLearner(user, forUser)) return claimRefused({ ok: false, error: "other-account" });
+  const profile = await ownProfile(user.id);
+  if (!isProfileComplete(user, profile, profileRules())) return claimRefused({ ok: false, error: "profile-incomplete" });
+  const now = new Date();
+  const parsed = parseGuestClaim(claim, now);
+  if (!parsed.ok) return claimRefused(parsed);
+  const c = parsed.claim;
+  const course = c.course
+    ? await prisma.course.findUnique({
+        where: { projectId_slug: { projectId: PROJECT, slug: c.course.slug } },
+        select: { id: true, slug: true, badgeId: true, meta: true, status: true, publishedAt: true },
+      })
+    : null;
+  const organisationId = profile?.organisationId ?? null;
+
+  const result = await prisma.$transaction(
+    async (tx) => {
+      const held = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM "User" WHERE "id" = ${user.id} FOR KEY SHARE`;
+      if (!held.length) throw new Error("The signed-in learner's account is gone");
+      // The course's badge, when the course moves finished: written with the guest's, last.
+      const courseBadges: string[] = [];
+      const coursePart: ClaimCourseOutcome | undefined = c.course
+        ? course
+          ? await claimCourse(tx, user.id, course, c.course.patch, now, (id) => courseBadges.push(id))
+          : "unavailable"
+        : undefined;
+      const cardPart = c.compCard ? await claimCard(tx, user.id, organisationId, c.compCard) : undefined;
+      const badges = await claimBadges(tx, user.id, c.badges, courseBadges);
+      const accountBadges = await tx.userBadge.findMany({
+        where: { userId: user.id },
+        select: { badge: { select: { slug: true } } },
+      });
+      return {
+        ok: true as const,
+        ...(coursePart ? { course: coursePart } : {}),
+        ...(cardPart ? { compCard: cardPart.outcome } : {}),
+        ...(cardPart?.card ? { card: cardPart.card } : {}),
+        badges,
+        accountBadges: accountBadges.map((b) => b.badge.slug),
+      };
+    },
+    { maxWait: 5_000, timeout: 15_000 }
+  );
+  console.info(
+    `[guest-claim] ${JSON.stringify({
+      course: result.course ?? "none",
+      compCard: result.compCard ?? "none",
+      badgesMoved: result.badges.moved.length,
+      badgesAlready: result.badges.already.length,
+      badgesRefused: result.badges.refused.length,
+      unreadable: c.unreadable,
+    })}`
+  );
+  return result;
+}
+
+/** A claim refused before anything is written, logged as what it was (no learner, no text). */
+function claimRefused<T extends Extract<GuestClaimResult, { ok: false }>>(answer: T): T {
+  console.info(
+    `[guest-claim] ${JSON.stringify({ refused: answer.error, ...("texts" in answer ? { texts: answer.texts.length } : {}) })}`
+  );
+  return answer;
+}
+
+/** The claim's course: moved into an account with no progress in it, else told apart (see claimGuestWork). */
+async function claimCourse(
+  tx: Prisma.TransactionClient,
+  userId: string,
+  course: ProgressCourse,
+  patch: ParsedPatch,
+  now: Date,
+  badgeLater: (badgeId: string) => void
+): Promise<ClaimCourseOutcome> {
+  let outcome: ClaimCourseOutcome = "moved";
+  const refused = await progressInTx(
+    tx,
+    userId,
+    course,
+    patch.completedAt !== null,
+    (row) => {
+      if (row && enrolmentHasProgress(row)) {
+        const fill = mergeIntoEnrollment(row, { ...patch, fill: true }, now);
+        outcome = fill.changed.length === 0 && fill.kept.length === 0 ? "already" : "kept";
+        return { next: row, changed: [], refused: [], completedNow: false, kept: [] };
+      }
+      outcome = "moved";
+      return mergeIntoEnrollment(row, { ...patch, fill: false }, now);
+    },
+    badgeLater
+  );
+  return refused === "not-open" ? "unavailable" : outcome;
+}
+
+/** The claim's Comp Card: into no card or a blank one not shared, as "Only me" (see claimGuestWork). */
+async function claimCard(
+  tx: Prisma.TransactionClient,
+  userId: string,
+  organisationId: string | null,
+  card: NonNullable<ParsedClaim["compCard"]>
+): Promise<{ outcome: ClaimCardOutcome; card?: ClaimedCard }> {
+  const where = { userId_projectId: { userId, projectId: PROJECT } };
+  await tx.compCard.createMany({ data: [{ userId, projectId: PROJECT }], skipDuplicates: true });
+  await tx.$queryRaw`SELECT id FROM "CompCard" WHERE "userId" = ${userId} AND "projectId" = ${PROJECT} FOR UPDATE`;
+  const row = await tx.compCard.findUnique({ where, select: CLAIM_CARD_SELECT });
+  if (!row) throw new Error("The Comp Card just made can't be read");
+  const answered = (row: Record<CompCardField, string> & { confidence: number; updatedAt: Date | null }): ClaimedCard => ({
+    wentWell: row.wentWell,
+    difficult: row.difficult,
+    improve: row.improve,
+    behaviour: row.behaviour,
+    confidence: row.confidence,
+    updatedAt: row.updatedAt instanceof Date ? row.updatedAt.toISOString() : null,
+  });
+  if (COMP_CARD_FIELDS.every((f) => row[f] === card[f]) && row.confidence === card.confidence) {
+    return { outcome: "already", card: answered(row) };
+  }
+  const blank = COMP_CARD_FIELDS.every((f) => !row[f]?.trim()) && row.confidence === COMP_CARD_BLANK_CONFIDENCE;
+  if (!blank) return { outcome: "kept" };
+  if (effectiveSharing(row, organisationId) === "facilitators") return { outcome: "shared" };
+  const moved = await tx.compCard.update({
+    where,
+    data: {
+      wentWell: card.wentWell,
+      difficult: card.difficult,
+      improve: card.improve,
+      behaviour: card.behaviour,
+      confidence: card.confidence,
+      privacy: "SELF",
+    },
+    select: CLAIM_CARD_SELECT,
+  });
+  return { outcome: "moved", card: answered(moved) };
+}
+
+/**
+ * The claim's badges: a union, each as the award action gives it, and the
+ * badge of the course the claim finished (`courseBadges`), all inserted
+ * unless there (see claimGuestWork).
+ */
+async function claimBadges(
+  tx: Prisma.TransactionClient,
+  userId: string,
+  slugs: readonly string[],
+  courseBadges: readonly string[]
+): Promise<{ moved: string[]; already: string[]; refused: string[] }> {
+  const out = { moved: [] as string[], already: [] as string[], refused: [] as string[] };
+  const give = new Set<string>(courseBadges);
+  if (slugs.length) {
+    const rows = await tx.badge.findMany({ where: { projectId: PROJECT, slug: { in: [...slugs] } }, select: { id: true, slug: true } });
+    const held = new Set(
+      (await tx.userBadge.findMany({ where: { userId, badgeId: { in: rows.map((r) => r.id) } }, select: { badgeId: true } })).map(
+        (r) => r.badgeId
+      )
+    );
+    for (const slug of slugs) {
+      const row = rows.find((r) => r.slug === slug);
+      if (!row) out.refused.push(slug);
+      else if (held.has(row.id)) out.already.push(slug);
+      else if (give.has(row.id) || (await badgeMayBeGiven(tx, userId, row.id))) {
+        give.add(row.id);
+        out.moved.push(slug);
+      } else out.refused.push(slug);
+    }
+  }
+  for (const badgeId of give) {
+    await tx.userBadge.createMany({ data: [{ userId, badgeId }], skipDuplicates: true });
+  }
+  return out;
 }
