@@ -74,7 +74,17 @@ import ts from "typescript";
  * of it; a type predicate or assertion function (`x is Scope`); an overload
  * that answers a Scope; a server action (an exported function of a
  * "use server" module, or a function that says "use server") that takes a
- * Scope or a Viewer from its caller.
+ * Scope or a Viewer from its caller, also through a library type of one
+ * (Pick<Viewer, "scope">, Partial<Viewer>, Omit, Readonly). An action is
+ * found by its export where it is declared: use-server-exports.test.ts
+ * refuses an export list, export * and export default of a value in every
+ * "use server" module of src/.
+ *
+ * What a static reading can't follow (a generic class whose method makes
+ * its class's type parameter's value, a generic function that hands what
+ * it makes to a callback, code outside src/) meets the scope module's
+ * run-time check instead: every function of it that takes a Scope throws
+ * for a value the module didn't make (src/lib/scope-runtime.test.ts).
  */
 
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
@@ -1236,9 +1246,12 @@ function scopesMadeIn(program: ts.Program, file: string): string[] {
     if ((type as ts.ObjectType).objectFlags & ts.ObjectFlags.Reference) {
       if (checker.getTypeArguments(type as ts.TypeReference).some((t) => holdsScope(t, depth - 1, seen))) return true;
     }
-    // An object type of this project's own (Viewer, a type literal): its properties.
+    // An object type of this project's own (Viewer, a type literal), or one a
+    // library type makes of a type holding a Scope (Pick<Viewer, "scope">,
+    // Partial<Viewer>, Omit, Readonly, Required): its properties.
     const declared = (type.getSymbol() ?? type.aliasSymbol)?.declarations ?? [];
-    if (!declared.some((d) => d.getSourceFile().fileName.startsWith(`${ROOT}src/`))) return false;
+    const ours = declared.some((d) => d.getSourceFile().fileName.startsWith(`${ROOT}src/`));
+    if (!ours && !(type.aliasTypeArguments ?? []).some((t) => holdsScope(t, depth, new Set(seen)))) return false;
     return checker
       .getPropertiesOfType(type)
       .some((p) => holdsScope(checker.getTypeOfSymbolAtLocation(p, sf), depth - 1, seen));
@@ -1678,6 +1691,26 @@ describe("the scope guard refuses a Scope made outside the scope module (SS4 met
     ).toEqual([
       "src/app/actions/new-action.ts:3: a server action that takes a Scope from its caller",
       "src/app/actions/new-action.ts:7: a server action that takes a Scope from its caller",
+    ]);
+  });
+
+  it("a server action that takes a Viewer through a library type: Pick, Partial, Omit, Readonly (polish2-verify V1)", () => {
+    expect(
+      scopesMadeElsewhere(
+        "src/app/actions/new-action.ts",
+        `"use server";
+         import { learnerUsersInScope, type Viewer } from "@/lib/scope";
+         export async function asViewer(v: Pick<Viewer, "scope">) { return learnerUsersInScope(v.scope); }
+         export async function rolesAs(v: Partial<Viewer>) { return v.scope ? learnerUsersInScope(v.scope) : null; }
+         export async function without(v: Omit<Viewer, "roles">) { return learnerUsersInScope(v.scope); }
+         export async function frozen(v: Readonly<Required<Viewer>>) { return learnerUsersInScope(v.scope); }
+         export async function rolesOnly(v: Pick<Viewer, "roles">) { return v.roles; }`
+      )
+    ).toEqual([
+      "src/app/actions/new-action.ts:3: a server action that takes a Scope from its caller",
+      "src/app/actions/new-action.ts:4: a server action that takes a Scope from its caller",
+      "src/app/actions/new-action.ts:5: a server action that takes a Scope from its caller",
+      "src/app/actions/new-action.ts:6: a server action that takes a Scope from its caller",
     ]);
   });
 

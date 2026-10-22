@@ -33,12 +33,15 @@ vi.mock("@/lib/scope", async (original) => ({
 }));
 
 const { saveObservation, recordValidation } = await import("./facilitator");
+// Scopes the scope module made: its builders refuse any other value (SS4).
+const { testOnlyScope } = await import("@/lib/scope");
 
 const STAFF = { id: "staff-1", email: "fac@example.org" };
 const rows = (...roles: string[]) =>
   roles.map((role) => ({ role, projectId: "seq-elevate" }));
-const ORG_A = { kind: "organisation", viewerId: STAFF.id, organisationId: "org-a" } as const;
-const PROJECT_SCOPE = { kind: "project", viewerId: STAFF.id, viewerOrganisationId: null } as const;
+const ORG_A = testOnlyScope({ kind: "organisation", viewerId: STAFF.id, organisationId: "org-a" });
+const PROJECT_SCOPE = testOnlyScope({ kind: "project", viewerId: STAFF.id, viewerOrganisationId: null });
+const NO_SCOPE = testOnlyScope({ kind: "none" });
 
 /**
  * The viewer holds `viewer` (with the scope those roles give: an ADMIN the
@@ -122,7 +125,7 @@ describe.each(both)("%s", (_name, call) => {
   it("refuses when no one is signed in", async () => {
     given(["FACILITATOR"], ["LEARNER"]);
     getCurrentUser.mockResolvedValue(null);
-    getViewer.mockResolvedValue({ user: null, roles: [], profile: null, scope: { kind: "none" } });
+    getViewer.mockResolvedValue({ user: null, roles: [], profile: null, scope: NO_SCOPE });
     await expect(call()).resolves.toEqual({ ok: false });
     expect(wroteAnything()).toBe(false);
   });
@@ -169,7 +172,7 @@ describe.each(both)("%s, by scope (FD-U12)", (_name, call) => {
     "refuses a %s with no scope (no organisation, partner access off, or an incomplete profile)",
     async (role) => {
       given([role], ["LEARNER"]);
-      getViewer.mockResolvedValue({ user: STAFF, roles: [role], profile: null, scope: { kind: "none" } });
+      getViewer.mockResolvedValue({ user: STAFF, roles: [role], profile: null, scope: NO_SCOPE });
       await expect(call()).resolves.toEqual({ ok: false });
       expect(wroteAnything()).toBe(false);
       expect(prisma.user.count).not.toHaveBeenCalled();
@@ -178,7 +181,7 @@ describe.each(both)("%s, by scope (FD-U12)", (_name, call) => {
 
   it("refuses an ADMIN without project scope", async () => {
     given(["ADMIN"], ["LEARNER"]);
-    getViewer.mockResolvedValue({ user: STAFF, roles: ["ADMIN"], profile: null, scope: { kind: "none" } });
+    getViewer.mockResolvedValue({ user: STAFF, roles: ["ADMIN"], profile: null, scope: NO_SCOPE });
     await expect(call()).resolves.toEqual({ ok: false });
     expect(wroteAnything()).toBe(false);
   });

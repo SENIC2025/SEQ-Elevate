@@ -30,8 +30,15 @@ import "server-only";
  * doesn't copy: outside this file neither a hand-made literal nor a copy of
  * a real scope with its fields changed type-checks. Its fields are
  * read-only, and every scope made here is frozen, so one can't be changed
- * in place either. Tests make one with testOnlyScope, or testOnlyScopeFor
- * (the scope of the roles and settings they pass). The scope guard
+ * in place either. At run time this module keeps every scope it makes
+ * (ISSUED), and every function here that takes a Scope first checks that
+ * it was given one of those: anything else — an object from JSON or posted
+ * by the browser, a spread copy, Object.assign onto a new object, a
+ * structured clone, a value a generic class or callback built — throws
+ * NotAScopeError before any of it is read (fail closed: no filter, wider
+ * or narrower, is built for it; scope-runtime.test.ts). Tests make one
+ * with testOnlyScope, or testOnlyScopeFor (the scope of the roles and
+ * settings they pass). The scope guard
  * (scope-guard.test.ts) reads src/ with the type checker and fails, outside
  * this file and tests, for those names, for an assertion to a Scope (or to
  * a type holding one) under any spelling, for an any or never where a Scope
@@ -77,8 +84,42 @@ declare class MadeByTheScopeModule {
 /** Whose data a viewer may read or change, as this module worked it out (see above). */
 export type Scope = Readonly<ScopeShape> & MadeByTheScopeModule;
 
-/** The one place a shape becomes a Scope: frozen, so it can't be changed in place. */
-const made = (shape: ScopeShape): Scope => Object.freeze({ ...shape }) as Scope;
+/**
+ * Every scope this module made, and nothing else: the brand at run time.
+ * Held by identity, so no copy, clone, proxy or object of the same fields
+ * is in it; weakly, so a request's scope goes when the request does.
+ */
+const ISSUED = new WeakSet<object>();
+
+/** The one place a shape becomes a Scope: frozen, so it can't be changed in place, and kept in ISSUED. */
+const made = (shape: ScopeShape): Scope => {
+  const scope = Object.freeze({ ...shape });
+  ISSUED.add(scope);
+  return scope as Scope;
+};
+
+/**
+ * Thrown where a Scope is expected and the value given isn't one this
+ * module made. It names nothing of the value (it may hold someone's data).
+ */
+export class NotAScopeError extends TypeError {
+  constructor() {
+    super(
+      "[scope] Refused: the value given as a Scope is not a scope made by the scope module (src/lib/scope.ts), " +
+        "so nothing is read for it. A Scope comes from getViewer or getViewerScope, never from a copy, " +
+        "an object from JSON or the browser, or a value built elsewhere."
+    );
+    this.name = "NotAScopeError";
+  }
+}
+
+/**
+ * Throws NotAScopeError unless this module made `scope` (ISSUED). Every
+ * function here that takes a Scope calls it first, before reading it.
+ */
+function mustBeIssued(scope: Scope): void {
+  if (typeof scope !== "object" || scope === null || !ISSUED.has(scope)) throw new NotAScopeError();
+}
 
 /**
  * A scope for a test, of any shape. For tests only: the scope guard
@@ -182,6 +223,7 @@ const inOrganisation = (organisationId: string): Prisma.UserWhereInput => ({
 
 /** The learners (D53: LEARNER and no staff role) the scope covers. */
 export function learnerUsersInScope(scope: Scope): Prisma.UserWhereInput {
+  mustBeIssued(scope);
   switch (scope.kind) {
     case "project":
       return learnerUserWhere(PROJECT);
@@ -194,6 +236,7 @@ export function learnerUsersInScope(scope: Scope): Prisma.UserWhereInput {
 
 /** The LEARNER memberships of the learners the scope covers (the roster). */
 export function learnerMembershipsInScope(scope: Scope): Prisma.MembershipWhereInput {
+  mustBeIssued(scope);
   switch (scope.kind) {
     case "project":
       return learnerMembershipWhere(PROJECT);
@@ -212,6 +255,7 @@ export function learnerMembershipsInScope(scope: Scope): Prisma.MembershipWhereI
  * admin overview's Learners figure).
  */
 export function statisticsMembershipsInScope(scope: Scope, from: Date | null): Prisma.MembershipWhereInput {
+  mustBeIssued(scope);
   if (scope.kind === "none") return MATCH_NOTHING;
   const filters: Prisma.MembershipWhereInput[] = [
     learnerMembershipsInScope(scope),
@@ -242,6 +286,7 @@ function notAnAdmin(env: Env): Prisma.UserWhereInput[] {
  * scope leaves out anyone holding ADMIN and anyone on ADMIN_EMAILS.
  */
 export function peopleInScope(scope: Scope, env: Env = process.env): Prisma.UserWhereInput {
+  mustBeIssued(scope);
   switch (scope.kind) {
     case "project":
       return {
@@ -256,6 +301,7 @@ export function peopleInScope(scope: Scope, env: Env = process.env): Prisma.User
 
 /** The memberships of the people the scope covers. */
 export function membershipsInScope(scope: Scope, env: Env = process.env): Prisma.MembershipWhereInput {
+  mustBeIssued(scope);
   switch (scope.kind) {
     case "project":
       return { projectId: PROJECT };
@@ -268,6 +314,7 @@ export function membershipsInScope(scope: Scope, env: Env = process.env): Prisma
 
 /** The organisations the scope covers: all of the project's, or the viewer's own. */
 export function organisationsInScope(scope: Scope): Prisma.OrganisationWhereInput {
+  mustBeIssued(scope);
   switch (scope.kind) {
     case "project":
       return { projectId: PROJECT };
@@ -280,6 +327,7 @@ export function organisationsInScope(scope: Scope): Prisma.OrganisationWhereInpu
 
 /** The cohorts the scope covers: those of the organisations it covers. */
 export function cohortsInScope(scope: Scope): Prisma.CohortWhereInput {
+  mustBeIssued(scope);
   switch (scope.kind) {
     case "project":
       return { projectId: PROJECT };
@@ -294,6 +342,7 @@ const isId = (value: unknown): value is string => typeof value === "string" && v
 
 /** Is the person `userId` in the scope (peopleInScope)? One count; false for anything but an id. */
 export async function inScope(scope: Scope, userId: unknown): Promise<boolean> {
+  mustBeIssued(scope);
   if (scope.kind === "none" || !isId(userId)) return false;
   const count = await prisma.user.count({ where: { AND: [{ id: userId }, peopleInScope(scope)] } });
   return count > 0;
@@ -301,6 +350,7 @@ export async function inScope(scope: Scope, userId: unknown): Promise<boolean> {
 
 /** Is the cohort `cohortId` one of an organisation the scope covers? */
 export async function cohortInScope(scope: Scope, cohortId: unknown): Promise<boolean> {
+  mustBeIssued(scope);
   if (scope.kind === "none" || !isId(cohortId)) return false;
   const count = await prisma.cohort.count({ where: { AND: [{ id: cohortId }, cohortsInScope(scope)] } });
   return count > 0;
@@ -309,5 +359,6 @@ export async function cohortInScope(scope: Scope, cohortId: unknown): Promise<bo
 /** The viewer, when they hold ADMIN and have project scope; otherwise null. */
 export async function requireAdminProject(): Promise<Viewer | null> {
   const viewer = await getViewer();
+  mustBeIssued(viewer.scope);
   return seesWholeProject(viewer.roles) && viewer.scope.kind === "project" ? viewer : null;
 }
