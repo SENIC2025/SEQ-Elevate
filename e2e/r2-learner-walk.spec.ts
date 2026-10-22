@@ -69,7 +69,8 @@ const DB = process.env.E2E_DB === "1";
 const NO_DELTAS = process.env.R2_WALK_DELTAS === "none";
 /**
  * Release 3's differences the walk expects: the closed list (R3-D1, the
- * reflection hint), or none with R3_WALK_DELTAS=none, to compare Release 2's
+ * reflection hint; R3-D2, the built-in course's second English reflection
+ * placeholder), or none with R3_WALK_DELTAS=none, to compare Release 2's
  * build with what Release 2 showed (spec 18.5 I-E1: Release 2 passes without
  * the list and fails with it only at the reflections; Release 3 the other
  * way round). Release 2's build runs it on a database Release 3 has

@@ -284,7 +284,7 @@
         "prompt2": "Was war der schwerste Teil im Szenario?",
         "prompt3": "Was würdest du beim nächsten Mal anders versuchen?",
         "placeholder1": "Es kann ein Wort sein, ein Gefühl oder ein Satz.",
-        "placeholder2": "Sei ehrlich — nur du siehst das.",
+        "placeholder2": "Sei ehrlich. Nur du siehst das.",
         "placeholder3": "Auch eine kleine Veränderung zählt."
       },
       "assessment": {
@@ -987,7 +987,7 @@
     },
     "facilitator": {
       "title": "Lernende begleiten",
-      "desc": "Fortschritt, Reflexionen und Ergebnisse deiner Lernenden verfolgen."
+      "desc": "Fortschritt und Ergebnisse deiner Lernenden verfolgen."
     },
     "analytics": {
       "title": "Statistiken",

@@ -284,7 +284,7 @@
         "prompt2": "What was the hardest part of the scenario?",
         "prompt3": "What might you try differently next time?",
         "placeholder1": "It can be a word, a feeling, or a sentence.",
-        "placeholder2": "Be honest — only you see this unless you choose to share it.",
+        "placeholder2": "Be honest. Only you see this.",
         "placeholder3": "Even one small change counts."
       },
       "assessment": {
@@ -987,7 +987,7 @@
     },
     "facilitator": {
       "title": "Support learners",
-      "desc": "Follow each learner's progress, reflections and results."
+      "desc": "Follow each learner's progress and results."
     },
     "analytics": {
       "title": "Statistics",
