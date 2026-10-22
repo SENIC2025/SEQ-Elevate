@@ -53,27 +53,33 @@ describe("the English editors of Manage courses and Create courses are marked En
     // German menus, Greek content.
     await page.goto("/de/content/courses/workplace-conflict?lang=el&lesson=concept");
     await expect(page.locator("html")).toHaveAttribute("lang", "de");
-    const lesson = page.locator("#lesson-concept");
+    // The lesson as shown. While the page streams in, React may render it
+    // itself and leave the server's copy for a moment in a hidden <div> at
+    // the end of the page (5a6b7a1): only the copy shown counts, and there
+    // is one, with one video editor in it. The editors' words below are read
+    // without .first(), so a second editor shown would fail them.
+    const lesson = page.locator("#lesson-concept").filter({ visible: true });
+    await expect(lesson).toHaveCount(1);
+    const video = lesson.getByRole("heading", { name: "Interactive video" });
+    await expect(video).toHaveCount(1);
 
     // The editors' own words: English, marked.
-    const video = lesson.getByRole("heading", { name: "Interactive video" }).first();
-    await expect(video).toBeVisible();
     expect(await langOf(video), "the video editor").toBe("en");
-    expect(await langOf(lesson.getByRole("button", { name: "Upload file" }).first()), "the video editor's tabs").toBe("en");
-    expect(await langOf(lesson.getByRole("heading", { name: "Lesson documents" }).first()), "the documents").toBe("en");
-    const text = lesson.getByRole("heading", { name: "Lesson text (Greek)" }).first();
+    expect(await langOf(lesson.getByRole("button", { name: "Upload file" })), "the video editor's tabs").toBe("en");
+    expect(await langOf(lesson.getByRole("heading", { name: "Lesson documents" })), "the documents").toBe("en");
+    const text = lesson.getByRole("heading", { name: "Lesson text (Greek)" });
     expect(await langOf(text), "the lesson text editor").toBe("en");
-    expect(await langOf(lesson.getByRole("button", { name: "Add block", exact: true }).first()), "the content blocks").toBe("en");
+    expect(await langOf(lesson.getByRole("button", { name: "Add block", exact: true })), "the content blocks").toBe("en");
 
     // The page's own words, translated: unmarked (the page's language).
-    expect(await langOf(lesson.getByRole("link", { name: "Vorschau dieser Lektion" }).first()), "the page's words").toBe("de");
+    expect(await langOf(lesson.getByRole("link", { name: "Vorschau dieser Lektion" })), "the page's words").toBe("de");
 
     // What is written in them: the lesson's text in the language being
     // edited; the video's text in the page's (no one records its language).
-    expect(await langOf(lesson.getByLabel("Lesson title").first()), "the lesson's title").toBe("el");
+    expect(await langOf(lesson.getByLabel("Lesson title")), "the lesson's title").toBe("el");
     const block = lesson.locator('[role="button"][data-block-field]').first();
     expect(await langOf(block.locator("[id$='-text']")), "a block's text").toBe("el");
-    expect(await langOf(lesson.getByLabel("Title", { exact: true }).first()), "the video's title").toBe("de");
+    expect(await langOf(lesson.getByLabel("Title", { exact: true })), "the video's title").toBe("de");
     expect(await langOf(lesson.locator('option[value="de"]').first()), "a language's name").toBe("de");
 
     // A block opened in the text editor: its text Greek, the toolbar English.
