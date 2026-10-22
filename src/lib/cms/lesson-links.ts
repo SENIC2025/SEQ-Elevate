@@ -151,7 +151,8 @@ function shownEmail(address: string): string {
  * Where an accepted link goes, as shown under its title: the host of a web
  * address (international hosts in punycode, as the check normalised them),
  * or the bare address of an email link (its domain in ASCII too). "" for
- * anything else.
+ * anything else. Staff screens show the host; learners see a web link's
+ * site (linkSite, LessonFurtherReading) and an email link's address.
  */
 export function linkPlace(link: { url: string; kind: LessonLinkRef["kind"] | null }): string {
   if (link.kind === "email") {

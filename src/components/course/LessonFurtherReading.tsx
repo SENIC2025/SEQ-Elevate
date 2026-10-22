@@ -7,6 +7,7 @@ import { QuickLink } from "@/components/rich-text/QuickLink";
 import { itemLanguageMark, linkPlace } from "@/lib/cms/lesson-links";
 import type { LessonLinkRef } from "@/lib/cms/reading-types";
 import type { Locale } from "@/lib/cms/types";
+import { linkSite, textIsSite } from "@/lib/rich-text/link-site";
 import { useContentLang } from "./CourseText";
 
 /**
@@ -17,10 +18,19 @@ import { useContentLang } from "./CourseText";
  * the heading's own words. Nothing at all for a lesson without links.
  *
  * Each item: its title as a link (QuickLink: a new tab, and screen readers
- * hear that it opens one), where it goes under it (the host of a web
- * address, the bare address of an email link), then its description. The
- * loaders only ever pass addresses checkLinkHref accepted (lesson-links.ts),
- * so `url` is an accepted, normalised address here.
+ * hear that it opens one), an email link's bare address under it, then its
+ * description. The loaders only ever pass addresses checkLinkHref accepted
+ * (lesson-links.ts), so `url` is an accepted, normalised address here.
+ *
+ * Learners see the site each named link opens (the owner's decision of 22
+ * October 2026; D104, D105): a web link's title is followed, inside the
+ * link, by a ", " only screen readers hear and the site in a box
+ * (link-site.ts; the look is globals.css's, as in lesson text), so the link
+ * is heard as "title, site (opens in a new tab)". The box is left out only
+ * when the whole title is the link's address (textIsSite). The site is the
+ * one D104 compares (the registrable domain, in punycode for an
+ * international name), never a host that begins with another site's name,
+ * and the box is the one place a web link's site is shown.
  *
  * Course text and the page's words (WCAG 3.1.2): an item for some languages
  * only, none of them the one the course text is shown in, carries that
@@ -50,7 +60,9 @@ export function LessonFurtherReading({ links }: { links?: readonly LessonLinkRef
         {links.map((link) => {
           const mark = itemLanguageMark(link.languages, text, page);
           const lang = mark ?? courseLang;
-          const place = linkPlace(link);
+          const site = link.kind === "web" ? linkSite(link.url) : null;
+          // An email link's bare address; a web link's site is in its box.
+          const place = site === null ? linkPlace(link) : "";
           return (
             <li key={link.id} className="text-sm">
               <p className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
@@ -58,6 +70,12 @@ export function LessonFurtherReading({ links }: { links?: readonly LessonLinkRef
                   <span lang={lang} className="font-medium">
                     {link.title}
                   </span>
+                  {site !== null && !textIsSite(link.title, link.url) ? (
+                    <>
+                      <span className="seq-link-sep">, </span>
+                      <span className="seq-link-site">{site}</span>
+                    </>
+                  ) : null}
                 </QuickLink>
                 {mark ? (
                   <span className="rounded bg-[var(--surface-muted)] px-1.5 py-0.5 text-xs text-[var(--muted-foreground)]">

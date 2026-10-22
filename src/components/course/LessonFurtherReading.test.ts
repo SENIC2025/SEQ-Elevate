@@ -12,10 +12,13 @@ import { LessonFurtherReading } from "./LessonFurtherReading";
 /*
  * U18 (Release 4, spec 4.5): a lesson's further reading as learners see it.
  * A section named "Further reading" with an h3 and a list; each title a
- * link that opens in a new tab, where it goes under it (the host, or the
- * bare email address), then the description. An item for one language that
- * isn't the one the course text is shown in is marked with that language
- * and says so; the page's own words keep the page's language.
+ * link that opens in a new tab, then the description. A web link's title
+ * shows the site it opens in a box after its words, inside the link, as
+ * named links in lesson text do (the owner's decision of 22 October 2026;
+ * link-site.ts), so it is heard as "title, site (opens in a new tab)"; an
+ * email link's bare address is under its title. An item for one
+ * language that isn't the one the course text is shown in is marked with
+ * that language and says so; the page's own words keep the page's language.
  */
 
 const IntlProvider = NextIntlClientProvider as FC<{
@@ -48,6 +51,21 @@ function render(links: LessonLinkRef[] | undefined, page: Locale = "en", courseT
   );
 }
 
+/** The site's box after a title's words, inside its link: a ", " only screen readers hear, then the site. */
+const siteBox = (site: string) => `<span class="seq-link-sep">, </span><span class="seq-link-site">${site}</span>`;
+
+/** What each link's text adds up to, in order, as a browser names an <a> whose parts are all inline but the cue. */
+const linkNames = (html: string) =>
+  [...html.matchAll(/<a\b[^>]*>([\s\S]*?)<\/a>/g)].map((m) =>
+    m[1]
+      .replace(/<[^>]+>/g, "")
+      .replace(/&amp;/g, "&")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&quot;/g, '"')
+      .replace(/&#x27;/g, "'")
+  );
+
 describe("LessonFurtherReading", () => {
   it("draws nothing for a lesson without links", () => {
     expect(render(undefined)).toBe("");
@@ -66,17 +84,60 @@ describe("LessonFurtherReading", () => {
     expect(html).toContain("A short guide.");
   });
 
-  it("links each title, in a new tab that screen readers hear about, with the host under it", () => {
+  it("links each title, in a new tab that screen readers hear about, its site in a box after its words and nowhere else", () => {
     const html = render([link("a")]);
     expect(html).toContain(
-      '<a href="https://example.org/a" target="_blank" rel="noopener noreferrer" class="seq-link"><span class="font-medium">Title a</span><span class="sr-only"> (opens in a new tab)</span></a>'
+      `<a href="https://example.org/a" target="_blank" rel="noopener noreferrer" class="seq-link"><span class="font-medium">Title a</span>${siteBox(
+        "example.org"
+      )}<span class="sr-only"> (opens in a new tab)</span></a>`
     );
-    expect(html).toContain(">example.org</p>");
+    expect(html).not.toContain(">example.org</p>");
+    expect(linkNames(html)).toEqual(["Title a, example.org (opens in a new tab)"]);
   });
 
-  it("shows an international host in punycode, as the address check normalised it", () => {
-    const html = render([link("idn", { url: "https://xn--mnchen-3ya.example/kurs" })]);
-    expect(html).toContain(">xn--mnchen-3ya.example</p>");
+  it("names each title link with its site, in the page's words", () => {
+    const links = [link("de", { url: "https://www.ams.at/arbeitsuchende", title: "AMS-Seite" }), link("el", { url: "https://www.efka.gov.gr/el/odigos", title: "οδηγό του ΕΦΚΑ" })];
+    expect(linkNames(render(links))).toEqual(["AMS-Seite, ams.at (opens in a new tab)", "οδηγό του ΕΦΚΑ, efka.gov.gr (opens in a new tab)"]);
+    expect(linkNames(render(links, "de"))).toEqual([
+      "AMS-Seite, ams.at (öffnet in einem neuen Tab)",
+      "οδηγό του ΕΦΚΑ, efka.gov.gr (öffnet in einem neuen Tab)",
+    ]);
+  });
+
+  it("shows the site a link opens, never a host that begins with another site's name", () => {
+    const html = render([link("x", { url: "https://paypal.com.evil.example/login", title: "PAYPAL.COM" })]);
+    expect(linkNames(html)).toEqual(["PAYPAL.COM, evil.example (opens in a new tab)"]);
+    expect(html.replace(/href="[^"]*"/g, "")).not.toContain("paypal.com.evil.example");
+    expect(html).not.toContain(">evil.example</p>");
+    // The registrable domain: a subdomain shows the site it belongs to.
+    expect(linkNames(render([link("w", { url: "https://en.wikipedia.org/wiki/Mercury_(planet)", title: "Wikipedia" })]))).toEqual([
+      "Wikipedia, wikipedia.org (opens in a new tab)",
+    ]);
+  });
+
+  it("leaves the box out only when the whole title is the link's address", () => {
+    for (const title of ["https://example.org/a", "example.org/a", "www.example.org/a/"]) {
+      const html = render([link("a", { title })]);
+      expect(html, title).not.toContain("seq-link-site");
+      expect(linkNames(html), title).toEqual([`${title} (opens in a new tab)`]);
+      expect(html, title).not.toContain(">example.org</p>");
+    }
+    // A title that names only the site of a longer address, or begins with it and goes on, keeps it.
+    expect(linkNames(render([link("a", { title: "example.org" })]))).toEqual(["example.org, example.org (opens in a new tab)"]);
+    expect(linkNames(render([link("a", { title: "example.org/a and more" })]))).toEqual(["example.org/a and more, example.org (opens in a new tab)"]);
+  });
+
+  it("shows an international site in punycode, as the address check normalised it", () => {
+    const html = render([link("idn", { url: "https://xn--mnchen-3ya.example/kurs", title: "München" })]);
+    expect(html).toContain(siteBox("xn--mnchen-3ya.example"));
+    expect(html).not.toContain(">xn--mnchen-3ya.example</p>");
+    expect(linkNames(html)).toEqual(["München, xn--mnchen-3ya.example (opens in a new tab)"]);
+  });
+
+  it("keeps the site after a right-to-left title, outside the title's language", () => {
+    const html = render([link("he", { title: "\u05D4\u05DE\u05D3\u05E8\u05D9\u05DA", languages: ["de"] })]);
+    expect(html).toContain(`<span lang="de" class="font-medium">\u05D4\u05DE\u05D3\u05E8\u05D9\u05DA</span>${siteBox("example.org")}`);
+    expect(linkNames(html)).toEqual(["\u05D4\u05DE\u05D3\u05E8\u05D9\u05DA, example.org (opens in a new tab)"]);
   });
 
   it("shows an email link's domain in punycode when it isn't ASCII, as it shows a web host", () => {
@@ -85,11 +146,14 @@ describe("LessonFurtherReading", () => {
     expect(html).toContain(">info@xn--vrein-zwe.de</p>");
   });
 
-  it("shows an email link's bare address under it, never mailto: or its subject", () => {
+  it("shows an email link's bare address under it, never mailto: or its subject, and no box", () => {
     const html = render([link("mail", { kind: "email", url: "mailto:help@example.org?subject=Course", title: "Write to us" })]);
     expect(html).toContain('href="mailto:help@example.org?subject=Course"');
     expect(html).toContain(">help@example.org</p>");
     expect(html).not.toContain(">mailto:");
+    expect(html).not.toContain("seq-link-site");
+    expect(html).not.toContain("seq-link-sep");
+    expect(linkNames(html)).toEqual(["Write to us (opens in a new tab)"]);
   });
 
   it("marks an item for one language that isn't the course text's with that language, and says so in the page's words", () => {
