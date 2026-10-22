@@ -17,8 +17,9 @@ import { defineConfig, devices } from "@playwright/test";
  * (r2-cutoff.spec.ts) uses it; every other spec runs before the cut-off.
  *
  * A third server runs with Release 3's settings as production starts with
- * them (spec 15, 17.2): R3_PARTNER_ACCESS and STATS_FROM unset, and with
- * the profile gate's kill switch on (R3_PROFILE_GATE=off), on its own port
+ * them (spec 15, 17.2): R3_PARTNER_ACCESS and STATS_FROM unset, demo
+ * sign-in off (D98), and with the profile gate's kill switch on
+ * (R3_PROFILE_GATE=off), on its own port
  * (E2E_SWITCHES_PORT, else E2E_PORT + 20). Only the `switches` project
  * (r3-switches.spec.ts, and r3-profile-gate-off.spec.ts: the profile gate
  * switched off) uses it.
@@ -64,9 +65,17 @@ const SERVER_ENV = {
   STATS_FROM: "2020-01-01T00:00:00Z",
 };
 // The switches server: neither of the two settings above (blank reads as
-// unset; Playwright puts this shell's environment under a server's), and
-// the profile gate off.
-const SWITCHES_ENV = { ...SERVER_ENV, R3_PARTNER_ACCESS: "", STATS_FROM: "", R3_PROFILE_GATE: "off" };
+// unset; Playwright puts this shell's environment under a server's), the
+// profile gate off, and demo sign-in off, as on production (D98; SS6 in
+// r3-switches.spec.ts).
+const SWITCHES_ENV = {
+  ...SERVER_ENV,
+  R3_PARTNER_ACCESS: "",
+  STATS_FROM: "",
+  R3_PROFILE_GATE: "off",
+  DEMO_LOGIN_ENABLED: "",
+  DEMO_ACCESS_CODE: "",
+};
 
 export default defineConfig({
   testDir: "./e2e",

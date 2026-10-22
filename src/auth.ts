@@ -19,6 +19,7 @@ import Resend from "next-auth/providers/resend";
 import { prisma } from "@/lib/prisma";
 import { DEMO_PROFILES } from "@/lib/demo-profiles";
 import { demoLoginAllowed } from "@/lib/demo-gate";
+import { refusingDemoSessions } from "@/lib/demo-session";
 import { checkRateLimit, hashKey } from "@/lib/rate-limit";
 import {
   BOOTSTRAP_PROJECT,
@@ -79,7 +80,10 @@ async function sendEmail(
 }
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
-  adapter: PrismaAdapter(prisma),
+  // A demo sign-in's session ("demo-…") resolves to no one wherever demo
+  // sign-in isn't allowed (SS6, D98; demo-session.ts): one left in a
+  // database can never act on a deployment without demo sign-in.
+  adapter: refusingDemoSessions(PrismaAdapter(prisma)),
   // Self-hosted (Hetzner) — not behind Vercel's host detection, so we
   // trust the configured host explicitly. AUTH_URL pins it in prod.
   trustHost: true,

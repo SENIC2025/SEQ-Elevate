@@ -35,6 +35,7 @@ import { prisma } from "@/lib/prisma";
 import { parseAdminEmails } from "@/lib/admin-bootstrap";
 import { resolveBlobToken } from "@/lib/blob-token";
 import { DEMO_PROFILES } from "@/lib/demo-profiles";
+import { DEMO_SESSION_PREFIX } from "@/lib/demo-session";
 import { TELEMETRY_ACTIONS } from "@/lib/gdpr-export";
 import { blobDeleteOn } from "@/lib/r3-switches";
 import { rateLimitKeysOf } from "@/lib/rate-limit";
@@ -48,8 +49,8 @@ const PROJECT = "seq-elevate";
 
 /** The log of a Comp Card's sharing (one row per change, by card id). */
 const SHARING_ACTION = "compcard.sharing_changed";
-/** Demo sign-in's session tokens (actions/demo.ts). */
-const DEMO_TOKEN_PREFIX = "demo-";
+/** Demo sign-in's session tokens (actions/demo.ts, demo-session.ts). */
+const DEMO_TOKEN_PREFIX = DEMO_SESSION_PREFIX;
 
 /* ----------------------------------------------------- request references --- */
 
