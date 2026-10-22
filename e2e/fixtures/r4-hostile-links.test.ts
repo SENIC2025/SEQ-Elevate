@@ -32,9 +32,10 @@ describe("the hostile link table", () => {
     for (const row of STORED_LINK_URLS) expect(checkLinkHref(row.url).ok, row.name).toBe(false);
   });
 
-  it("shows another address in each misleading label and title", () => {
+  it("shows another address in each misleading label and title, by D104 as narrowed on 22 October 2026", () => {
     const labels = HOSTILE_MARKS.filter((m) => m.name.startsWith("a label"));
-    expect(labels.length).toBe(17);
+    expect(labels.length).toBe(12);
+    expect(MISLEADING_TITLES.length).toBe(22);
     for (const label of labels) {
       const node = label.rich.doc.content[0].content[1] as unknown as { text: string; marks: { attrs: { href: string } }[] };
       expect(linkTextProblem(node.text, node.marks[0].attrs.href), label.name).toBe("misleading");

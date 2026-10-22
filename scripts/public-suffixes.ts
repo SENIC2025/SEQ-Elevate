@@ -1,30 +1,34 @@
 /**
- * The public suffixes of more than one label that link text is compared by
- * (src/lib/rich-text/top-level-domains.ts, D104): the ICANN section of the
- * Public Suffix List as tldts-icann carries it. lighthouse, a development
- * dependency, brings tldts-icann; nothing of it reaches the app.
+ * The top-level domains and the public suffixes of more than one label that
+ * link text is read and compared by (src/lib/rich-text/top-level-domains.ts,
+ * D104): the ICANN section of the Public Suffix List as tldts-icann carries
+ * it. tldts-icann is a development dependency pinned to one version
+ * (package.json), used by this script and its test only; nothing of it
+ * reaches the app.
  *
  *   npx tsx scripts/public-suffixes.ts
  *
- * prints MULTI_LABEL and NOT_LISTED for top-level-domains.ts, with the
- * version they come from. A top-level domain's rules are listed all or not
- * at all: those with more than MAX_RULES_PER_DOMAIN (lists of towns,
- * regions and states) are named in NOT_LISTED instead, and a name under
- * them is compared by its exact host. top-level-domains.test.ts checks the
- * file against this script's output while tldts-icann 7.4.2 is installed.
+ * prints LISTED, MULTI_LABEL and NOT_LISTED for top-level-domains.ts, with
+ * the version they come from. LISTED is every top-level domain a rule of
+ * the section ends in, in ASCII, but the names reserved for examples, tests
+ * and local networks, which the file lists apart. A top-level domain's rules
+ * of more than one label are listed all or not at all: those with more than
+ * MAX_RULES_PER_DOMAIN (lists of towns, regions and states) are named in
+ * NOT_LISTED instead, and a name under them is compared by its exact host.
+ * top-level-domains.test.ts checks the file against this script's output.
  */
 import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { domainToASCII } from "node:url";
+import { RESERVED_TOP_LEVEL_DOMAINS } from "../src/lib/rich-text/top-level-domains";
 
 /** A top-level domain with more rules than this is left out (NOT_LISTED). */
 export const MAX_RULES_PER_DOMAIN = 200;
 
-/** The tldts-icann the script reads, through lighthouse (a development dependency). */
+/** The tldts-icann the script reads (a development dependency, pinned). */
 export function tldtsIcann(): { version: string; root: string; require: NodeJS.Require } {
-  const fromLighthouse = createRequire(createRequire(import.meta.url).resolve("lighthouse"));
-  const manifest = fromLighthouse.resolve("tldts-icann/package.json");
+  const manifest = createRequire(import.meta.url).resolve("tldts-icann/package.json");
   const { version } = JSON.parse(readFileSync(manifest, "utf8")) as { version: string };
   return { version, root: dirname(manifest), require: createRequire(manifest) };
 }
@@ -82,6 +86,8 @@ function asciiRule(rule: string): string {
 export interface SuffixTable {
   /** The tldts-icann version read. */
   version: string;
+  /** Every top-level domain a rule ends in, in ASCII and in order, but the reserved names (LISTED). */
+  topLevelDomains: string[];
   /** One line per top-level domain listed: the domain, then the labels before it of each of its rules. */
   lines: string[];
   /** The top-level domains whose rules of more than one label aren't listed. */
@@ -91,8 +97,10 @@ export interface SuffixTable {
 /** The table, from the trie source of tldts-icann (its src/data/trie.ts). */
 export function suffixTable(source: string, version: string): SuffixTable {
   const byDomain = new Map<string, string[]>();
+  const tops = new Set<string>();
   for (const rule of trieRules(source).map(asciiRule)) {
     const bare = rule.replace(/^!/, "");
+    tops.add(bare.slice(bare.lastIndexOf(".") + 1));
     if (!bare.includes(".")) continue;
     const domain = bare.slice(bare.lastIndexOf(".") + 1);
     const before = rule.slice(0, rule.length - domain.length - 1);
@@ -105,7 +113,8 @@ export function suffixTable(source: string, version: string): SuffixTable {
     .filter((domain) => byDomain.get(domain)!.length <= MAX_RULES_PER_DOMAIN)
     .map((domain) => [domain, ...byDomain.get(domain)!.sort()].join(" "));
   const notListed = domains.filter((domain) => byDomain.get(domain)!.length > MAX_RULES_PER_DOMAIN);
-  return { version, lines, notListed };
+  const topLevelDomains = [...tops].filter((top) => !RESERVED_TOP_LEVEL_DOMAINS.includes(top)).sort();
+  return { version, topLevelDomains, lines, notListed };
 }
 
 /** The table from the installed tldts-icann. */
@@ -114,20 +123,26 @@ export function installedSuffixTable(): SuffixTable {
   return suffixTable(readFileSync(join(root, "src", "data", "trie.ts"), "utf8"), version);
 }
 
+/** `words` in lines of at most `width` characters, one space between them. */
+export function wrap(words: readonly string[], width = 100): string[] {
+  const out: string[] = [];
+  let line = "";
+  for (const word of words) {
+    if (line && line.length + 1 + word.length > width) {
+      out.push(line);
+      line = word;
+    } else line = line ? `${line} ${word}` : word;
+  }
+  if (line) out.push(line);
+  return out;
+}
+
 if (process.argv[1] && /public-suffixes\.ts$/.test(process.argv[1])) {
   const table = installedSuffixTable();
-  const wrap = (words: string[], width = 100) => {
-    const out: string[] = [];
-    let line = "";
-    for (const word of words) {
-      if (line && line.length + 1 + word.length > width) {
-        out.push(line);
-        line = word;
-      } else line = line ? `${line} ${word}` : word;
-    }
-    if (line) out.push(line);
-    return out;
-  };
+  console.log(`// tldts-icann ${table.version}: ${table.topLevelDomains.length} top-level domains.`);
+  console.log("const LISTED = `");
+  for (const line of wrap(table.topLevelDomains)) console.log(line);
+  console.log("`;");
   console.log(`// tldts-icann ${table.version}: ${table.lines.length} top-level domains listed, ${table.notListed.length} not.`);
   console.log("const MULTI_LABEL = `");
   for (const line of table.lines) {
