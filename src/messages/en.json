@@ -1403,7 +1403,9 @@
     "nothing": "Nothing was added: there is no work on this browser to add any more.",
     "removed": "Removed from this browser.",
     "clear": "Clear my work from this browser",
-    "clearConfirm": "This removes your progress, answers and Comp Card from this browser. It can't be undone."
+    "clearConfirm": "This removes your progress, answers and Comp Card from this browser. It can't be undone.",
+    "signedInElsewhere": "You've signed in in another tab. What you do on this page is still saved on this browser only, as before you signed in. Reload the page to carry on with your account: you'll be asked whether to add this work to it.",
+    "reload": "Reload this page"
   },
   "safeguarding": {
     "title": "Need to talk to someone?",

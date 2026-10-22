@@ -44,10 +44,15 @@ export function sessionOwner(
  * What the store does with what it holds (`held`, its owner) when the
  * session's owner is `now`:
  *
- * - "keep": nothing is let go of — the same learner, a guest signing in, or
- *   the session still loading. A guest's progress moves to the account from
- *   the guest store, under the account-wins rules (guest-migration.ts); a
- *   tab signed in in place first drops its in-memory copy (demo-state.tsx);
+ * - "keep": nothing is let go of — the same learner, a page that loads
+ *   signed in, a guest's page staying a guest's, or the session still
+ *   loading. A guest's work moves to the account from the guest store only
+ *   when the person says it is theirs (D79, guest-migration.ts);
+ * - "signedInElsewhere": a guest's page (its guest store read) finds
+ *   someone signed in — in another tab, where the sign-in link opened. The
+ *   page holds the guest's work, which isn't the account's until claimed:
+ *   it stays the guest's page until it is reloaded (demo-state.tsx), or,
+ *   holding none, takes the account up;
  * - "hold": a signed-in learner's session can't be read now — signed out,
  *   or the lookup failed for a moment. Their data is held (nothing saved
  *   meanwhile, nothing written to the guest store) while the session is
@@ -58,7 +63,8 @@ export function sessionOwner(
 export function sessionChange(
   held: string | null | undefined,
   now: string | null | undefined
-): "keep" | "hold" | "forget" {
+): "keep" | "signedInElsewhere" | "hold" | "forget" {
+  if (held === null && typeof now === "string") return "signedInElsewhere";
   if (typeof held !== "string" || now === undefined || now === held) {
     return "keep";
   }

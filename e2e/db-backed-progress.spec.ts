@@ -1390,7 +1390,7 @@ describe("progress kept when the session is lost, changes hands or the course ch
       .toMatchObject({ stages: ["CONTEXT", "CONCEPT"] });
   });
 
-  test("a guest tab signed in from another tab doesn't save the guest's copy over the account's saved data", async ({
+  test("a guest tab signed in from another tab stays the guest's until it is reloaded: nothing of it is saved over the account's data", async ({
     page,
     context,
   }) => {
@@ -1420,17 +1420,34 @@ describe("progress kept when the session is lost, changes hands or the course ch
       .toBe("Guest: I listened");
 
     // The magic link opens in another tab: this one learns of it without
-    // reloading. The account's saved card wins, as when signing in on a
-    // fresh page (guest-migration.ts).
+    // reloading. It holds the guest's work, so it stays the guest's page
+    // (IL-2b): it says so and offers a reload; the guest's text stays on
+    // screen and nothing of it is saved into the account (D79: guest work
+    // moves only when claimed).
     await signIn(context, emails.guestSignsIn);
     await recheckSession(page);
-    await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible({
+    await expect(page.getByRole("status").filter({ hasText: /signed in in another tab/i })).toBeVisible({
       timeout: 15_000,
     });
+    await expect(compCardField(page, "Even small wins count.")).toHaveValue("Guest: I listened");
+    await page.waitForTimeout(2000); // past the save debounce
+    expect(
+      await prisma.compCard.findFirst({
+        where: { userId },
+        select: { wentWell: true },
+      })
+    ).toEqual({ wentWell: "Saved: I stayed calm" });
+
+    // Reloaded, it is the account's page: the account's saved card, and the
+    // guest's work offered, not moved.
+    await page.getByRole("button", { name: "Reload this page" }).click();
     await expect(compCardField(page, "Even small wins count.")).toHaveValue(
       "Saved: I stayed calm",
       { timeout: 15_000 }
     );
+    await expect(
+      page.getByRole("region", { name: "Work saved on this browser before you signed in" })
+    ).toContainText("Comp Card: yes.");
     await page.waitForTimeout(2000); // past the save debounce
     expect(
       await prisma.compCard.findFirst({

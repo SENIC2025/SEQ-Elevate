@@ -693,6 +693,13 @@ interface ContextValue {
   setSharing: (choice: Sharing) => Promise<boolean>;
   /** The signed-in person's saved data has loaded: their choices can be saved. */
   accountLoaded: boolean;
+  /**
+   * A guest's page on which someone signed in in another tab (IL-2b): it
+   * stays the guest's until it is reloaded — what is done here is saved on
+   * this browser only, nothing of the account loads — and says so
+   * (GuestWorkPrompt).
+   */
+  signedInElsewhere: boolean;
 }
 
 const DemoStateContext = React.createContext<ContextValue | null>(null);
@@ -742,7 +749,15 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
   React.useEffect(() => {
     stateRef.current = state;
   }, [state]);
-
+  // A guest's page on which someone signed in in another tab, kept the
+  // guest's (IL-2b, the identity effect below); the ref for the effects
+  // that must see it in the same commit.
+  const [guestPinned, setGuestPinned] = React.useState(false);
+  const guestPinnedRef = React.useRef(false);
+  const pinGuest = React.useCallback((on: boolean) => {
+    guestPinnedRef.current = on;
+    setGuestPinned(on);
+  }, []);
   const persistedBadges = React.useRef<Set<string>>(new Set());
   const badgeTries = React.useRef<Map<string, number>>(new Map());
   // The course and Comp Card last handed to the saves below. A write-through
@@ -883,18 +898,34 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
       })();
       return () => abort.abort();
     }
-    heldBy.current = owner;
-    if (change === "forget") letGo();
-    else if (held === null && typeof owner === "string") {
-      // A guest tab signed in in place (the sign-in link opened in another
-      // tab): the guest's copy in memory isn't newer than what the account
-      // has saved, and would win over it as if entered while it loaded. It's
-      // still in the guest store, and is offered from there, as on a fresh
-      // page: it moves, under the account-wins rules (guest-migration.ts),
-      // only if the person says it is theirs.
+    if (change === "signedInElsewhere") {
+      // A guest's page, and someone signed in in another tab (where the
+      // sign-in link opened). What the guest did here is the guest's until
+      // they say it is theirs (D79), and it isn't newer than what the
+      // account has saved: taken up into the account in place, it would
+      // win over the saved data as if entered while it loaded, and taking
+      // it off the screen would leave the learner mid-course with nothing
+      // (IL-2b). So the page stays the guest's until it is reloaded: the
+      // account doesn't load into it, what is done here goes on being
+      // written to this browser's guest store only, and the page says so
+      // (signedInElsewhere). Reloaded, the account's page offers the work
+      // (GuestWorkPrompt). A page with no guest work on it takes the
+      // account up at once, and starts over for it.
+      if (guestWorkOf(stateRef.current)) {
+        pinGuest(true);
+        return;
+      }
+      heldBy.current = owner;
+      pinGuest(false);
       dispatch({ type: "forgetLearner" });
+      setGeneration((g) => g + 1);
+      return;
     }
-  }, [owner, courseSave, cardSave, letGo, hydrateGuest]);
+    heldBy.current = owner;
+    // The session finds no one again: the page is a guest's, as it was.
+    if (owner === null && guestPinnedRef.current) pinGuest(false);
+    if (change === "forget") letGo();
+  }, [owner, courseSave, cardSave, letGo, hydrateGuest, pinGuest]);
 
   // ---- Hydration: DB for authed users, localStorage for guests ----
   React.useEffect(() => {
@@ -904,6 +935,9 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
     const cancelled = () => abort.signal.aborted;
     (async () => {
       if (authed && typeof owner === "string") {
+        // A guest's page kept the guest's (signedInElsewhere): the account
+        // doesn't load into it.
+        if (guestPinnedRef.current) return;
         const forUser = owner;
         // This learner's data has loaded already: the session was read
         // again (and the learner found again, the identity effect above).
@@ -983,8 +1017,10 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
   // is let go of (above) before a guest's state is written. Nor a learner's
   // data held while their session can't be read (heldBy, above): it would
   // go from there into the next account that signs in on this browser.
+  // A guest's page kept the guest's after a sign-in in another tab
+  // (guestPinned) goes on writing it.
   React.useEffect(() => {
-    if (!hydrated || authed || dbReady || typeof heldBy.current === "string") {
+    if (!hydrated || (authed && !guestPinned) || dbReady || typeof heldBy.current === "string") {
       return;
     }
     // Just cleared (clearGuestWork): the store stays removed until the
@@ -998,7 +1034,7 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
     } catch {
       /* ignore */
     }
-  }, [state, hydrated, authed, dbReady]);
+  }, [state, hydrated, authed, dbReady, guestPinned]);
 
   // ---- Load a course's saved progress from the DB when it becomes active ----
   // The learner may be in the course before their data has loaded — on a
@@ -1354,7 +1390,7 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
   // A guest's "Clear my work from this browser": the guest store goes, and
   // so does what the page holds of it.
   const clearGuestWork = React.useCallback(() => {
-    if (authed) return;
+    if (authed && !guestPinnedRef.current) return;
     try {
       window.localStorage.removeItem(STORAGE_KEY);
     } catch {
@@ -1394,8 +1430,9 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   // A signed-in learner's course once loaded and merged; a guest's as soon
-  // as the guest store has been read (it holds their one course, D69).
-  const readyCourse = authed
+  // as the guest store has been read (it holds their one course, D69), also
+  // on a guest's page kept the guest's (guestPinned).
+  const readyCourse = authed && !guestPinned
     ? dbReady
       ? loadedCourse
       : null
@@ -1416,6 +1453,7 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
       clearGuestWork,
       setSharing,
       accountLoaded: dbReady,
+      signedInElsewhere: guestPinned,
     }),
     [
       state,
@@ -1429,6 +1467,7 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
       clearGuestWork,
       setSharing,
       dbReady,
+      guestPinned,
     ]
   );
 
@@ -1511,6 +1550,7 @@ const NOTHING_SAVED = {
   clearGuestWork: () => {},
   setSharing: async () => false,
   accountLoaded: false,
+  signedInElsewhere: false,
 } satisfies Partial<ContextValue>;
 
 /**

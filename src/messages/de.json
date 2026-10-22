@@ -1403,7 +1403,9 @@
     "nothing": "Nichts wurde hinzugefügt: In diesem Browser gibt es keine Arbeit mehr zum Hinzufügen.",
     "removed": "Aus diesem Browser entfernt.",
     "clear": "Meine Arbeit aus diesem Browser löschen",
-    "clearConfirm": "Damit werden dein Fortschritt, deine Antworten und deine Comp Card aus diesem Browser entfernt. Das lässt sich nicht rückgängig machen."
+    "clearConfirm": "Damit werden dein Fortschritt, deine Antworten und deine Comp Card aus diesem Browser entfernt. Das lässt sich nicht rückgängig machen.",
+    "signedInElsewhere": "Du hast dich in einem anderen Tab angemeldet. Was du auf dieser Seite tust, wird weiterhin nur in diesem Browser gespeichert, wie vor deiner Anmeldung. Lade die Seite neu, um mit deinem Konto weiterzumachen: Du wirst gefragt, ob du diese Arbeit zu deinem Konto hinzufügen möchtest.",
+    "reload": "Diese Seite neu laden"
   },
   "safeguarding": {
     "title": "Brauchst du jemanden zum Reden?",
