@@ -14,6 +14,7 @@ import type { Locale, StageKey } from "@/lib/cms/types";
 import { DirtyProvider, useDirtyRegistry } from "./dirty-registry";
 import { CourseHeader, type TimeLabel } from "./CourseHeader";
 import { CourseCopyEditor } from "./CourseCopyEditor";
+import { CourseReferencesEditor } from "./CourseReferencesEditor";
 import { LessonNav } from "./LessonNav";
 import { LessonSection } from "./LessonSection";
 import { LessonListPanel, type RenameRequest } from "./lesson-list/LessonListPanel";
@@ -27,7 +28,8 @@ const NO_REASONS = [] as const;
 
 /**
  * Everything for one course on one page (D33): header with language and
- * publishing, the title and subtitle, then every lesson in learner order —
+ * publishing, the title and subtitle, a created course's references and
+ * bibliography (Release 4, D109), then every lesson in learner order —
  * read view by default, the lesson's editors when opened.
  *
  * A course created here has its lesson list beside the lessons (Release 1,
@@ -299,6 +301,12 @@ function Workspace({
             copy={copy[lang]}
             onSaved={(next) => onCopySaved(lang, next)}
           />
+
+          {/* Beside the title and subtitle, outside their form; a built-in
+              course has no list (D109). Keyed by language, like the copy. */}
+          {outline.kind === "cms" ? (
+            <CourseReferencesEditor key={lang} slug={outline.slug} lang={lang} />
+          ) : null}
 
           <ol className="mt-6 space-y-4">
             {state.lessons.map((lesson) => (

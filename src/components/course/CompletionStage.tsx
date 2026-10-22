@@ -9,16 +9,31 @@ import { Link } from "@/i18n/navigation";
 import { useDemoState } from "@/store/demo-state";
 import type { CourseContent } from "@/lib/cms/types";
 import { useContentLang } from "./CourseText";
-import { Award, Trophy, FileText, Home, Sparkles } from "lucide-react";
+import { Award, BookOpen, Trophy, FileText, Home, Sparkles } from "lucide-react";
 
 /**
  * Completion + badge unlock. Badge + completion copy come from the authored
  * course, so any course celebrates with its own badge. They are the
  * course's text: in the course's language when that isn't the page's
  * (WCAG 3.1.2, ContentLangContext); the screen's own words are the page's.
+ *
+ * A course with a references list (`hasReferences`, D109) links to it here,
+ * in the same tab: the references page then offers "Back to the course".
+ * In an editor's preview (`preview`) the link keeps the preview.
  */
-export function CompletionStage({ course }: { course: CourseContent }) {
+export function CompletionStage({
+  course,
+  hasReferences = false,
+  preview = false,
+}: {
+  course: CourseContent;
+  /** The course has a references and bibliography list (spec 5.4). */
+  hasReferences?: boolean;
+  /** An editor's preview: the references link keeps it (?preview=1). */
+  preview?: boolean;
+}) {
   const t = useTranslations("coursePlayer");
+  const tReferences = useTranslations("courseReferences");
   const lang = useContentLang();
   const { state, dispatch } = useDemoState();
 
@@ -132,6 +147,14 @@ export function CompletionStage({ course }: { course: CourseContent }) {
               {t("openCompCard")}
             </Button>
           </Link>
+          {hasReferences ? (
+            <Link href={`/learner/course/${course.slug}/references${preview ? "?preview=1" : ""}`}>
+              <Button size="lg" variant="outline">
+                <BookOpen className="h-4 w-4" aria-hidden />
+                {tReferences("title")}
+              </Button>
+            </Link>
+          ) : null}
           <Link href="/learner">
             <Button size="lg" variant="outline">
               <Home className="h-4 w-4" />
