@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { checkLinkHref } from "./link-url";
 import {
   LONG_LINK_TEXT,
+  type LinkTextProblem,
   addressesShown,
   linkTextProblem,
   linkTextWarnings,
@@ -165,6 +166,8 @@ describe("linkTextProblem", () => {
   // D104: what the text shows is what learners read. Characters that show
   // nothing, and compatibility forms, are read as learners see them.
   const EVIL = "https://evil.example/login";
+  /** `n` different CJK ideographs: a label of them is international, and of more than 63 longer than DNS allows. */
+  const ideographsOf = (n: number) => Array.from({ length: n }, (_, i) => String.fromCodePoint(0x4e00 + i)).join("");
   const INVISIBLE = ["\u200B", "\u200C", "\u200D", "\u200E", "\u200F", "\u2060", "\u2062", "\u180E", "\u3164", "\uFFA0", "\u115F", "\u00AD", "\u034F"];
 
   it("reads an address through characters that show nothing", () => {
@@ -730,6 +733,90 @@ describe("linkTextProblem", () => {
     // A sentence's end with no space before a word that is a top-level
     // domain reads as a host (§12, fails safe).
     expect(linkTextProblem("…in Brussels.It", "https://uni.example/")).toBe("misleading");
+  });
+
+  // A label longer than DNS allows (RFC 1035; beyondDns in link-host.ts)
+  // is no host's: such a name is read as the URL parser reads it, without
+  // parsing its long label whole (which costs its length times the
+  // characters it holds), the label standing for itself.
+  it("reads a name with a label longer than DNS allows as the URL parser reads it", () => {
+    const ideographs = ideographsOf(100);
+    const greek = (n: number) => Array.from({ length: n }, (_, i) => "αβγδεζηθικλμνξοπρστυφχψω"[i % 24]).join("");
+    const arabic = (n: number) => Array.from({ length: n }, (_, i) => String.fromCodePoint(0x628 + (i % 35))).join("");
+    const rows: [string, string, LinkTextProblem | null][] = [
+      [`${ideographs}.com`, EVIL, "misleading"],
+      [`https://${ideographs}.com`, EVIL, "misleading"],
+      [`https://user@${ideographs}.com`, EVIL, "misleading"],
+      [`https://${ideographs}%41.com`, EVIL, "misleading"],
+      [`www.${ideographs}.com`, EVIL, "misleading"],
+      [`Kontakt: ${ideographs}.de/impressum`, EVIL, "misleading"],
+      [`info@${ideographs}.com`, EVIL, "misleading"],
+      [`${ideographs}@evil.example`, "mailto:info@evil.example", "misleading"],
+      [`paypal.com@${ideographs}.evil.example`, EVIL, "misleading"],
+      [`paypal.com.${ideographs}.evil.example`, EVIL, "misleading"],
+      [`${ideographs}.evil.example`, EVIL, null],
+      [`${ideographs}.bücher.example`, "https://bücher.example/", null],
+      // Names the URL parser refuses, read as written: a punycode label of
+      // other characters, an Arabic-Indic digit inside a Greek label, both
+      // kinds of digits in an Arabic one.
+      [`xn--${ideographs}.com`, EVIL, "misleading"],
+      [`${greek(50)}\u0663${greek(50)}.com`, EVIL, "misleading"],
+      [`${arabic(50)}\u0663${arabic(10)}1${arabic(40)}.evil.example`, EVIL, null],
+    ];
+    for (const [text, href, problem] of rows) expect(linkTextProblem(text, href), text.slice(0, 120)).toBe(problem);
+  });
+
+  it("reads a label longer than DNS allows in pieces, accepted or refused as the URL parser reads it whole", () => {
+    // Seeded: labels of 64 to 160 letters of one script, with characters
+    // that change how the parser checks a label (digits of either kind,
+    // letters written right to left, a hyphen, "xn--") at its start, inside
+    // or at its end. Each is shown as an address after a word, which only
+    // the reading of "https:" addresses reads (no quick link).
+    let seed = 20261022;
+    const random = () => {
+      seed = (seed + 0x6d2b79f5) | 0;
+      let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+    const pick = <T,>(items: readonly T[]) => items[Math.floor(random() * items.length)];
+    const between = (from: number, to: number) => String.fromCodePoint(from + Math.floor(random() * (to - from + 1)));
+    const scripts = [
+      () => between(0x4e00, 0x9fff),
+      () => between(0xac00, 0xd7a3),
+      () => between(0x5d0, 0x5ea),
+      () => between(0x628, 0x63a),
+      () => between(0xe01, 0xe2e),
+      () => between(0x915, 0x939) + (random() < 0.3 ? "\u094D" : ""),
+      () => between(0x3b1, 0x3c9),
+      () => between(0x10d0, 0x10f0),
+    ];
+    const kinds = ["1", "-", "\u0663", "\u06F3", "\u05D0", "\u0628", "ß", "xn--", "a"];
+    for (let i = 0; i < 300; i++) {
+      const letter = pick(scripts);
+      let label = Array.from({ length: 64 + Math.floor(random() * 96) }, letter).join("");
+      for (let k = Math.floor(random() * 3); k > 0; k--) {
+        const kind = pick(kinds);
+        const at = pick([0, label.length, Math.floor(random() * label.length)]);
+        label = label.slice(0, at) + kind + label.slice(at);
+      }
+      // As learners see it (in normal form), as the parser gives it, the
+      // long label standing for itself; or, refused, as written.
+      const host = `${label}.com`.normalize("NFKC");
+      let parsed = true;
+      try {
+        new URL(`https://${host}`);
+      } catch {
+        parsed = false;
+      }
+      const expected = parsed ? `xn--${host.toLowerCase()}` : host.toLowerCase();
+      expect(addressesShown(`Login:https://${host}`)?.web.map((place) => place.host), JSON.stringify(host)).toEqual([expected]);
+    }
+  });
+
+  it("reads an address whose host is longer than DNS allows with ideographic full stops for its dots", () => {
+    expect(linkTextProblem(`https://${ideographsOf(1_000)}\u3002com`, EVIL)).toBe("misleading");
+    expect(linkTextProblem(`https://${ideographsOf(100)}\u3002evil\u3002example`, EVIL)).toBeNull();
   });
 
   // A text of up to 10,000 characters (a block's most) is read on every save

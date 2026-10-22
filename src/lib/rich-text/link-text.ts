@@ -1,4 +1,5 @@
 import { findLinks, type FoundLink } from "./linkify";
+import { beyondDns, hostAfterUser, staysInHost } from "./link-host";
 import { checkLinkHref, emailAddressOf, isEmailAddress, isSafeLinkHost } from "./link-url";
 import { MOST_SUFFIX_LABELS, PUBLIC_SUFFIX_RULES, TOP_LEVEL_DOMAINS, publicSuffixLength } from "./top-level-domains";
 import { UNASSIGNED_CLASS } from "./unassigned";
@@ -52,6 +53,11 @@ import { UNASSIGNED_CLASS } from "./unassigned";
  * which shows paypal.com in front, doesn't show evil.example's (Place). A
  * public suffix named by itself ("gov.gr", "GOV.UK") shows every site under
  * it.
+ *
+ * A name with a label longer than DNS allows (more than 63 letters and
+ * digits; beyondDns, link-host.ts) is no host: it is read as the URL parser
+ * reads it, without parsing that label whole (hostnameOf), so a text costs
+ * time in proportion to its length.
  *
  * Pure, like link-url.ts.
  */
@@ -231,15 +237,117 @@ const topOf = (hostname: string) => {
  * domain as written, the name as written, in lower case: the parsers of
  * the server and of the browsers differ at the edges ("xn--a.paypal.com",
  * whose punycode label the server's refuses and a browser's keeps), and
- * the name shows its site all the same. Null for any other.
+ * the name shows its site all the same. Null for any other. A name with a
+ * label longer than DNS allows is read without parsing that label whole
+ * (longLabelsRead).
  */
 function hostnameOf(name: string): string | null {
   try {
-    return new URL(`https://${name}`).hostname;
+    return longLabelsRead(name) ?? new URL(`https://${name}`).hostname;
   } catch {
     return TOP_LEVEL_DOMAINS.has(topOf(name)) ? name.toLowerCase() : null;
   }
 }
+
+// Characters the URL parser may read as a digit and a full stop ("\u2488" as
+// "1."): a name that holds one is parsed whole.
+const MAKES_FULL_STOP = /[\u2488-\u249B\u{1F100}]/u;
+// What no host holds once its escapes are decoded (WHATWG's forbidden
+// domain code points): the URL parser refuses a name with one.
+const NO_HOST_CHAR = /[\u0000-\u0020#%/:<>?@[\\\]^|\u007F]/;
+// A letter of a right-to-left script, or an Arabic-Indic digit: a host with
+// one is read by the Bidi Rule. Other digits, and characters outside ASCII:
+// with these, what decides how the parser checks a label.
+const RIGHT_TO_LEFT =
+  /(?=\p{L})[\u0590-\u08FF\uFB1D-\uFDFF\uFE70-\uFEFF\u{10800}-\u{10FFF}\u{1E800}-\u{1EFFF}]|[\u0600-\u0605\u0660-\u0669\u066B\u066C\u06DD\u0890\u0891\u08E2\u{10D30}-\u{10D39}\u{10E60}-\u{10E7E}]/u;
+const OTHER_DIGIT =
+  /[0-9\u00B2\u00B3\u00B9\u06F0-\u06F9\u2070\u2074-\u2079\u2080-\u2089\uFF10-\uFF19\u{102E1}-\u{102FB}\u{1D7CE}-\u{1D7FF}\u{1F101}-\u{1F10A}\u{1FBF0}-\u{1FBF9}]/u;
+const NOT_ASCII = /[^\u0000-\u007F]/;
+/** Letters and digits of a long label in one piece (piecesOf). */
+const PIECE = 32;
+
+/**
+ * The hostname of a name with a label outside ASCII of more than
+ * MAX_LABEL_CHARS letters and digits (beyondDns): as the URL parser gives
+ * it, but each such label as "xn--" and the label itself, in lower case.
+ * No host has such a label, nor this stand-in for its punycode, which the
+ * parser writes in time in proportion to its length times the characters
+ * it holds: so the label is checked in pieces (piecesOf), the other labels
+ * parsed with one of its pieces in its place. Throws as the parser does
+ * when it refuses the name. Null for a name without such a label (or with
+ * a character the parser reads as a full stop and more): it is parsed
+ * whole. Escapes ("%41") are decoded first, as the parser does.
+ */
+function longLabelsRead(name: string): string | null {
+  if (!beyondDns(name)) return null;
+  const decoded = percentDecoded(name);
+  if (NO_HOST_CHAR.test(decoded)) throw new TypeError("not a host");
+  if (MAKES_FULL_STOP.test(decoded)) return null;
+  const labels = decoded.split(/[.\u3002\uFF0E\uFF61]/);
+  const pieces = labels.map((label) => (NOT_ASCII.test(label) && beyondDns(label) ? piecesOf(label) : null));
+  if (pieces.every((piece) => piece === null)) return null;
+  // A host with a right-to-left letter is read by the Bidi Rule in every label.
+  const last = RIGHT_TO_LEFT.test(decoded) ? "\u05D0" : "a";
+  for (const piece of pieces.flatMap((each) => each ?? [])) new URL(`https://${piece}.${last}`);
+  const parsed = new URL(`https://${labels.map((label, i) => pieces[i]?.[0] ?? label).join(".")}`).hostname.split(".");
+  if (parsed.length !== labels.length) return null;
+  return parsed.map((label, i) => (pieces[i] ? `xn--${labels[i].toLowerCase()}` : label)).join(".");
+}
+
+/**
+ * A long label in pieces the URL parser reads quickly, each of the label's
+ * own characters in its order: its start (to its fifth letter or digit),
+ * the first of its letters and digits (with its marks) to hold a
+ * right-to-left letter, another digit, or a character outside ASCII
+ * (which decide which way the label runs, and whether it is international),
+ * PIECE letters and digits of the rest, and its end (from its last letter
+ * or digit but one). The parser checks each character of a label, its start
+ * and end, and the kinds of letters and digits it holds together: it
+ * accepts the label when it accepts every piece. Pieces part the label only
+ * before a letter or digit, which joins none before it (staysInHost).
+ */
+function piecesOf(label: string): string[] {
+  const starts: number[] = [];
+  for (let at = 0; at < label.length; ) {
+    const char = String.fromCodePoint(label.codePointAt(at) as number);
+    if (staysInHost(char)) starts.push(at);
+    at += char.length;
+  }
+  const endOf = (k: number) => (k + 1 < starts.length ? starts[k + 1] : label.length);
+  /** The letter or digit, with its marks, holding the character at `at` (none before the first). */
+  const holding = (at: number) => {
+    let k = starts.length - 1;
+    while (k >= 0 && starts[k] > at) k--;
+    return k < 0 ? "" : label.slice(starts[k], endOf(k));
+  };
+  const endAt = starts.length - 2;
+  const middle = label.slice(starts[4], starts[endAt]);
+  const kinds = new Set([RIGHT_TO_LEFT, OTHER_DIGIT, NOT_ASCII].map((kind) => {
+    const found = kind.exec(middle);
+    return found ? holding(starts[4] + found.index) : "";
+  }));
+  const start = label.slice(0, starts[4]) + [...kinds].join("");
+  const end = label.slice(starts[endAt]);
+  const pieces: string[] = [];
+  for (let k = 4; k < endAt; k += PIECE) pieces.push(start + label.slice(starts[k], starts[Math.min(k + PIECE, endAt)]) + end);
+  return pieces;
+}
+
+/** `text` with its escapes ("%41") decoded as UTF-8, as the URL parser decodes a host. */
+function percentDecoded(text: string): string {
+  if (!text.includes("%")) return text;
+  const bytes = new TextEncoder().encode(text);
+  const out = new Uint8Array(bytes.length);
+  let n = 0;
+  for (let i = 0; i < bytes.length; i++) {
+    const escaped = bytes[i] === 0x25 && i + 2 < bytes.length && isHex(bytes[i + 1]) && isHex(bytes[i + 2]);
+    out[n++] = escaped ? parseInt(String.fromCharCode(bytes[i + 1], bytes[i + 2]), 16) : bytes[i];
+    if (escaped) i += 2;
+  }
+  return new TextDecoder().decode(out.subarray(0, n));
+}
+
+const isHex = (byte: number) => (byte >= 0x30 && byte <= 0x39) || ((byte | 0x20) >= 0x61 && (byte | 0x20) <= 0x66);
 
 /**
  * The hostname of `name` when it ends in a top-level domain
@@ -412,6 +520,7 @@ const LOOSE_RUN = /[^\s<>"`\u0000-\u001f\u007f]*/uy;
 // Punctuation that ends a sentence, closes a quote or a bracket: not part of a host.
 const HOST_TRAILING = /[.,;:!?'"*_~…··“”‘’„«»‹›)\]}]/u;
 const DOT = /\./;
+const FULL_STOP = /[.\u3002]/;
 const DOT_OR_HYPHEN = /[.-]/;
 
 /**
@@ -428,7 +537,8 @@ function trimEnd(text: string, trailing: RegExp): string {
 /**
  * Addresses in `text` beyond what a quick link would find: every "https:"
  * or "http:" followed by a host with a dot (by the place of its host; a user
- * name makes it elsewhere), and every "mailto:" followed by an email
+ * name makes it elsewhere; in a host longer than DNS allows, which no quick
+ * link reads, an ideographic full stop is a dot), and every "mailto:" followed by an email
  * address, whatever follows them. A run is read once: an address inside another's path
  * ("https://web.archive.org/web/2020/https://example.org") is part of it.
  * Each run read, an address or not, is added to `read` (start, end).
@@ -462,8 +572,11 @@ function addLooseAddresses(shown: Shown, text: string, read: [number, number][])
     while (to < runEnd && !"/\\?#".includes(text[to])) to++;
     const authority = trimEnd(text.slice(from, to), HOST_TRAILING);
     const host = authority.slice(authority.lastIndexOf("@") + 1).replace(/:\d*$/, "");
-    // A host has a dot, as for any address on the platform ("https://bank." isn't one).
-    if (!trimEnd(host, DOT).includes(".")) continue;
+    // A host has a dot, as for any address on the platform ("https://bank." isn't one);
+    // one longer than DNS allows (beyondDns), which no quick link reads, may have an
+    // ideographic full stop for it, as the URL parser reads one.
+    const dot = beyondDns(host) ? FULL_STOP : DOT;
+    if (!dot.test(trimEnd(host, dot))) continue;
     any = true;
     if (host !== authority.replace(/:\d*$/, "")) {
       shown.others++;
@@ -926,14 +1039,15 @@ function googleTarget(url: URL): string | null {
  * - an Outlook safe link or a Google redirect becomes its target, decoded,
  *   when that target passes checkLinkHref; otherwise it stays as typed (a
  *   safe link is then refused by checkLinkHref, as "redirect").
- * Anything else comes back as typed (trimmed), for checkLinkHref to judge.
+ * Anything else comes back as typed (trimmed), for checkLinkHref to judge:
+ * an address whose host DNS can't hold (beyondDns) without being parsed.
  */
 export function toLinkInput(raw: string): string {
   let typed = raw.trim();
   if (!typed) return typed;
   if (isEmailAddress(typed)) return `mailto:${typed}`;
   if (!SCHEME.test(typed) && BARE_HOST.test(typed)) typed = `https://${typed}`;
-  if (!/^https?:\/\//i.test(typed)) return typed;
+  if (!/^https?:\/\//i.test(typed) || beyondDns(hostAfterUser(typed))) return typed;
   let url: URL;
   try {
     url = new URL(typed);
