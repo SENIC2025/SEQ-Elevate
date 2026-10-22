@@ -446,6 +446,16 @@ describe("what a link may be (spec 4.2), refused before anything is written", ()
     }
   });
 
+  it("stores a title that shows no address by its look over another site, as learners see it with that site beside it (D104 as narrowed on 22 October 2026)", async () => {
+    lesson(PROJECT, SLUG, "context");
+    const stored = link(db.lessons[0].id);
+    for (const title of ["PAYPAL.COM", "Amazon.Co.UK", "course-materials.zip", "Log in at bank.example"]) {
+      expect(await addLessonLink(SLUG, "context", { ...LINK, title, url: MISLEADING_TITLE_URL }), title).toMatchObject({ ok: true });
+      expect(await updateLessonLink(stored.id, { ...LINK, title, url: MISLEADING_TITLE_URL }), title).toEqual({ ok: true });
+    }
+    expect(db.links.filter((l) => l.url === MISLEADING_TITLE_URL)).toHaveLength(5);
+  });
+
   it("answers a million-character address at once, without parsing it", async () => {
     const million = HOSTILE_ADDRESSES.find((r) => r.name === "1,000,000 characters")!.href as string;
     const started = performance.now();

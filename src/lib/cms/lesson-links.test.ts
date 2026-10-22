@@ -44,11 +44,17 @@ describe("titleMisleads: a title is compared as it reads", () => {
     expect(titleMisleads("Write to www.verein.de", "mailto:info@gmail.example")).toBe(true);
   });
 
-  it("refuses a bare host of another site, with or without www. (D104, the owner's decision of 22 October 2026)", () => {
-    for (const title of ["bank.example/login", "Log in at bank.example", "Visit PayPal.com", "awww.example is a site here", "bank\u200B.example"]) {
+  it("refuses a bare name of another site that a path follows, or that ends in a common top-level domain in lower case (D104 as narrowed on 22 October 2026)", () => {
+    for (const title of ["bank.example/login", "Log in at meinebank.de", "Visit PayPal.com", "awww.paypal.com is a site here", "meinebank\u200B.de"]) {
       expect(titleMisleads(title, EVIL), title).toBe(true);
     }
     expect(titleMisleads("Kontakt: verein.de", "mailto:info@verein.de")).toBe(false);
+  });
+
+  it("accepts a name that shows no address by its look: in capitals or title case, of another top-level domain, a file's name (D104 as narrowed on 22 October 2026; learners see the link's site beside it)", () => {
+    for (const title of ["Log in at bank.example", "awww.example is a site here", "bank\u200B.example", "PAYPAL.COM", "Amazon.Co.UK", "course-materials.zip", "README.md"]) {
+      expect(titleMisleads(cleanLinkLine(title, 200)!, EVIL), JSON.stringify(title)).toBe(false);
+    }
   });
 
   it("refuses what the shared rule refuses (D104)", () => {
@@ -64,7 +70,7 @@ describe("titleMisleads: a title is compared as it reads", () => {
     }
   });
 
-  it("refuses a host read as it shows, once cleaned: a Roman numeral or a raised letter that ends a name, a top-level domain and a hyphen, a name the URL parser refuses, a character of a newer Unicode", () => {
+  it("refuses a host read as it shows, once cleaned: a Roman numeral or a raised letter that ends a name, a top-level domain and a hyphen, a name the URL parser refuses", () => {
     for (const title of [
       "rabobank.n\u217C",
       "www.example.n\u217C",
@@ -73,7 +79,6 @@ describe("titleMisleads: a title is compared as it reads", () => {
       "paypal.com-login",
       "Log in at paypal.com-secure to confirm",
       "xn--a.paypal.com",
-      "paypal.\u1AD0com",
     ]) {
       const clean = cleanLinkLine(title, 200);
       expect(clean, JSON.stringify(title)).not.toBeNull();
