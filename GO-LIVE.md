@@ -29,11 +29,15 @@ Legend: **[SENIC]** engineering can do · **[Dashboard]** set in Vercel/Resend U
 | `DEMO_LOGIN_DISABLED` | `true` | No longer read by Release 3. Keep it on production: a rollback to a Release 2 deployment needs it. |
 | `RATE_LIMIT_SECRET` | *(optional)* | Key for the rate limiter's keyed hashes (D96). Unset: a key derived from `AUTH_SECRET` is used. Changing either starts every counter again (harmless). |
 | `BLOB_READ_WRITE_TOKEN` | auto-set by Vercel Blob | Present once a Blob store is connected. **Use a Frankfurt (`fra1`) store — see §5.** |
-| `NEXT_PUBLIC_PLAUSIBLE_DOMAIN` | your domain | Enables cookieless analytics. Optional. |
+| `BLOB_PUBLIC_HOST` | the Blob store's public host, e.g. `abc123xyz.public.blob.vercel-storage.com` (no `https://`, no path) | **Required on production** (Release 3, D91): the one store lesson videos, captions, posters and documents may come from, and the one the content security policy admits. Without it no upload can be attached on production. **Read when the site is built** for the policy (below). |
+| `R3_CSP` | *(unset)* | `report-only` makes the content security policy report instead of block (a Release 3 rollback switch, §11). **Read when the site is built** (below). |
+| `NEXT_PUBLIC_PLAUSIBLE_DOMAIN` | your domain | Enables cookieless analytics. Optional. **Read when the site is built** (below). |
 | `CMS_SOURCE` | *(unset = `local`)* | Leave unset; the in-app DB CMS is the content source. Only set to `strapi` if Strapi is ever adopted. |
 | `SENTRY_DSN` / `NEXT_PUBLIC_SENTRY_DSN` | *(paste DSN to activate)* | Sentry is already wired + inert; set both to your DSN and redeploy. See §6. |
 
 > After changing env vars, **redeploy** so they take effect.
+
+> **Read when the site is built, not when a page is served** (Release 3): `BLOB_PUBLIC_HOST`, `R3_CSP`, `NEXT_PUBLIC_PLAUSIBLE_DOMAIN` / `NEXT_PUBLIC_PLAUSIBLE_SRC` and `NEXT_PUBLIC_SENTRY_DSN` (with `SENTRY_DSN`) are written into the content security policy when the site is built (`next.config.ts` → `src/lib/security-headers.ts`), and the `NEXT_PUBLIC_…` ones into the pages' scripts too. A change takes effect only with a **redeploy that builds again** (Deployments → the latest Production deployment → Redeploy). **Promote** and instant rollback reuse a deployment as it was built, with the values it was built with. `BLOB_PUBLIC_HOST` matters twice: the server checks every attached file against it on each save, but the policy that lets browsers load those files is the built one, so until the redeploy a changed value lets a file be attached that pages then don't show. After the redeploy, check with `curl -sI https://seq-elevate.eu/en`: the `Content-Security-Policy` line (`Content-Security-Policy-Report-Only` with `R3_CSP=report-only`) names the Blob host, and Plausible's and Sentry's hosts only when they are switched on.
 
 ---
 
@@ -257,6 +261,7 @@ Sign-in **is** sign-up (passwordless: the first magic-link click creates the acc
 - Vercel keeps every deployment — **Promote** a previous good deployment to roll back instantly.
 - DB migrations are additive; a code rollback does not require a DB rollback.
 - Demo sign-in never runs on production (§2). A rollback to a Release 2 deployment reads `DEMO_LOGIN_DISABLED`: keep it `true` there.
+- **Release 3's switches** (`R3_PROFILE_GATE`, `R3_LANGUAGE_READY`, `R3_BLOB_DELETE`, `R3_PARTNER_ACCESS`) are read on every request and take effect with a redeploy of the same code; `R3_CSP=report-only` is read when the site is built (§1), so its redeploy must build again, and a promoted older deployment keeps the policy it was built with.
 - **Release 2 (learners get courses as built), in this order:**
   1. Set `R2_LEARNER_PLAYER=off` and redeploy the same build. Learners then get every course as Release 1 showed it: its standard lessons. A course whose lessons that view doesn't hold (lessons of its own, or none left to show) can't be finished under the switch: its completion and badge wait until the learner has done its real lessons, once the switch is unset again.
   2. Only if that isn't enough: promote the Release 1 deployment. Release 1 can't hold that back — it lets learners finish such a course by going through its standard lessons, and the database keeps a completion for good (it never clears one). **Before promoting it, unpublish every published course with lessons of its own** (Manage courses), and publish them again after rolling forward; or accept that learners may finish them in Release 1's view. Answers saved meanwhile are kept either way.
