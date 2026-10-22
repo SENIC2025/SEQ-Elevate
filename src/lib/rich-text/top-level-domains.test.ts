@@ -1,10 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { NOT_LISTED_DOMAINS, PUBLIC_SUFFIX_RULES, TOP_LEVEL_DOMAINS, registrableDomain } from "./top-level-domains";
+import { readFileSync } from "node:fs";
+import { NOT_LISTED_DOMAINS, PUBLIC_SUFFIX_RULES, RESERVED_TOP_LEVEL_DOMAINS, TOP_LEVEL_DOMAINS, registrableDomain } from "./top-level-domains";
 
 /*
- * The top-level domains a bare host in link text is read by (link-text.ts,
- * D104): the delegated ones, international ones in their ASCII form, and
- * the reserved names, never a file's or a script's ending.
+ * The top-level domains link text reads a name's end and an email address
+ * by (link-text.ts, D104): the delegated ones, international ones in their
+ * ASCII form, and the reserved names, never a file's or a script's ending;
+ * generated from the pinned tldts-icann.
  */
 
 describe("TOP_LEVEL_DOMAINS", () => {
@@ -26,6 +28,28 @@ describe("TOP_LEVEL_DOMAINS", () => {
     for (const name of ["pdf", "docx", "pptx", "xlsx", "html", "png", "jpg", "js", "ts", "json", "csv", "txt"]) {
       expect(TOP_LEVEL_DOMAINS.has(name), name).toBe(false);
     }
+  });
+
+  it("is the generator's output from the pinned tldts-icann, as the file writes it, and the reserved names", async () => {
+    const { tldtsIcann, installedSuffixTable, wrap } = await import("../../../scripts/public-suffixes");
+    expect(tldtsIcann().version).toBe("7.4.2");
+    const table = installedSuffixTable();
+    expect(TOP_LEVEL_DOMAINS).toEqual(new Set([...table.topLevelDomains, ...RESERVED_TOP_LEVEL_DOMAINS]));
+    const source = readFileSync(new URL("./top-level-domains.ts", import.meta.url), "utf8");
+    const listed = source.slice(source.indexOf("const LISTED = `\n") + "const LISTED = `\n".length, source.indexOf("`;", source.indexOf("const LISTED")));
+    expect(listed).toBe(`${wrap(table.topLevelDomains).join("\n")}\n`);
+  });
+
+  it("is pinned: tldts-icann at one exact version, a development dependency only", () => {
+    const manifest = JSON.parse(readFileSync(new URL("../../../package.json", import.meta.url), "utf8")) as {
+      dependencies: Record<string, string>;
+      devDependencies: Record<string, string>;
+      engines?: { node?: string };
+    };
+    expect(manifest.devDependencies["tldts-icann"]).toBe("7.4.2");
+    expect(manifest.dependencies["tldts-icann"]).toBeUndefined();
+    // The server's Node decides how link text is read (its Unicode): one major version.
+    expect(manifest.engines?.node).toBe("22.x");
   });
 });
 
@@ -90,7 +114,7 @@ describe("registrableDomain", () => {
   it("is generated from tldts-icann 7.4.2, every rule of a listed top-level domain, and agrees with it", async () => {
     const { tldtsIcann, installedSuffixTable } = await import("../../../scripts/public-suffixes");
     const { version, require } = tldtsIcann();
-    if (version !== "7.4.2") return expect.soft(version, "regenerate top-level-domains.ts from this version").toBe("7.4.2");
+    expect(version).toBe("7.4.2");
     const table = installedSuffixTable();
     expect(table.notListed).toEqual(NOT_LISTED_DOMAINS);
     const fromTable = table.lines.flatMap((line) => {

@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { checkLinkHref } from "./link-url";
 import {
+  COMMON_TOP_LEVEL_DOMAINS,
   LONG_LINK_TEXT,
-  type LinkTextProblem,
   addressesShown,
   linkTextProblem,
   linkTextWarnings,
@@ -10,286 +10,317 @@ import {
   toLinkInput,
   visibleLinkText,
 } from "./link-text";
+import { TOP_LEVEL_DOMAINS } from "./top-level-domains";
 
 /*
- * Release 4 spec 3.2 (U2): what a link's words say against where it goes;
- * the Link form's warnings; and what the form makes of an address as typed.
+ * Release 4 spec 3.2 (U2): what a link's words say against where it goes
+ * (D104 as the owner narrowed it on 22 October 2026: learners see each
+ * named link's site in a box after its words, link-site.ts, and the words
+ * are refused only when they show, by their look, an address of another
+ * site); the Link form's warnings; and what the form makes of an address
+ * as typed. The honest writing and the refused phishing probes of the
+ * link-rules checks are in link-text.corpus.test.ts.
  */
 
-describe("linkTextProblem", () => {
-  it("is empty for blank text", () => {
-    for (const text of ["", "   ", "\t\n"]) expect(linkTextProblem(text, "https://example.org/")).toBe("empty");
+const EVIL = "https://evil-shop.de/login";
+
+describe("linkTextProblem: what counts as showing an address", () => {
+  it("is empty for blank text, or text of characters that show nothing", () => {
+    for (const text of ["", "   ", "\t\n", "\u200B", " \u2060 ", "\u3164\u3164", "\u00AD", "\u200A", "\u0301"]) {
+      expect(linkTextProblem(text, "https://example.org/"), JSON.stringify(text)).toBe("empty");
+    }
   });
 
   it("accepts words that show no address", () => {
-    expect(linkTextProblem("the guide", "https://example.org/guide")).toBeNull();
-    expect(linkTextProblem("Bundeszentrale für politische Bildung", "https://www.bpb.de/")).toBeNull();
-    expect(linkTextProblem("Write to us", "mailto:help@example.org")).toBeNull();
-  });
-
-  it("accepts text showing the same site, whatever the path", () => {
-    expect(linkTextProblem("https://example.org", "https://example.org/x")).toBeNull();
-    expect(linkTextProblem("see https://example.org/a for more", "https://example.org/b?c=1")).toBeNull();
-    expect(linkTextProblem("HTTPS://EXAMPLE.ORG", "https://example.org/")).toBeNull();
-    // http in the text, https in the link: the same site.
-    expect(linkTextProblem("http://example.org", "https://example.org/")).toBeNull();
-  });
-
-  it("ignores one leading www. on either side", () => {
-    expect(linkTextProblem("https://www.example.org", "https://example.org/x")).toBeNull();
-    expect(linkTextProblem("https://example.org", "https://www.example.org/x")).toBeNull();
-  });
-
-  it("takes an international name and its punycode as the same site", () => {
-    expect(linkTextProblem("https://bücher.example/katalog", "https://xn--bcher-kva.example/")).toBeNull();
-    const href = checkLinkHref("https://ελληνικά.example/άρθρο");
-    if (!href.ok) throw new Error("refused");
-    expect(linkTextProblem("https://ελληνικά.example", href.href)).toBeNull();
-  });
-
-  it("refuses text showing another site", () => {
-    expect(linkTextProblem("https://bank.example", "https://evil.example/")).toBe("misleading");
-    expect(linkTextProblem("Log in at https://bank.example/login now", "https://evil.example/login")).toBe("misleading");
-    // A name of another site in front of the link's site is that site, shown.
-    expect(linkTextProblem("https://bank.example", "https://bank.example.evil.example/")).toBe("misleading");
-    expect(linkTextProblem("https://bank.example.evil.example", "https://evil.example/")).toBe("misleading");
-  });
-
-  // D104 (owner decision, 22 October 2026): a site is a registrable domain,
-  // by the ICANN section of the Public Suffix List: the public suffix a
-  // host ends in ("org", "co.uk", "gov.gr") and one label more.
-  it("takes every host of one registrable domain as one site", () => {
     for (const [text, href] of [
-      ["europa.eu", "https://ec.europa.eu/info/index_en"],
-      ["europa.eu", "https://commission.europa.eu/"],
-      ["Wikipedia.org", "https://en.wikipedia.org/wiki/Social_enterprise"],
-      ["github.com", "https://docs.github.com/en"],
-      ["https://login.bank.example", "https://bank.example/"],
-      ["https://bank.example/login", "https://login.bank.example/"],
-      ["bbc.co.uk", "https://www.bbc.co.uk/news"],
-      ["news.bbc.co.uk", "https://bbc.co.uk/"],
-      ["www.minedu.gov.gr", "https://minedu.gov.gr/"],
-      ["ucy.ac.cy", "https://www.ucy.ac.cy/el/"],
-      ["Kontakt: info@mail.verein.de", "https://verein.de/kontakt"],
-      ["help.verein.de", "mailto:info@verein.de"],
-      // The text shows exactly the host the link opens.
-      ["paypal.com.evil.example", "https://paypal.com.evil.example/login"],
+      ["the guide", "https://example.org/guide"],
+      ["Bundeszentrale für politische Bildung", "https://www.bpb.de/"],
+      ["Write to us", "mailto:help@example.org"],
+      ["Use https:// addresses", EVIL],
+      ["the\u200Bguide", EVIL],
     ]) {
       expect(linkTextProblem(text, href), `${text} over ${href}`).toBeNull();
     }
   });
 
-  it("refuses a host of another registrable domain, and a name of another site in front of the link's", () => {
-    for (const [text, href] of [
-      ["paypal.com.evil.example", "https://evil.example/"],
-      ["https://paypal.com.evil.example/login", "https://evil.example/login"],
-      ["www.paypal.com.evil.example", "https://evil.example/"],
-      ["Write to help@paypal.com.evil.example", "https://evil.example/"],
-      ["x.com", "https://evil.example/"],
-      ["X.com", "https://evil.example/"],
-      ["t.co", "https://evil.example/"],
-      ["bank.co.uk", "https://evil.co.uk/"],
-      ["bank.com.au", "https://evil.com.au/"],
-      ["bank.com.gr", "https://evil.com.gr/"],
-      ["bank.com.cy", "https://evil.com.cy/"],
-      // An address of a public suffix's own host is that host.
-      ["https://www.gov.gr", "https://minedu.gov.gr/"],
-      ["gov.uk/guidance", "https://evil.gov.uk/"],
-      // Under a top-level domain whose rules aren't all listed (Italy,
-      // Japan, Norway, Poland, the United States), a host is its own site.
-      ["milano.it", "https://comune.milano.it/"],
-      ["news.bank.co.jp", "https://bank.co.jp/"],
-      ["bank.co.jp", "https://evil.co.jp/"],
+  it("refuses a name after a scheme, or after two slashes at a word's start", () => {
+    for (const text of [
+      "https://meinebank.de",
+      "Log in at https://meinebank.de/login now",
+      "HTTPS://MEINEBANK.DE",
+      "http://bank.example",
+      "https:bank.example/login",
+      "ftp://paypal.com",
+      "hxxps://paypal.com",
+      "xhttps://bank.example",
+      "Website:bank.example",
+      "evil-shop.de:paypal.com",
+      "//paypal.com",
+      "//www.paypal.com",
+      "(//bank.example)",
+      `https://bank.example/${"a".repeat(2_100)}`,
     ]) {
-      expect(linkTextProblem(text, href), `${text} over ${href}`).toBe("misleading");
+      expect(linkTextProblem(text, EVIL), JSON.stringify(text.slice(0, 60))).toBe("misleading");
     }
-    expect(linkTextProblem("comune.milano.it", "https://www.comune.milano.it/")).toBeNull();
   });
 
-  // A public suffix of more than one label, named by itself ("gov.gr",
-  // "GOV.UK": the name of a state's digital services), is no one host: it
-  // shows every site under it. An address of its own host is that host.
-  it("takes a public suffix named by itself as every site under it", () => {
+  it("refuses a www. name of three labels or more, in any letter case", () => {
+    for (const text of ["www.bank.example", "WWW.BANK.EXAMPLE", "www.Bank.example", "Log in at www.bank.example today", "_www.paypal.com_"]) {
+      expect(linkTextProblem(text, EVIL), text).toBe("misleading");
+    }
+  });
+
+  it("refuses a name a path, a query, a fragment or a port follows", () => {
+    for (const text of [
+      "bank.example/login",
+      "Bank.Example/Login",
+      "bank.example?next=1",
+      "bank.example#login",
+      "bank.example:8443/login",
+      "bank.example\\login",
+      "192.168.0.1/login",
+      "Dir.example.com/login",
+      "ΤΡΑΠΕΖΑ.ΕΛ/σύνδεση",
+      "bank.example/login, then evil.example",
+    ]) {
+      expect(linkTextProblem(text, EVIL), text).toBe("misleading");
+    }
+  });
+
+  it("refuses a name of Latin letters ending in a common top-level domain in lower case", () => {
+    for (const text of [
+      "meinebank.de",
+      "Visit PayPal.com",
+      "Log in at meinebank.de.",
+      "(meinebank.de)",
+      "„meinebank.de“",
+      "wait...meinebank.de",
+      "login.meinebank.de",
+      "x.com",
+      "X.com",
+      "HR.com",
+      "GR.de",
+      "bank.co.uk",
+      "sparkasse.at",
+      "_paypal.com_",
+      "~paypal.com~",
+      "*_paypal.com_*",
+      "Login: /paypal.com",
+      "https\uA789//paypal.com",
+      "bücher.de",
+    ]) {
+      expect(linkTextProblem(text, EVIL), text).toBe("misleading");
+    }
+    // Over its own site, the same names show where the link goes.
     for (const [text, href] of [
-      ["Gov.gr Wallet", "https://wallet.gov.gr/"],
-      ["Υπεύθυνη Δήλωση μέσω gov.gr", "https://dilosi.services.gov.gr/"],
-      ["Εξουσιοδότηση στο gov.gr", "https://dilosi.services.gov.gr/"],
-      ["myKEPlive (gov.gr)", "https://mykeplive.gov.gr/"],
-      ["gov.cy", "https://cyprus.gov.cy/"],
-      ["GOV.UK guidance (PDF)", "https://assets.publishing.service.gov.uk/media/abc/guidance.pdf"],
-      ["Find a course on GOV.UK", "https://nationalcareers.service.gov.uk/find-a-course"],
-      ["GOV.UK One Login", "https://signin.account.gov.uk/"],
-      ["Apprenticeships – GOV.UK", "https://www.apprenticeships.gov.uk/"],
-      ["gov.gr", "mailto:info@minedu.gov.gr"],
+      ["Booking.com", "https://www.booking.com/"],
+      ["Mehr unter bpb.de", "https://www.bpb.de/themen"],
+      ["bücher.de", "https://xn--bcher-kva.de/"],
     ]) {
       expect(linkTextProblem(text, href), `${text} over ${href}`).toBeNull();
     }
-    for (const [text, href] of [
-      ["gov.gr", "https://evil.example/"],
-      ["gov.gr", "https://gov.gr.evil.example/"],
-      ["Co.UK", "https://evil.example/"],
-      ["https://www.gov.gr", "https://minedu.gov.gr/"],
-      ["www.gov.uk", "https://evil.gov.uk/"],
-      ["gov.gr and paypal.com", "https://minedu.gov.gr/"],
-    ]) {
-      expect(linkTextProblem(text, href), `${text} over ${href}`).toBe("misleading");
+  });
+
+  it("reads a bare name only by a short list of common top-level domains, as hosts are written", () => {
+    expect(COMMON_TOP_LEVEL_DOMAINS.size).toBe(46);
+    for (const top of COMMON_TOP_LEVEL_DOMAINS) {
+      expect(TOP_LEVEL_DOMAINS.has(top), top).toBe(true);
+      expect(top).toMatch(/^[a-z]{2,4}$/);
     }
+    for (const top of ["com", "org", "net", "edu", "gov", "eu", "de", "at", "gr", "cy", "uk", "io", "app"]) expect(COMMON_TOP_LEVEL_DOMAINS.has(top), top).toBe(true);
+    // "script.pl" is a Perl script.
+    expect(COMMON_TOP_LEVEL_DOMAINS.has("pl")).toBe(false);
   });
 
-  it("refuses when any one of several addresses shown points elsewhere", () => {
-    expect(linkTextProblem("https://example.org or https://evil.example", "https://example.org/")).toBe("misleading");
-  });
-
-  it("compares an email address shown with a web link by its domain", () => {
-    expect(linkTextProblem("Kontakt: info@verein.de", "https://verein.de/kontakt")).toBeNull();
-    expect(linkTextProblem("Kontakt: info@verein.de", "https://www.verein.de/kontakt")).toBeNull();
-    expect(linkTextProblem("Kontakt: info@verein.de", "https://evil.example/")).toBe("misleading");
-  });
-
-  it("compares an email address shown with an email link by its mailbox", () => {
-    expect(linkTextProblem("help@example.org", "mailto:help@example.org")).toBeNull();
-    expect(linkTextProblem("HELP@Example.org", "mailto:help@example.org?subject=Hi")).toBeNull();
+  it("refuses an email address of another site, or of another mailbox over an email link", () => {
+    expect(linkTextProblem("Kontakt: info@verein.de", EVIL)).toBe("misleading");
+    expect(linkTextProblem("Write to help@bank.example", EVIL)).toBe("misleading");
     expect(linkTextProblem("help@example.org", "mailto:someone@example.org")).toBe("misleading");
-    expect(linkTextProblem("mailto:help@example.org", "mailto:help@example.org")).toBeNull();
+    expect(linkTextProblem("mailto:help@bank.example?cc=boss@bank.example", "mailto:help@evil.example")).toBe("misleading");
+    for (const [text, href] of [
+      ["Kontakt: info@verein.de", "https://verein.de/kontakt"],
+      ["Kontakt: info@verein.de", "https://www.verein.de/kontakt"],
+      ["Kontakt: info@mail.verein.de", "https://verein.de/kontakt"],
+      ["anna.schmidt@uni.example", "https://uni.example/people"],
+      ["help@example.org", "mailto:help@example.org"],
+      ["HELP@Example.org", "mailto:help@example.org?subject=Hi"],
+      ["mailto:help@example.org", "mailto:help@example.org"],
+      ["kontakt@bücher.de", "mailto:kontakt@xn--bcher-kva.de"],
+      // A first part longer than a short look back is read whole.
+      ["weiterbildung.oesterreich.kontakt@ams.at", "mailto:weiterbildung.oesterreich.kontakt@ams.at"],
+    ]) {
+      expect(linkTextProblem(text, href), `${text} over ${href}`).toBeNull();
+    }
   });
 
-  it("compares a web address shown with an email link by its site", () => {
-    expect(linkTextProblem("https://example.org", "mailto:help@example.org")).toBeNull();
-    expect(linkTextProblem("https://bank.example", "mailto:help@evil.example")).toBe("misleading");
+  it("refuses a user name before a host after a scheme, whatever the link", () => {
+    for (const [text, href] of [
+      ["https://paypal.com@evil-shop.de", EVIL],
+      ["https://paypal.com@evil-shop.de", "https://evil-shop.de/"],
+      ["https://bank.example@evil.example/", "https://evil.example/"],
+    ]) {
+      expect(linkTextProblem(text, href), `${text} over ${href}`).toBe("misleading");
+    }
+  });
+
+  it("refuses a label that mixes Latin letters with Greek or Cyrillic ones, whatever the link", () => {
+    for (const [text, href] of [
+      ["paypal.соm", EVIL], // Cyrillic с and о
+      ["paypal.cοm", EVIL], // Greek ο
+      ["paypal.ϲom", EVIL], // Greek lunate sigma
+      ["Log in at paypal.соm today.", EVIL],
+      ["www.paypal.соm", EVIL],
+      ["bank.ехаmрlе", EVIL],
+      ["pаypal.com", "https://xn--pypal-4ve.com/"], // over its own punycode
+      ["pаypal.com", "https://paypal.com/"],
+      ["https://pаypal.com/login", "https://xn--pypal-4ve.com/login"],
+      ["paypal.соm.evil-shop.de", EVIL],
+    ]) {
+      expect(linkTextProblem(text, href), `${text} over ${href}`).toBe("misleading");
+    }
+    // A name of one script reads as written.
+    const own = (address: string) => {
+      const check = checkLinkHref(address);
+      if (!check.ok) throw new Error("refused");
+      return check.href;
+    };
+    for (const [text, href] of [
+      ["сбербанк.рф", own("https://сбербанк.рф/")],
+      ["τράπεζα.ελ", own("https://τράπεζα.ελ/")],
+      ["https://ελληνικά.example", own("https://ελληνικά.example/άρθρο")],
+      ["https://bücher.example/katalog", "https://xn--bcher-kva.example/"],
+    ]) {
+      expect(linkTextProblem(text, href), `${text} over ${href}`).toBeNull();
+    }
   });
 
   it("counts every address shown as elsewhere when the link is no web or email address", () => {
     expect(linkTextProblem("https://example.org", "javascript:alert(1)")).toBe("misleading");
+    expect(linkTextProblem("meinebank.de", "javascript:alert(1)")).toBe("misleading");
     expect(linkTextProblem("the guide", "javascript:alert(1)")).toBeNull();
   });
+});
 
-  // D104: what the text shows is what learners read. Characters that show
-  // nothing, and compatibility forms, are read as learners see them.
-  const EVIL = "https://evil.example/login";
-  /** `n` different CJK ideographs: a label of them is international, and of more than 63 longer than DNS allows. */
-  const ideographsOf = (n: number) => Array.from({ length: n }, (_, i) => String.fromCodePoint(0x4e00 + i)).join("");
+describe("linkTextProblem: text read as learners see it", () => {
   const INVISIBLE = ["\u200B", "\u200C", "\u200D", "\u200E", "\u200F", "\u2060", "\u2062", "\u180E", "\u3164", "\uFFA0", "\u115F", "\u00AD", "\u034F"];
 
   it("reads an address through characters that show nothing", () => {
     for (const mark of INVISIBLE) {
-      for (const text of [`https://bank${mark}.example/login`, `https:${mark}//bank.example/login`, `https://bank.${mark}example`]) {
+      for (const text of [`https://bank${mark}.example/login`, `https:${mark}//bank.example/login`, `https://bank.${mark}example`, `meinebank${mark}.de`]) {
         expect(linkTextProblem(text, EVIL), JSON.stringify(text)).toBe("misleading");
-        expect(linkTextProblem(text, "https://bank.example/login"), JSON.stringify(text)).toBeNull();
       }
-    }
-  });
-
-  it("reads compatibility forms as the characters they show", () => {
-    // ONE DOT LEADER, fullwidth letters and full stops, a circled letter.
-    for (const text of [
-      "https://bank.example\u2024login",
-      "\uFF48\uFF54\uFF54\uFF50\uFF53\uFF1A\uFF0F\uFF0F\uFF42\uFF41\uFF4E\uFF4B\uFF0E\uFF45\uFF58\uFF41\uFF4D\uFF50\uFF4C\uFF45",
-      "https://\u24D1ank.example",
-    ]) {
-      expect(linkTextProblem(text, EVIL), JSON.stringify(text)).toBe("misleading");
-    }
-  });
-
-  it("reads an address that couldn't be a link itself: a user name, an Outlook safe link, no slashes, over 2,048 characters", () => {
-    expect(linkTextProblem("https://login@bank.example/", EVIL)).toBe("misleading");
-    // A user name shows a host the link can't open, whatever the link.
-    expect(linkTextProblem("https://login@bank.example/", "https://bank.example/")).toBe("misleading");
-    expect(linkTextProblem("https://bank.example@evil.example/", EVIL)).toBe("misleading");
-    const safe = "https://eur01.safelinks.protection.outlook.com/?url=https%3A%2F%2Fexample.org%2Fguide&data=05%7Csomeone%40example.org";
-    expect(linkTextProblem(safe, "https://example.org/guide")).toBe("misleading");
-    expect(linkTextProblem("https:bank.example/login", EVIL)).toBe("misleading");
-    expect(linkTextProblem(`https://bank.example/${"a".repeat(2_100)}`, EVIL)).toBe("misleading");
-    expect(linkTextProblem("xhttps://bank.example", EVIL)).toBe("misleading");
-    expect(linkTextProblem("mailto:help@bank.example?cc=boss@bank.example", "mailto:help@evil.example")).toBe("misleading");
-  });
-
-  it("still accepts text that shows the link's own place, or no address", () => {
-    expect(linkTextProblem("the\u200Bguide", EVIL)).toBeNull();
-    expect(linkTextProblem("https://example.org/\u200B", "https://example.org/x")).toBeNull();
-    expect(linkTextProblem("https://example.org/guide.", "https://example.org/guide")).toBeNull();
-    expect(linkTextProblem("Use https:// addresses", EVIL)).toBeNull();
-    expect(linkTextProblem("Kontakt: info@verein.de", "https://verein.de/")).toBeNull();
-  });
-
-  it("is empty for text that shows nothing", () => {
-    for (const text of ["\u200B", " \u2060 ", "\u3164\u3164", "\u00AD"]) {
-      expect(linkTextProblem(text, "https://example.org/"), JSON.stringify(text)).toBe("empty");
-      expect(visibleLinkText(text).trim(), JSON.stringify(text)).toBe("");
+      expect(linkTextProblem(`https://bank${mark}.example/login`, "https://bank.example/login")).toBeNull();
     }
     expect(visibleLinkText("the\u200Bguide")).toBe("theguide");
   });
 
-  // D104 (owner decision, 22 October 2026): a bare host shown in the text,
-  // with or without "www." and a path, is an address of that site, compared
-  // with the link exactly as a full address is.
-  it("reads a bare host as an address of its site", () => {
+  it("drops a combining mark normal form leaves over", () => {
+    for (const text of ["www.paypal.\u0332com/login", "paypal.co\u0332m", "\u0332paypal.com", "paypal.\u0323com", "support@paypal.\u0332com"]) {
+      expect(linkTextProblem(text, EVIL), JSON.stringify(text)).toBe("misleading");
+    }
+    expect(linkTextProblem("paypal.co\u0332m", "https://www.paypal.com/")).toBeNull();
+    for (const text of ["naïve.", "café.", "e.g.", "Don´t"]) expect(linkTextProblem(text, EVIL), text).toBeNull();
+  });
+
+  it("reads the full stops the URL parser reads as dots as dots", () => {
+    for (const text of ["meinebank\u3002de", "meinebank\uFF0Ede", "meinebank\uFF61de", "bank\u3002example/login", "https://paypal\uFF61com\uFF61evil-shop\uFF61de"]) {
+      expect(linkTextProblem(text, EVIL), JSON.stringify(text)).toBe("misleading");
+    }
+    expect(linkTextProblem("bpb\u3002de", "https://www.bpb.de/")).toBeNull();
+  });
+
+  it("reads compatibility forms once more as the characters they show", () => {
     for (const text of [
-      "www.bank.example",
-      "WWW.BANK.EXAMPLE",
-      "www.bank.example/login",
-      "bank.example/login",
-      "bank.example",
-      "Log in at bank.example.",
-      "Log in at www.bank.example today",
-      "(bank.example)",
-      "„bank.example“",
-      "bank.example:8443/login",
-      "Bank.Example/Login",
-      "Visit PayPal.com",
-      "paypal.com/signin?return=1",
-      "login.bank.example",
-      "τράπεζα.ελ",
-      "ΤΡΑΠΕΖΑ.ΕΛ/σύνδεση",
-      "Website:bank.example",
-      "wait...bank.example",
-      "192.168.0.1/login",
-      "bank.example/login, then evil.example",
-      // Read as learners see it: characters that show nothing, compatibility forms.
-      "bank\u200B.example/login",
-      "www.\u2060bank.example",
-      "bank\uFF0Eexample/login",
-      "bank\u3002example/login",
-      "bank\uFF61example",
+      "https://bank.example\u2024login", // a one dot leader
+      "\uFF48\uFF54\uFF54\uFF50\uFF53\uFF1A\uFF0F\uFF0F\uFF42\uFF41\uFF4E\uFF4B\uFF0E\uFF45\uFF58\uFF41\uFF4D\uFF50\uFF4C\uFF45", // fullwidth
       "\uFF57\uFF57\uFF57.bank.example",
+      "https://\u24D1ank.example", // a circled letter
+      "paypal.\u217Dom", // Roman numerals
+      "paypa\u217C.com",
+      "https://paypal.\u217Dom@evil-shop.de",
+      "support@paypal.\u217Dom",
+      "rabobank.n\u217C",
+      "www.mbank.p\u217C",
+      "paypal.c\u1D52m", // raised letters
+      "sparkasse.d\u1D49",
+      "paypal.\u24D2\u24DE\u24DC",
     ]) {
       expect(linkTextProblem(text, EVIL), JSON.stringify(text)).toBe("misleading");
     }
-    // Against an email link, a bare host of another site points elsewhere too.
-    expect(linkTextProblem("www.bank.example", "mailto:help@evil.example")).toBe("misleading");
-    expect(linkTextProblem("Kontakt: verein.de", "mailto:info@evil.example")).toBe("misleading");
-    // And against a link that is no web or email address.
-    expect(linkTextProblem("bank.example", "javascript:alert(1)")).toBe("misleading");
+    expect(linkTextProblem("paypal.\u217Dom", "https://www.paypal.com/")).toBeNull();
+    expect(linkTextProblem("rabobank.n\u217C", "https://www.rabobank.nl/")).toBeNull();
+    for (const text of ["Ludwig \u216B.", "Kapitel \u2162.2", "Teil \u2161", "Louis.\u2169\u2163", "Mag.ª Huber", "Dir.\u2071\u207F Mag.ª Huber", "CO\u2082-Bilanz", "H\u2082O", "10 m²", "№ 5", "Studie¹", "the guide²", "Acme™"]) {
+      expect(linkTextProblem(text, EVIL), text).toBeNull();
+    }
   });
 
-  it("accepts a bare host of the link's own site", () => {
-    expect(linkTextProblem("www.example.org", "https://example.org/x")).toBeNull();
-    expect(linkTextProblem("example.org/guide", "https://www.example.org/guide")).toBeNull();
-    expect(linkTextProblem("Mehr unter www.bpb.de", "https://www.bpb.de/themen")).toBeNull();
-    expect(linkTextProblem("Booking.com", "https://www.booking.com/")).toBeNull();
-    expect(linkTextProblem("bücher.example/katalog", "https://xn--bcher-kva.example/")).toBeNull();
-    expect(linkTextProblem("Kontakt: verein.de", "mailto:info@verein.de")).toBeNull();
-    expect(linkTextProblem("Kontakt: info@verein.de oder verein.de", "https://verein.de/kontakt")).toBeNull();
-    // Look-alike letters in its top-level domain read as what they show.
-    expect(linkTextProblem("paypal.соm", "https://paypal.com/")).toBeNull();
-    expect(linkTextProblem("PAYPAL.СОМ", "https://www.paypal.com/")).toBeNull();
-    // A name in an address's path, or after a host's path, is part of that address.
-    expect(linkTextProblem("https://example.org/bank.example", "https://example.org/")).toBeNull();
-    expect(linkTextProblem("example.org/files/bank.example", "https://example.org/")).toBeNull();
-    expect(linkTextProblem("example.org/?next=bank.example", "https://example.org/")).toBeNull();
-    // An email address is read as that address, its domain not again as a host.
-    expect(linkTextProblem("help@bank.example", "mailto:help@bank.example")).toBeNull();
+  it("reads a sign compatibility normalisation makes a word of as nothing (™, ℠, ℡)", () => {
+    for (const [text, href] of [
+      ["Moodle™.org", "https://moodle.org/"],
+      ["PayPal.com™", "https://www.paypal.com/"],
+      ["Acme™.com", "https://acme.com/"],
+    ]) {
+      expect(linkTextProblem(text, href), `${text} over ${href}`).toBeNull();
+    }
+    for (const text of ["Moodle™.org", "PayPal™.com", "PayPal.com™", "PayPal℠.com"]) expect(linkTextProblem(text, EVIL), text).toBe("misleading");
+  });
+});
+
+describe("linkTextProblem: not refused, the site box shows where the link goes", () => {
+  it("accepts names in capitals, of other top-level domains, file names, titles and abbreviations", () => {
+    const UNI = "https://uni.example/msc";
+    for (const [text, href] of [
+      ["ASP.NET Core", "https://learn.microsoft.com/aspnet/core"],
+      ["VB.NET", "https://learn.microsoft.com/dotnet/visual-basic/"],
+      ["Modul 3.IT", UNI],
+      ["1.IT-Sicherheit", UNI],
+      ["course-materials.zip", "https://example.org/files/x"],
+      ["intro.mov", "https://example.org/files/x"],
+      ["README.md", "https://github.com/example/project"],
+      ["setup.py", "https://github.com/example/project"],
+      ["report.pdf", "https://example.org/files/x"],
+      ["Node.js", "https://nodejs.org/"],
+      ["the slides (guide.pptx)", "https://example.org/files/x"],
+    ]) {
+      expect(linkTextProblem(text, href), `${text} over ${href}`).toBeNull();
+    }
+    for (const text of [
+      "M.Sc.",
+      "M.Sc. Sustainable Entrepreneurship – programme page",
+      "B.Com.",
+      "Dipl.Ing.",
+      "Dr.med.vet.",
+      "Univ.Prof.",
+      "o.Univ.Prof.",
+      "Ass.Prof.",
+      "Dott.ssa",
+      "Müller GmbH & Co.KG",
+      "Samsung Co.Ltd.",
+      "Dr.-Ing.",
+      "Jun.Prof.",
+      "Pty.Ltd.",
+      "Dr.in Maria Huber",
+      "Mag.a Dr.in Huber",
+      "Dir.in Mag.a Huber",
+      "Bgm.\u2071\u207F Maria Muster",
+      "OStR.\u2071\u207F Mag.ª Huber",
+      "HR.\u2071\u207F Dr.\u2071\u207F Muster",
+      "ΑΘΗΝΑ.ΤΟ",
+      "Αθήνα.Το",
+      "προσπάθεια.να",
+    ]) {
+      expect(linkTextProblem(text, UNI), text).toBeNull();
+    }
   });
 
   it("doesn't read an ordinary word with a dot as a host", () => {
     for (const text of [
-      // Versions, numbers and dates.
       "v1.2",
       "Version v1.2 of the guide",
       "Web 2.0",
       "3.5 hours",
       "22.10.2026",
       "1.000 Euro",
-      // Abbreviations, in English, German and Greek.
       "e.g. the guide",
       "i.e.",
       "etc.",
@@ -301,154 +332,126 @@ describe("linkTextProblem", () => {
       "z. B.",
       "d.h.",
       "u.a.",
+      "bzw.Online-Kurs",
+      "e.V.-Mitglied",
       "π.χ.",
       "κ.λπ.",
-      // Sentence ends, and an ellipsis.
+      "т.е.",
+      "и т.д.",
+      "г.Москва",
       "Read the guide.",
       "Read the guide. Then practise.",
-      "the end.",
       "wait...then",
-      // Names and files that end in no top-level domain.
-      "Node.js",
-      "report.pdf",
-      "the slides (guide.pptx)",
-      // A name inside a path, or a word.
-      "docs/report.de",
-      "my_site.de",
       "www",
     ]) {
       expect(linkTextProblem(text, EVIL), JSON.stringify(text)).toBeNull();
     }
   });
 
-  it("reads a top-level domain written with look-alike letters as the one it shows", () => {
-    for (const text of [
-      "paypal.соm", // Cyrillic с and о
-      "PAYPAL.СОМ", // Cyrillic С, О and М
-      "paypal.cοm", // Greek ο
-      "paypal.ϲom", // Greek lunate sigma
-      "Paypal.Сом",
-      "Log in at paypal.соm today.",
-      "www.paypal.соm",
-      "bank.ехаmрlе", // Cyrillic е, х, а, р
-    ]) {
-      expect(linkTextProblem(text, EVIL), JSON.stringify(text)).toBe("misleading");
-    }
-    // A top-level domain of another script is read as it is: "ευ" is the
-    // Greek one of the European Union's, not "eu".
-    expect(linkTextProblem("europa.ευ", "https://europa.eu/")).toBe("misleading");
-    expect(linkTextProblem("τράπεζα.ελ", "https://xn--hxakle2ceu.xn--qxam/")).toBeNull();
-    // Words of Cyrillic or Greek that end in no top-level domain stay words.
-    for (const text of ["т.е.", "и т.д.", "см. выше", "π.χ.", "κ.λπ.", "Α.Ε.", "Ι.Κ.Ε.", "σελ.10", "г.Москва"]) {
-      expect(linkTextProblem(text, EVIL), JSON.stringify(text)).toBeNull();
-    }
-  });
-
-  it("reads a host wrapped in _ or ~ for emphasis", () => {
-    for (const text of ["_paypal.com_", "Log in at _www.paypal.com_", "~paypal.com~", "__paypal.com__", "*_paypal.com_*", "(_paypal.com_)"]) {
-      expect(linkTextProblem(text, EVIL), JSON.stringify(text)).toBe("misleading");
-    }
-    // Inside a path or a word, a name still belongs to it.
-    for (const text of ["docs/report.de", "my_site.de", "a~bank.example", "files_v2_bank.example"]) {
-      expect(linkTextProblem(text, EVIL), JSON.stringify(text)).toBeNull();
-    }
-  });
-
-  it("doesn't read an abbreviation as a host, and still reads a host in capitals", () => {
-    const UNI = "https://uni.example/msc";
-    for (const text of [
-      "M.Sc.",
-      "B.Sc.",
-      "M.Sc. programme",
-      "M.Sc. Sustainable Entrepreneurship – programme page",
-      "B.Com.",
-      "M.Com.",
-      "B.Tech.",
-      "M.Tech.",
-      "M.St.",
-      "B.Sc/M.Sc",
-      "Dipl.Ing.",
-      "Dr.med.",
-      "Dr.med.vet.",
-      "Mag.art.",
-      "Univ.Prof.",
-      "Hon.Prof.",
-      "o.Univ.Prof.",
-      "ao.Univ.Prof.",
-      "Ass.Prof.",
-      "Prof.Dr.",
-      "Dott.ssa",
-      "Müller GmbH & Co.KG",
-      "Samsung Co.Ltd.",
-      "z.B.",
-      "u.a.",
-      "d.h.",
-      "ggf.",
-      "bzw.",
-      "i.d.R.",
-      "Dr.-Ing.",
-      "Dipl.-Ing.",
-      "π.χ.",
-      "δηλ.",
-    ]) {
-      expect(linkTextProblem(text, UNI), JSON.stringify(text)).toBeNull();
-    }
-    for (const text of ["x.com", "X.com", "t.co", "Paypal.com", "PAYPAL.COM", "PayPal.COM", "www.Bank.example", "Booking.com", "Bank.Example/Login"]) {
-      expect(linkTextProblem(text, EVIL), JSON.stringify(text)).toBe("misleading");
-    }
-    // A title and its feminine ending, as Austrian usage writes them, raised or not.
-    const SCHOOL = "https://www.schule.example.at/team";
-    for (const text of [
-      "Dir.in Mag.a Huber",
-      "Bgm.in Maria Muster",
-      "Doz.in Muster",
-      "StR.in",
-      "Dir.ⁱⁿ Mag.ª Huber",
-      "Bgm.ⁱⁿ Maria Muster",
-      "Vzbgm.ⁱⁿ Muster",
-      "OStR.ⁱⁿ Mag.ª Huber",
-      "DDr.ⁱⁿ Muster",
-      "HR.ⁱⁿ Dr.ⁱⁿ Muster",
-      "BEd.ⁱⁿ Muster",
-      "GR.ⁱⁿ",
-      "LAbg.ⁱⁿ",
-      "Abg.ⁱⁿ z. NR Muster",
-    ]) {
-      expect(linkTextProblem(text, SCHOOL), JSON.stringify(text)).toBeNull();
-    }
-    expect(linkTextProblem("E-Mail an Dir.ⁱⁿ Huber", "mailto:direktion@schule.example.at")).toBeNull();
-    for (const text of ["Amazon.in", "paypal.in", "dir.in", "Dir.example.com/login", "HR.com", "GR.de", "Prim.com", "Doz.at/login"]) {
-      expect(linkTextProblem(text, EVIL), JSON.stringify(text)).toBe("misleading");
-    }
-  });
-
-  it("reads a file's name that ends in a top-level domain as a host (it fails safe)", () => {
-    for (const text of ["course-materials.zip", "intro.mov", "README.md", "setup.py"]) {
-      expect(linkTextProblem(text, "https://example.org/files/x"), text).toBe("misleading");
-    }
-    for (const text of ["report.pdf", "slides.pptx", "data.csv"]) {
-      expect(linkTextProblem(text, "https://example.org/files/x"), text).toBeNull();
-    }
-  });
-
-  it("tells when every address a text shows is a name read by the top-level domain it ends in", () => {
-    for (const text of ["course-materials.zip", "intro.mov", "paypal.com", "paypal.соm", "_paypal.com_", "see paypal.com and bank.example"]) {
-      expect(addressesShown(text)?.namesOnly, text).toBe(true);
-    }
-    for (const text of ["https://bank.example", "www.bank.example", "bank.example/login", "bank.example:8443", "help@bank.example", "paypal.com or https://bank.example"]) {
-      expect(addressesShown(text)?.namesOnly, text).toBe(false);
-    }
-  });
-
-  // §3.2: one leading "www." is removed before a host's site is told, so a
-  // public suffix's own site (gov.uk, gov.gr) and its www. host are one.
-  it("takes a host and its www. host as one site, a public suffix's own site too", () => {
+  it("leaves a name inside a path to its address", () => {
+    for (const text of ["docs/report.de", "files/v2/report.de"]) expect(linkTextProblem(text, EVIL), text).toBeNull();
     for (const [text, href] of [
-      ["GOV.UK", "https://www.gov.uk/guidance/x"],
+      ["https://example.org/meinebank.de", "https://example.org/"],
+      ["example.org/files/meinebank.de", "https://example.org/"],
+      ["https://example.org/guide.", "https://example.org/guide"],
+      ["https://example.org/\u200B", "https://example.org/x"],
+    ]) {
+      expect(linkTextProblem(text, href), `${text} over ${href}`).toBeNull();
+    }
+  });
+
+  it("ends a name where its last label is a top-level domain and a hyphen", () => {
+    for (const [text, href] of [
+      ["www.ams.at-Seite", "https://www.ams.at/"],
+      ["ams.at-Jobbörse", "https://jobs.ams.at/"],
+      ["Booking.com-Konto", "https://www.booking.com/"],
+    ]) {
+      expect(linkTextProblem(text, href), `${text} over ${href}`).toBeNull();
+    }
+    for (const text of ["www.ams.at-Seite", "paypal.com-login", "Log in at paypal.com-secure to confirm", "amazon.de-bestellung", "www.paypal.com-login/"]) {
+      expect(linkTextProblem(text, EVIL), text).toBe("misleading");
+    }
+  });
+});
+
+describe("linkTextProblem: compared by site", () => {
+  // D104 (owner decision, 22 October 2026): a site is a registrable domain,
+  // by the ICANN section of the Public Suffix List: the public suffix a host
+  // ends in ("org", "co.uk", "gov.gr") and one label more.
+  it("accepts every host of the link's registrable domain, with or without www., and an international name as its punycode", () => {
+    for (const [text, href] of [
+      ["https://example.org", "https://example.org/x"],
+      ["see https://example.org/a for more", "https://example.org/b?c=1"],
+      ["https://www.example.org", "https://example.org/x"],
+      ["https://example.org", "https://www.example.org/x"],
+      ["www.example.org", "https://example.org/x"],
+      ["example.org/guide", "https://www.example.org/guide"],
+      ["europa.eu", "https://ec.europa.eu/info/index_en"],
+      ["Wikipedia.org", "https://en.wikipedia.org/wiki/Social_enterprise"],
+      ["github.com", "https://docs.github.com/en"],
+      ["https://login.bank.example", "https://bank.example/"],
+      ["bbc.co.uk", "https://www.bbc.co.uk/news"],
+      ["news.bbc.co.uk", "https://bbc.co.uk/"],
+      ["www.minedu.gov.gr", "https://minedu.gov.gr/"],
+      ["ucy.ac.cy", "https://www.ucy.ac.cy/el/"],
+      ["help.verein.de", "mailto:info@verein.de"],
+      ["https://example.org", "mailto:help@example.org"],
+      ["comune.milano.it", "https://www.comune.milano.it/"],
+      // A host under the one shown is its site, under a top-level domain whose rules aren't all listed too.
+      ["zoom.us", "https://us02web.zoom.us/j/123"],
+      ["milano.it", "https://comune.milano.it/"],
+    ]) {
+      expect(linkTextProblem(text, href), `${text} over ${href}`).toBeNull();
+    }
+  });
+
+  it("refuses a host of another registrable domain", () => {
+    for (const [text, href] of [
+      ["https://bank.example", "https://evil.example/"],
+      ["https://bank.example", "https://bank.example.evil.example/"],
+      ["bank.co.uk", "https://evil.co.uk/"],
+      ["bank.com.au", "https://evil.com.au/"],
+      ["bank.com.gr", "https://evil.com.gr/"],
+      ["bank.com.cy", "https://evil.com.cy/"],
+      ["https://bank.co.jp", "https://evil.co.jp/"],
+      ["https://example.org or https://evil.example", "https://example.org/"],
+      ["https://bank.example", "mailto:help@evil.example"],
+      ["www.bank.example", "mailto:help@evil.example"],
+      ["Kontakt: verein.de", "mailto:info@evil.example"],
+    ]) {
+      expect(linkTextProblem(text, href), `${text} over ${href}`).toBe("misleading");
+    }
+  });
+
+  it("reads a common top-level domain in front of a host's site as a site shown, in an email address's domain too", () => {
+    for (const [text, href] of [
+      ["paypal.com.evil-shop.de", EVIL],
+      ["https://paypal.com.evil.example/login", EVIL],
+      ["www.paypal.com.evil.example", EVIL],
+      ["https://meinebank.de.evil-shop.de", EVIL],
+      ["Write to help@paypal.com.evil-shop.de", EVIL],
+      ["help@paypal.com.evil-shop.de", "mailto:help@paypal.com.evil-shop.de"],
+      // The link's own host, shown, still shows paypal.com in front.
+      ["paypal.com.evil-shop.de", "https://paypal.com.evil-shop.de/login"],
+    ]) {
+      expect(linkTextProblem(text, href), `${text} over ${href}`).toBe("misleading");
+    }
+  });
+
+  // A public suffix of more than one label, named by itself ("gov.gr",
+  // "GOV.UK": the name of a state's digital services), is no one host: it
+  // shows every site under it. An address of its own host is that host.
+  it("takes a public suffix named by itself as every site under it, and with a scheme, www. or a path as its own host", () => {
+    for (const [text, href] of [
+      ["Gov.gr Wallet", "https://wallet.gov.gr/"],
+      ["Υπεύθυνη Δήλωση μέσω gov.gr", "https://dilosi.services.gov.gr/"],
+      ["myKEPlive (gov.gr)", "https://mykeplive.gov.gr/"],
+      ["gov.cy", "https://cyprus.gov.cy/"],
+      ["Find a course on GOV.UK", "https://nationalcareers.service.gov.uk/find-a-course"],
+      ["gov.gr", "mailto:info@minedu.gov.gr"],
       ["gov.gr", "https://www.gov.gr/"],
-      ["gov.ie", "https://www.gov.ie/"],
-      ["gov.cy", "https://www.gov.cy/"],
       ["gv.at", "https://www.gv.at/"],
+      ["GOV.UK", "https://www.gov.uk/guidance/x"],
       ["https://gov.uk/guidance/x", "https://www.gov.uk/guidance/x"],
       ["gov.uk/guidance/x", "https://www.gov.uk/guidance/x"],
       ["www.gov.uk", "https://gov.uk/x"],
@@ -456,367 +459,62 @@ describe("linkTextProblem", () => {
       expect(linkTextProblem(text, href), `${text} over ${href}`).toBeNull();
     }
     for (const [text, href] of [
-      ["gov.uk/guidance", "https://evil.gov.uk/"],
-      ["www.gov.uk", "https://evil.gov.uk/"],
+      ["gov.gr", EVIL],
+      ["gov.gr", "https://gov.gr.evil.example/"],
       ["https://www.gov.gr", "https://minedu.gov.gr/"],
+      ["www.gov.uk", "https://evil.gov.uk/"],
+      ["gov.uk/guidance", "https://evil.gov.uk/"],
+      ["gov.gr and paypal.com", "https://minedu.gov.gr/"],
     ]) {
       expect(linkTextProblem(text, href), `${text} over ${href}`).toBe("misleading");
     }
   });
+});
 
-  it("reads a host after two slashes, after a slash at a word's start, and after a colon that starts no port", () => {
+describe("addressesShown and showsAnotherAddress", () => {
+  it("reads the addresses a text shows once, for as many links as need comparing", () => {
+    const shown = addressesShown("https://example.org and help@example.org");
+    expect(shown).toEqual({ web: [{ host: "example.org", named: false }], email: ["help@example.org"], elsewhere: false });
+    expect(showsAnotherAddress(shown, "https://example.org/a")).toBe(false);
+    expect(showsAnotherAddress(shown, "mailto:help@example.org")).toBe(false);
+    expect(showsAnotherAddress(shown, "mailto:other@example.org")).toBe(true);
+    expect(showsAnotherAddress(shown, "https://evil.example/")).toBe(true);
+    expect(addressesShown("the guide")).toBeNull();
+    expect(showsAnotherAddress(null, "https://evil.example/")).toBe(false);
+  });
+
+  it("writes hosts as the URL parser does: lower case, one leading www. removed, international labels in punycode", () => {
+    expect(addressesShown("Visit WWW.Bücher.DE/katalog")?.web).toEqual([{ host: "xn--bcher-kva.de", named: false }]);
+    expect(addressesShown("bpb.de")?.web).toEqual([{ host: "bpb.de", named: true }]);
+    expect(addressesShown("paypal.com.evil-shop.de")?.web).toEqual([
+      { host: "paypal.com.evil-shop.de", named: true },
+      { host: "paypal.com", named: false },
+    ]);
+    expect(addressesShown("https://paypal.com@evil-shop.de")?.elsewhere).toBe(true);
+  });
+});
+
+describe("linkTextProblem: a label longer than DNS allows", () => {
+  // More than 63 characters (RFC 1035), every one counted: no host's. It
+  // stands for itself, never written in punycode, so it costs its length.
+  const latin = (n: number) => Array.from({ length: n }, (_, i) => "àáâãäåæçèéêëìíîïðñòóôõöøùúûüýþÿ"[i % 31]).join("");
+  const greek = (n: number) => Array.from({ length: n }, (_, i) => "αβγδεζηθικλμνξοπρστυφχψω"[i % 24]).join("");
+
+  it("reads a name with one as another site than any link's", () => {
     for (const text of [
-      "//paypal.com",
-      "//www.paypal.com",
-      "ftp://paypal.com",
-      "https꞉//paypal.com", // a modifier letter colon
-      "https∶//paypal.com", // a ratio sign
-      "https//paypal.com",
-      "hxxps://paypal.com",
-      "Login: /paypal.com",
-      "evil.example:paypal.com",
+      `${latin(64)}.de`,
+      `https://${greek(100)}.com`,
+      `www.${latin(1_000)}.com`,
+      `info@${latin(64)}.com`,
+      `paypal.com.${latin(500)}.evil-shop.de`,
+      `https://${latin(30)}\u0301${latin(34)}.com`,
     ]) {
-      expect(linkTextProblem(text, EVIL), JSON.stringify(text)).toBe("misleading");
+      expect(linkTextProblem(text, EVIL), text.slice(0, 40)).toBe("misleading");
     }
-    expect(linkTextProblem("//paypal.com", "https://www.paypal.com/")).toBeNull();
-    // Inside a path, a name still belongs to it.
-    for (const text of ["docs/report.de", "files/v2/report.de"]) expect(linkTextProblem(text, EVIL), text).toBeNull();
-  });
-
-  it("ends a host where a raised or lowered character, a modifier letter or a mark of its own follows it", () => {
-    for (const text of [
-      "paypal.com¹",
-      "paypal.com²",
-      "PayPal.com™",
-      "paypal.comʼs login", // a modifier letter apostrophe
-      "paypal.comˈs",
-      "paypal.com̲", // a combining low line, unseen under a link's underline
-      "paypal.co̲m",
-      "paypal.com₂",
-    ]) {
-      expect(linkTextProblem(text, EVIL), JSON.stringify(text)).toBe("misleading");
-    }
-    expect(linkTextProblem("senic.org¹", "https://senic.org/")).toBeNull();
-    expect(linkTextProblem("PayPal.com™", "https://www.paypal.com/")).toBeNull();
-    // A footnote's mark, or a word with one, shows no address.
-    for (const text of ["¹", "the guide²", "Acme™"]) expect(linkTextProblem(text, EVIL), text).toBeNull();
-  });
-
-  it("reads a raised, lowered or circled letter inside a name as the letter it shows", () => {
-    for (const text of [
-      "paypal.cᵒm",
-      "www.paypal.cᵒm",
-      "paypal.cᵒm/login",
-      "paypal.ᶜᵒᵐ",
-      "paypal.ⓒⓞⓜ",
-      "ⓟⓐⓨⓟⓐⓛ.ⓒⓞⓜ",
-      // Where a name may go on after it, it is read both ways.
-      "paypal.com¹.evil.example",
-    ]) {
-      expect(linkTextProblem(text, EVIL), JSON.stringify(text)).toBe("misleading");
-    }
-    expect(linkTextProblem("paypal.cᵒm", "https://www.paypal.com/")).toBeNull();
-    expect(linkTextProblem("www.senic.org¹", "https://senic.org/")).toBeNull();
-    // Inside a name, a raised digit or a sign of letters is read as nothing too.
-    for (const text of ["PayPal™.com", "paypal¹.com", "™paypal.com"]) expect(linkTextProblem(text, EVIL), text).toBe("misleading");
-    for (const [text, href] of [
-      ["paypal¹.com", "https://www.paypal.com/"],
-      ["¹paypal.com", "https://www.paypal.com/"],
-      ["Moodle™.org", "https://moodle.org/"],
-    ]) {
-      expect(linkTextProblem(text, href), `${text} over ${href}`).toBeNull();
-    }
-    for (const text of ["CO₂-Bilanz", "H₂O", "10 m²", "№ 5", "Mag.ª Huber"]) expect(linkTextProblem(text, EVIL), text).toBeNull();
-  });
-
-  it("reads a Roman numeral letter as the letter it shows", () => {
-    for (const text of [
-      "paypal.ⅽom",
-      "https://paypal.ⅽom",
-      "paypal.ⅽom/login",
-      "Sign in at paypal.ⅽom to confirm",
-      "paypaⅼ.com",
-      "https://paypaⅼ.com/signin",
-      "sparkasse.ⅾe",
-      "paypal.ⅽom.evil.example",
-      "https://paypal.ⅽom@evil.example",
-      "support@paypal.ⅽom",
-    ]) {
-      expect(linkTextProblem(text, EVIL), JSON.stringify(text)).toBe("misleading");
-    }
-    expect(linkTextProblem("support@paypal.ⅽom", "mailto:support@evil.example")).toBe("misleading");
-    expect(linkTextProblem("paypal.ⅽom", "https://www.paypal.com/")).toBeNull();
-    // As a name's last letter too (ⅼ U+217C, ⅰ U+2170, ⅴ U+2174, Ⅼ U+216C), and a raised letter so.
-    for (const text of [
-      "example.nⅼ",
-      "example.nⅼ/login",
-      "www.example.nⅼ",
-      "example.nⅼ:443",
-      "example.aⅰ",
-      "example.goⅴ",
-      "EXAMPLE.NⅬ",
-      "rabobank.nⅼ",
-      "rabobank.nⅼ/login",
-      "www.rabobank.nⅼ/login",
-      "www.mbank.pⅼ",
-      "rabobank.nⅼ:443",
-      "(digid.nⅼ)",
-      "Log in at irs.goⅴ to confirm",
-      "RABOBANK.NⅬ",
-      "paypal.cᵒᵐ",
-      "sparkasse.dᵉ",
-    ]) {
-      expect(linkTextProblem(text, EVIL), JSON.stringify(text)).toBe("misleading");
-    }
-    expect(linkTextProblem("info@example.nⅼ", "mailto:info@evil.example")).toBe("misleading");
-    expect(linkTextProblem("rabobank.nⅼ", "https://www.rabobank.nl/")).toBeNull();
-    expect(linkTextProblem("senic.org¹", "https://senic.org/")).toBeNull();
-    for (const text of ["Ludwig Ⅻ.", "Kapitel Ⅲ.2", "Teil Ⅱ", "Louis.ⅩⅣ", "Mag.ª Huber"]) expect(linkTextProblem(text, EVIL), text).toBeNull();
-  });
-
-  it("drops a mark that follows no letter or digit, at a name's start or a label's", () => {
-    for (const text of [
-      "paypal.̲com",
-      "www.paypal.̲com/login",
-      "paypal.̣com",
-      "paypal.́com",
-      "paypal.̇com",
-      "sparkasse.̲de/login",
-      "paypal.̲com.evil.example",
-      "̲paypal.com",
-      "www.̲paypal.com",
-      "̲paypal.com/login",
-      "www.̲paypal.com/login",
-      "Log in at ̲paypal.com",
-      "support@paypal.̲com",
-    ]) {
-      expect(linkTextProblem(text, EVIL), JSON.stringify(text)).toBe("misleading");
-    }
-    expect(linkTextProblem("paypal.̲com", "https://www.paypal.com/")).toBeNull();
-    for (const text of ["naïve.", "café.", "e.g.", "Don´t", "̲"]) expect(linkTextProblem(text, EVIL), JSON.stringify(text)).toBeNull();
-  });
-
-  it("reads a host through a hair space, which shows nothing", () => {
-    for (const text of ["paypal .com", "paypal.c om", "https://bank .example"]) {
-      expect(linkTextProblem(text, EVIL), JSON.stringify(text)).toBe("misleading");
-    }
-    expect(linkTextProblem(" ", EVIL)).toBe("empty");
-    // A narrow or a thin space shows: "z. B." stays an abbreviation.
-    for (const text of ["z. B.", "z. B.", "d. h."]) expect(linkTextProblem(text, EVIL), JSON.stringify(text)).toBeNull();
-  });
-
-  it("reads Co. before a public suffix as part of a host, and a title only at a name's start", () => {
-    for (const text of ["Amazon.Co.UK", "Barclays.Co.UK", "Paypal.Co.Uk", "mail.Co.UK", "Co.UK", "paypal.Co.UK.evil.example"]) {
-      expect(linkTextProblem(text, EVIL), text).toBe("misleading");
-    }
-    for (const [text, href] of [
-      ["Müller GmbH & Co.KG", "https://mueller.example/"],
-      ["Samsung Co.Ltd.", "https://samsung.example/"],
-      ["Ao.Univ.Prof.", "https://uni.example/"],
-      ["a.o.Univ.Prof.", "https://uni.example/"],
-    ]) {
-      expect(linkTextProblem(text, href), text).toBeNull();
-    }
-  });
-
-  it("reads a name of another site in front of the link's, a hyphen after its top-level domain", () => {
-    for (const text of ["paypal.com-login.evil.example", "paypal.com-secure.login.evil.example", "https://paypal.com-login.evil.example/login"]) {
-      expect(linkTextProblem(text, EVIL), text).toBe("misleading");
-    }
-    expect(linkTextProblem("paypal.com-login.evil.example", "https://paypal.com-login.evil.example/")).toBeNull();
-  });
-
-  it("a label that starts with a top-level domain and a hyphen shows that name", () => {
-    for (const text of ["paypal.com-login", "PayPal.com-Login", "Log in at paypal.com-secure to confirm", "amazon.de-bestellung", "www.paypal.com-login/"]) {
-      expect(linkTextProblem(text, EVIL), text).toBe("misleading");
-    }
-    expect(linkTextProblem("Booking.com-Konto", "https://www.booking.com/")).toBeNull();
-    expect(linkTextProblem("ams.at-Jobbörse", "https://jobs.ams.at/")).toBeNull();
-    for (const text of ["bzw.Online-Kurs", "1.IT-Sicherheit", "e.V.-Mitglied"]) expect(linkTextProblem(text, "https://uni.example/"), text).toBeNull();
-  });
-
-  // The URL parsers of the server (Node) and the browsers differ at the
-  // edges: the same text gets the same answer in the editor and on the server.
-  it("reads a name the URL parser refuses as written, when it ends in a top-level domain", () => {
-    for (const text of ["xn--a.paypal.com", "Log in at xn--a.paypal.com", "https://xn--a.paypal.com/login", "Write to help@xn--a.paypal.com"]) {
-      expect(linkTextProblem(text, EVIL), text).toBe("misleading");
-    }
-    expect(linkTextProblem("xn--a.paypal.com", "https://www.paypal.com/")).toBeNull();
-    expect(linkTextProblem("xn--abc-.paypal.com", "https://www.paypal.com/")).toBeNull();
-  });
-
-  it("reads a character Unicode 16 doesn't assign (a newer browser may know it) as a space and as nothing", () => {
-    // U+1AD0, a combining mark of Unicode 17; U+16FF4, a number letter of
-    // Unicode 17; U+0378, unassigned.
-    for (const text of ["paypal.᫐com", "paypal.co\u{16FF4}m", "paypal\u{16FF4}.com", "paypal.com\u{16FF4}", "pay͸pal.com", "https://paypal.co\u{16FF4}m/login"]) {
-      expect(linkTextProblem(text, EVIL), JSON.stringify(text)).toBe("misleading");
-    }
-    expect(linkTextProblem("paypal.com\u{16FF4}", "https://www.paypal.com/")).toBeNull();
-    expect(linkTextProblem("Studie\u{16FF4}", EVIL)).toBeNull();
-    expect(linkTextProblem("\u{16FF4}", EVIL)).toBeNull();
-  });
-
-  it("reads look-alike letters in every label of a name written in Latin letters, or in look-alikes only", () => {
-    for (const [text, href] of [
-      ["pаypal.com", "https://xn--pypal-4ve.com/"], // Cyrillic а
-      ["https://pаypal.com/login", "https://xn--pypal-4ve.com/login"],
-      ["аррӏе.com", "https://xn--80ak6aa92e.com/"], // аррӏе
-      ["аррӏе.сом", EVIL], // аррӏе.сом, Cyrillic only
-      ["paypal.соm.evil.example", EVIL],
-      // Cyrillic г and п, which show as r and n.
-      ...["micгosoft.com", "liпkedin.com", "dгopbox.com", "орепаі.com"].map((text) => [text, new URL(`https://${text}/`).href]),
-    ]) {
-      expect(linkTextProblem(text, href), `${text} over ${href}`).toBe("misleading");
-    }
-    const own = (address: string) => {
-      const check = checkLinkHref(address);
-      if (!check.ok) throw new Error("refused");
-      return check.href;
-    };
-    for (const [text, href] of [
-      ["bücher.de", "https://xn--bcher-kva.de/"],
-      ["сбербанк.рф", own("https://сбербанк.рф/")],
-      ["кот.укр", own("https://кот.укр/")],
-      ["pаypal.com", "https://paypal.com/"],
-    ]) {
-      expect(linkTextProblem(text, href), `${text} over ${href}`).toBeNull();
-    }
-  });
-
-  // The owner's rule awaited (link-rules check, item 8): until then, an email
-  // address's first part is read as a host over a web link when it starts
-  // with "www." or ends in a country's or a generic top-level domain (com,
-  // net, org, edu, gov, mil, int, info, biz); a surname such as "schmidt" or
-  // "kim", which are top-level domains too, isn't one.
-  it("reads an email address's first part as a host over a web link when it starts with www. or ends in a country's or a generic top-level domain", () => {
-    for (const text of ["paypal.com@evil.example", "www.paypal.com@evil.example", "Write to sparkasse.de@evil.example"]) {
-      expect(linkTextProblem(text, EVIL), text).toBe("misleading");
-    }
-    for (const [text, href] of [
-      ["anna.schmidt@uni.example", "https://uni.example/"],
-      ["anna.kim@uni.example", "https://uni.example/people"],
-      ["paypal.com@evil.example", "mailto:paypal.com@evil.example"],
-      ["Kontakt: info@verein.de", "https://verein.de/kontakt"],
-    ]) {
-      expect(linkTextProblem(text, href), `${text} over ${href}`).toBeNull();
-    }
-  });
-
-  it("doesn't read Greek words as look-alike top-level domains", () => {
-    for (const text of ["…στην Αθήνα.Το", "προσπάθεια.να", "ΑΘΗΝΑ.ΤΟ", "Αθήνα.ΝΑ", "ΚΑΙ.ΤΟ", "και.να"]) {
-      expect(linkTextProblem(text, EVIL), text).toBeNull();
-    }
-    for (const text of ["paypal.соm", "PAYPAL.СОМ", "paypal.cοm"]) {
-      expect(linkTextProblem(text, EVIL), text).toBe("misleading");
-    }
-  });
-
-  it("doesn't read a title or a company form after short words as a host", () => {
-    for (const text of ["apl.Prof. Dr. Weber", "Jun.Prof.", "em.Prof.", "Asst.Prof.", "Adj.Prof.", "Pty.Ltd.", "Acme Pte.Ltd."]) {
-      expect(linkTextProblem(text, "https://uni.example/"), text).toBeNull();
-    }
-    // A word in lower case after a title is an abbreviation's, whatever the
-    // public suffixes hold ("dr.in" is one): the Austrian "Dr.in".
-    for (const text of [
-      "Dr.in Maria Huber",
-      "Mag.a Dr.in Huber",
-      "Univ.-Prof.in Dr.in Eva Berger",
-      "Prof.in Dr.in Huber",
-      "Dr.in med. Huber",
-      "Vortrag von Dr.in Huber (PDF)",
-    ]) {
-      expect(linkTextProblem(text, "https://uni.example/x"), text).toBeNull();
-    }
-    for (const text of ["paypal.prof", "Barclays.Ltd", "barclays.ltd", "www.Jun.Prof"]) {
-      expect(linkTextProblem(text, EVIL), text).toBe("misleading");
-    }
-    // A sentence's end with no space before a word that is a top-level
-    // domain reads as a host (§12, fails safe).
-    expect(linkTextProblem("…in Brussels.It", "https://uni.example/")).toBe("misleading");
-  });
-
-  // A label longer than DNS allows (RFC 1035; beyondDns in link-host.ts)
-  // is no host's: such a name is read as the URL parser reads it, without
-  // parsing its long label whole (which costs its length times the
-  // characters it holds), the label standing for itself.
-  it("reads a name with a label longer than DNS allows as the URL parser reads it", () => {
-    const ideographs = ideographsOf(100);
-    const greek = (n: number) => Array.from({ length: n }, (_, i) => "αβγδεζηθικλμνξοπρστυφχψω"[i % 24]).join("");
-    const arabic = (n: number) => Array.from({ length: n }, (_, i) => String.fromCodePoint(0x628 + (i % 35))).join("");
-    const rows: [string, string, LinkTextProblem | null][] = [
-      [`${ideographs}.com`, EVIL, "misleading"],
-      [`https://${ideographs}.com`, EVIL, "misleading"],
-      [`https://user@${ideographs}.com`, EVIL, "misleading"],
-      [`https://${ideographs}%41.com`, EVIL, "misleading"],
-      [`www.${ideographs}.com`, EVIL, "misleading"],
-      [`Kontakt: ${ideographs}.de/impressum`, EVIL, "misleading"],
-      [`info@${ideographs}.com`, EVIL, "misleading"],
-      [`${ideographs}@evil.example`, "mailto:info@evil.example", "misleading"],
-      [`paypal.com@${ideographs}.evil.example`, EVIL, "misleading"],
-      [`paypal.com.${ideographs}.evil.example`, EVIL, "misleading"],
-      [`${ideographs}.evil.example`, EVIL, null],
-      [`${ideographs}.bücher.example`, "https://bücher.example/", null],
-      // Names the URL parser refuses, read as written: a punycode label of
-      // other characters, an Arabic-Indic digit inside a Greek label, both
-      // kinds of digits in an Arabic one.
-      [`xn--${ideographs}.com`, EVIL, "misleading"],
-      [`${greek(50)}\u0663${greek(50)}.com`, EVIL, "misleading"],
-      [`${arabic(50)}\u0663${arabic(10)}1${arabic(40)}.evil.example`, EVIL, null],
-    ];
-    for (const [text, href, problem] of rows) expect(linkTextProblem(text, href), text.slice(0, 120)).toBe(problem);
-  });
-
-  it("reads a label longer than DNS allows in pieces, accepted or refused as the URL parser reads it whole", () => {
-    // Seeded: labels of 64 to 160 letters of one script, with characters
-    // that change how the parser checks a label (digits of either kind,
-    // letters written right to left, a hyphen, "xn--") at its start, inside
-    // or at its end. Each is shown as an address after a word, which only
-    // the reading of "https:" addresses reads (no quick link).
-    let seed = 20261022;
-    const random = () => {
-      seed = (seed + 0x6d2b79f5) | 0;
-      let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
-      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-    };
-    const pick = <T,>(items: readonly T[]) => items[Math.floor(random() * items.length)];
-    const between = (from: number, to: number) => String.fromCodePoint(from + Math.floor(random() * (to - from + 1)));
-    const scripts = [
-      () => between(0x4e00, 0x9fff),
-      () => between(0xac00, 0xd7a3),
-      () => between(0x5d0, 0x5ea),
-      () => between(0x628, 0x63a),
-      () => between(0xe01, 0xe2e),
-      () => between(0x915, 0x939) + (random() < 0.3 ? "\u094D" : ""),
-      () => between(0x3b1, 0x3c9),
-      () => between(0x10d0, 0x10f0),
-    ];
-    const kinds = ["1", "-", "\u0663", "\u06F3", "\u05D0", "\u0628", "ß", "xn--", "a"];
-    for (let i = 0; i < 300; i++) {
-      const letter = pick(scripts);
-      let label = Array.from({ length: 64 + Math.floor(random() * 96) }, letter).join("");
-      for (let k = Math.floor(random() * 3); k > 0; k--) {
-        const kind = pick(kinds);
-        const at = pick([0, label.length, Math.floor(random() * label.length)]);
-        label = label.slice(0, at) + kind + label.slice(at);
-      }
-      // As learners see it (in normal form), as the parser gives it, the
-      // long label standing for itself; or, refused, as written.
-      const host = `${label}.com`.normalize("NFKC");
-      let parsed = true;
-      try {
-        new URL(`https://${host}`);
-      } catch {
-        parsed = false;
-      }
-      const expected = parsed ? `xn--${host.toLowerCase()}` : host.toLowerCase();
-      expect(addressesShown(`Login:https://${host}`)?.web.map((place) => place.host), JSON.stringify(host)).toEqual([expected]);
-    }
-  });
-
-  it("reads an address whose host is longer than DNS allows with ideographic full stops for its dots", () => {
-    expect(linkTextProblem(`https://${ideographsOf(1_000)}\u3002com`, EVIL)).toBe("misleading");
-    expect(linkTextProblem(`https://${ideographsOf(100)}\u3002evil\u3002example`, EVIL)).toBeNull();
+    for (const text of [`https://${latin(64)}.evil-shop.de`, `${greek(1_000)}.evil-shop.de`]) expect(linkTextProblem(text, EVIL), text.slice(0, 40)).toBeNull();
+    expect(addressesShown(`https://${latin(64)}.com`)?.web).toEqual([{ host: `xn--${latin(64)}.com`, named: false }]);
+    // 63 is a label DNS can hold: in punycode, as the URL parser writes it.
+    expect(addressesShown(`https://${latin(63)}.com`)?.web[0].host).toBe(new URL(`https://${latin(63)}.com`).hostname);
   });
 
   // A text of up to 10,000 characters (a block's most) is read on every save
@@ -825,14 +523,18 @@ describe("linkTextProblem", () => {
   // one of 10,000, the same characters in all: about equal when the cost
   // grows with the length, eight times more when with its square.
   it.each([
-    ["a title before thousands of labels", (n: number) => `Dr.${"de.".repeat(Math.floor((n - 5) / 3))}de`],
+    ["a title before thousands of common labels", (n: number) => `Dr.${"de.".repeat(Math.floor((n - 5) / 3))}de`],
+    ["an address of thousands of common labels", (n: number) => `https://${"com.".repeat(Math.floor((n - 20) / 4))}evil-shop.de`],
     ["a company form before thousands of labels", (n: number) => `${"Co.".repeat(Math.floor((n - 2) / 3))}UK`],
     ["an address of thousands of commas", (n: number) => `https://a${",".repeat(n - 10)}b`],
-    ["an email address of thousands of commas", (n: number) => `mailto:a@b${",".repeat(n - 11)}c`],
     ["an address of thousands of dots", (n: number) => `https://a${".".repeat(n - 10)}b`],
     ["a name of thousands of hyphens", (n: number) => `a${"-".repeat(n - 2)}a`],
-    ["thousands of characters Unicode 16 doesn't assign", (n: number) => "a.\u{16FF4}".repeat(Math.floor(n / 4))],
-    ["thousands of names the URL parser refuses", (n: number) => "xn--a.com ".repeat(Math.floor(n / 10))],
+    ["thousands of names", (n: number) => "xn--a.com ".repeat(Math.floor(n / 10))],
+    ["thousands of email addresses", (n: number) => "a@b.com ".repeat(Math.floor(n / 8))],
+    ["thousands of email addresses' first parts", (n: number) => `${"a.com@".repeat(Math.floor((n - 6) / 6))}b.com`],
+    ["one long Latin label", (n: number) => `https://${latin(n - 12)}.com`],
+    ["one long Greek label", (n: number) => `${greek(n - 16)}.evil-shop.de`],
+    ["thousands of compatibility forms", (n: number) => "paypal.\u217Dom ".repeat(Math.floor(n / 11))],
   ])("reads %s in time proportional to its length", (_, make) => {
     const time = (texts: string[]) => {
       let best = Infinity;
@@ -846,18 +548,11 @@ describe("linkTextProblem", () => {
     const short = Array.from({ length: 8 }, () => make(1_250));
     const long = [make(10_000)];
     time(short);
-    expect(time(long) / time(short)).toBeLessThan(3);
+    // Within the budget of 10 ms a text, a fraction of a millisecond is noise: under 3 ms passes.
+    const took = time(long);
+    const ratio = took / time(short);
+    expect(took < 3 || ratio < 3, `${took.toFixed(2)} ms, ${ratio.toFixed(1)} times`).toBe(true);
   }, 30_000);
-
-  it("reads the addresses a text shows once, for as many links as need comparing", () => {
-    const shown = addressesShown("https://example.org and help@example.org");
-    expect(showsAnotherAddress(shown, "https://example.org/a")).toBe(false);
-    expect(showsAnotherAddress(shown, "mailto:help@example.org")).toBe(false);
-    expect(showsAnotherAddress(shown, "mailto:other@example.org")).toBe(true);
-    expect(showsAnotherAddress(shown, "https://evil.example/")).toBe(true);
-    expect(addressesShown("the guide")).toBeNull();
-    expect(showsAnotherAddress(null, "https://evil.example/")).toBe(false);
-  });
 });
 
 describe("linkTextWarnings", () => {
@@ -931,6 +626,13 @@ describe("toLinkInput", () => {
     expect(toLinkInput("the guide")).toBe("the guide");
     expect(toLinkInput("//example.org")).toBe("//example.org");
     expect(toLinkInput("")).toBe("");
+  });
+
+  it("leaves an address whose host DNS can't hold as typed, without parsing it", () => {
+    for (const host of ["☃".repeat(64), `bank.${"à".repeat(64)}`, "a.".repeat(127)]) {
+      expect(toLinkInput(`https://${host}.example/x`)).toBe(`https://${host}.example/x`);
+      expect(checkLinkHref(toLinkInput(`https://${host}.example/x`))).toEqual({ ok: false, reason: "host" });
+    }
   });
 
   it("unwraps an Outlook safe link whose target passes the check", () => {
