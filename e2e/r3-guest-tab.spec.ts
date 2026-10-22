@@ -1,7 +1,6 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type BrowserContext, type Page } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
-import type { BrowserContext } from "@playwright/test";
 import { createPerson, removePeople, runId } from "./fixtures/people";
 
 /**
@@ -13,9 +12,8 @@ import { createPerson, removePeople, runId } from "./fixtures/people";
  * and offers a reload; reloaded, it is the account's page, which asks
  * whether to add the work.
  *
- * Red on the build before: the page took up the account in place and
- * dropped the guest's copy from the screen (3 answers pressed, then 0).
- * Requires a real database — gated on E2E_DB=1.
+ * Red on the build before, where the page took the account up in place
+ * and said nothing. Requires a real database — gated on E2E_DB=1.
  */
 
 const DB = process.env.E2E_DB === "1";

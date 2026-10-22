@@ -774,9 +774,10 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
   // the store lets go of the learner's data, so an answer to a save sent
   // before can't move them on.
   const progressRefs = React.useRef(courseSaveRefs());
-  // The guest's course moved into the account on sign-in, until it loads:
-  // it was sent in fill mode, and the account's answers come first then
-  // too (courseAfterLoad).
+  // The guest's course moved into the account ("Add it to my account"),
+  // not the course being played, until it loads: what the server holds
+  // then is what the page shows, the guest's copy on the page left out
+  // (courseAfterLoad).
   const migratedRef = React.useRef<CourseProgress | null>(null);
   // The course whose saved progress has loaded and been merged in, for
   // readyCourse (a signed-in learner's; loadedCourseRef, as state).

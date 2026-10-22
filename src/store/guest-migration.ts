@@ -7,26 +7,26 @@
  * once their profile step is done — on a shared computer it may be someone
  * else's. Until then it stays in the guest store, untouched, and the
  * learner store offers it (guestWorkOf). It fills only what the account
- * lacks: what the account has saved always wins (D37, D69), answer by
- * answer in the course (the guest store holds one; it is sent in fill
- * mode, so the account still wins if another device saves it at the same
- * moment, spec 5.4) and field by field in the Comp Card, so a course the
- * account started elsewhere still gets the guest's lessons, answers and
- * completion (D79: what the page says was added is in the account). A
+ * lacks, as the account is when each write lands: what the account has
+ * saved always wins (D37, D69), answer by answer in the course (the guest
+ * store holds one; it is sent in fill mode, and the server says where it
+ * kept an answer of the account's over the guest's) and field by field in
+ * the Comp Card (filled on the server under its row's lock), so a course
+ * the account started elsewhere still gets the guest's lessons, answers
+ * and completion (D79: what the page says was added is in the account). A
  * Comp Card the account shares gets nothing: moving never shares (D80);
  * the guest's card stays in the browser (`cardHeldBack`).
- * The guest store is emptied only once every write has got through (or
- * been refused, which no try can change: `settled`) and nothing was held
- * back: until then it is the copy that outlives a tab closed mid-move, and
- * is offered again on the next page. Moving it twice changes nothing —
- * the account has it then, and wins. No write is given up on at its first failure — a dropped
- * connection, or a session lookup that failed (the save actions fail then:
- * see requireLearner in src/app/actions/learner.ts) — and one failure
- * doesn't stop the rest: each write is tried again (retry.ts), and what
- * the account should now hold goes to the store whether its write got
- * through or not. What didn't is then saved by the store's own
- * write-throughs, which try again too: the Comp Card, the badges not yet
- * awarded, and the course once it has loaded.
+ * No write is given up on at its first failure — a dropped connection, or
+ * a session lookup that failed (the save actions fail then: see
+ * requireLearner in src/app/actions/learner.ts) — and one failure doesn't
+ * stop the rest: each write is tried again (retry.ts). One refused as
+ * another account's stops the move (someone else signed in on this
+ * browser): none of it would land in the account that started it. What
+ * didn't move — a write that never got through, a Comp Card held back —
+ * stays in the guest store, and only that (`left`, guestStoreLeft): it is
+ * the copy that outlives a tab closed mid-move, and is offered again;
+ * moving it twice changes nothing the account has. The page shows only
+ * what the server confirmed.
  *
  * No React: DemoStateProvider in demo-state.tsx applies it.
  */
