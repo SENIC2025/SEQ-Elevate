@@ -97,12 +97,15 @@ const ANY_CHAR = /[^]/gu;
 
 /** A run of what may stand apart (MAY_STAND_APART), each character read as a space where it stands apart (standsApart). */
 const apartOf = (run: string) => run.replace(ANY_CHAR, standsApart);
+// One letter, as a character shows it after compatibility normalisation.
+const ONE_LETTER_SHOWN = /^\p{L}$/u;
 /**
- * The same run read as the letters it shows, where a character shows one
- * letter or digit ("ᵒ", "ⓒ", "ⅽ", "¹"); a sign of letters ("™", "№") stands
- * apart all the same.
+ * The same run read as part of a name: a character that shows one letter
+ * as that letter ("ᵒ", "ⓒ", "ⅽ"), and one that stands apart otherwise (a
+ * raised digit, a sign of letters: "¹", "™") as nothing.
  */
-const lettersOf = (run: string) => run.replace(ANY_CHAR, (char) => ([...char.normalize("NFKC")].length === 1 ? char : standsApart(char)));
+const lettersOf = (run: string) =>
+  run.replace(ANY_CHAR, (char) => (ONE_LETTER_SHOWN.test(char.normalize("NFKC")) ? char : standsApart(char) === " " ? "" : char));
 
 /**
  * Does the run at `at` (`length` long) of `text` end a name: right after
@@ -123,9 +126,9 @@ const asShown = (text: string) => text.normalize("NFKC").replace(SHOWS_NOTHING, 
  * A text as its addresses are read, once or twice: as learners see it
  * (asShown), each run of characters that may stand apart from a name
  * (MAY_STAND_APART) read as a space and, where it doesn't end a name
- * (endsName), as the letter or digit each shows too (lettersOf). So
- * "paypal.com¹", "PayPal.com™" and "paypal.comʼs" show paypal.com, and so
- * do "paypal.cᵒm", "paypal.ⓒⓞⓜ", "paypaⅼ.com" (a Roman numeral) and
+ * (endsName), as part of the name too (lettersOf). So "paypal.com¹",
+ * "PayPal.com™" and "paypal.comʼs" show paypal.com, and so do "paypal.cᵒm",
+ * "paypal.ⓒⓞⓜ", "paypaⅼ.com" (a Roman numeral), "PayPal™.com" and
  * "paypal.com¹.evil.example".
  */
 function readingsOf(text: string): string[] {
