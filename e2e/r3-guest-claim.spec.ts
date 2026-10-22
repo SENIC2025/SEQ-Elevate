@@ -593,7 +593,15 @@ describe("Release 3: guest work added to an account, part by part", () => {
     await other.goto("/en/learner");
     await expect(addButton(page)).toBeVisible({ timeout: 20_000 });
     await expect(addButton(other)).toBeVisible({ timeout: 20_000 });
-    await Promise.all([addButton(page).click(), addButton(other).click()]);
+    // At once at the server: each tab's request (it carries the guest's card) waits until both are on their way.
+    const first = await holdAction(page, GUEST_D);
+    const second = await holdAction(other, GUEST_D);
+    await addButton(page).click();
+    await expect.poll(() => first.state.heldOnce, { timeout: 30_000 }).toBe(true);
+    await addButton(other).click();
+    await expect.poll(() => second.state.heldOnce, { timeout: 30_000 }).toBe(true);
+    first.release();
+    second.release();
     const said = [await outcome(page), await outcome(other)].sort();
     expect(said).toEqual([ADDED, ALREADY].sort());
     expect(await account(person.userId)).toMatchObject({ completed: true, p1: GUEST_P1, p2: GUEST_P2, badges: [BADGE] });
