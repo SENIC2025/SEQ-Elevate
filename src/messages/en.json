@@ -1425,7 +1425,8 @@
     "removed": "Removed from this browser.",
     "clear": "Clear my work from this browser",
     "clearConfirm": "This removes your progress, answers and Comp Card from this browser. It can't be undone.",
-    "signedInElsewhere": "You've signed in in another tab. What you do on this page is still saved on this browser only, as before you signed in. Reload the page to carry on with your account: you'll be asked whether to add this work to it.",
+    "signedInElsewhere": "You've signed in in another tab. What you do on this page is still saved on this browser only, as before you signed in. Going to another page, or reloading this one, carries on with your account: you'll be asked whether to add this work to it.",
+    "changedElsewhere": "The work saved on this browser was changed in another tab: added to an account, removed, or changed there. Nothing more on this page is saved. Reload the page to carry on.",
     "reload": "Reload this page"
   },
   "safeguarding": {

@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { getSession, useSession } from "next-auth/react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useLocale } from "next-intl";
 import {
   ensureLearnerMembership,
@@ -706,11 +706,20 @@ interface ContextValue {
    * (GuestWorkPrompt).
    */
   signedInElsewhere: boolean;
+  /**
+   * A guest's page whose guest store another tab added to an account,
+   * removed or changed: it writes no more to it, and says so, with a way
+   * to reload (GuestWorkPrompt).
+   */
+  guestStoreChanged: boolean;
 }
 
 const DemoStateContext = React.createContext<ContextValue | null>(null);
 // How many times the store has let go of a learner's data (LearnerView).
 const GenerationContext = React.createContext(0);
+// A guest's page kept the guest's (signedInElsewhere): LearnerView takes
+// nothing rendered for the account into it.
+const PinnedContext = React.createContext(false);
 
 export function DemoStateProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = React.useReducer(reducer, DEFAULT_STATE);
@@ -760,10 +769,29 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
   // that must see it in the same commit.
   const [guestPinned, setGuestPinned] = React.useState(false);
   const guestPinnedRef = React.useRef(false);
+  // The page a guest's page was kept the guest's on: going to any other is
+  // a full load, the account's page (below).
+  const [pinnedAt, setPinnedAt] = React.useState<string | null>(null);
   const pinGuest = React.useCallback((on: boolean) => {
     guestPinnedRef.current = on;
+    setPinnedAt(on ? window.location.pathname : null);
     setGuestPinned(on);
   }, []);
+  // A guest's page (kept the guest's, or not signed in) whose guest store
+  // another tab changed under it: what it holds is no longer what the
+  // browser holds, so it writes no more, and says so (guestStoreChanged).
+  const [guestStopped, setGuestStopped] = React.useState(false);
+  const guestStoppedRef = React.useRef(false);
+  const stopGuest = React.useCallback(() => {
+    guestStoppedRef.current = true;
+    setGuestStopped(true);
+  }, []);
+  // The guest store's text as this page last wrote or read it: a page kept
+  // the guest's writes only over that (the guest write-through).
+  const lastGuestText = React.useRef<string | null>(null);
+  // "Add it to my account" is on its way from this page: the offer follows
+  // the browser's copy again once it is answered.
+  const claimingRef = React.useRef(false);
   const persistedBadges = React.useRef<Set<string>>(new Set());
   const badgeTries = React.useRef<Map<string, number>>(new Map());
   // The course and Comp Card last handed to the saves below. A write-through
@@ -809,10 +837,14 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
     updateSession.current = update;
   }, [update]);
 
-  // A guest's progress, from this browser's guest store.
+  // A guest's progress, from this browser's guest store: what the page
+  // holds is the browser's again, and is written again.
   const hydrateGuest = React.useCallback(() => {
+    guestStoppedRef.current = false;
+    setGuestStopped(false);
     try {
       const raw = window.localStorage.getItem(STORAGE_KEY);
+      lastGuestText.current = raw;
       if (raw) {
         // Possibly written by an older page (see storedGuestState).
         const stored = storedGuestState(JSON.parse(raw), DEFAULT_STATE);
@@ -1025,11 +1057,16 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
   // data held while their session can't be read (heldBy, above): it would
   // go from there into the next account that signs in on this browser.
   // A guest's page kept the guest's after a sign-in in another tab
-  // (guestPinned) goes on writing it.
+  // (guestPinned) goes on writing it, but only over what it last wrote: the
+  // work may have been added to the account, removed or changed in another
+  // tab meanwhile, and what this page holds would then come back over it.
+  // It stops instead, and says so (guestStoreChanged). So does any guest's
+  // page once another tab changed the store under it (the listener below).
   React.useEffect(() => {
     if (!hydrated || (authed && !guestPinned) || dbReady || typeof heldBy.current === "string") {
       return;
     }
+    if (guestStoppedRef.current) return;
     // Just cleared (clearGuestWork): the store stays removed until the
     // guest does something again.
     if (clearedGuest.current) {
@@ -1037,11 +1074,74 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     try {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      if (guestPinnedRef.current && window.localStorage.getItem(STORAGE_KEY) !== lastGuestText.current) {
+        // What the browser holds (an external store) changed under this
+        // page: it is told so, once.
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        stopGuest();
+        return;
+      }
+      const text = JSON.stringify(state);
+      window.localStorage.setItem(STORAGE_KEY, text);
+      lastGuestText.current = text;
     } catch {
       /* ignore */
     }
-  }, [state, hydrated, authed, dbReady, guestPinned]);
+  }, [state, hydrated, authed, dbReady, guestPinned, stopGuest]);
+
+  // ---- The guest store, changed in another tab ----
+  // A guest's page (kept the guest's, or not signed in): the work was added
+  // to an account, removed, or changed in another tab. A page kept the
+  // guest's stops writing at any change; a guest's page at its removal (two
+  // guest tabs still write in turn, as they always have). A signed-in page
+  // offers the work as the browser holds it now (none: no offer), unless
+  // its own "Add" is on its way.
+  const authedRef = React.useRef(authed);
+  const hydratedRef = React.useRef(hydrated);
+  React.useEffect(() => {
+    authedRef.current = authed;
+    hydratedRef.current = hydrated;
+  }, [authed, hydrated]);
+  React.useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== STORAGE_KEY && e.key !== null) return;
+      if (guestPinnedRef.current || (!authedRef.current && hydratedRef.current)) {
+        if (guestPinnedRef.current || e.newValue === null) stopGuest();
+        return;
+      }
+      if (dbOwnerRef.current && !claimingRef.current) setGuestWork(readGuestWork());
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [stopGuest]);
+
+  // ---- A guest's page kept the guest's: any other page is a full load ----
+  // Every page after the sign-in is rendered for the account, so a page
+  // opened from it in the app (a link, the language, back and forward)
+  // would show the account's data on the guest's page, and the store would
+  // take it as the guest's. A link is followed by the browser instead: a
+  // full load, the account's page, which offers the guest's work. Any other
+  // way the app goes to another page shows nothing and loads it in full.
+  React.useEffect(() => {
+    if (!guestPinned) return;
+    const onClick = (e: MouseEvent) => {
+      if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      const link = e.target instanceof Element ? e.target.closest("a[href]") : null;
+      if (!(link instanceof HTMLAnchorElement) || (link.target && link.target !== "_self") || link.hasAttribute("download")) return;
+      const to = new URL(link.href, window.location.href);
+      if (to.origin !== window.location.origin) return;
+      if (to.pathname === window.location.pathname && to.search === window.location.search) return;
+      // Not to the app's router: the browser follows the link.
+      e.stopImmediatePropagation();
+    };
+    window.addEventListener("click", onClick, true);
+    return () => window.removeEventListener("click", onClick, true);
+  }, [guestPinned]);
+  const pathname = usePathname();
+  const leftPinnedPage = guestPinned && pinnedAt !== null && pathname !== pinnedAt;
+  React.useEffect(() => {
+    if (leftPinnedPage) window.location.reload();
+  }, [leftPinnedPage]);
 
   // ---- Load a course's saved progress from the DB when it becomes active ----
   // The learner may be in the course before their data has loaded — on a
@@ -1315,15 +1415,18 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     let answer: GuestClaimResult;
+    claimingRef.current = true;
     try {
       answer = await withRetry(() => claimGuestWorkAction(claim, forUser));
     } catch {
+      claimingRef.current = false;
       if (dbOwnerRef.current === forUser) {
         setGuestWork(readGuestWork());
         setGuestWorkDone({ kind: "unconfirmed" });
       }
       return;
     }
+    claimingRef.current = false;
     if (!answer.ok) {
       if (dbOwnerRef.current !== forUser) return;
       setGuestWork(readGuestWork());
@@ -1443,6 +1546,7 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
       /* nothing to remove */
     }
     clearedGuest.current = true;
+    lastGuestText.current = null;
     dispatch({ type: "reset" });
   }, [authed]);
 
@@ -1501,6 +1605,7 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
       setSharing,
       accountLoaded: dbReady,
       signedInElsewhere: guestPinned,
+      guestStoreChanged: guestStopped,
     }),
     [
       state,
@@ -1516,13 +1621,17 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
       setSharing,
       dbReady,
       guestPinned,
+      guestStopped,
     ]
   );
 
   return (
     <DemoStateContext.Provider value={value}>
       <GenerationContext.Provider value={generation}>
-        {children}
+        <PinnedContext.Provider value={guestPinned}>
+          {/* Leaving a guest's page kept the guest's: nothing of the next page is shown before it loads in full. */}
+          {leftPinnedPage ? null : children}
+        </PinnedContext.Provider>
       </GenerationContext.Provider>
     </DemoStateContext.Provider>
   );
@@ -1556,6 +1665,7 @@ export function LearnerView({
   children: React.ReactNode;
 }) {
   const generation = React.useContext(GenerationContext);
+  const pinned = React.useContext(PinnedContext);
   const router = useRouter();
   const { data: session, status } = useSession();
   const owner = sessionOwner(status, session?.user);
@@ -1568,6 +1678,9 @@ export function LearnerView({
   React.useEffect(() => {
     if (shown.current === generation) return;
     shown.current = generation;
+    // A guest's page kept the guest's isn't refreshed: the server renders
+    // for the account (its next page loads in full).
+    if (pinned) return;
     router.refresh();
     let refreshes = 1;
     const timer = setInterval(() => {
@@ -1584,7 +1697,7 @@ export function LearnerView({
       }
     }, LEARNER_VIEW_RECHECK_MS);
     return () => clearInterval(timer);
-  }, [generation, router]);
+  }, [generation, router, pinned]);
   return <React.Fragment key={generation}>{children}</React.Fragment>;
 }
 
@@ -1600,6 +1713,7 @@ const NOTHING_SAVED = {
   setSharing: async () => false,
   accountLoaded: false,
   signedInElsewhere: false,
+  guestStoreChanged: false,
 } satisfies Partial<ContextValue>;
 
 /**

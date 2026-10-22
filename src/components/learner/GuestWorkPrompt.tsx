@@ -42,16 +42,20 @@ import { useDemoState, type GuestWorkDone } from "@/store/demo-state";
  * walk, which signs in with no guest store).
  *
  * On a guest's page on which someone signed in in another tab (IL-2b), the
- * page stays the guest's until it is reloaded, and this says so instead,
- * with a way to reload: a status, so the focus stays where the learner is
- * (they may be mid-answer).
+ * page stays the guest's until it is reloaded or left (another page loads
+ * in full, as the account's), and this says so instead, with a way to
+ * reload: a status, so the focus stays where the learner is (they may be
+ * mid-answer). A guest's page whose work was added to an account, removed
+ * or changed in another tab saves no more, and says that instead, the same
+ * way.
  */
 export function GuestWorkPrompt() {
   const t = useTranslations("guestWork");
   const locale = useLocale();
   const tProfile = useTranslations("profile");
   const tCompCard = useTranslations("compCard");
-  const { guestWork, guestWorkDone, claimGuestWork, discardGuestWork, shortenGuestText, signedInElsewhere } = useDemoState();
+  const { guestWork, guestWorkDone, claimGuestWork, discardGuestWork, shortenGuestText, signedInElsewhere, guestStoreChanged } =
+    useDemoState();
   const ids = React.useId();
   const [busy, setBusy] = React.useState(false);
   const done = React.useRef<HTMLParagraphElement>(null);
@@ -65,12 +69,12 @@ export function GuestWorkPrompt() {
     if (guestWorkDone && chosen) done.current?.focus();
   }, [guestWorkDone, chosen]);
 
-  if (signedInElsewhere) {
+  if (guestStoreChanged || signedInElsewhere) {
     return (
       <section className="mx-auto max-w-6xl px-4 pt-6">
         <div className="rounded-lg border border-[var(--accent)]/40 bg-[var(--accent)]/5 p-4">
           <p role="status" className="text-sm">
-            {t("signedInElsewhere")}
+            {t(guestStoreChanged ? "changedElsewhere" : "signedInElsewhere")}
           </p>
           <Button type="button" size="sm" variant="outline" className="mt-3" onClick={() => window.location.reload()}>
             {t("reload")}

@@ -14,10 +14,14 @@ import type { GuestWorkDone } from "@/store/demo-state";
 
 let work: GuestWork | null = null;
 let done: GuestWorkDone | null = null;
+let pinned = false;
+let changed = false;
 vi.mock("@/store/demo-state", () => ({
   useDemoState: () => ({
     guestWork: work,
     guestWorkDone: done,
+    signedInElsewhere: pinned,
+    guestStoreChanged: changed,
     claimGuestWork: vi.fn(),
     discardGuestWork: vi.fn(),
     shortenGuestCard: vi.fn(),
@@ -201,5 +205,42 @@ describe("GuestWorkPrompt: what became of the work", () => {
     expect(said(claimed({ course: course("kept"), badgesMoved: 2 }), "de").text).toContain("Deine 2 Abzeichen sind in deinem Konto.");
     expect(said(claimed({ compCard: "moved" }), "el").text).toBe("Προστέθηκε στον λογαριασμό σου.");
     expect(said({ kind: "tooLong", count: 1 }, "el").text).toContain("μια απάντηση είναι πολύ μεγάλη");
+  });
+});
+
+/*
+ * Release 3 (D79, IL-2b): a guest's page kept the guest's says so, and
+ * that leaving or reloading it carries on with the account; once its work
+ * was added, removed or changed in another tab, it says it saves no more.
+ * Each a status with a way to reload, the offer left out.
+ */
+describe("GuestWorkPrompt: a guest's page kept the guest's", () => {
+  const shown = (p: boolean, c: boolean) => {
+    pinned = p;
+    changed = c;
+    work = { courses: [], compCard: true, texts: [], tooLong: [], reflections: 0, badges: 0 };
+    const html = renderIn(createElement(GuestWorkPrompt), "en");
+    pinned = false;
+    changed = false;
+    work = null;
+    return { html, text: textOf(html) };
+  };
+
+  it("says it is still the guest's, and that another page or a reload carries on with the account", () => {
+    const { html, text } = shown(true, false);
+    expect(text).toContain("You've signed in in another tab.");
+    expect(text).toContain("Going to another page, or reloading this one, carries on with your account");
+    expect(text).toContain("Reload this page");
+    expect(text).not.toContain("Add it to my account");
+    expect(html.match(/role="status"/g)).toHaveLength(1);
+  });
+
+  it("says it saves no more once the work was changed in another tab, kept the guest's or not", () => {
+    for (const p of [true, false]) {
+      const { text } = shown(p, true);
+      expect(text).toContain("The work saved on this browser was changed in another tab: added to an account, removed, or changed there. Nothing more on this page is saved.");
+      expect(text).not.toContain("You've signed in in another tab.");
+      expect(text).toContain("Reload this page");
+    }
   });
 });
