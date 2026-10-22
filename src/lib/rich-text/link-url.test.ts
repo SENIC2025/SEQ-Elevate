@@ -4,6 +4,7 @@ import {
   checkLinkHref,
   emailAddressOf,
   isEmailAddress,
+  type LinkCheck,
   type LinkRefusal,
 } from "./link-url";
 
@@ -14,6 +15,10 @@ import {
  */
 
 const OWN = "abc123.public.blob.vercel-storage.com";
+
+/** A check as compared here: an accepted address cut short, so a failed comparison of a huge input stays quick to show. */
+const brief = (check: LinkCheck) =>
+  check.ok && check.href.length > 120 ? { ...check, href: `${check.href.slice(0, 120)}…` } : check;
 
 /** 2,048 characters exactly, and one more. */
 const base = "https://example.org/";
@@ -121,21 +126,22 @@ describe("checkLinkHref accepts web and email addresses, normalised", () => {
 
 describe("checkLinkHref refuses everything else, and says why", () => {
   it.each(REFUSED)("%s", (_, input, reason) => {
-    expect(checkLinkHref(input)).toEqual({ ok: false, reason });
+    expect(brief(checkLinkHref(input))).toEqual({ ok: false, reason });
   });
 
   it("refuses a huge address by its length, before reading it", () => {
     const huge = "https://" + "a".repeat(5_000_000) + ".org";
     const started = performance.now();
-    expect(checkLinkHref(huge)).toEqual({ ok: false, reason: "too-long" });
+    const check = checkLinkHref(huge);
     expect(performance.now() - started).toBeLessThan(200);
+    expect(brief(check)).toEqual({ ok: false, reason: "too-long" });
   });
 
   it("refuses an address that is too long only once normalised", () => {
     // 700 Greek letters: each is two bytes, six characters percent-encoded.
     const typed = "https://example.org/" + "ά".repeat(700);
     expect(typed.length).toBeLessThanOrEqual(MAX_HREF_CHARS);
-    expect(checkLinkHref(typed)).toEqual({ ok: false, reason: "too-long" });
+    expect(brief(checkLinkHref(typed))).toEqual({ ok: false, reason: "too-long" });
   });
 });
 
