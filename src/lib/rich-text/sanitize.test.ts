@@ -473,6 +473,34 @@ describe("richTextProblem", () => {
     expect(richTextProblem(["bad-envelope"])).toMatch(/couldn't be read/);
   });
 
+  it("advises by what the text is: a block is split or copied, an introduction or the references list is shortened", () => {
+    expect(richTextProblem(["too-much-text"], "The references list", "list")).toBe(
+      "The references list is too long — at most 10,000 characters. Shorten the list."
+    );
+    expect(richTextProblem(["too-many-nodes"], "The references list", "list")).toBe(
+      "The references list has too much formatting or too many list points to save. Shorten the list."
+    );
+    expect(richTextProblem(["bad-envelope"], "The references list", "list")).toBe(
+      "The references list couldn't be read. Reload the page, then make your change again."
+    );
+    expect(richTextProblem(["too-much-text"], "This introduction", "text")).toBe(
+      "This introduction is too long — at most 10,000 characters. Shorten it."
+    );
+    expect(richTextProblem(["too-large"], "This introduction", "text")).toBe(
+      "This introduction has too much formatting or too many list points to save. Shorten it."
+    );
+    // A block among a lesson's blocks keeps a block's advice.
+    expect(richTextProblem(["too-much-text"], "This paragraph", "block")).toBe(
+      "This paragraph is too long — at most 10,000 characters. Split it into two blocks."
+    );
+    // No advice speaks of blocks to a text that has none.
+    for (const advice of ["text", "list"] as const) {
+      for (const issue of ["bad-envelope", "too-much-text", "too-many-nodes", "too-large"] as const) {
+        expect(richTextProblem([issue], "The text", advice), `${advice}, ${issue}`).not.toMatch(/block/i);
+      }
+    }
+  });
+
   it("is null when everything could be repaired", () => {
     expect(richTextProblem([])).toBeNull();
     expect(richTextProblem(["dropped-node", "dropped-mark", "list-flattened"])).toBeNull();

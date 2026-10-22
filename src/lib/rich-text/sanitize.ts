@@ -423,27 +423,46 @@ export function isEmptyDoc(doc: { content: readonly RtBlock[] }): boolean {
   );
 }
 
-const tooMuch = (subject: string) =>
-  `${subject} has too much formatting or too many list points to save. Split it into two blocks.`;
+/**
+ * What an author can do about text that can't be saved, by what the text
+ * is: a block among a lesson's blocks is split in two, or copied into a new
+ * block; a text of its own (a reflection lesson's introduction) is
+ * shortened; a course's references list, one text per language, is
+ * shortened, or written again on a reloaded page. Each problem's sentence
+ * ends with it (RT_PROBLEM). Authoring-tool copy (English).
+ */
+export const RT_ADVICE = {
+  block: { tooBig: "Split it into two blocks.", unreadable: "Copy its text into a new block, then remove this one." },
+  text: { tooBig: "Shorten it.", unreadable: "Reload the page, then make your change again." },
+  list: { tooBig: "Shorten the list.", unreadable: "Reload the page, then make your change again." },
+} as const;
+export type RtAdvice = keyof typeof RT_ADVICE;
+
+const tooMuch = (subject: string, advice: RtAdvice = "block") =>
+  `${subject} has too much formatting or too many list points to save. ${RT_ADVICE[advice].tooBig}`;
 
 /**
- * Why text can't be saved, for authors: "`subject` is too long — …".
- * Authoring-tool copy (English).
+ * Why text can't be saved, for authors: "`subject` is too long — …", and
+ * what to do about it, by what the text is (`advice`, RT_ADVICE; a block's
+ * unless said otherwise). Authoring-tool copy (English).
  */
-export const RT_PROBLEM: Record<RtFatalIssue, (subject: string) => string> = {
-  "bad-envelope": (subject) =>
-    `${subject} couldn't be read. Copy its text into a new block, then remove this one.`,
-  "too-much-text": (subject) =>
-    `${subject} is too long — at most ${RT_LIMITS.maxTextChars.toLocaleString("en")} characters. Split it into two blocks.`,
+export const RT_PROBLEM: Record<RtFatalIssue, (subject: string, advice?: RtAdvice) => string> = {
+  "bad-envelope": (subject, advice = "block") => `${subject} couldn't be read. ${RT_ADVICE[advice].unreadable}`,
+  "too-much-text": (subject, advice = "block") =>
+    `${subject} is too long — at most ${RT_LIMITS.maxTextChars.toLocaleString("en")} characters. ${RT_ADVICE[advice].tooBig}`,
   "too-many-nodes": tooMuch,
   "too-large": tooMuch,
 };
 
-/** The message for the first fatal issue, or null when there is none. */
+/**
+ * The message for the first fatal issue, or null when there is none.
+ * `advice`: what the text is (RT_ADVICE).
+ */
 export function richTextProblem(
   issues: readonly RtIssue[],
-  subject = "This text"
+  subject = "This text",
+  advice: RtAdvice = "block"
 ): string | null {
   const fatal = issues.find(isFatalIssue);
-  return fatal ? RT_PROBLEM[fatal](subject) : null;
+  return fatal ? RT_PROBLEM[fatal](subject, advice) : null;
 }

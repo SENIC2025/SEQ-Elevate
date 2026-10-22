@@ -8,7 +8,7 @@ import {
   plainTextSlice,
 } from "./editor-extensions";
 import { canSinkWithin } from "./indent-extension";
-import { VARIANT } from "./RichTextEditor";
+import { VARIANT, problemLine } from "./RichTextEditor";
 import { NARRATIVE_TEXT_CLASS } from "@/components/course/NarrativeStage";
 import { REFLECTION_INTRO_CLASS } from "@/components/course/ReflectionIntro";
 import { legacyTextToDoc } from "@/lib/rich-text/from-legacy";
@@ -475,6 +475,39 @@ describe("blank lines", () => {
   it("leaves an empty editor to its placeholder, and list points alone", () => {
     expect(marked(editorWith({ type: "paragraph" }))).toEqual([]);
     expect(marked(editorWith(ul(li("A"), li("B"))))).toEqual([]);
+  });
+});
+
+describe("the problem line's advice", () => {
+  // Each text is told what its editor offers: a lesson's block can be
+  // split into two; an introduction and the references list are one text.
+  const long = sanitizeRichText({ v: 1, doc: { type: "doc", content: [p("x".repeat(10_001))] } });
+  // 1,600 bold words and spaces in under 10,000 characters: too many nodes.
+  const crowded = sanitizeRichText({
+    v: 1,
+    doc: {
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          content: Array.from({ length: 1_600 }, (_, i) => (i % 2 ? { type: "text", text: " " } : { type: "text", text: `w${i}`, marks: [{ type: "bold" }] })),
+        },
+      ],
+    },
+  });
+
+  it("splits a paragraph or a key message into two blocks", () => {
+    expect(problemLine("paragraph", long)).toBe("This paragraph is too long — at most 10,000 characters. Split it into two blocks.");
+    expect(problemLine("callout", long)).toBe("This key message is too long — at most 10,000 characters. Split it into two blocks.");
+  });
+
+  it("shortens an introduction, and the references list", () => {
+    expect(problemLine("reflection-intro", long)).toBe("This introduction is too long — at most 10,000 characters. Shorten it.");
+    expect(problemLine("references", long)).toBe("The references list is too long — at most 10,000 characters. Shorten the list.");
+    expect(problemLine("references", crowded)).toBe(
+      "The references list has too much formatting or too many list points to save. Shorten the list."
+    );
+    expect(problemLine("references", sanitizeRichText({ v: 1, doc: { type: "doc", content: [p("Fine")] } }))).toBeNull();
   });
 });
 
