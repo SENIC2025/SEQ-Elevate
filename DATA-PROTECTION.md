@@ -24,12 +24,12 @@ has taken on are marked **[SENIC action]**. "The letter" means SENIC's letter to
 the consortium of 13 October 2026, which records the consortium's answers
 (K1–K11) and SENIC's suggested defaults (Q-numbers).
 
-_Last updated: 2026-10-22. Describes the platform at code version 54084cb,
-except data rights, test accounts and the clean-up (§1 note 2, §2, §2b rows 6,
-8, 11, 13 and 14 and the retention note, §5, §6), which describe Release 3 as
-it ships on 20 Nov 2026. Other changes planned for Release 3 (before the 1 Dec
-2026 pilot) are marked "Planned from 20 November". Maintained by SENIC
-(developer and operator; processor)._
+_Last updated: 2026-10-22. Describes the platform as Release 3 deploys it on
+20 Nov 2026, before the 1 Dec 2026 pilot. Where a part takes effect later, the
+date is given: partner staff see learners from the production security review
+(23 Nov 2026, invitations from 25 Nov); statistics count from 1 Dec 2026; the
+go-live clean-up runs on 30 Nov 2026. Maintained by SENIC (developer and
+operator; processor)._
 
 ---
 
@@ -71,7 +71,8 @@ managed-cloud providers (sub-processors):
      files, and only from its own store (`src/lib/account-data.ts`,
      `deletePendingFiles`; D92).
 3. **Resend.**
-   - Sign-in emails are in English only. Invitations are in English, German or
+   - Sign-in emails are in English, with the privacy notice linked in the
+     language the person signed in from. Invitations are in English, German or
      Greek.
    - Both load the logo from the platform's own address. So when the mail
      program shows images, opening an email sends a request to Vercel.
@@ -134,19 +135,24 @@ managed-cloud providers (sub-processors):
 > Learner **records** (database) are EU-hosted (Neon, Frankfurt). Keep Vercel's
 > DPA/SCCs on file (Vercel Inc. is US-domiciled; the data resides in the EU).
 
-**Not a sub-processor, but contacted by the learner's browser: YouTube (Google).**
-- Where an author pastes a YouTube link, the lesson loads YouTube's player from
-  www.youtube.com as soon as the video is shown. It loads without a click, and
-  not from the privacy-enhanced youtube-nocookie.com domain
-  (`src/components/course/InteractiveVideoPlayer.tsx:107-113,399-414`).
-- Google then receives the learner's IP address and can set cookies.
-- **Planned from 20 November:** YouTube loads only after a click. [For DIESIS /
-  its adviser: SENIC's suggested default (Q27) is to upload videos to the
-  platform, with subtitles. Otherwise click-to-load, plus a mention in the
-  privacy and cookie pages.]
-- Authors can also paste links to video, captions and documents hosted on other
-  websites (`src/lib/media-url.ts:21-34`; `src/app/actions/lesson.ts:142-173`).
-  The learner's browser then loads those directly.
+**Not a sub-processor, but contacted by the learner's browser once they press play: YouTube (Google).**
+- Where a lesson uses a YouTube video, nothing from YouTube loads until the
+  viewer presses **Play video (loads YouTube)** on the platform's own panel. The
+  panel says that YouTube (Google) then receives the IP address and browser
+  details and may set cookies, and links the privacy notice. Only after the
+  press does the player load, from the privacy-enhanced youtube-nocookie.com
+  domain. No thumbnail is shown before, and the press isn't remembered: each
+  video asks again (`src/components/course/InteractiveVideoPlayer.tsx`; D91).
+- After the press, Google receives the learner's IP address and can set
+  cookies.
+- [For DIESIS / its adviser: SENIC's suggested default (Q27) is to upload
+  videos to the platform, with subtitles, and to use YouTube only behind the
+  panel, as built and as the privacy and cookie pages say.]
+- Lesson videos, captions, posters and documents can be attached only from the
+  platform's own file store (`BLOB_PUBLIC_HOST` on production) or as a YouTube
+  link; the server refuses other websites (`src/lib/media-url.ts`;
+  `src/app/actions/lesson.ts`). A file attached from another website before
+  20 Nov 2026 is shown as a link out, which the learner opens only by choice.
 
 **Transfers.** Resend handles email addresses in the US. Vercel, Neon and GitHub
 (and Sentry, if activated) are US companies with access to data hosted in the
@@ -170,11 +176,11 @@ Framework.]
 | Querying | ✅ | Database queries (parameterised, via Prisma) |
 | Modification | ✅ | Updating progress, reflections, roles, cohort assignments |
 | Transmission | ✅ | Sign-in and invitation emails (Resend); a person's data export to themselves, or by an ADMIN for a request in DIESIS's register; the nightly backup to Scaleway through GitHub; the learner's browser contacting YouTube where a lesson embeds a YouTube video |
-| Distribution | ⚠️ yes | **Today:** every facilitator and admin in the project can see each learner's progress, scores, time per stage and scenario choice. They also see the Comp Card answers "what went well", "what I'd improve" and confidence, **whatever the learner chose**. The learner makes one choice per card. On screen, "Only me" hides only "what was difficult"; "behaviour" is hidden unless the learner chose "my facilitator and mentor" (`src/components/role/RealFacilitatorView.tsx:116-117,159-170`). Today this visibility is applied on the staff screen, not on the server.<br>**Planned from 20 November:** "Only me" becomes the default and hides the whole card, with the filtering done on the server. Partner staff see only learners of their own organisation. DIESIS (and SENIC, for support) see all learners. |
+| Distribution | ✅ by organisation | Staff see learner data by organisation, filtered on the server (`src/lib/scope.ts`; D74): DIESIS's and SENIC's admins see every learner; partner admins and partner facilitators see the learners of their own organisation, from the production security review (23 Nov 2026) when `R3_PARTNER_ACCESS` is switched on; staff with no organisation, editors and learners see none. For each learner they see what §2b row 4 lists. The Comp Card is shown only when the learner has shared it, and then only to the facilitators and partner admins of the organisation it was shared with and to an admin of that organisation; SENIC's admins see no Comp Card text (`src/lib/comp-card-visibility.ts`; D80, D81). |
 | Matching | ⚠️ limited | Staff dashboards put labels on individual learners who have not completed the course: "needs attention" (progress above 0% and below 50%) and "stuck" (no activity for more than 72 hours). The dashboards also show each learner's assessment score (`src/lib/server-queries.ts:267`; `src/lib/analytics-real.ts:132-136`). The labels are only displayed; the platform takes no automatic action on them. [For DIESIS / its adviser: whether these labels count as profiling that must be disclosed. The letter gives no default.] |
 | Linking | ✅ | Linking a user to their enrolments, cohort and organisation |
 | Deletion / destruction | ✅ | Self-service account deletion, which deletes linked records (see §2b, retention note). On **Admin → Data**, ADMINs (DIESIS, SENIC) export or erase any account for a request in DIESIS's register (reference `REQ-YYYY-NNN`), and mark, reset and erase test accounts; every use is logged (`src/app/actions/admin-data.ts`; `docs/data-management.md`). "Remove from project" only takes away roles and keeps the account and all its data (`src/app/actions/admin.ts:300-310`); the person's session is not ended, and they get a learner role again on their next signed-in page load (`src/lib/learner-membership.ts:32-37`; `src/app/actions/learner.ts:107-120`). |
-| Restriction | ✅ | The Comp Card privacy setting (see Distribution) and content publish/unpublish. There is **no consent-withdrawal function**; only a code comment mentions one (`prisma/schema.prisma:537`). [For DIESIS / its adviser: SENIC's suggested default (Q16) uses consent only for optional sharing. If that is chosen, SENIC suggests the Comp Card setting serves as the way to withdraw.] |
+| Restriction | ✅ | The Comp Card's sharing choice: "Only me" (the default) stops sharing at any time, from the Comp Card or the account page; each sharing change is logged with the version of the wording shown (D80). Content publish/unpublish. A consent box on the sign-up screen is built and switched off (`PROFILE_CONSENT`); it shows only once a final consent text exists. [For DIESIS / its adviser: SENIC's suggested default (Q16) uses consent only for optional sharing; the Comp Card's sharing choice is then that consent, and "Only me" its withdrawal.] |
 
 ---
 
@@ -185,9 +191,9 @@ The personal data actually stored is deliberately minimal.
   link), IP addresses, geolocation or biometric data.
 - IP addresses do reach Vercel's request logs, and they reach Google where a
   lesson embeds a YouTube video (see §1).
-- The platform sets no advertising cookies. Where YouTube is embedded, YouTube
-  sets its own cookies; click-to-load is planned from 20 November. All cookies
-  and browser storage are listed in §8.
+- The platform sets no advertising cookies. Where a lesson uses a YouTube
+  video, YouTube can set its own cookies once the learner presses play (§1).
+  All cookies and browser storage are listed in §8.
 - The platform does not ask for special-category data. But the free-text fields
   (course reflections, Comp Card, staff notes and evidence) cannot technically
   stop a learner or staff member from writing it. Young people may disclose
@@ -199,18 +205,18 @@ The personal data actually stored is deliberately minimal.
 
 | # | Process | Personal data used | Operation(s) |
 |---|---|---|---|
-| 1 | **Account creation & sign-in** | The email address. A one-time link is sent through Resend, and the link itself carries the email address and token.<br>**Today anyone with an email address can register**, with no age check and no Terms acceptance. The first page they open after signing in creates a learner membership (`src/components/auth/SignInForm.tsx:51-58`; `src/app/actions/learner.ts:107-121`).<br>**Names:** a name is stored only if an admin enters one when adding or inviting the person. An admin can change a name only by adding the person again with the new name. Learners cannot set or correct their own name, and nobody can change an email address in the app (`src/app/actions/admin.ts:204-208`).<br>**Planned from 20 November:** a one-time sign-up screen asks for a name, country, acceptance of the Terms and confirmation of the minimum age, with a link to the privacy notice. Existing accounts see it on their next visit.<br>[For DIESIS / its adviser: SENIC's suggested defaults are: a first name or nickname is enough (Q17); minimum age 16 for self-registration, younger learners only when invited by a partner that holds guardian consent offline (Q18); the national digital-consent ages (Belgium 13, Cyprus 14, Greece 15, Germany 16) matter only if consent is the lawful basis (letter, K3).] | Storage, transmission, retrieval |
+| 1 | **Account creation & sign-in** | The email address. A one-time link is sent through Resend, and the link itself carries the email address and token.<br>**Sign-up step (D78):** before anything else, every account answers a one-time screen: a first name or nickname (1 to 50 characters), the country, acceptance of the Terms of use (the version and the time are stored), and the age statement: "I am ‹minimum age› or older", or, for someone a partner organisation invited after recording a parent's or guardian's permission, "‹organisation› invited me and has my parent's or guardian's permission". The privacy notice is linked, not accepted. A consent box is built and switched off (`PROFILE_CONSENT`). The minimum age is 16 unless `AGE_RULE` sets another (`digital-consent`: Belgium 13, Cyprus 14, Greece 15, Germany 16). Accounts made before 20 Nov 2026 see the screen on their next visit; a new English version of the Terms brings back only the Terms box. No learner role is given, and nothing of the person's learning is saved, until the screen is complete (`src/app/actions/profile.ts`; `src/lib/profile.ts`).<br>**Names and country:** the person gives them once. Afterwards only an admin changes them on request (a partner admin: the names of its own learners), on Manage people, and each change is logged. Nobody can change an email address in the app.<br>[For DIESIS / its adviser: SENIC's suggested defaults are: a first name or nickname is enough (Q17); minimum age 16 for self-registration, younger learners only when invited by a partner that holds guardian consent offline (Q18); the national digital-consent ages (Belgium 13, Cyprus 14, Greece 15, Germany 16) matter only if consent is the lawful basis (letter, K3).] | Storage, transmission, retrieval |
 | 2 | **Working through a course** | Stages completed, choices in exercises and in the branching scenario, whether simulation answers were right, assessment answers, and **the free-text answers to the course reflection questions** (`prisma/schema.prisma:346-371`) | Storage, modification, retention |
-| 3 | **Comp Card (self-reflection)** | Free-text reflections the learner writes + a 1–5 confidence rating + **one privacy choice per card**.<br>**Today** there are three options: "Only me"; "Me and my facilitator"; "Me, my facilitator and mentor", although no mentor role exists. The default is "Me and my facilitator" (`prisma/schema.prisma:387`; `src/app/actions/learner.ts:291`). The platform sets no length limit of its own on Comp Card text (`src/app/actions/learner.ts:282-298`).<br>**Planned from 20 November:** two options, "Only me" (the default) and "Me and the facilitators at &lt;organisation&gt;". Existing cards are reset to "Only me". | Storage, modification, restriction |
-| 4 | **Facilitator support** | **Today any facilitator sees every learner in the project**, not only their own cohort or organisation (`src/lib/facilitator-access.ts:15-16`; `src/lib/server-queries.ts:120-134`). For each learner they see: name and email; progress, current course and stage, last activity, and time per stage; how many in-video questions the learner answered, and how many correctly; assessment and simulation scores, and the scenario choice; the Comp Card (see §2, Distribution) (`src/lib/server-queries.ts:261-292`; `src/components/role/RealFacilitatorView.tsx:496-507`).<br>**Planned from 20 November:** partner facilitators and partner admins see only learners of their own organisation, enforced on the server. DIESIS (and SENIC, for support) see everyone, including "Other".<br>Until then, SENIC's plan is that partner staff get only the Editor role, which shows no learner data, only learner counts (`src/lib/cms/course-admin.ts:111,180`).<br>[For DIESIS / its adviser: SENIC's suggested default (Q25) is that facilitators see their whole organisation. Proposed country mapping (Q24): Germany = Pro Arbeit, Cyprus = Synthesis, Greece = University of Macedonia, Belgium and Other = DIESIS.] | Retrieval, provision |
-| 5 | **Admin / cohort management** | Email, name, role(s), organisation & cohort assignment (`Membership`) | Organisation, modification, linking |
+| 3 | **Comp Card (self-reflection)** | Free-text reflections the learner writes (up to 2,000 characters per field; longer text is refused, never cut) + a 1–5 confidence rating + **one sharing choice per card**: "Only me" (the default) or "Me and the facilitators at &lt;organisation&gt;".<br>A card counts as shared only from the moment the learner chooses to share it, and only with the organisation they belong to then: the platform stores that date, that organisation and the version of the sharing wording, and logs each change by the card's id (`src/app/actions/learner.ts`, `setCompCardSharing`; D80). Every card was set to "Only me" on 20 Nov 2026, and a change of the learner's organisation sets it back to "Only me" (D101). A learner invited under the guardian rule shares only once their organisation records that the guardian's permission covers it. A guest's card stays in the browser, "Only me". | Storage, modification, restriction |
+| 4 | **Facilitator support** | Partner facilitators and partner admins see the learners of their own organisation (all its cohorts); DIESIS's and SENIC's admins see every learner, including those with no organisation; staff with no organisation see none. This is enforced on the server for every page and action (`src/lib/scope.ts`; D74, D75), and for partner staff only once `R3_PARTNER_ACCESS` is switched on, at the production security review (23 Nov 2026); real partner staff are invited after it passes (from 25 Nov). For each learner they see: name and email; country; progress, current course and lesson, last activity, and time per lesson; how many in-video questions the learner answered, and how many correctly; assessment and practice scores, and the scenario choice; whether a guardian's permission is recorded; and the Comp Card only if the learner shared it with their organisation (row 3) (`src/lib/server-queries.ts`; `src/components/role/RealFacilitatorView.tsx`). Learners are told this list on the sign-up screen, the Comp Card and their account page.<br>A learner's organisation comes from the country they give, through a mapping DIESIS's admins set, or from the partner organisation that added them; only an admin changes it, and every change is logged.<br>[For DIESIS / its adviser: SENIC's suggested default (Q25) is that facilitators see their whole organisation, as built. Country mapping (Q24), as built: Germany = Pro Arbeit, Cyprus = Synthesis, Greece = University of Macedonia, Belgium and Other = DIESIS.] | Retrieval, provision |
+| 5 | **Admin / cohort management** | Email, name, role(s), country and organisation (the person's profile), cohort, and for a learner invited under the guardian rule the date the guardian's permission was recorded. DIESIS's and SENIC's admins manage everyone; a partner admin manages the learners and facilitators of its own organisation only (D76). | Organisation, modification, linking |
 | 6 | **Activity events (learning analytics)** | Event records linked to the learner's user id: when they open a course; seconds spent on each stage; whether each in-video question was answered correctly (`src/app/actions/telemetry.ts:18-79`; `src/app/actions/video.ts:19-60`). These are personal data. They are stored in the same table as the audit log. They are in the person's data download, and are deleted with the account (or by a test account's reset). Nothing is recorded for guests. | Storage, retention, deletion |
-| 7 | **Analytics dashboard** | Facilitators and admins see, for learners who have started at least one course: a table with one row per learner (name, or email if there is no name; cohort; progress; seconds per stage; hours since last activity; assessment score; and a done / stuck / active status); a progress funnel; and a heatmap of when learners open courses, by weekday and 4-hour block (`src/app/[locale]/analytics/page.tsx:30-34`; `src/lib/analytics-real.ts:38-62,138-151,196-207`).<br>Statistics leave out people who currently hold a staff role (`src/lib/learner-scope.ts:54-62`, used at `src/lib/analytics-real.ts:39`).<br>**Planned from 20 November:** statistics also leave out anyone who ever held a staff role and accounts marked as test accounts, and they count from 1 Dec 2026.<br>[For DIESIS / its adviser: SENIC's suggested default for test data (Q19) is to hide it from statistics and delete accounts marked as test accounts.] | Retrieval, provision |
+| 7 | **Analytics dashboard** | Facilitators, partner admins and admins see, for the learners of their scope (row 4) who have started at least one course: a table with one row per learner (name, or email if there is no name; cohort; progress; seconds per lesson; hours since last activity; assessment score; and a done / stuck / active status); a progress funnel; and a heatmap of when learners open courses, by weekday and 4-hour block (`src/app/[locale]/analytics/page.tsx`; `src/lib/analytics-real.ts`).<br>Statistics leave out anyone who holds or ever held a staff role (recorded by a database trigger, D84) and accounts marked as test accounts, and count only enrolments, activity and badges from 1 Dec 2026 (`STATS_FROM`; D83).<br>[For DIESIS / its adviser: SENIC's suggested default for test data (Q19) is to hide it from statistics and delete accounts marked as test accounts.] | Retrieval, provision |
 | 8 | **GDPR self-service** | **Export:** a JSON file with the account (including when the address was first confirmed and last changed) and profile (country, organisation, Terms version and time, age statement, consent, the date a guardian's permission was recorded, the test-account mark, and whether and since when the person held a staff role); memberships; course progress and reflections; the Comp Card and how it is shared; badges; the activity events; the log entries about the person (action and date, not who); sessions and pending sign-in links (count and expiry, never a token); and the staff notes and validations about the learner, signed "a facilitator at ‹organisation›" while the author is still in the organisation they wrote it in (otherwise "a member of staff"). An organisation recorded on a membership before 20 November 2026 is labelled as no longer used; a shared Comp Card carries the version of the sharing wording it was shared under. For staff, how many notes and validations they wrote, not their text (`src/lib/gdpr-export.ts`).<br>The same file goes to an ADMIN who exports it for a request in DIESIS's register (a form on Admin → Data; logged with the reference).<br>**Delete:** see the retention note below. | Transmission, deletion |
 | 9 | **Accessibility preferences** | Text size, easy-read font and contrast settings on the user record. A copy is also kept in the browser's local storage and stays there after sign-out (`src/components/a11y/AccessibilityProvider.tsx:32,36-44`). [For DIESIS / its adviser: see the easy-read question above this table.] | Storage, modification |
-| 10 | **Invitation email** | An admin adds someone and (by default) emails them a one-click join link: their email, optional name, role, and the inviting admin's name (or email), sent via Resend. Only an admin can trigger it; the link expires after 7 days | Transmission |
+| 10 | **Invitation email** | An admin, or a partner admin for its own organisation, adds someone and (by default) emails them a one-click join link: their email, optional name, role, and the inviter's name (or email), sent via Resend. Only they can trigger it; the link expires after 7 days | Transmission |
 | 11 | **Staff notes and competence validations** | A facilitator's free-text note about a learner (up to 2000 characters), and the validation of a skill area with free-text evidence (`src/app/actions/facilitator.ts:51-117`). Learners cannot see these in the app, only in their export, where they are signed "a facilitator at ‹organisation›" (while the author is still in that organisation; otherwise "a member of staff"), never by name. There is no screen for reading notes. When the author's account is erased, their notes stay, unsigned (D89). | Storage, retrieval |
-| 12 | **Guest use (no account)** | Progress, reflections and Comp Card text are kept only in the browser's local storage, with no expiry. At sign-in they are merged into whichever account signs in on that browser (`src/store/demo-state.tsx:549-553,652-665`). On a shared device, one person's guest notes can therefore end up in another person's account. | Storage, linking |
+| 12 | **Guest use (no account)** | Progress, reflections and Comp Card text are kept only in the browser's local storage, with no expiry. When someone signs in on that browser and has completed the sign-up step, the platform asks whether the guest work is theirs: "Add it to my account" moves it into the account, "Remove it from this browser" deletes it, and nothing moves unasked (D79; `src/components/learner/GuestWorkPrompt.tsx`). A guest's Comp Card is always "Only me". | Storage, linking |
 | 13 | **Sign-in, sessions and abuse protection** | Session records (token and expiry; no IP or browser), valid for 30 days and renewed on use. Sign-in token records holding the email address, valid 24 hours for sign-in and 7 days for invitations; used tokens are deleted; expired ones, and expired sessions, are deleted by the ADMIN clean-up run. Rate-limit records are stored under a keyed hash (HMAC with a server secret) of the email address or the internal user id, so neither can be read back from them; rows older than two hours are deleted as new ones are written (`src/lib/rate-limit.ts`). | Storage, deletion |
 | 14 | **Audit log of staff actions** | Records who added, invited, removed or changed the role of whom; organisation and cohort changes; that a note or validation was created (not about whom); exports and deletions; content saves, and lesson documents added, removed, published and withdrawn. It stores user ids, not names. ADMINs read its data and account records (exports and erasures, resets and test marks, organisation and country changes, clean-up runs) on Admin → Data, with the admin's address and never a learner's name. It has no retention limit. It does **not** record sign-ins, failed sign-ins or staff viewing learner data. | Storage |
 
@@ -241,16 +247,15 @@ Retention note:
 
 **(a) Partner staff acting on DIESIS's behalf, through role-based access.**
 - Staff of Pro Arbeit, Synthesis and University of Macedonia, and DIESIS's own
-  staff, who hold a **Facilitator** or **Admin** role can view learner data in
-  the platform. SENIC staff who hold an Admin role for support can too, as
-  processor (§4).
+  staff, who hold a **Facilitator**, **Partner admin** or **Admin** role can
+  view learner data in the platform: partner staff only their own
+  organisation's learners. SENIC staff who hold an Admin role for support can
+  too, as processor (§4), without Comp Card text.
 - Partner staff act on DIESIS's behalf under an annex to the consortium
   agreement (K1). [For DIESIS / its adviser: the annex wording and how the
   partners' role is described.]
-- What they see today, and what is planned from 20 November, is set out in §2b
-  rows 4 and 7.
-- Today Comp Card field visibility is applied on the staff screen, not on the
-  server. Server-side filtering is planned from 20 November.
+- What they see is set out in §2b rows 3, 4 and 7. All of it is filtered on
+  the server, by the viewer's organisation and the learner's Comp Card choice.
 - This is **access-controlled retrieval**, not data actively sent to them.
 - Content editors see only the number of learners, not their data
   (`src/lib/cms/course-admin.ts:111,180`).
@@ -259,12 +264,13 @@ Retention note:
 
 > **[Controller] governance note — decided (K6): each partner sees only its own
 > participants.**
-> - SENIC plans to build organisation scoping by 20 Nov 2026 (Release 3). It
->   will be enforced on the server and will refuse access when in doubt.
-> - Partner staff get the Facilitator or Admin role only once it has passed a
->   security check (until then, the Editor role; §2b row 4).
-> - [For DIESIS: who keeps the record of who holds Facilitator or Admin roles.
->   SENIC suggests DIESIS.]
+> - Organisation scoping is built (Release 3, 20 Nov 2026). It is enforced on
+>   the server and refuses access when in doubt (D75).
+> - Partner staff see learners only once `R3_PARTNER_ACCESS` is switched on for
+>   the production security review (23 Nov 2026), and real partner staff are
+>   invited only after it passes (from 25 Nov; D77).
+> - [For DIESIS: who keeps the record of who holds Facilitator, Partner admin
+>   or Admin roles. SENIC suggests DIESIS.]
 > - Admins named in the server setting `ADMIN_EMAILS` cannot be demoted from the
 >   admin screens; changing them needs SENIC (`src/lib/auth-helpers.ts:51-71`).
 > - [For DIESIS / its adviser: Q24 and Q25, see §2b row 4.]
@@ -277,9 +283,8 @@ file].
 
 **Transfer method:** (online) retrieval by authorised staff acting on DIESIS's
 behalf (a); processing by sub-processors under contract (b). No bulk export or
-sale, and no advertising. One exception today: where YouTube is embedded,
-Google's player and cookies load without a click. Click-to-load is planned from
-20 November (see §1).
+sale, and no advertising. Where a lesson uses a YouTube video, Google's player
+and cookies load only after the learner presses play (see §1).
 
 ---
 
@@ -394,24 +399,25 @@ unless marked _planned_.
 
 **Access control & authentication**
 - Passwordless sign-in (one-time email link); **no passwords stored**.
-- Project-scoped **role-based access control** (Learner / Facilitator / Content-Editor / Admin), checked on the server for every action.
-  - There is no organisation or cohort scoping yet; it is planned from 20 November.
-  - Comp Card field visibility is applied on the staff screen today. Server-side filtering is planned from 20 November.
+- Project-scoped **role-based access control** (Learner / Facilitator / Content-Editor / Partner admin / Admin), checked on the server for every action.
+  - Organisation scoping: one module decides every staff read and every staff write about another person, by the viewer's organisation, and refuses when in doubt; a test reads the code for any read or write that bypasses it (D75).
+  - Comp Card text is filtered on the server by the learner's sharing choice (D80, D81).
+  - Partner staff see learners only once `R3_PARTNER_ACCESS` is on (from the production security review, 23 Nov 2026).
 - Server-side authorisation on all data-mutating operations and file-upload token issuance.
 - Rate limits on sign-in, invitations, adding people and uploads (`src/lib/rate-limit.ts`).
   - Every key is stored as a keyed hash (HMAC with a server secret) of the email address or the internal user id.
   - When the limiter can't count, sign-in links are allowed (so learners can still sign in) and every staff-only limit refuses.
 
 **Data minimisation & privacy by design**
-- Minimal identity data: the email address, and a name only if an admin enters one. Planned from 20 November: also country, Terms acceptance and age confirmation. See §2b on IP addresses, cookies and free text.
+- Minimal identity data: the email address, and from the sign-up step a first name or nickname, the country, the Terms acceptance and the age statement (§2b row 1). See §2b on IP addresses, cookies and free text.
 - Cookieless Plausible analytics is built in but not active. [For DIESIS / its adviser: whether to activate it, and whether any cookie consent is needed, in particular for YouTube.]
-- Comp Card: today one choice per card, shared with facilitators by default, with the visible fields described in §2. Planned from 20 November: "Only me" becomes the default and the filtering moves to the server. Course reflection answers are not shown to staff.
+- Comp Card: "Only me" by default; shared only by the learner's own choice, with their organisation's facilitators; filtered on the server. Course reflection answers are not shown to staff.
 - Error monitoring (Sentry) is built in but not active. If it is activated, it is set not to send default personal data and to use no tracing or session replay (see §1).
 
 **Data subject rights**
 - Self-service data export (**JSON only**; contents in §2b row 8) and account deletion.
 - Erasure removes the person's records and unlinks the log rows about them (§2b, retention note).
-- Learners cannot correct their own name or email. An admin can change a name only by adding the person again; nobody can change an email address in the app.
+- Learners cannot change their own name or country: an admin changes them on request (Manage people, "Change details"), and each change is logged. Nobody can change an email address in the app.
 - ADMINs (DIESIS, SENIC) export or erase any account on Admin → Data for a request logged in DIESIS's register: the export needs the request's reference (`REQ-YYYY-NNN`) and comes only from the platform's own page; an erasure needs the address typed again and the reference. Every use is logged and shown in the log on the same page. Partner admins cannot.
 - Procedure: requests go to DIESIS, which records them in its register; SENIC carries them out on DIESIS's instruction (`docs/data-management.md`). [For DIESIS: the internal deadline, and how requests from people who cannot sign in are verified (K3).]
 
@@ -429,20 +435,24 @@ unless marked _planned_.
 - **Audit log** of staff actions (§2b row 14), lesson document changes among them. It does not record sign-ins, failed sign-ins or staff viewing learner data, and it has no retention limit (§4, item 7). Its data and account records are shown to ADMINs on Admin → Data.
 - **WCAG 2.2 AA** accessibility (relevant for equitable access; internally tested).
 
-**Known gaps, being fixed**
-- The app does not yet set security headers of its own (such as a Content-Security-Policy); only the framework's and Vercel's defaults apply. [SENIC action: add them and verify them on the production host.]
+**Security headers**
+- Every response carries a content security policy (without a nonce), `X-Frame-Options`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin` and a Permissions-Policy (`next.config.ts`; `src/lib/security-headers.ts`; D95). The policy admits only the platform's own file store and, once switched on, Plausible and Sentry. [SENIC action: verify them on the production host on deploy day (GO-LIVE.md §1a).]
+
+**Known gaps**
 - The code contains a demo sign-in for showcase deployments, which bypasses the email sign-in. It runs only where it is switched on with a private access code, and never on the production deployment (D98); the clean-up run ends every demo session.
 - Test deployments that do not send email write sign-in details, including the email address, to their logs instead. [SENIC action: use only test addresses there.]
 - Uploaded files are public to anyone who has the link (§1).
 
-**Planned before the 1 Dec pilot (Release 3, 20 Nov 2026):**
+**In place from 20 Nov 2026 (Release 3):**
 - Comp Card "Only me" by default, filtered on the server;
-- a sign-up screen (name or nickname, country, Terms, age confirmation);
-- partner admins and facilitators limited to their own organisation;
-- statistics without staff and test accounts;
-- YouTube only after a click;
-- a safeguarding contact shown to learners;
-- a legal notice.
+- a sign-up screen (name or nickname, country, Terms, age statement);
+- partner admins and facilitators limited to their own organisation, from the production security review (23 Nov);
+- statistics without staff, former staff and test accounts, counting from 1 Dec 2026;
+- YouTube only after a click; lesson media only from the platform's own store;
+- safeguarding contacts shown to learners, with 112 always;
+- security headers (above).
+
+The legal notice page is built; it is listed and linked once DIESIS's details and counsel's text are in (D94).
 
 _Later:_ scheduled retention deletion, in place before the first deletion date.
 _On request:_ an external penetration test.
@@ -494,9 +504,9 @@ request.
 | `seq-elevate-a11y-v1` | Local storage | The platform | Accessibility settings (§2b row 9) | No expiry |
 | `seq-elevate-project-v1` | Local storage | The platform | The project id | No expiry |
 
-Third-party cookies come only from YouTube, where a lesson embeds a YouTube
-video (§1), and from any other website whose video, captions or documents an
-author links, if that website sets cookies (§1).
+Third-party cookies come only from YouTube, once a learner presses play on a
+YouTube video (§1), and from another website a learner chooses to open from a
+link out (a file attached from it before 20 Nov 2026; §1).
 
 ---
 

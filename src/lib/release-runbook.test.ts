@@ -109,12 +109,19 @@ describe("DATA-PROTECTION.md: what it says of Release 3 as it ships", () => {
 });
 
 /*
- * On the deploy commit only (R3_DEPLOY_COMMIT=1, the release check of spec
- * 18.7 run on the commit that deploys): the data-protection documents no
- * longer describe Release 3 as planned, since it is live.
+ * The data-protection documents describe Release 3 as it deploys: `r3`
+ * reaches GitHub only in the deploy merge (D100), so what these files say
+ * on `r3` is what they say once Release 3 is live.
  */
-describe.skipIf(process.env.R3_DEPLOY_COMMIT !== "1")("on the deploy commit", () => {
-  it.each(["DATA-PROTECTION.md", "DPA-TEMPLATE.md"])("%s describes Release 3 as live, nothing of it as planned", (file) => {
-    expect(read(file)).not.toMatch(/Planned from 20 November/);
+describe("the data-protection documents describe Release 3 as built", () => {
+  it.each(["DATA-PROTECTION.md", "DPA-TEMPLATE.md"])("%s describes nothing of Release 3 as planned", (file) => {
+    expect(read(file)).not.toMatch(/Planned from 20 November|planned from 20 November/);
+    expect(read(file)).not.toMatch(/Measures planned before the pilot/);
+  });
+
+  it("DPA-TEMPLATE.md says the log records lesson document changes", () => {
+    const dpa = read("DPA-TEMPLATE.md");
+    expect(dpa).not.toMatch(/does not record[^\n.]*document changes/);
+    expect(dpa).toMatch(/audit log\*\* of staff actions, lesson document changes included/);
   });
 });
