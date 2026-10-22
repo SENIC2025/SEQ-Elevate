@@ -12,7 +12,8 @@ import type { LinkRefusal } from "@/lib/rich-text/link-url";
  *   addresses (STORED_LINK_URLS).
  * - HOSTILE_MARKS: link marks that are wrong in their shape rather than
  *   their address (two on one text, extra attributes, a misleading label,
- *   touching links that together show another address), as rich text.
+ *   a bare host of another site as the label, touching links that together
+ *   show another address), as rich text.
  * - RENDER_ONLY_MARKS: shapes only a direct database write can make
  *   (nested objects, unknown mark types), for the pages that draw them.
  * - overLimitDoc: a version-2 block over the node limit holding hostile
@@ -152,6 +153,16 @@ export const HOSTILE_MARKS: readonly HostileMarks[] = [
     save: "refused",
   },
   {
+    name: "a label that shows another site as a bare host",
+    rich: linkedParagraph("https://evil.example/login", "bank.example/login"),
+    save: "refused",
+  },
+  {
+    name: "a label that shows another site as a bare host with www.",
+    rich: linkedParagraph("https://evil.example/login", "www.bank.example"),
+    save: "refused",
+  },
+  {
     name: "two touching links that together show another address",
     rich: paragraphDoc([
       { type: "text", text: "Log in at " },
@@ -196,4 +207,8 @@ export const MISLEADING_TITLES: readonly string[] = [
   "https://bank\u200B.example/login",
   "https:\u200B//bank.example",
   "https://bank.example\u2024login",
+  // A bare host is an address of its site (D104, owner decision of 22 October 2026).
+  "www.bank.example/login",
+  "bank.example/login",
+  "Log in at bank.example",
 ];
