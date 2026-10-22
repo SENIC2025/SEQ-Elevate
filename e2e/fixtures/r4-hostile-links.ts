@@ -13,11 +13,12 @@ import type { LinkRefusal } from "@/lib/rich-text/link-url";
  * - HOSTILE_MARKS: link marks that are wrong in their shape rather than
  *   their address (two on one text, extra attributes, a misleading label,
  *   a bare host of another site as the label, written with look-alike
- *   letters, wrapped for emphasis, after two slashes, with a raised sign or
- *   a hair space, under Co. and a country, in front of the link's site, as
- *   an email address's first part, or through a Roman numeral letter,
- *   inside a name or ending it; touching links that together show another
- *   address), as rich text.
+ *   letters, wrapped for emphasis, after two slashes, with a raised sign,
+ *   or through a Roman numeral letter, inside a name or ending it; touching
+ *   links that together show another address), as rich text. Each label is
+ *   one D104 refuses (as narrowed on 22 October 2026); a label it accepts
+ *   is drawn with the site its link opens (link-site.ts), and none is
+ *   listed here.
  * - ACCEPTED_LABELS: link text with a dot that shows no other site than
  *   the link's (an abbreviation, a title and its feminine ending, a Greek
  *   word, an email address of a person, the link's registrable domain, a
@@ -26,7 +27,8 @@ import type { LinkRefusal } from "@/lib/rich-text/link-url";
  *   (nested objects, unknown mark types), for the pages that draw them.
  * - overLimitDoc: a version-2 block over the node limit holding hostile
  *   links, for the editors' opening path.
- * - MISLEADING_TITLES: further-reading titles that show another address.
+ * - MISLEADING_TITLES: further-reading titles that show another address,
+ *   each one D104 refuses.
  *
  * Every address here is refused by checkLinkHref on a server without
  * BLOB_PUBLIC_HOST (as the e2e servers run), where every Vercel Blob store
@@ -181,11 +183,6 @@ export const HOSTILE_MARKS: readonly HostileMarks[] = [
     save: "refused",
   },
   {
-    name: "a label that shows another site in front of the link's",
-    rich: linkedParagraph("https://evil.example/login", "paypal.com.evil.example"),
-    save: "refused",
-  },
-  {
     name: "a label that shows another site after two slashes",
     rich: linkedParagraph("https://evil.example/login", "//paypal.com"),
     save: "refused",
@@ -196,28 +193,8 @@ export const HOSTILE_MARKS: readonly HostileMarks[] = [
     save: "refused",
   },
   {
-    name: "a label that shows another site through a hair space",
-    rich: linkedParagraph("https://evil.example/login", "paypal\u200A.com"),
-    save: "refused",
-  },
-  {
-    name: "a label that shows another site under Co. and a country",
-    rich: linkedParagraph("https://evil.example/login", "Amazon.Co.UK"),
-    save: "refused",
-  },
-  {
-    name: "a label that shows another site in front of the link's, a hyphen after it",
-    rich: linkedParagraph("https://evil.example/login", "paypal.com-login.evil.example"),
-    save: "refused",
-  },
-  {
     name: "a label that shows another site through look-alike letters, over its own address",
     rich: linkedParagraph("https://xn--pypal-4ve.com/", "p\u0430ypal.com"),
-    save: "refused",
-  },
-  {
-    name: "a label that shows another site as an email address's first part",
-    rich: linkedParagraph("https://evil.example/login", "paypal.com@evil.example"),
     save: "refused",
   },
   {
@@ -299,32 +276,24 @@ export const MISLEADING_TITLES: readonly string[] = [
   "https://bank\u200B.example/login",
   "https:\u200B//bank.example",
   "https://bank.example\u2024login",
-  // A bare host is an address of its site (D104, owner decision of 22 October 2026).
+  // A bare host with "www." or a path is an address of its site (D104).
   "www.bank.example/login",
   "bank.example/login",
-  "Log in at bank.example",
-  // Written with look-alike letters, wrapped for emphasis, or in front of the link's site.
+  // Written with look-alike letters, or wrapped for emphasis.
   "paypal.соm",
-  "PAYPAL.СОМ",
   "paypal.cοm",
   "Log in at _www.paypal.com_",
   "~paypal.com~",
-  "paypal.com.evil.example",
-  // After two slashes, with a raised sign or a hair space, under Co. and a country,
-  // a hyphen after it, inner look-alikes, an email address's first part.
+  // After two slashes, with a raised sign, inner look-alikes.
   "//paypal.com",
   "https\uA789//paypal.com",
   "PayPal.com\u2122",
-  "paypal\u200A.com",
-  "Paypal.Co.Uk",
-  "paypal.com-login.evil.example",
   "paypal.\u0441\u043Em.evil.example",
-  "paypal.com@evil.example",
-  // A Roman numeral letter, a mark that follows no letter, a raised letter inside a name.
+  // A Roman numeral letter, a combining mark left over, a raised letter inside a name.
   "paypal.\u217Dom",
   "www.paypal.\u0332com/login",
   "paypal.c\u1D52m",
-  // A Roman numeral letter that ends a name, a top-level domain and a hyphen, a name the URL parser refuses.
+  // A Roman numeral letter that ends a name, a top-level domain and a hyphen, a punycode label Node's URL parser refuses.
   "rabobank.n\u217C",
   "paypal.com-login",
   "xn--a.paypal.com",

@@ -110,6 +110,11 @@ const REFUSED: [string, input: unknown, reason: LinkRefusal][] = [
   ["an international label of 64 characters", `https://${"ü".repeat(64)}.example/`, "host"],
   ["a label of 64 characters between ideographic full stops", `https://bank\u3002${"a".repeat(64)}\u3002example/`, "host"],
   ["a label of 64 characters behind a user name", `https://user@${"a".repeat(64)}.example/`, "credentials"],
+  // Every character of a label counted: symbols, punctuation and marks too.
+  ["a label of 64 symbols", `https://${"\u2603".repeat(64)}.example/`, "host"],
+  ["a label of 64 punctuation marks", `https://${"\u203F".repeat(64)}.example/`, "host"],
+  ["a label of a letter and 63 combining marks", `https://a${"\u0301".repeat(63)}.example/`, "host"],
+  ["a host of 254 characters, symbols among them", `https://${"\u2603".repeat(63)}.${"b".repeat(63)}.${"c".repeat(63)}.${"d".repeat(54)}.example/`, "host"],
   // A host every browser and the server read alike, or none (D103): the
   // engines differ on these, so the check refuses them itself.
   ["a punycode label that doesn't decode", "https://xn--a.example/", "host"],

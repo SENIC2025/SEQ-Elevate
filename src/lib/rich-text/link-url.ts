@@ -13,8 +13,9 @@ import { MAX_HOST_CHARS, MAX_LABEL_CHARS, beyondDns, hostAfterUser, hostReadAlik
  *   (link-host.ts: letters, marks, digits, "-" and "_", international names
  *   that decode, right-to-left names by the Bidi Rule), and one DNS can
  *   hold (RFC 1035): as DNS writes it (in punycode), no label of more than
- *   63 characters and at most 253 in all. A host longer than that as typed
- *   (beyondDns) is refused before the address is parsed; or
+ *   63 characters and at most 253 in all. A host longer than that as typed,
+ *   every character between its full stops counted (beyondDns), is refused
+ *   before the address is parsed; or
  * - an email address, `mailto:` followed by the address and, at most, a
  *   `subject` (with no "&", "?" or "#" in it);
  * - at most MAX_HREF_CHARS characters, before and after it is normalised;
@@ -155,7 +156,8 @@ export function checkLinkHref(raw: unknown, opts?: { ownFileHost?: string | null
 
 function web(typed: string, opts?: { ownFileHost?: string | null }): LinkCheck {
   // Parsed, a long international label would cost its length times its
-  // characters (punycode): a host longer than DNS allows as typed is none.
+  // characters (punycode): a host longer than DNS allows as typed, every
+  // character counted (letters, marks, symbols and punctuation), is none.
   if (beyondDns(hostAfterUser(typed))) return refuse(typedHost(typed) === null ? "credentials" : "host");
   let url: URL;
   try {
