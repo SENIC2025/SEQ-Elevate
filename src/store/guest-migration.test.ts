@@ -122,6 +122,7 @@ describe("migrateGuest", () => {
       settled: true,
       accountFirst: false,
       cardHeldBack: false,
+      cardTooLong: [],
       otherAccount: false,
       left: null,
     });
@@ -175,6 +176,7 @@ describe("migrateGuest", () => {
       settled: false,
       accountFirst: false,
       cardHeldBack: false,
+      cardTooLong: [],
       otherAccount: false,
       left: { badges: ["voice-without-edges"], compCard: true, course: false },
     });
@@ -241,6 +243,7 @@ describe("migrateGuest", () => {
       // The card's own wentWell stays over the guest's.
       accountFirst: true,
       cardHeldBack: false,
+      cardTooLong: [],
       otherAccount: false,
       left: null,
     });
@@ -459,6 +462,7 @@ describe("guestWorkOf: what a guest store holds, offered after sign-in (spec 5.5
     expect(work).toEqual({
       courses: [{ title: "Workplace conflict", locale: course.courseLocale ?? null }],
       compCard: true,
+      cardTooLong: [],
       reflections: 2,
       badges: guest.badges.length,
     });
@@ -473,10 +477,17 @@ describe("guestWorkOf: what a guest store holds, offered after sign-in (spec 5.5
   });
 
   it("is a Comp Card alone, or badges alone, too, and counts the badges so the offer can name them", () => {
-    expect(guestWorkOf({ ...empty, compCard: card })).toEqual({ courses: [], compCard: true, reflections: 0, badges: 0 });
+    expect(guestWorkOf({ ...empty, compCard: card })).toEqual({
+      courses: [],
+      compCard: true,
+      cardTooLong: [],
+      reflections: 0,
+      badges: 0,
+    });
     expect(guestWorkOf({ ...empty, badges: ["voice-without-edges", "listening-first"] })).toEqual({
       courses: [],
       compCard: false,
+      cardTooLong: [],
       reflections: 0,
       badges: 2,
     });
@@ -611,5 +622,113 @@ describe("Release 3 polish: what the move may say, and what it leaves in the bro
     const allMoved = await migrateGuest(guest, nothingSaved, writes().writes, retry);
     expect(allMoved.left).toBeNull();
     expect(guestStoreLeft(guest, allMoved.left, blankState)).toBeNull();
+  });
+});
+
+describe("Release 3 polish: a Comp Card text too long to move is never dropped (D80: refused, never cut)", () => {
+  const long = "x".repeat(2001);
+  const blankState: DemoState = {
+    projectId: "seq-elevate",
+    role: null,
+    badges: [],
+    course: { ...course, courseSlug: null, courseTitle: null, stagesCompleted: [] },
+    compCard: { ...card, wentWell: "", difficult: "", confidence: 3, updatedAt: null },
+    refusedKeys: {},
+  };
+  /** The guest's card: `difficult` too long, `wentWell` within the limit, a confidence of 4. */
+  const longCard: CompCardData = { ...card, difficult: long };
+  const sent = (server: { card: CompCardInput | null }) => JSON.stringify(server.card ?? {});
+
+  it("moves the rest of the card, keeps the long text in the browser alone, and isn't the plain Added", async () => {
+    const saved: CompCardData = { ...card, wentWell: "", difficult: "", improve: "Account's own", confidence: 2 };
+    const { writes: w, server } = writes();
+    const migrated = await migrateGuest({ ...guest, compCard: longCard }, { ...nothingSaved, compCard: saved }, w, retry);
+    expect(server.card).toEqual({ wentWell: card.wentWell, fill: true });
+    expect(sent(server)).not.toContain(long);
+    expect(migrated).toMatchObject({
+      cardMoved: true,
+      settled: true,
+      cardHeldBack: true,
+      cardTooLong: ["difficult"],
+      left: { badges: [], compCard: ["difficult"], course: false },
+    });
+    // The store keeps the long text alone: what moved isn't offered again,
+    // nor the confidence (the account's card is in use).
+    expect(guestStoreLeft({ ...guest, compCard: longCard }, migrated.left, blankState)).toEqual({
+      ...blankState,
+      compCard: { ...blankState.compCard, difficult: long, updatedAt: card.updatedAt },
+    });
+  });
+
+  it("into an account with no card: the rest of the card and the confidence move, the long text stays", async () => {
+    const { writes: w, server } = writes();
+    const migrated = await migrateGuest({ ...guest, badges: [], compCard: longCard }, nothingSaved, w, retry);
+    expect(server.card).toEqual({ wentWell: card.wentWell, improve: "", behaviour: "", confidence: 4, fill: true });
+    expect(migrated).toMatchObject({ cardMoved: true, cardTooLong: ["difficult"], cardHeldBack: true, settled: true });
+    expect(migrated.left?.compCard).toEqual(["difficult"]);
+  });
+
+  it("keeps a card whose only text is too long, with nothing sent for it", async () => {
+    const onlyLong: CompCardData = { ...card, wentWell: "", difficult: long, improve: "", behaviour: "" };
+    const saved: CompCardData = { ...card, wentWell: "Account's own", difficult: "", confidence: 2 };
+    const { writes: w, server } = writes();
+    const migrated = await migrateGuest({ ...guest, compCard: onlyLong }, { ...nothingSaved, compCard: saved }, w, retry);
+    expect(server.card).toBeNull();
+    expect(migrated).toMatchObject({ cardMoved: false, cardTooLong: ["difficult"], cardHeldBack: true, settled: true });
+    expect(guestStoreLeft({ ...guest, compCard: onlyLong }, migrated.left, blankState)?.compCard.difficult).toBe(long);
+  });
+
+  it("a later Add, once the text is shortened, moves it, and nothing is left", async () => {
+    const shortened: CompCardData = { ...blankState.compCard, difficult: "x".repeat(2000), updatedAt: card.updatedAt };
+    const saved: CompCardData = { ...card, difficult: "", confidence: 2 };
+    const { writes: w, server } = writes();
+    const migrated = await migrateGuest({ ...blankState, compCard: shortened }, { ...nothingSaved, compCard: saved }, w, retry);
+    expect(server.card).toEqual({ difficult: "x".repeat(2000), fill: true });
+    expect(migrated).toMatchObject({ cardMoved: true, cardTooLong: [], cardHeldBack: false, settled: true, left: null });
+  });
+
+  it("isn't held where the account's card has a text of its own: the account's stays, and the page says so", async () => {
+    const saved: CompCardData = { ...card, difficult: "Account's own", confidence: 4 };
+    const { writes: w } = writes();
+    const migrated = await migrateGuest({ ...guest, badges: [], compCard: longCard }, { ...nothingSaved, compCard: saved }, w, retry);
+    expect(migrated).toMatchObject({ cardTooLong: [], cardHeldBack: false, accountFirst: true, left: null });
+  });
+
+  it("keeps the whole card for a card the account shares, or a save that didn't get through, or another account", async () => {
+    const shared: CompCardData = { ...card, wentWell: "", difficult: "", sharing: "facilitators", sharedAt: "2026-11-21T08:00:00.000Z" };
+    const heldBack = await migrateGuest({ ...guest, compCard: { ...longCard, wentWell: "" } }, { ...nothingSaved, compCard: shared }, writes().writes, retry);
+    expect(heldBack).toMatchObject({ cardHeldBack: true, cardTooLong: [], left: { compCard: true } });
+
+    const failed = await migrateGuest({ ...guest, compCard: longCard }, nothingSaved, writes({ card: 100 }).writes, retry);
+    expect(failed).toMatchObject({ settled: false, cardTooLong: [], left: { compCard: true } });
+
+    const other: GuestWrites = {
+      awardBadge: async () => ({ ok: false, reason: "other-account" }),
+      saveCompCard: async () => ({ ok: false, error: "other-account" }),
+      saveCourse: async () => ({ ok: false, error: "other-account" }),
+    };
+    const elsewhere = await migrateGuest({ ...guest, compCard: { ...longCard, wentWell: "", difficult: long } }, nothingSaved, other, retry);
+    expect(elsewhere).toMatchObject({ otherAccount: true, settled: false, left: { compCard: true } });
+  });
+
+  it("moves a text of exactly 2,000 characters", async () => {
+    const { writes: w, server } = writes();
+    const migrated = await migrateGuest(
+      { ...guest, badges: [], compCard: { ...card, difficult: "y".repeat(2000) } },
+      nothingSaved,
+      w,
+      retry
+    );
+    expect(server.card?.difficult).toHaveLength(2000);
+    expect(migrated).toMatchObject({ cardTooLong: [], cardHeldBack: false, left: null });
+  });
+
+  it("guestWorkOf names the texts too long to add, in the card's order, with their text", () => {
+    const work = guestWorkOf({ ...blankState, compCard: { ...card, behaviour: "b".repeat(2400), difficult: long } });
+    expect(work?.cardTooLong).toEqual([
+      { field: "difficult", text: long },
+      { field: "behaviour", text: "b".repeat(2400) },
+    ]);
+    expect(guestWorkOf({ ...blankState, compCard: card })?.cardTooLong).toEqual([]);
   });
 });

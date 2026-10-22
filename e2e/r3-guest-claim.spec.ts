@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
+import AxeBuilder from "@axe-core/playwright";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { createPerson, removePeople, runId, signIn } from "./fixtures/people";
@@ -311,6 +312,57 @@ describe("Release 3: adding a guest's work to an account that has its own", () =
     expect(await guestStore(page)).toBeNull();
     // The account had no answer of its own where the guest had one.
     expect(saidThen).toBe("Added to your account.");
+  });
+
+  test("a Comp Card text too long to add stays in the browser, alone, the rest moves, and once shortened on the offer it moves too", async ({
+    page,
+    context,
+  }) => {
+    const person = await createPerson(prisma, { email: address("long") });
+    await prisma.compCard.create({ data: { userId: person.userId, projectId: "seq-elevate", improve: ACCOUNT_P1 } });
+    const LONG = `long-${RUN} ${"x".repeat(2100)}`;
+    const SHORT = `shortened-${RUN}`;
+    await guestCard(page, { wentWell: `guest-went-${RUN}`, difficult: LONG, confidence: 3 }, [BADGE]);
+    await signIn(context, person.sessionToken);
+    await page.goto("/en/learner");
+    const prompt = page.getByRole("region", { name: PROMPT });
+    await prompt.getByRole("button", { name: "Add it to my account" }).click({ timeout: 20_000 });
+    const said = await outcome(page);
+    // The long text is neither cut nor dropped: it alone stays in this
+    // browser; the rest of the card and the badge are in the account.
+    expect(await guestStore(page), "the long text stays in this browser, alone").toEqual({
+      completed: false,
+      lessons: 0,
+      difficult: LONG,
+      badges: [],
+    });
+    expect(await cardOf(person.userId)).toMatchObject({ wentWell: `guest-went-${RUN}`, difficult: "" });
+    expect((await prisma.compCard.findFirst({ where: { userId: person.userId } }))?.improve).toBe(ACCOUNT_P1);
+    expect((await account(person.userId)).badges).toEqual([BADGE]);
+    expect(said).toBe(
+      "Everything else was added to your account. Your Comp Card answer to “What was difficult” wasn't added: it is longer than 2,000 characters. It stays on this browser: shorten it above, then add it, or remove it from this browser."
+    );
+
+    // The offer shows it to be shortened, with its length.
+    const box = prompt.getByRole("textbox", { name: "What was difficult" });
+    await expect(box).toHaveValue(LONG);
+    await expect(box).toHaveAttribute("aria-invalid", "true");
+    await expect(prompt).toContainText(`${LONG.length.toLocaleString("en")} characters: ${LONG.length - 2000} characters too many.`);
+    const axe = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]).analyze();
+    const serious = axe.violations.filter((v) => v.impact === "serious" || v.impact === "critical");
+    expect(serious, JSON.stringify(serious.map((v) => v.id))).toEqual([]);
+    await box.fill(SHORT);
+    await expect(prompt).toContainText(`${SHORT.length} of 2,000 characters: short enough to add.`);
+    // Saved on this browser as it is typed: it outlives a reload.
+    await expect.poll(async () => (await guestStore(page))?.difficult, { timeout: 10_000 }).toBe(SHORT);
+    await page.reload();
+    await expect(prompt).toContainText("No course progress. Comp Card: yes. Badges: 0.", { timeout: 20_000 });
+    await expect(prompt.getByRole("textbox")).toHaveCount(0);
+    await prompt.getByRole("button", { name: "Add it to my account" }).click({ timeout: 20_000 });
+    const saidThen = await outcome(page);
+    expect(await cardOf(person.userId)).toMatchObject({ wentWell: `guest-went-${RUN}`, difficult: SHORT });
+    expect(await guestStore(page)).toBeNull();
+    expect(saidThen).toBe(ADDED);
   });
 });
 

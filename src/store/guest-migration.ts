@@ -15,7 +15,11 @@
  * the account started elsewhere still gets the guest's lessons, answers
  * and completion (D79: what the page says was added is in the account). A
  * Comp Card the account shares gets nothing: moving never shares (D80);
- * the guest's card stays in the browser (`cardHeldBack`).
+ * the guest's card stays in the browser (`cardHeldBack`). A text of the
+ * guest's card longer than a card holds (COMP_CARD_TEXT_MAX), where the
+ * account's card has none, isn't moved (a longer text is refused, never
+ * cut, D80) and isn't dropped either: it alone stays in the browser
+ * (`cardTooLong`), and the page says which and offers to shorten it there.
  * No write is given up on at its first failure — a dropped connection, or
  * a session lookup that failed (the save actions fail then: see
  * requireLearner in src/app/actions/learner.ts) — and one failure doesn't
@@ -35,7 +39,12 @@ import type { CompCardData, CourseProgress, DemoState } from "./demo-state";
 import { hasCourseProgress } from "./progress-merge";
 import type { CompCardInput, SavedCompCard } from "@/app/actions/learner";
 import type { Locale } from "@/lib/cms/types";
-import { COMP_CARD_BLANK_CONFIDENCE, COMP_CARD_FIELDS, COMP_CARD_TEXT_MAX } from "@/lib/comp-card-visibility";
+import {
+  COMP_CARD_BLANK_CONFIDENCE,
+  COMP_CARD_FIELDS,
+  COMP_CARD_TEXT_MAX,
+  type CompCardField,
+} from "@/lib/comp-card-visibility";
 import { withRetry } from "./retry";
 import { isRefusedAward } from "@/lib/badge-award";
 import type { ProgressPatch, ProgressState, RefusedKey } from "@/lib/learner-progress/contract";
@@ -58,10 +67,14 @@ export interface GuestWrites {
   saveCourse(slug: string, patch: ProgressPatch): Promise<unknown>;
 }
 
-/** What of the guest store is still to move: the badges, and whether its Comp Card and its course. */
+/** What of the guest store is still to move: the badges, its Comp Card, and whether its course. */
 export interface GuestLeft {
   badges: string[];
-  compCard: boolean;
+  /**
+   * Its Comp Card: all of it (true), only these texts (too long to move as
+   * they are, `cardTooLong`; the rest of the card moved), or none (false).
+   */
+  compCard: boolean | CompCardField[];
   course: boolean;
 }
 
@@ -91,8 +104,20 @@ export interface Migrated {
    * Card (a text, or the confidence, the card has its own of)?
    */
   accountFirst: boolean;
-  /** Did the guest's Comp Card have text for a card the account shares, so that nothing of it moved (D80)? */
+  /**
+   * Did something of the guest's Comp Card stay in the browser for a reason
+   * no try changes: text for a card the account shares, so that nothing of
+   * it moved (D80), or a text too long to move (`cardTooLong`)?
+   */
   cardHeldBack: boolean;
+  /**
+   * The guest's Comp Card texts over COMP_CARD_TEXT_MAX that the account's
+   * card has none of: not moved (the server refuses a longer text, never
+   * cuts it, D80) and kept in the browser alone, for the learner to shorten
+   * and add (GuestWorkPrompt). Empty when there are none, and when the card
+   * stays whole (a shared card, a write that didn't get through).
+   */
+  cardTooLong: CompCardField[];
   /**
    * Was a write refused as another account's? Someone else signed in on
    * this browser meanwhile: the move stopped there, and nothing is settled.
@@ -127,6 +152,20 @@ export function cardFill(guest: CompCardData, saved: CompCardData | null): CompC
   const savedBlank = COMP_CARD_FIELDS.every((f) => !answered(saved[f])) && saved.confidence === BLANK_CONFIDENCE;
   if (savedBlank && guest.confidence !== BLANK_CONFIDENCE) input.confidence = guest.confidence;
   return Object.keys(input).length > 0 ? input : null;
+}
+
+/**
+ * The texts of the guest's Comp Card (`guest`) an account whose card is
+ * `saved` lacks, but which are over COMP_CARD_TEXT_MAX: cardFill leaves
+ * them out, as the server would refuse them (D80: never cut), so they stay
+ * in the browser to be shortened (`cardTooLong`). Where the saved card has
+ * a text of its own the account's stays (cardFill), long or not.
+ */
+export function cardTooLong(guest: CompCardData, saved: CompCardData | null): CompCardField[] {
+  if (!guest.updatedAt) return [];
+  return COMP_CARD_FIELDS.filter(
+    (f) => answered(guest[f]) && guest[f].length > COMP_CARD_TEXT_MAX && !(saved && answered(saved[f]))
+  );
 }
 
 /**
@@ -223,18 +262,21 @@ export async function migrateGuest(
   // guest's, as "Only me" (the save never shares). A card the account
   // shares gets nothing: what moves into it would be shared without the
   // learner choosing so (D80); the server says so too if it was shared
-  // since it was read. A refused save (a text over the limit) isn't
-  // counted as saved, and isn't tried again.
+  // since it was read. A refused save isn't counted as saved, and isn't
+  // tried again. A text over the limit isn't sent (cardFill): it stays in
+  // the browser alone (cardTooLong), the rest of the card moves.
   let compCard = saved.compCard;
   let cardMoved = false;
+  // The whole card stays: the account's is shared.
   let cardHeldBack = false;
   let accountFirst = false;
   const guestCard = guest.compCard;
   const fill = guestCard ? cardFill(guestCard, saved.compCard) : null;
-  if (guestCard && fill) {
+  const tooLong = guestCard ? cardTooLong(guestCard, saved.compCard) : [];
+  if (guestCard && (fill || tooLong.length)) {
     if (saved.compCard?.sharing === "facilitators") {
       cardHeldBack = true;
-    } else {
+    } else if (fill) {
       const done = await write(() => writes.saveCompCard({ ...fill, fill: true }));
       if (done.done) {
         cardMoved = true;
@@ -258,6 +300,9 @@ export async function migrateGuest(
   if (guestCard?.updatedAt && !cardHeldBack && compCard && (cardMoved || !fill)) {
     accountFirst ||= cardKeptOwn(guestCard, compCard);
   }
+  // A text too long to move stays in the browser, alone, unless the whole
+  // card does.
+  if (tooLong.length && left.compCard === false) left.compCard = tooLong;
 
   // Course: the guest store only holds the last-played course. Everything
   // the guest did in it is sent in fill mode, also when the account has
@@ -293,10 +338,11 @@ export async function migrateGuest(
   if (otherAccount) {
     // None of it is in the account signed in now: all of it stays.
     left.badges = newBadges;
-    left.compCard = !!fill || cardHeldBack;
+    left.compCard = !!fill || cardHeldBack || tooLong.length > 0;
     left.course = !!course;
   }
 
+  const cardTooLongLeft = Array.isArray(left.compCard) ? left.compCard : [];
   const nothingLeft = !left.badges.length && !left.compCard && !left.course;
   return {
     badges: [...saved.badges, ...newBadges],
@@ -308,7 +354,8 @@ export async function migrateGuest(
     wrote,
     settled,
     accountFirst,
-    cardHeldBack,
+    cardHeldBack: cardHeldBack || cardTooLongLeft.length > 0,
+    cardTooLong: cardTooLongLeft,
     otherAccount,
     left: nothingLeft ? null : left,
   };
@@ -317,18 +364,29 @@ export async function migrateGuest(
 /**
  * The guest store once a move has taken what it could (`left`, from
  * migrateGuest): only what is still to move — the badges not awarded, the
- * Comp Card held back or not saved, the course not saved — so a later
- * "Add" moves only that, never again what the account may have changed
- * since (spec 5.5). Null when nothing is left. `blank` is the empty store.
+ * Comp Card held back or not saved (or only its texts too long to move),
+ * the course not saved — so a later "Add" moves only that, never again
+ * what the account may have changed since (spec 5.5). Null when nothing is
+ * left. `blank` is the empty store.
  */
 export function guestStoreLeft(guest: DemoState, left: GuestLeft | null, blank: DemoState): DemoState | null {
   if (!left) return null;
+  const card = left.compCard;
   return {
     ...blank,
     projectId: guest.projectId,
     role: guest.role,
     badges: left.badges,
-    compCard: left.compCard ? guest.compCard : blank.compCard,
+    compCard:
+      card === true
+        ? guest.compCard
+        : card
+          ? {
+              ...blank.compCard,
+              ...Object.fromEntries(card.map((f) => [f, guest.compCard[f]])),
+              updatedAt: guest.compCard.updatedAt,
+            }
+          : blank.compCard,
     course: left.course ? guest.course : blank.course,
   };
 }
@@ -343,6 +401,11 @@ export interface GuestWork {
   courses: { title: string; locale: Locale | null }[];
   /** A Comp Card filled in. */
   compCard: boolean;
+  /**
+   * Its texts over COMP_CARD_TEXT_MAX, in the card's order: they can't be
+   * added as they are, and are offered to be shortened (GuestWorkPrompt).
+   */
+  cardTooLong: { field: CompCardField; text: string }[];
   /** Reflection answers written. */
   reflections: number;
   /** Badges earned. */
@@ -362,6 +425,12 @@ export function guestWorkOf(guest: DemoState): GuestWork | null {
   const card = guest.compCard;
   const compCard = !!card.updatedAt && COMP_CARD_FIELDS.some((f) => answered(card[f]));
   if (!inCourse && !compCard && !(guest.badges ?? []).length) return null;
+  const cardTooLong = compCard
+    ? COMP_CARD_FIELDS.filter((f) => answered(card[f]) && card[f].length > COMP_CARD_TEXT_MAX).map((field) => ({
+        field,
+        text: card[field],
+      }))
+    : [];
   const reflections = inCourse
     ? [course.reflection.p1, course.reflection.p2, course.reflection.p3].filter(answered).length +
       Object.values(course.responses).filter(
@@ -377,6 +446,7 @@ export function guestWorkOf(guest: DemoState): GuestWork | null {
         ]
       : [],
     compCard,
+    cardTooLong,
     reflections,
     badges: (guest.badges ?? []).length,
   };

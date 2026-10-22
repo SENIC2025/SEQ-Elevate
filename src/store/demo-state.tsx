@@ -14,7 +14,7 @@ import {
   setCompCardSharing,
   awardBadgeAction,
 } from "@/app/actions/learner";
-import { COMP_CARD_FIELDS, type Sharing } from "@/lib/comp-card-visibility";
+import { COMP_CARD_FIELDS, type CompCardField, type Sharing } from "@/lib/comp-card-visibility";
 import type { Locale } from "@/lib/cms/types";
 import {
   answerQuestion,
@@ -272,6 +272,9 @@ function readGuestWork(): GuestWork | null {
  *   cardShared   all but the Comp Card is in the account: the account's card
  *                is shared, so nothing moved into it (D80); it alone stays
  *                here;
+ *   cardTooLong  all but a Comp Card text too long to move is in the
+ *                account: that text alone stays here, to be shortened and
+ *                added (GuestCardTooLong says which);
  *   nothing      nothing was added: the browser held no work any more (added
  *                or removed in another tab meanwhile, or not readable);
  *   removed      removed from this browser, nothing sent;
@@ -279,7 +282,25 @@ function readGuestWork(): GuestWork | null {
  *                session on this browser: what didn't move stays, offered
  *                again.
  */
-export type GuestWorkDone = "added" | "addedOwn" | "addedMore" | "cardShared" | "nothing" | "removed" | "failed";
+export type GuestWorkDone =
+  | "added"
+  | "addedOwn"
+  | "addedMore"
+  | "cardShared"
+  | "cardTooLong"
+  | "nothing"
+  | "removed"
+  | "failed";
+
+/**
+ * With "cardTooLong": the Comp Card texts the move left in this browser as
+ * too long to add (migrateGuest's cardTooLong), and whether anything else
+ * was written to the account.
+ */
+export interface GuestCardTooLong {
+  fields: CompCardField[];
+  added: boolean;
+}
 
 /**
  * Removes the guest store if it still holds `read`, the text the move read
@@ -680,6 +701,15 @@ interface ContextValue {
   guestWork: GuestWork | null;
   /** What became of it on this page (GuestWorkDone). */
   guestWorkDone: GuestWorkDone | null;
+  /** With guestWorkDone "cardTooLong": which texts stayed, and whether anything else was added. */
+  guestCardTooLong: GuestCardTooLong | null;
+  /**
+   * A Comp Card text of the guest store, too long to add, as the learner
+   * shortens it in the offer (GuestWorkPrompt): written into the guest
+   * store at once, that field only, so it outlives a reload and the next
+   * "Add" moves it. False when the guest store isn't there to write to.
+   */
+  shortenGuestCard: (field: CompCardField, text: string) => boolean;
   /** "Add it to my account": the guest store moves into the account (guest-migration.ts), then is removed. */
   claimGuestWork: () => Promise<void>;
   /** "Remove it from this browser": the guest store is removed; nothing is sent. */
@@ -788,6 +818,7 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
   const [profileIncomplete, setProfileIncomplete] = React.useState(false);
   const [guestWork, setGuestWork] = React.useState<GuestWork | null>(null);
   const [guestWorkDone, setGuestWorkDone] = React.useState<GuestWorkDone | null>(null);
+  const [guestCardTooLong, setGuestCardTooLong] = React.useState<GuestCardTooLong | null>(null);
   // A guest's work just cleared: the guest write-through doesn't write the
   // empty store back.
   const clearedGuest = React.useRef(false);
@@ -845,6 +876,7 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
     setProfileIncomplete(false);
     setGuestWork(null);
     setGuestWorkDone(null);
+    setGuestCardTooLong(null);
     dispatch({ type: "forgetLearner" });
     setGeneration((g) => g + 1);
   }, [courseSave, cardSave, setDbOwner]);
@@ -1270,9 +1302,11 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
   // and this page reads its session again, lets go of this account's data
   // and offers the work to whoever is signed in. Otherwise the guest store
   // keeps only what didn't move (guestStoreLeft: a Comp Card held back from
-  // a card the account shares, D80; a write that never got through), as it
-  // was read: a tab still a guest may have saved more meanwhile, which
-  // stays and is offered again; it goes once all of it is in the account.
+  // a card the account shares, D80; a Comp Card text too long to move,
+  // alone, to be shortened in the offer, D80; a write that never got
+  // through), as it was read: a tab still a guest may have saved more
+  // meanwhile, which stays and is offered again; it goes once all of it is
+  // in the account.
   // The page then shows only what the server confirmed: the Comp Card as
   // the server holds it (fields changed here meanwhile kept), and the
   // course being played read again (courseReread) — never this page's
@@ -1283,6 +1317,7 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
   const claimGuestWork = React.useCallback(async () => {
     const forUser = dbOwnerRef.current;
     if (!forUser) return;
+    setGuestCardTooLong(null);
     courseSave.flush();
     cardSave.flush();
     // The Comp Card as this page holds it now: a field changed from it while
@@ -1368,9 +1403,15 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
       setGuestWork(readGuestWork());
       setGuestWorkDone("failed");
     } else if (migrated.cardHeldBack || store === "changed") {
-      // What stays in this browser is offered again, as it is now.
+      // What stays in this browser is offered again, as it is now: a Comp
+      // Card text too long to add with a way to shorten it (cardTooLong).
       setGuestWork(readGuestWork());
-      setGuestWorkDone(migrated.cardHeldBack ? "cardShared" : "addedMore");
+      if (migrated.cardTooLong.length) {
+        setGuestCardTooLong({ fields: migrated.cardTooLong, added: migrated.wrote });
+        setGuestWorkDone("cardTooLong");
+      } else {
+        setGuestWorkDone(migrated.cardHeldBack ? "cardShared" : "addedMore");
+      }
     } else {
       setGuestWork(null);
       setGuestWorkDone(migrated.accountFirst ? "addedOwn" : "added");
@@ -1386,6 +1427,24 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
     }
     setGuestWork(null);
     setGuestWorkDone("removed");
+    setGuestCardTooLong(null);
+  }, []);
+
+  // A Comp Card text of the guest store too long to add, shortened in the
+  // offer: that field of the guest store, and its time, change; nothing
+  // else of it, and nothing is sent (the next "Add" moves it).
+  const shortenGuestCard = React.useCallback((field: CompCardField, text: string): boolean => {
+    try {
+      const raw = window.localStorage.getItem(STORAGE_KEY);
+      if (raw === null) return false;
+      const stored = JSON.parse(raw) as { compCard?: Record<string, unknown> } | null;
+      if (!stored || typeof stored.compCard?.[field] !== "string") return false;
+      stored.compCard = { ...stored.compCard, [field]: text, updatedAt: new Date().toISOString() };
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
+      return true;
+    } catch {
+      return false;
+    }
   }, []);
 
   // A guest's "Clear my work from this browser": the guest store goes, and
@@ -1449,6 +1508,8 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
       profileIncomplete,
       guestWork,
       guestWorkDone,
+      guestCardTooLong,
+      shortenGuestCard,
       claimGuestWork,
       discardGuestWork,
       clearGuestWork,
@@ -1463,6 +1524,8 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
       profileIncomplete,
       guestWork,
       guestWorkDone,
+      guestCardTooLong,
+      shortenGuestCard,
       claimGuestWork,
       discardGuestWork,
       clearGuestWork,
@@ -1546,6 +1609,8 @@ const NOTHING_SAVED = {
   profileIncomplete: false,
   guestWork: null,
   guestWorkDone: null,
+  guestCardTooLong: null,
+  shortenGuestCard: () => false,
   claimGuestWork: async () => {},
   discardGuestWork: () => {},
   clearGuestWork: () => {},
