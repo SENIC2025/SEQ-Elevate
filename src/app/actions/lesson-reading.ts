@@ -17,13 +17,14 @@ import "server-only";
  *      title of 1–200 characters and a description of at most 300 once
  *      cleaned; an address checkLinkHref accepts (https, http or mailto, at
  *      most 2,048 characters, no Outlook safe link) that isn't on our own
- *      file store; a title that doesn't show another address than the link
- *      opens; languages from en, de and el (all three, or none, = every
- *      language);
+ *      file store; a title that shows something and doesn't show another
+ *      address than the link opens, however it is written (titleMisleads);
+ *      languages from en, de and el (all three, or none, = every language);
  *   3. the target is of project seq-elevate: a lesson of a course there by
  *      the rules of the media actions (a lesson of the course's own only
  *      while it is in the course's list), or a link or document of such a
- *      lesson; else "not-found";
+ *      lesson, by the same rules; else "not-found" (or "not-a-section", as
+ *      for a lesson named by the page);
  *   4. the locks, only through store.server.ts (no raw SQL here): the Course
  *      row FOR SHARE, then the Lesson row FOR UPDATE, with the target read
  *      again under them;
@@ -52,12 +53,17 @@ import {
   ownSectionKind,
 } from "@/lib/cms/sections/store.server";
 import { normaliseLanguages } from "@/lib/cms/item-language";
-import { LINK_LIMITS, staffLink, type StaffLessonLink } from "@/lib/cms/lesson-links";
+import {
+  LINK_LIMITS,
+  cleanLinkLine,
+  staffLink,
+  titleMisleads,
+  titleShowsNothing,
+  type StaffLessonLink,
+} from "@/lib/cms/lesson-links";
 import type { Locale } from "@/lib/cms/types";
 import { checkLinkHref, type LinkRefusal } from "@/lib/rich-text/link-url";
-import { linkTextProblem } from "@/lib/rich-text/link-text";
 import { ownFileHost } from "@/lib/rich-text/own-file-host";
-import { cleanPlainText } from "@/lib/rich-text/sanitize";
 
 type Field = "title" | "url" | "description";
 type Reason = LinkRefusal | "own-file" | "misleading" | "too-long" | "empty";
@@ -97,21 +103,6 @@ const isId = (v: unknown): v is string => typeof v === "string" && v.length > 0 
 const isLessonTarget = (courseSlug: unknown, stageKey: unknown): courseSlug is string =>
   typeof courseSlug === "string" && SLUG.test(courseSlug) && isSectionId(stageKey);
 
-/**
- * A title or description as stored: one line, invisible characters removed,
- * trimmed (as a lesson title is cleaned), and refused, never cut, when it is
- * over `max` characters. A string over twice `max` is refused before it is
- * cleaned: whatever cleaning removes, reading it is wasted work.
- */
-function cleanLine(value: string, max: number): string | null {
-  if (value.length > 2 * max) return null;
-  const line = cleanPlainText(value).replace(/[\t\n\r]+/g, " ").trim();
-  return line.length > max ? null : line;
-}
-
-/** What a title can hold that shows nothing: spaces, a soft hyphen, zero-width characters and direction marks. */
-const UNSEEN = /[\s\u00AD\u200B-\u200F\u2060]/g;
-
 interface LinkFields {
   title: string;
   url: string;
@@ -133,15 +124,16 @@ function readLinkFields(input: unknown, every: boolean): { ok: true; value: Link
   const langs = normaliseLanguages(languages ?? []);
   if (!langs) return refuse("bad-input");
 
-  const cleanTitle = cleanLine(title, LINK_LIMITS.title);
+  // Cleaned as the form cleans it (cleanLinkLine), so both measure alike.
+  const cleanTitle = cleanLinkLine(title, LINK_LIMITS.title);
   if (cleanTitle === null) return invalid("title", "too-long");
-  if (!cleanTitle.replace(UNSEEN, "")) return invalid("title", "empty");
+  if (titleShowsNothing(cleanTitle)) return invalid("title", "empty");
   const check = checkLinkHref(url, { ownFileHost: ownFileHost() });
   if (!check.ok) return invalid("url", check.reason);
   if (check.ownFile) return invalid("url", "own-file");
-  // The title is shown as the link: it may not show another address (D104).
-  if (linkTextProblem(cleanTitle, check.href) === "misleading") return invalid("title", "misleading");
-  const cleanDescription = cleanLine(typeof description === "string" ? description : "", LINK_LIMITS.description);
+  // The title is shown as the link: it may not show another address, however it is written (D104).
+  if (titleMisleads(cleanTitle, check.href)) return invalid("title", "misleading");
+  const cleanDescription = cleanLinkLine(typeof description === "string" ? description : "", LINK_LIMITS.description);
   if (cleanDescription === null) return invalid("description", "too-long");
 
   return { ok: true, value: { title: cleanTitle, url: check.href, description: cleanDescription, languages: langs } };
@@ -171,9 +163,10 @@ async function lockLesson(tx: Prisma.TransactionClient, courseSlug: string, stag
 
 /**
  * Step 3 and 4 for a link named by its id: found only in a lesson of this
- * project, its course and lesson locked (in that order), and read again
- * under the locks, since a delete may have come first. Throws a
- * ReadingRefusal ("not-found").
+ * project, its lesson checked and locked as a lesson the page names is
+ * (lockLesson: the course must have its row, and a lesson of the course's
+ * own must be in its list), and read again under the locks, since a delete
+ * may have come first. Throws a ReadingRefusal.
  */
 async function lockLink(tx: Prisma.TransactionClient, linkId: string) {
   const where = { id: linkId, lesson: { projectId: PROJECT } };
@@ -183,8 +176,7 @@ async function lockLink(tx: Prisma.TransactionClient, linkId: string) {
   });
   if (!found) throw new ReadingRefusal(refuse("not-found"));
   const { courseSlug, stageKey } = found.lesson;
-  await lockCourse(tx, courseSlug, "share");
-  await lockLessonRowIfAny(tx, courseSlug, stageKey);
+  await lockLesson(tx, courseSlug, stageKey, false);
   const link = await tx.lessonLink.findFirst({ where, select: { url: true } });
   if (!link) throw new ReadingRefusal(refuse("not-found"));
   return { courseSlug, stageKey, url: link.url };
@@ -345,10 +337,11 @@ export async function setLessonLinkOrder(courseSlug: string, stageKey: string, o
       for (const [order, id] of orderedIds.entries()) {
         await tx.lessonLink.update({ where: { id }, data: { order }, select: { id: true } });
       }
+      return lesson.id;
     })
   );
   if (!done.ok) return done;
-  await audit(editor.id, "link.reordered", "Lesson", `${courseSlug}:${stageKey}`, { courseSlug, stageKey });
+  await audit(editor.id, "link.reordered", "Lesson", done.value, { courseSlug, stageKey });
   return { ok: true as const };
 }
 
@@ -397,6 +390,7 @@ export async function getLessonLinks(courseSlug: string, stageKey: string): Prom
 /**
  * The languages a document is for (D108): any of en, de and el; all three,
  * or none, is every language ([]). Never changes which lessons there are.
+ * The document's lesson is checked and locked as a link's is (lockLesson).
  */
 export async function setLessonDocumentLanguages(documentId: string, languages: Locale[]) {
   const editor = await requireEditor();
@@ -413,8 +407,7 @@ export async function setLessonDocumentLanguages(documentId: string, languages: 
       });
       if (!found) throw new ReadingRefusal(refuse("not-found"));
       const { courseSlug, stageKey } = found.lesson;
-      await lockCourse(tx, courseSlug, "share");
-      await lockLessonRowIfAny(tx, courseSlug, stageKey);
+      await lockLesson(tx, courseSlug, stageKey, false);
       const { count } = await tx.lessonDocument.updateMany({ where, data: { languages: langs } });
       if (!count) throw new ReadingRefusal(refuse("not-found"));
       return { courseSlug, stageKey };

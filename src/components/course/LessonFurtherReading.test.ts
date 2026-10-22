@@ -54,9 +54,13 @@ describe("LessonFurtherReading", () => {
     expect(render([])).toBe("");
   });
 
-  it("is a section named Further reading, with an h3 and one item per link, in order", () => {
+  it("is a section named by its h3, Further reading, with one item per link, in order", () => {
     const html = render([link("a", { description: "A short guide." }), link("b")]);
-    expect(html).toMatch(/^<section aria-label="Further reading"[^>]*><h3[^>]*>.*Further reading<\/h3><ul/);
+    // Named by the heading it holds (aria-labelledby), so the name is said once and is the heading's.
+    const named = html.match(/^<section aria-labelledby="([^"]+)"[^>]*><h3 id="([^"]+)"[^>]*>.*Further reading<\/h3><ul/);
+    expect(named).not.toBeNull();
+    expect(named![1]).toBe(named![2]);
+    expect(html).not.toContain("aria-label=");
     expect(html.match(/<li/g)).toHaveLength(2);
     expect(html.indexOf("Title a")).toBeLessThan(html.indexOf("Title b"));
     expect(html).toContain("A short guide.");
@@ -73,6 +77,12 @@ describe("LessonFurtherReading", () => {
   it("shows an international host in punycode, as the address check normalised it", () => {
     const html = render([link("idn", { url: "https://xn--mnchen-3ya.example/kurs" })]);
     expect(html).toContain(">xn--mnchen-3ya.example</p>");
+  });
+
+  it("shows an email link's domain in punycode when it isn't ASCII, as it shows a web host", () => {
+    // Cyrillic е in "vеrein".
+    const html = render([link("mail", { kind: "email", url: "mailto:info@v\u0435rein.de", title: "Kontakt" })]);
+    expect(html).toContain(">info@xn--vrein-zwe.de</p>");
   });
 
   it("shows an email link's bare address under it, never mailto: or its subject", () => {
@@ -109,7 +119,7 @@ describe("LessonFurtherReading", () => {
     // The label is in the page's language: "Auf Deutsch".
     expect(html).toContain(">Auf Deutsch</span>");
     expect(html.match(/Auf Deutsch/g)).toHaveLength(1);
-    expect(html).toContain('aria-label="Zum Weiterlesen"');
+    expect(html).toMatch(/<h3 id="[^"]+"[^>]*>.*Zum Weiterlesen<\/h3>/);
   });
 
   it("with German switched on for the course, a German item reads as the course does", () => {

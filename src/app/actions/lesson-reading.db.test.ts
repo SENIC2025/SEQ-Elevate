@@ -121,8 +121,19 @@ describe.skipIf(!url)("the further-reading actions on a real database", () => {
   });
 
   it("refuses another project's link and document, every hostile address and a lesson not listed, changing nothing", async () => {
+    // A link left on a lesson of the course's own that its list no longer holds.
+    await db.query(
+      `INSERT INTO "Lesson" ("id", "projectId", "courseSlug", "stageKey", "updatedAt") VALUES ('unlisted-lesson', 'seq-elevate', 'r4-db', 's-zzzzzzzz', now())`
+    );
+    await db.query(
+      `INSERT INTO "LessonLink" ("id", "lessonId", "title", "url", "updatedAt") VALUES ('unlisted-link', 'unlisted-lesson', 'x', 'https://example.org/unlisted', now())`
+    );
     const before = await checksum();
     const notFound = { ok: false, error: "not-found" };
+    const notListed = { ok: false, error: "not-a-section" };
+    expect(await actions.setLessonLinkPublished("unlisted-link", true)).toEqual(notListed);
+    expect(await actions.updateLessonLink("unlisted-link", { title: "x", url: "https://example.org/", description: "", languages: [] })).toEqual(notListed);
+    expect(await actions.removeLessonLink("unlisted-link")).toEqual(notListed);
     expect(await actions.updateLessonLink("their-link", { title: "x", url: "https://example.org/", description: "", languages: [] })).toEqual(notFound);
     expect(await actions.removeLessonLink("their-link")).toEqual(notFound);
     expect(await actions.setLessonLinkPublished("their-link", false)).toEqual(notFound);

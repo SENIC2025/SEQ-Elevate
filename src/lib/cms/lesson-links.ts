@@ -10,9 +10,15 @@
  * kind as the check gives them; staff get every row, and one whose address
  * the check refuses is marked `unusable`, to be shown as text and fixed,
  * never drawn as a link.
+ *
+ * A title and description are cleaned once, here, for the form and the
+ * actions alike; a title is compared with the address it opens as it reads
+ * (titleMisleads).
  */
 
 import { checkLinkHref, emailAddressOf } from "@/lib/rich-text/link-url";
+import { linkTextProblem } from "@/lib/rich-text/link-text";
+import { cleanPlainText } from "@/lib/rich-text/sanitize";
 import type { LessonLinkRef } from "./reading-types";
 import type { Locale } from "./types";
 
@@ -22,6 +28,63 @@ import type { Locale } from "./types";
  * at most 30 links per lesson.
  */
 export const LINK_LIMITS = { title: 200, description: 300, perLesson: 30 } as const;
+
+/**
+ * A title or description as stored (spec 4.2), and as the form measures it:
+ * one line (tabs and line breaks become spaces), control and direction
+ * characters removed (cleanPlainText, as a lesson title is cleaned),
+ * trimmed; the spaces typed stay. Null, refused and never cut, when it is
+ * over `max` characters; a string over twice `max` is refused before it is
+ * cleaned, since whatever cleaning removes, reading it is wasted work.
+ */
+export function cleanLinkLine(value: string, max: number): string | null {
+  if (value.length > 2 * max) return null;
+  const line = cleanPlainText(value).replace(/[\t\n\r]+/g, " ").trim();
+  return line.length > max ? null : line;
+}
+
+/**
+ * Characters that show nothing: Unicode's default-ignorable code points
+ * (zero-width spaces and joiners, direction marks, invisible operators,
+ * Hangul fillers, variation selectors, the soft hyphen, and the like).
+ */
+const SHOWS_NOTHING = /\p{Default_Ignorable_Code_Point}/gu;
+
+/**
+ * Text as it reads: compatibility forms folded into the characters they
+ * show (NFKC: "\u2024" is ".", a fullwidth ":" is ":"), then every character
+ * that shows nothing removed.
+ */
+function asItReads(text: string): string {
+  return text.normalize("NFKC").replace(SHOWS_NOTHING, "");
+}
+
+/** A title that shows nothing at all: only spaces and characters that show nothing. */
+export function titleShowsNothing(title: string): boolean {
+  return !asItReads(title).trim();
+}
+
+/**
+ * "www." starting a word: a host as people write it ("www.bpb.de/x"), read
+ * as the web address it names. Not when glued to what comes before it: a
+ * letter or digit ("awww."), an address ("https://www.", "info@www."), a
+ * host ("sub.www.").
+ */
+const WWW_HOST = /(^|[^\p{L}\p{N}\p{M}_@./:+-])(www\.)/giu;
+
+/**
+ * Whether a further-reading title shows another address than `href` opens
+ * (D104's rule, linkTextProblem, as D107 applies it to titles). The title
+ * is compared as written and as it reads (asItReads), so characters that
+ * show nothing or only look like others never hide an address from the
+ * comparison; and a host written with "www." counts as the web address it
+ * names. A title that names the link's own site, however it is written, is
+ * accepted.
+ */
+export function titleMisleads(title: string, href: string): boolean {
+  const read = asItReads(title).replace(WWW_HOST, "$1https://$2");
+  return linkTextProblem(title, href) === "misleading" || linkTextProblem(read, href) === "misleading";
+}
 
 /** The languages in the order they are stored and named (spec 4.2). */
 const LANGUAGES: readonly Locale[] = ["en", "de", "el"];
@@ -94,12 +157,31 @@ export function staffLink(row: StoredLink): StaffLessonLink {
 }
 
 /**
+ * An email address as shown under its link: its domain in ASCII (an
+ * international domain in punycode, as a web host is shown), the part
+ * before "@" as written.
+ */
+function shownEmail(address: string): string {
+  if (/^[\x00-\x7f]*$/.test(address)) return address;
+  const at = address.lastIndexOf("@");
+  try {
+    return `${address.slice(0, at)}@${new URL(`https://${address.slice(at + 1)}`).hostname}`;
+  } catch {
+    return address;
+  }
+}
+
+/**
  * Where an accepted link goes, as shown under its title: the host of a web
  * address (international hosts in punycode, as the check normalised them),
- * or the bare address of an email link. "" for anything else.
+ * or the bare address of an email link (its domain in ASCII too). "" for
+ * anything else.
  */
 export function linkPlace(link: { url: string; kind: LessonLinkRef["kind"] | null }): string {
-  if (link.kind === "email") return emailAddressOf(link.url) ?? "";
+  if (link.kind === "email") {
+    const address = emailAddressOf(link.url);
+    return address ? shownEmail(address) : "";
+  }
   if (link.kind !== "web") return "";
   try {
     return new URL(link.url).host;

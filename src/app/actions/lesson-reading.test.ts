@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterAll, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { HOSTILE_ADDRESSES, MISLEADING_TITLES, OWN_FILE } from "../../../e2e/fixtures/r4-hostile-links";
+import { HOSTILE_ADDRESSES, MISLEADING_TITLES, MISLEADING_TITLE_URL, OWN_FILE } from "../../../e2e/fixtures/r4-hostile-links";
 
 /*
  * U9 (Release 4, spec 4.3, D107, D108, D110): the further-reading actions
@@ -196,6 +196,24 @@ const {
 const SLUG = "my-course";
 const OWN = "s-abcdefgh";
 const UNLISTED = "s-zzzzzzzz";
+/**
+ * Titles that show another address than MISLEADING_TITLE_URL opens, written
+ * with characters that show nothing or look like others, or as a www. host.
+ */
+const SHOWN_ANOTHER_WAY = [
+  "https://bank\u200b.example/login",
+  "https:\u200b//bank.example",
+  "https://bank.\u200dexample/login",
+  "https://bank\u2062.example",
+  "https://bank\u3164.example",
+  "https://bank\uffa0.example",
+  "https://bank\u115f.example",
+  "https://bank\u180e.example",
+  "https://bank.example\u2024login",
+  "https\uff1a//bank.example",
+  "www.bank.example/login",
+  "Log in at www.bank.example",
+];
 const LINK = { title: "The guide", url: "https://example.org/guide", description: "A short guide.", languages: ["de"] as ("en" | "de" | "el")[] };
 
 function course(projectId: string, slug: string, outline: unknown = { v: 1, sections: [{ id: "context", template: "context" }, { id: OWN, template: "text" }] }): Course {
@@ -326,6 +344,30 @@ describe("which lesson, link or document (spec 4.3, step 3)", () => {
     expect((await getLessonLinks(SLUG, "context")).links.map((l) => l.id)).toEqual([mine.id]);
   });
 
+  it("refuses a link or document of a lesson the course doesn't list, or of a course without its row, as adding does", async () => {
+    const unlisted = lesson(PROJECT, SLUG, UNLISTED);
+    const gone = lesson(PROJECT, "gone-course", "context");
+    const onUnlisted = link(unlisted.id);
+    const onGone = link(gone.id);
+    db.docs.push({ id: "doc-unlisted", lessonId: unlisted.id, languages: [] }, { id: "doc-gone", lessonId: gone.id, languages: [] });
+    const before = snapshot();
+    for (const [stored, doc, error] of [
+      [onUnlisted, "doc-unlisted", "not-a-section"],
+      [onGone, "doc-gone", "not-found"],
+    ] as const) {
+      const refused = { ok: false, error };
+      expect(await setLessonLinkPublished(stored.id, true), error).toEqual(refused);
+      expect(await updateLessonLink(stored.id, LINK), error).toEqual(refused);
+      expect(await removeLessonLink(stored.id), error).toEqual(refused);
+      expect(await setLessonDocumentLanguages(doc, ["de"]), error).toEqual(refused);
+    }
+    // As adding one answers for the same lessons.
+    expect(await addLessonLink(SLUG, UNLISTED, LINK)).toEqual({ ok: false, error: "not-a-section" });
+    expect(await addLessonLink("gone-course", "context", LINK)).toEqual({ ok: false, error: "not-found" });
+    expect(snapshot()).toEqual(before);
+    expect(writes()).toEqual([]);
+  });
+
   it("answers not-found for a link or document of another project, or none, and changes nothing", async () => {
     const theirs = lesson(OTHER, SLUG, "context");
     const their = link(theirs.id);
@@ -381,6 +423,27 @@ describe("what a link may be (spec 4.2), refused before anything is written", ()
     }
     expect(db.lessons).toEqual([]);
     expect(db.links).toEqual([]);
+  });
+
+  it("refuses a title that shows another address however it is written, and a title that shows nothing", async () => {
+    lesson(PROJECT, SLUG, "context");
+    const stored = link(db.lessons[0].id);
+    db.log = [];
+    const before = snapshot();
+    for (const title of SHOWN_ANOTHER_WAY) {
+      const misleading = { ok: false, error: "invalid", field: "title", reason: "misleading" };
+      expect(await addLessonLink(SLUG, "context", { ...LINK, title, url: MISLEADING_TITLE_URL }), JSON.stringify(title)).toEqual(misleading);
+      expect(await updateLessonLink(stored.id, { ...LINK, title, url: MISLEADING_TITLE_URL }), JSON.stringify(title)).toEqual(misleading);
+    }
+    for (const title of ["\u3164\u115f", "\uffa0", "\u2060\u180e "]) {
+      expect(await addLessonLink(SLUG, "context", { ...LINK, title }), JSON.stringify(title)).toEqual({ ok: false, error: "invalid", field: "title", reason: "empty" });
+    }
+    expect(snapshot()).toEqual(before);
+    expect(db.log).toEqual([]);
+    // The link's own site, however its title writes it, is accepted.
+    for (const title of ["www.bank.example", "https://bank\u200b.example/login"]) {
+      expect(await addLessonLink(SLUG, "context", { ...LINK, title, url: "https://bank.example/login" }), title).toMatchObject({ ok: true });
+    }
   });
 
   it("answers a million-character address at once, without parsing it", async () => {
@@ -563,7 +626,7 @@ describe("audit (spec 4.8)", () => {
       ["link.updated", "LessonLink", add.id, { courseSlug: SLUG, stageKey: "context", languages: [], urlChanged: true }],
       ["link.published", "LessonLink", add.id, { courseSlug: SLUG, stageKey: "context" }],
       ["link.unpublished", "LessonLink", add.id, { courseSlug: SLUG, stageKey: "context" }],
-      ["link.reordered", "Lesson", `${SLUG}:context`, { courseSlug: SLUG, stageKey: "context" }],
+      ["link.reordered", "Lesson", db.lessons[0].id, { courseSlug: SLUG, stageKey: "context" }],
       ["link.removed", "LessonLink", add.id, { courseSlug: SLUG, stageKey: "context" }],
       ["document.languages_changed", "LessonDocument", "doc-1", { courseSlug: SLUG, stageKey: "context", languages: ["de"] }],
     ]);

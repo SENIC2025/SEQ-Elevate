@@ -1,5 +1,6 @@
 "use client";
 
+import { useId } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { BookOpen } from "lucide-react";
 import { QuickLink } from "@/components/rich-text/QuickLink";
@@ -12,7 +13,8 @@ import { useContentLang } from "./CourseText";
  * A lesson's further reading (Release 4, D107; spec 4.5): drawn after the
  * lesson's own content, so learners meet the lesson before its links out,
  * and the heading order stays the lesson's h2, then "Further reading" (h3).
- * Nothing at all for a lesson without links.
+ * The section is named by that heading (aria-labelledby), so its name is
+ * the heading's own words. Nothing at all for a lesson without links.
  *
  * Each item: its title as a link (QuickLink: a new tab, and screen readers
  * hear that it opens one), where it goes under it (the host of a web
@@ -31,15 +33,16 @@ export function LessonFurtherReading({ links }: { links?: readonly LessonLinkRef
   const t = useTranslations("furtherReading");
   const page = useLocale() as Locale;
   const courseLang = useContentLang();
+  const headingId = useId();
   if (!links?.length) return null;
   const text = courseLang ?? page;
 
   return (
     <section
-      aria-label={t("title")}
+      aria-labelledby={headingId}
       className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4"
     >
-      <h3 className="mb-2 flex items-center gap-1.5 text-sm font-semibold">
+      <h3 id={headingId} className="mb-2 flex items-center gap-1.5 text-sm font-semibold">
         <BookOpen className="h-4 w-4 text-[var(--accent)]" aria-hidden />
         {t("title")}
       </h3>
