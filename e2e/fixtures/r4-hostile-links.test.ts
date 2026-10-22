@@ -34,7 +34,7 @@ describe("the hostile link table", () => {
 
   it("shows another address in each misleading label and title", () => {
     const labels = HOSTILE_MARKS.filter((m) => m.name.startsWith("a label"));
-    expect(labels.length).toBe(15);
+    expect(labels.length).toBe(16);
     for (const label of labels) {
       const node = label.rich.doc.content[0].content[1] as unknown as { text: string; marks: { attrs: { href: string } }[] };
       expect(linkTextProblem(node.text, node.marks[0].attrs.href), label.name).toBe("misleading");

@@ -91,9 +91,9 @@ describe("linkTextProblem", () => {
       ["bank.com.au", "https://evil.com.au/"],
       ["bank.com.gr", "https://evil.com.gr/"],
       ["bank.com.cy", "https://evil.com.cy/"],
-      // A public suffix is no one's site.
-      ["gov.gr", "https://minedu.gov.gr/"],
-      ["co.uk", "https://bbc.co.uk/"],
+      // An address of a public suffix's own host is that host.
+      ["https://www.gov.gr", "https://minedu.gov.gr/"],
+      ["gov.uk/guidance", "https://evil.gov.uk/"],
       // Under a top-level domain whose rules aren't all listed (Italy,
       // Japan, Norway, Poland, the United States), a host is its own site.
       ["milano.it", "https://comune.milano.it/"],
@@ -103,6 +103,36 @@ describe("linkTextProblem", () => {
       expect(linkTextProblem(text, href), `${text} over ${href}`).toBe("misleading");
     }
     expect(linkTextProblem("comune.milano.it", "https://www.comune.milano.it/")).toBeNull();
+  });
+
+  // A public suffix of more than one label, named by itself ("gov.gr",
+  // "GOV.UK": the name of a state's digital services), is no one host: it
+  // shows every site under it. An address of its own host is that host.
+  it("takes a public suffix named by itself as every site under it", () => {
+    for (const [text, href] of [
+      ["Gov.gr Wallet", "https://wallet.gov.gr/"],
+      ["Υπεύθυνη Δήλωση μέσω gov.gr", "https://dilosi.services.gov.gr/"],
+      ["Εξουσιοδότηση στο gov.gr", "https://dilosi.services.gov.gr/"],
+      ["myKEPlive (gov.gr)", "https://mykeplive.gov.gr/"],
+      ["gov.cy", "https://cyprus.gov.cy/"],
+      ["GOV.UK guidance (PDF)", "https://assets.publishing.service.gov.uk/media/abc/guidance.pdf"],
+      ["Find a course on GOV.UK", "https://nationalcareers.service.gov.uk/find-a-course"],
+      ["GOV.UK One Login", "https://signin.account.gov.uk/"],
+      ["Apprenticeships – GOV.UK", "https://www.apprenticeships.gov.uk/"],
+      ["gov.gr", "mailto:info@minedu.gov.gr"],
+    ]) {
+      expect(linkTextProblem(text, href), `${text} over ${href}`).toBeNull();
+    }
+    for (const [text, href] of [
+      ["gov.gr", "https://evil.example/"],
+      ["gov.gr", "https://gov.gr.evil.example/"],
+      ["Co.UK", "https://evil.example/"],
+      ["https://www.gov.gr", "https://minedu.gov.gr/"],
+      ["www.gov.uk", "https://evil.gov.uk/"],
+      ["gov.gr and paypal.com", "https://minedu.gov.gr/"],
+    ]) {
+      expect(linkTextProblem(text, href), `${text} over ${href}`).toBe("misleading");
+    }
   });
 
   it("refuses when any one of several addresses shown points elsewhere", () => {
@@ -399,7 +429,7 @@ describe("linkTextProblem", () => {
       expect(linkTextProblem(text, href), `${text} over ${href}`).toBeNull();
     }
     for (const [text, href] of [
-      ["gov.uk", "https://evil.gov.uk/"],
+      ["gov.uk/guidance", "https://evil.gov.uk/"],
       ["www.gov.uk", "https://evil.gov.uk/"],
       ["https://www.gov.gr", "https://minedu.gov.gr/"],
     ]) {
@@ -445,6 +475,66 @@ describe("linkTextProblem", () => {
     for (const text of ["¹", "the guide²", "Acme™"]) expect(linkTextProblem(text, EVIL), text).toBeNull();
   });
 
+  it("reads a raised, lowered or circled letter inside a name as the letter it shows", () => {
+    for (const text of [
+      "paypal.cᵒm",
+      "www.paypal.cᵒm",
+      "paypal.cᵒm/login",
+      "paypal.ᶜᵒᵐ",
+      "paypal.ⓒⓞⓜ",
+      "ⓟⓐⓨⓟⓐⓛ.ⓒⓞⓜ",
+      // Where a name may go on after it, it is read both ways.
+      "paypal.com¹.evil.example",
+    ]) {
+      expect(linkTextProblem(text, EVIL), JSON.stringify(text)).toBe("misleading");
+    }
+    expect(linkTextProblem("paypal.cᵒm", "https://www.paypal.com/")).toBeNull();
+    expect(linkTextProblem("www.senic.org¹", "https://senic.org/")).toBeNull();
+    for (const text of ["CO₂-Bilanz", "H₂O", "10 m²", "№ 5", "Mag.ª Huber"]) expect(linkTextProblem(text, EVIL), text).toBeNull();
+  });
+
+  it("reads a Roman numeral letter as the letter it shows", () => {
+    for (const text of [
+      "paypal.ⅽom",
+      "https://paypal.ⅽom",
+      "paypal.ⅽom/login",
+      "Sign in at paypal.ⅽom to confirm",
+      "paypaⅼ.com",
+      "https://paypaⅼ.com/signin",
+      "sparkasse.ⅾe",
+      "paypal.ⅽom.evil.example",
+      "https://paypal.ⅽom@evil.example",
+      "support@paypal.ⅽom",
+    ]) {
+      expect(linkTextProblem(text, EVIL), JSON.stringify(text)).toBe("misleading");
+    }
+    expect(linkTextProblem("support@paypal.ⅽom", "mailto:support@evil.example")).toBe("misleading");
+    expect(linkTextProblem("paypal.ⅽom", "https://www.paypal.com/")).toBeNull();
+    for (const text of ["Ludwig Ⅻ.", "Kapitel Ⅲ.2", "Teil Ⅱ"]) expect(linkTextProblem(text, EVIL), text).toBeNull();
+  });
+
+  it("drops a mark that follows no letter or digit, at a name's start or a label's", () => {
+    for (const text of [
+      "paypal.̲com",
+      "www.paypal.̲com/login",
+      "paypal.̣com",
+      "paypal.́com",
+      "paypal.̇com",
+      "sparkasse.̲de/login",
+      "paypal.̲com.evil.example",
+      "̲paypal.com",
+      "www.̲paypal.com",
+      "̲paypal.com/login",
+      "www.̲paypal.com/login",
+      "Log in at ̲paypal.com",
+      "support@paypal.̲com",
+    ]) {
+      expect(linkTextProblem(text, EVIL), JSON.stringify(text)).toBe("misleading");
+    }
+    expect(linkTextProblem("paypal.̲com", "https://www.paypal.com/")).toBeNull();
+    for (const text of ["naïve.", "café.", "e.g.", "Don´t", "̲"]) expect(linkTextProblem(text, EVIL), JSON.stringify(text)).toBeNull();
+  });
+
   it("reads a host through a hair space, which shows nothing", () => {
     for (const text of ["paypal .com", "paypal.c om", "https://bank .example"]) {
       expect(linkTextProblem(text, EVIL), JSON.stringify(text)).toBe("misleading");
@@ -482,6 +572,8 @@ describe("linkTextProblem", () => {
       ["аррӏе.com", "https://xn--80ak6aa92e.com/"], // аррӏе
       ["аррӏе.сом", EVIL], // аррӏе.сом, Cyrillic only
       ["paypal.соm.evil.example", EVIL],
+      // Cyrillic г and п, which show as r and n.
+      ...["micгosoft.com", "liпkedin.com", "dгopbox.com", "орепаі.com"].map((text) => [text, new URL(`https://${text}/`).href]),
     ]) {
       expect(linkTextProblem(text, href), `${text} over ${href}`).toBe("misleading");
     }
@@ -532,6 +624,18 @@ describe("linkTextProblem", () => {
     for (const text of ["apl.Prof. Dr. Weber", "Jun.Prof.", "em.Prof.", "Asst.Prof.", "Adj.Prof.", "Pty.Ltd.", "Acme Pte.Ltd."]) {
       expect(linkTextProblem(text, "https://uni.example/"), text).toBeNull();
     }
+    // A word in lower case after a title is an abbreviation's, whatever the
+    // public suffixes hold ("dr.in" is one): the Austrian "Dr.in".
+    for (const text of [
+      "Dr.in Maria Huber",
+      "Mag.a Dr.in Huber",
+      "Univ.-Prof.in Dr.in Eva Berger",
+      "Prof.in Dr.in Huber",
+      "Dr.in med. Huber",
+      "Vortrag von Dr.in Huber (PDF)",
+    ]) {
+      expect(linkTextProblem(text, "https://uni.example/x"), text).toBeNull();
+    }
     for (const text of ["paypal.prof", "Barclays.Ltd", "barclays.ltd", "www.Jun.Prof"]) {
       expect(linkTextProblem(text, EVIL), text).toBe("misleading");
     }
@@ -539,6 +643,34 @@ describe("linkTextProblem", () => {
     // domain reads as a host (§12, fails safe).
     expect(linkTextProblem("…in Brussels.It", "https://uni.example/")).toBe("misleading");
   });
+
+  // A text of up to 10,000 characters (a block's most) is read on every save
+  // and every server render: what it costs grows with its length, never
+  // with its square. Compared as eight texts of 1,250 characters against
+  // one of 10,000, the same characters in all: about equal when the cost
+  // grows with the length, eight times more when with its square.
+  it.each([
+    ["a title before thousands of labels", (n: number) => `Dr.${"de.".repeat(Math.floor((n - 5) / 3))}de`],
+    ["a company form before thousands of labels", (n: number) => `${"Co.".repeat(Math.floor((n - 2) / 3))}UK`],
+    ["an address of thousands of commas", (n: number) => `https://a${",".repeat(n - 10)}b`],
+    ["an email address of thousands of commas", (n: number) => `mailto:a@b${",".repeat(n - 11)}c`],
+    ["an address of thousands of dots", (n: number) => `https://a${".".repeat(n - 10)}b`],
+    ["a name of thousands of hyphens", (n: number) => `a${"-".repeat(n - 2)}a`],
+  ])("reads %s in time proportional to its length", (_, make) => {
+    const time = (texts: string[]) => {
+      let best = Infinity;
+      for (let k = 0; k < 3; k++) {
+        const started = performance.now();
+        for (const text of texts) linkTextProblem(text, EVIL);
+        best = Math.min(best, performance.now() - started);
+      }
+      return best;
+    };
+    const short = Array.from({ length: 8 }, () => make(1_250));
+    const long = [make(10_000)];
+    time(short);
+    expect(time(long) / time(short)).toBeLessThan(3);
+  }, 30_000);
 
   it("reads the addresses a text shows once, for as many links as need comparing", () => {
     const shown = addressesShown("https://example.org and help@example.org");
