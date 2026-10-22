@@ -1134,9 +1134,12 @@ describe("the scope guard (FD-U15)", () => {
 
 /*
  * The meta-test: changes that must fail. Each adds a file (or a function to
- * a real file) to the real sources and judges them with the real list.
+ * a real file) to the real sources and judges them with the real list. Each
+ * judgement parses every source file again (about 1 s alone, several times
+ * that while the whole suite runs), so a test that judges several cases has
+ * more time than the default 5 s.
  */
-describe("the scope guard refuses (FD-U15 meta-test)", () => {
+describe("the scope guard refuses (FD-U15 meta-test)", { timeout: 60_000 }, () => {
   const failuresWith = (file: string, text: string, allow: AllowList = ALLOW) => {
     const sources = new Map(SOURCES);
     sources.set(file, file in Object.fromEntries(SOURCES) ? `${SOURCES.get(file)}\n${text}` : text);
