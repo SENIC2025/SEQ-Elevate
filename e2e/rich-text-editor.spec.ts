@@ -3,13 +3,15 @@ import AxeBuilder from "@axe-core/playwright";
 import { Prisma, PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { createPerson } from "./fixtures/people";
+import { DOCS_LINKS, DOCS_LINKS_TEXT, WORD_LINKS, WORD_LINKS_TEXT } from "./fixtures/paste/hand-written";
 
 /**
  * The lesson text editor (D36) on the course page: an author formats a
  * paragraph with bold, italic, lists and indent, pastes from Word or plain
- * text, chooses bullets or numbers for a list block, and formats a
- * reflection lesson's introduction. What is saved is checked in the
- * database; what learners see, in the player.
+ * text (and, Release 4, R4-E4: Word's and Google Docs' links), chooses
+ * bullets or numbers for a list block, and formats a reflection lesson's
+ * introduction. What is saved is checked in the database; what learners
+ * see, in the player.
  *
  * The player assertions (<strong>, nested <ul>, bulleted list blocks) need
  * the learner renderer (RichTextView in NarrativeStage, workstream R3-B).
@@ -41,7 +43,7 @@ const TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
 type DocNode = {
   type: string;
   text?: string;
-  marks?: { type: string }[];
+  marks?: { type: string; attrs?: { href?: string } }[];
   attrs?: Record<string, unknown>;
   content?: DocNode[];
 };
@@ -529,6 +531,88 @@ describe("Rich text — the lesson text editor", () => {
       "Listen",
       "Ask",
     ]);
+  });
+
+  test("R4-E4: pasting from Word and Google Docs keeps web and email links, says what wasn't kept, and saves what the editor shows", async ({
+    page,
+    context,
+  }) => {
+    await seedConcept([{ kind: "paragraph", text: "Intro." }]);
+    await useSession(context, editorSession);
+    const { region, blocks } = await openLesson(page);
+
+    await addBlock(region, /^paragraph$/i);
+    const word = blocks.nth(1).getByRole("textbox", { name: /^paragraph text$/i });
+    await expect(word).toBeFocused({ timeout: 15000 });
+    await paste(word, { "text/html": WORD_LINKS, "text/plain": WORD_LINKS_TEXT });
+
+    // Kept: https, http and mailto; the safe link's target; a link in a list point.
+    const kept: [string, string][] = [
+      ["the guide", "https://example.org/guide"],
+      ["the old site", "http://example.org/old"],
+      ["write to us", "mailto:help@example.org"],
+      ["the safe one", "https://example.org/safe"],
+      ["our tips", "https://example.org/tips"],
+    ];
+    const wordLinks = word.locator("a");
+    await expect(wordLinks).toHaveText(kept.map(([text]) => text));
+    for (const [i, [, href]] of kept.entries()) {
+      await expect(wordLinks.nth(i)).toHaveAttribute("href", href);
+    }
+    await expect(word.locator("ul > li a")).toHaveText("our tips");
+    // Not kept: their text stays, unlinked.
+    for (const text of ["Introduction[1]", "the handout", "the unsafe one", "the uploaded one", "https://bank.example/login"]) {
+      await expect(word).toContainText(text);
+    }
+    // The status line says how many weren't kept, and why; and how many use http.
+    const status = blocks.nth(1).getByRole("status").last();
+    await expect(status).toContainText(
+      "2 links weren't kept: only web and email links can be used. Add them again with the Link button."
+    );
+    await expect(status).toContainText(
+      "1 link to a file uploaded to the platform wasn't kept. Add the file to the lesson as a document instead."
+    );
+    await expect(status).toContainText(
+      "1 link wasn't kept because its text shows a different address. Add it again with the Link button, using a few words."
+    );
+    await expect(status).toContainText(
+      "1 pasted link uses http://, which isn't secure. Change it to https:// if the site offers it."
+    );
+    await expect(blocks.nth(1).getByRole("alert")).toHaveCount(0);
+
+    await addBlock(region, /^paragraph$/i);
+    const docs = blocks.nth(2).getByRole("textbox", { name: /^paragraph text$/i });
+    await expect(docs).toBeFocused({ timeout: 15000 });
+    await paste(docs, { "text/html": DOCS_LINKS, "text/plain": DOCS_LINKS_TEXT });
+    // Google's redirect is unwrapped to its target.
+    await expect(docs.locator("a")).toHaveText(["the Docs page", "a direct link", "a listed link"]);
+    await expect(docs.locator("a").first()).toHaveAttribute("href", "https://example.org/docs");
+    await expect(docs.locator("ul > li a")).toHaveAttribute("href", "https://example.org/docs-list");
+
+    // What the editor shows is what is saved: the same links, no more, no fewer.
+    const shown = async (box: Locator) =>
+      box.locator("a").evaluateAll((links) => links.map((a) => [a.textContent ?? "", a.getAttribute("href") ?? ""]));
+    const inEditor = [...(await shown(word)), ...(await shown(docs))];
+    await save(region);
+    const saved = await savedBlocks();
+    // Each link: neighbouring text with the same address, in document order.
+    const links: string[][] = [];
+    const walk = (node: DocNode) => {
+      let open: string[] | null = null;
+      for (const child of node.content ?? []) {
+        const href = child.type === "text" ? child.marks?.find((m) => m.type === "link")?.attrs?.href : undefined;
+        if (href && open && open[1] === href) open[0] += child.text ?? "";
+        else if (href) links.push((open = [child.text ?? "", href]));
+        else open = null;
+        if (child.type !== "text") walk(child);
+      }
+    };
+    for (const block of saved.slice(1)) {
+      expect(block.rich?.v).toBe(2);
+      walk(block.rich!.doc);
+    }
+    expect(links).toEqual(inEditor);
+    expect(plainSpaces(saved[1].text)).toContain("See the guide (https://example.org/guide), the old site (http://example.org/old) and write to us (help@example.org).");
   });
 
   test("a list block shows bullets or numbers; a bulleted list comes from the templates", async ({
