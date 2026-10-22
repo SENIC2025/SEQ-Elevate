@@ -414,7 +414,7 @@ export const NOT_LISTED_DOMAINS: readonly string[] = NOT_LISTED;
 const NOT_LISTED_SET: ReadonlySet<string> = new Set(NOT_LISTED);
 
 /** The most labels a rule has: no longer suffix is looked for. */
-const MOST_LABELS = Math.max(...[...PUBLIC_SUFFIX_RULES].map((rule) => rule.split(".").length));
+export const MOST_SUFFIX_LABELS = Math.max(...[...PUBLIC_SUFFIX_RULES].map((rule) => rule.split(".").length));
 
 /**
  * How many labels of the public suffix `labels[0, end)` ends in: the
@@ -427,7 +427,7 @@ export function publicSuffixLength(labels: readonly string[], end = labels.lengt
   if (end < 1 || NOT_LISTED_SET.has(labels[end - 1])) return null;
   let length = 1;
   let rest = labels[end - 1];
-  for (let k = 2; k <= Math.min(end, MOST_LABELS); k++) {
+  for (let k = 2; k <= Math.min(end, MOST_SUFFIX_LABELS); k++) {
     const rule = `${labels[end - k]}.${rest}`;
     if (PUBLIC_SUFFIX_RULES.has(`!${rule}`)) return k - 1;
     if (PUBLIC_SUFFIX_RULES.has(rule) || PUBLIC_SUFFIX_RULES.has(`*.${rest}`)) length = k;

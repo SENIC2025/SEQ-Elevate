@@ -14,12 +14,13 @@ import type { LinkRefusal } from "@/lib/rich-text/link-url";
  *   their address (two on one text, extra attributes, a misleading label,
  *   a bare host of another site as the label, written with look-alike
  *   letters, wrapped for emphasis, after two slashes, with a raised sign or
- *   a hair space, under Co. and a country, in front of the link's site, or
- *   as an email address's first part, touching links that together show
- *   another address), as rich text.
+ *   a hair space, under Co. and a country, in front of the link's site, as
+ *   an email address's first part, or through a Roman numeral letter;
+ *   touching links that together show another address), as rich text.
  * - ACCEPTED_LABELS: link text with a dot that shows no other site than
  *   the link's (an abbreviation, a title, a Greek word, an email address of
- *   a person, the link's registrable domain): kept.
+ *   a person, the link's registrable domain, a public suffix named by
+ *   itself over a site under it): kept.
  * - RENDER_ONLY_MARKS: shapes only a direct database write can make
  *   (nested objects, unknown mark types), for the pages that draw them.
  * - overLimitDoc: a version-2 block over the node limit holding hostile
@@ -219,6 +220,11 @@ export const HOSTILE_MARKS: readonly HostileMarks[] = [
     save: "refused",
   },
   {
+    name: "a label that shows another site through a Roman numeral letter",
+    rich: linkedParagraph("https://evil.example/login", "paypal.\u217Dom"),
+    save: "refused",
+  },
+  {
     name: "two touching links that together show another address",
     rich: paragraphDoc([
       { type: "text", text: "Log in at " },
@@ -249,6 +255,8 @@ export const ACCEPTED_LABELS: readonly { label: string; href: string }[] = [
   { label: "Jun.Prof.", href: "https://uni.example/staff" },
   { label: "ΑΘΗΝΑ.ΤΟ", href: "https://athens.example/" },
   { label: "anna.schmidt@uni.example", href: "https://uni.example/people" },
+  { label: "Dr.in Maria Huber", href: "https://www.univie.ac.at/personen/huber" },
+  { label: "Gov.gr Wallet", href: "https://wallet.gov.gr/" },
 ];
 
 /** Link marks only a direct database write can make: each must be drawn as text, without a link. */
@@ -305,4 +313,8 @@ export const MISLEADING_TITLES: readonly string[] = [
   "paypal.com-login.evil.example",
   "paypal.\u0441\u043Em.evil.example",
   "paypal.com@evil.example",
+  // A Roman numeral letter, a mark that follows no letter, a raised letter inside a name.
+  "paypal.\u217Dom",
+  "www.paypal.\u0332com/login",
+  "paypal.c\u1D52m",
 ];
