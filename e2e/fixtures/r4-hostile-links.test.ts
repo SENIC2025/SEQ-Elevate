@@ -3,6 +3,7 @@ import { checkLinkHref } from "@/lib/rich-text/link-url";
 import { linkTextProblem } from "@/lib/rich-text/link-text";
 import { RT_LIMITS } from "@/lib/rich-text/types";
 import {
+  ACCEPTED_LABELS,
   HOSTILE_ADDRESSES,
   HOSTILE_MARKS,
   MISLEADING_TITLES,
@@ -33,7 +34,7 @@ describe("the hostile link table", () => {
 
   it("shows another address in each misleading label and title", () => {
     const labels = HOSTILE_MARKS.filter((m) => m.name.startsWith("a label"));
-    expect(labels.length).toBe(5);
+    expect(labels.length).toBe(8);
     for (const label of labels) {
       const node = label.rich.doc.content[0].content[1] as unknown as { text: string; marks: { attrs: { href: string } }[] };
       expect(linkTextProblem(node.text, node.marks[0].attrs.href), label.name).toBe("misleading");
@@ -45,6 +46,14 @@ describe("the hostile link table", () => {
       .join("");
     expect(linkTextProblem(joined, "https://evil.example/a")).toBe("misleading");
     for (const title of MISLEADING_TITLES) expect(linkTextProblem(title, MISLEADING_TITLE_URL), title).toBe("misleading");
+  });
+
+  it("shows no other site in each accepted label, whose address the check accepts", () => {
+    expect(ACCEPTED_LABELS.length).toBeGreaterThan(5);
+    for (const { label, href } of ACCEPTED_LABELS) {
+      expect(checkLinkHref(href, { ownFileHost: null }).ok, href).toBe(true);
+      expect(linkTextProblem(label, href), label).toBeNull();
+    }
   });
 
   it("makes an over-limit block with hostile links", () => {
