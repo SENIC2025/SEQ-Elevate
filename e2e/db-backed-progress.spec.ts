@@ -793,8 +793,12 @@ describe("progress kept when the learner's data loads late, fails or overlaps", 
         timeout: 15_000,
       })
       .toMatchObject(played);
-    // The guest's two lessons, added now, don't take their place.
-    await addGuestWork(page);
+    // The guest's two lessons, added now, don't take their place: the
+    // account already holds them (Release 3, D69: a course moves only into
+    // an account with no progress in it).
+    const prompt = page.getByRole("region", { name: "Work saved on this browser before you signed in" });
+    await prompt.getByRole("button", { name: "Add it to my account" }).click({ timeout: 20_000 });
+    await expect(prompt.getByRole("status")).toHaveText("It's already in your account.", { timeout: 30_000 });
     await page.waitForTimeout(1500); // past the save debounce
     expect(await enrollmentFor(userId, "workplace-conflict")).toMatchObject(played);
   });
@@ -1350,14 +1354,16 @@ describe("progress kept when the session is lost, changes hands or the course ch
       .toBe("Guest: I listened");
 
     // Signed in: a fresh page, so the guest store holds the only copy. The
-    // first save of the Comp Card and the first of the course — the move's
-    // — find no session.
+    // move's first two tries find no session: Release 3 sends it in one
+    // call ("Add it to my account"), tried again; the build before sent the
+    // Comp Card and the course in saves of their own.
     await signIn(context, emails.migrateNoSession);
     const first = new Set<string>();
     const lost = await sessionLostDuring(
       page,
       session,
       (body) => {
+        if (body.startsWith('[{"claim":1')) return true;
         const call = body.startsWith('[{"wentWell"')
           ? "card"
           : isCourseSave("workplace-conflict")(body)
