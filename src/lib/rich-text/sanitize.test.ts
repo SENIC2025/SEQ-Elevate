@@ -3,6 +3,7 @@ import {
   addressProblem,
   cleanInlineText,
   cleanPlainText,
+  LOOKS_LIKE_WEB_ADDRESS,
   isEmptyDoc,
   linkProblemMessage,
   richTextProblem,
@@ -695,6 +696,24 @@ describe("sanitizeRichText: links (D104)", () => {
     ]) {
       expect(sanitizeRichText(envelope(p(link(text, href)))).issues, text).toEqual([]);
     }
+  });
+
+  it("says a link text that shows only names read by their top-level domain looks like a web address, a file's name too (refused all the same)", () => {
+    for (const name of ["course-materials.zip", "intro.mov", "paypal.com", "paypal.соm", "_paypal.com_"]) {
+      const result = sanitizeRichText(envelope(p(link(name, "https://example.org/files/x"))));
+      expect(result.issues, name).toEqual(["dropped-link"]);
+      expect(result.linkProblems, name).toEqual([{ text: name, reason: "misleading", detail: LOOKS_LIKE_WEB_ADDRESS }]);
+    }
+    // An address with a scheme, "www." or a path shows a different address.
+    for (const text of ["https://bank.example", "www.bank.example", "bank.example/login", "help@bank.example"]) {
+      expect(sanitizeRichText(envelope(p(link(text, "https://example.org/x")))).linkProblems, text).toEqual([{ text, reason: "misleading" }]);
+    }
+    expect(linkProblemMessage({ text: "course-materials.zip", reason: "misleading", detail: LOOKS_LIKE_WEB_ADDRESS }, "Block 2 (Paragraph)")).toBe(
+      "Block 2 (Paragraph): the link text “course-materials.zip” looks like a web address, but the link opens another one. Use a few words instead, or show the real address."
+    );
+    expect(linkProblemMessage({ text: "intro.mov", reason: "misleading", detail: LOOKS_LIKE_WEB_ADDRESS })).toBe(
+      "The link text “intro.mov” looks like a web address, but the link opens another one. Use a few words instead, or show the real address."
+    );
   });
 
   it("checks touching links as one: together they may show another address", () => {

@@ -98,7 +98,11 @@ export interface LinkProblem {
   /** The link's text (for "misleading", the words it is in), cut to 60 characters. */
   text: string;
   reason: LinkProblemReason;
-  /** For "refused": why, as a sentence for authors (addressProblem). */
+  /**
+   * For "refused": why, as a sentence for authors (addressProblem). For
+   * "misleading": what the text does, when it isn't that it shows a
+   * different address (LOOKS_LIKE_WEB_ADDRESS).
+   */
   detail?: string;
 }
 
@@ -401,13 +405,19 @@ class Walker {
     return { ok: true, href: check.href, ownFile: check.ownFile };
   }
 
-  /** Name a link a save refuses; a refused one says why (an address that isn't a string: USE_WEB_OR_EMAIL). */
+  /**
+   * Name a link a save refuses; a refused one says why (an address that
+   * isn't a string: USE_WEB_OR_EMAIL), a misleading one what its text does
+   * when it doesn't show a different address (LOOKS_LIKE_WEB_ADDRESS).
+   */
   private problem(reason: LinkProblemReason, text: string, detail?: string) {
     if (this.linkProblems.length < MAX_LINK_PROBLEMS) {
       this.linkProblems.push(
         reason === "refused"
           ? { text: problemText(text), reason, detail: detail ?? USE_WEB_OR_EMAIL }
-          : { text: problemText(text), reason }
+          : detail
+            ? { text: problemText(text), reason, detail }
+            : { text: problemText(text), reason }
       );
     }
   }
@@ -515,7 +525,10 @@ class Walker {
       if (!cluster.length) return;
       const misleading = readings.find(elsewhere);
       if (misleading) {
-        this.problem("misleading", misleading.text);
+        // Text of names read only by the top-level domain they end in
+        // ("course-materials.zip") looks like a web address.
+        const names = addressesShown(misleading.text)?.namesOnly;
+        this.problem("misleading", misleading.text, names ? LOOKS_LIKE_WEB_ADDRESS : undefined);
         this.issues.add("dropped-link");
         cluster.forEach(unlink);
       } else {
@@ -797,6 +810,15 @@ export function richTextProblem(
 
 const USE_WEB_OR_EMAIL = "Use an address starting with https:// or http://, or an email address.";
 const TWO_LINKS = "Its words hold two links. Keep one.";
+const SHOWS_ANOTHER_ADDRESS = "shows a different address than the link opens. Show the real address, or use a few words.";
+/**
+ * What a misleading link's text does when every address it shows is a name
+ * read only by the top-level domain it ends in ("paypal.com"), as a file's
+ * name can be ("course-materials.zip"; refused all the same, the owner's
+ * decision of 22 October 2026): LinkProblem.detail.
+ */
+export const LOOKS_LIKE_WEB_ADDRESS =
+  "looks like a web address, but the link opens another one. Use a few words instead, or show the real address.";
 
 /**
  * Why an address can't be a link, as one sentence for authors (the Link
@@ -836,8 +858,7 @@ export const LINK_PROBLEM: Record<LinkProblemReason, (text: string, detail?: str
   refused: (text, detail = USE_WEB_OR_EMAIL) => `the link “${text}” can't be used. ${detail}`,
   redirect: (text) =>
     `the link “${text}” is an Outlook safe link, which carries the address of the mailbox it was sent to. Use the original address instead.`,
-  misleading: (text) =>
-    `the link text “${text}” shows a different address than the link opens. Show the real address, or use a few words.`,
+  misleading: (text, detail = SHOWS_ANOTHER_ADDRESS) => `the link text “${text}” ${detail}`,
   "own-file": (text) =>
     `the link “${text}” points to a file uploaded to the platform. Add the file to the lesson as a document instead.`,
 };

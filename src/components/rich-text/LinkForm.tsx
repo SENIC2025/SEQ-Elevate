@@ -3,6 +3,7 @@
 import * as React from "react";
 import { checkLinkHref, emailAddressOf } from "@/lib/rich-text/link-url";
 import {
+  addressesShown,
   linkTextProblem,
   linkTextWarnings,
   toLinkInput,
@@ -49,6 +50,9 @@ const NO_ADDRESS = "Type the address the link should open.";
 const OWN_FILE = "This is a file uploaded to the platform. Add it to the lesson as a document instead.";
 
 const MISLEADING = "The text shows a different address than the link opens. Show the real address, or use a few words.";
+// Text of names read only by the top-level domain they end in, as a file's name can be ("course-materials.zip").
+const LOOKS_LIKE_ADDRESS =
+  "The text looks like a web address, but the link opens another one. Use a few words instead, or show the real address.";
 
 export const WARNING: Record<LinkFormWarning, string> = {
   http: "This address isn't secure (http). Use https:// if the site offers it.",
@@ -70,7 +74,9 @@ export function checkLinkForm({ text, address }: { text: string; address: string
   // Text that shows nothing (spaces, or characters that show nothing) is no text.
   const given = visibleLinkText(text).trim() !== "";
   const shown = given ? text : shownAddress(check.href);
-  if (linkTextProblem(shown, check.href) === "misleading") return { ok: false, field: "text", message: MISLEADING };
+  if (linkTextProblem(shown, check.href) === "misleading") {
+    return { ok: false, field: "text", message: addressesShown(shown)?.namesOnly ? LOOKS_LIKE_ADDRESS : MISLEADING };
+  }
   const warnings: LinkFormWarning[] = [];
   if (check.insecure) warnings.push("http");
   if (given) warnings.push(...linkTextWarnings(text));

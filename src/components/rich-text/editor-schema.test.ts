@@ -570,7 +570,7 @@ describe("the problem line's advice", () => {
   it("names a link's problem when the text can be saved otherwise", () => {
     const misleading = sanitizeRichText(paragraphOf([linked("bank.example", "https://evil.example/")]));
     expect(problemLine("references", misleading)).toBe(
-      "The link text “bank.example” shows a different address than the link opens. Show the real address, or use a few words."
+      "The link text “bank.example” looks like a web address, but the link opens another one. Use a few words instead, or show the real address."
     );
     expect(problemLine("references", sanitizeRichText({ v: 1, doc: { type: "doc", content: [p("Fine")] } }))).toBeNull();
   });

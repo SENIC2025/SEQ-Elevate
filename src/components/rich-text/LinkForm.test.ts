@@ -101,6 +101,20 @@ describe("checkLinkForm", () => {
     });
   });
 
+  it("says text of names that end in a top-level domain looks like a web address, a file's name too", () => {
+    for (const text of ["course-materials.zip", "intro.mov", "paypal.com"]) {
+      expect(checkLinkForm({ text, address: "https://example.org/files/x" }), text).toEqual({
+        ok: false,
+        field: "text",
+        message: "The text looks like a web address, but the link opens another one. Use a few words instead, or show the real address.",
+      });
+    }
+    // The link's own site, its registrable domain, and an abbreviation are fine.
+    for (const [text, address] of [["europa.eu", "https://ec.europa.eu/info"], ["M.Sc. programme", "https://uni.example/msc"]]) {
+      expect(checkLinkForm({ text, address }), text).toMatchObject({ ok: true, text });
+    }
+  });
+
   it("warns, without refusing, about http and about link text", () => {
     expect(checkLinkForm({ text: "the old site", address: "http://example.org" })).toMatchObject({
       ok: true,
