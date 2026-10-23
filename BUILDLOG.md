@@ -1177,3 +1177,9 @@ On `r3` after `b97963c`. Nothing pushed (D100).
   - `db-backed-progress` on one worker: **57/57**;
   - Release 2's recorded walk with R3-D1 and R3-D2 on one worker: **7/7**; `r3-scoping` **9/9**; `r3-actions` **505/505** (the route's 8 rows among them);
   - the server logged the known kinds: 20 "No signed-in learner", 4 "No signed-in user", 4 `transformAlgorithm`, 2 `AccessDenied`, one audit write for an account another test had removed (`AuditLog_actorId_fkey`), the `BLOB_PUBLIC_HOST` notice and the `output: standalone` warning; and once `[progress-beacon] the save failed: Error`, a page closed at a test's end sending a course save for a learner its clean-up had just removed (`CourseEnrollment_userId_fkey`; answered 503, nothing written).
+
+### Release 2 — known limits of course and Comp Card saves: a page that goes with a save on its way (2026-10-24)
+On `r2` after `919063a`. Nothing pushed (D100). Documentation only.
+- `[DECISION]` The integrator's decision (a), 24 October: Release 2 keeps D37's 13 October acceptance for course and Comp Card saves alike — server actions run one at a time, and nothing sends a save outside that queue — as a known limit. Release 2 is live from 10 to 20 November for staff and test accounts only, and Release 3 closes the gap for both before the pilot (D37 as built, 24 October).
+- `[NOTE]` Known limit (course saves): a course save handed over while another is on its way waits behind it in Next's queue, and doesn't leave a page that goes before that one is answered; the tab's outbox brings it back when that tab is reloaded or opens the course again (D68), and nothing does once the tab is closed.
+- `[NOTE]` Known limit (Comp Card saves): a Comp Card save handed over while another is on its way waits behind it in Next's queue, and doesn't leave a page that goes before that one is answered, closed or reloaded; nothing keeps it, and the account holds what the save on its way carried.
