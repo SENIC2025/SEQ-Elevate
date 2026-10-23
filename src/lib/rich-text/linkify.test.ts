@@ -248,6 +248,56 @@ describe("findLinks — email addresses", () => {
   });
 });
 
+describe("findLinks — a host within DNS's limits", () => {
+  const a = (n: number) => "a".repeat(n);
+  // Letters beyond the Basic Multilingual Plane: two UTF-16 units each, one character.
+  const astral = (n: number) => Array.from({ length: n }, (_, i) => String.fromCodePoint(0x20000 + i)).join("");
+  /** A host of `total` characters: labels of 63, then the rest, dot-separated. */
+  const host = (total: number) => {
+    const labels: string[] = [];
+    let left = total;
+    for (const c of "abcdefgh") {
+      const n = Math.min(63, left - (labels.length ? 1 : 0));
+      if (n <= 0) break;
+      labels.push(c.repeat(n));
+      left -= n + (labels.length > 1 ? 1 : 0);
+    }
+    return labels.join(".");
+  };
+
+  it("links a host whose labels have up to 63 characters, in any script, each character counted once", () => {
+    expect(linked(`https://${a(63)}.example/x`)).toEqual([`https://${a(63)}.example/x`]);
+    expect(linked(`https://${"α".repeat(63)}.ελ`)).toEqual([`https://${"α".repeat(63)}.ελ`]);
+    expect(linked(`https://${astral(63)}.example`)).toEqual([`https://${astral(63)}.example`]);
+    expect(linked(`write to help@${a(63)}.example.`)).toEqual([`help@${a(63)}.example`]);
+  });
+
+  it("doesn't link a host with a label over 63 characters, letters or not, nor its email address", () => {
+    for (const label of [a(64), "α".repeat(64), astral(64), `${a(63)}\u00ad`, `${a(32)}-${a(31)}`, "1".repeat(64)]) {
+      expect(findLinks(`See https://${label}.example/x today`), label).toEqual([]);
+      expect(findLinks(`help@${label}.example`), label).toEqual([]);
+      expect(findLinks(`mailto:help@${label}.example`), label).toEqual([]);
+    }
+  });
+
+  it("links a host of up to 253 characters (a final dot aside), and none longer", () => {
+    expect(host(253)).toHaveLength(253);
+    expect(linked(`https://${host(253)}/x`)).toEqual([`https://${host(253)}/x`]);
+    expect(linked(`https://${host(253)}./x`)).toEqual([`https://${host(253)}./x`]);
+    expect(linked(`help@${host(253)}`)).toEqual([`help@${host(253)}`]);
+    expect(findLinks(`https://${host(254)}/x`)).toEqual([]);
+    expect(findLinks(`help@${host(254)}`)).toEqual([]);
+  });
+
+  it("counts labels between the full stops the URL parser reads, and the host without its port or user name", () => {
+    const word = "例".repeat(40);
+    expect(linked(`https://${word}。${word}.jp`)).toEqual([`https://${word}。${word}.jp`]);
+    expect(linked(`https://${word}．${word}.jp`)).toEqual([`https://${word}．${word}.jp`]);
+    expect(linked(`https://${a(63)}.example:8080/x`)).toEqual([`https://${a(63)}.example:8080/x`]);
+    expect(linked(`https:///${a(63)}.example`)).toEqual([`https:///${a(63)}.example`]);
+  });
+});
+
 describe("findLinks — performance", () => {
   it("handles a block at the text limit without slowing down", () => {
     const worst = [
@@ -263,6 +313,48 @@ describe("findLinks — performance", () => {
     const started = performance.now();
     for (const text of worst) findLinks(text);
     expect(performance.now() - started).toBeLessThan(500);
+  });
+
+  it("costs no more for a host past DNS's limits than for ordinary text of the same length", () => {
+    // Ordinary lesson text: many short paragraphs with addresses, 10,000 characters in all.
+    const paragraphs = [
+      "Read more at https://www.bpb.de/themen/ or write to help@example.org before Friday.",
+      "Μάθε περισσότερα στο https://παράδειγμα.ελ/σελίδα και γράψε στο info@example.gr.",
+      "Mehr dazu unter https://www.bundesregierung.de/breg-de/themen (Stand: 2026).",
+      "Pause before you answer. Ask why: who benefits, and who is left out?",
+      "See (https://en.wikipedia.org/wiki/Social_enterprise) and mailto:team@example.org?subject=Hi.",
+    ];
+    const ordinary: string[] = [];
+    for (let length = 0, i = 0; length < 10_000; i++) {
+      ordinary.push(paragraphs[i % paragraphs.length]);
+      length += paragraphs[i % paragraphs.length].length;
+    }
+    // One block at the text limit each: a host of thousands of different
+    // letters, which the URL parser would convert at a cost growing with the
+    // square of its length.
+    const letters = (from: number, n: number) => Array.from({ length: n }, (_, i) => String.fromCodePoint(from + i)).join("");
+    const hostile = [
+      `https://${letters(0x4e00, 9_980)}.com`,
+      Array.from({ length: 4 }, (_, k) => `https://${letters(0x4e00 + k * 2_490, 2_490)}.com`).join(" "),
+      `https://www.example.org.${letters(0xac00, 9_960)}/`,
+      `mailto:help@${letters(0x4e00, 9_970)}.com`,
+      `help@${letters(0x4e00, 9_980)}.com`,
+    ];
+    const timed = (texts: readonly string[]) => {
+      const started = performance.now();
+      for (const text of texts) findLinks(text);
+      return performance.now() - started;
+    };
+    // The best of several rounds, taken in turn, so a busy machine slows both alike.
+    let best = Infinity;
+    const worst = hostile.map(() => Infinity);
+    for (let round = 0; round < 9; round++) {
+      best = Math.min(best, timed(ordinary));
+      hostile.forEach((text, i) => (worst[i] = Math.min(worst[i], timed([text]))));
+    }
+    for (const [i, ms] of worst.entries()) {
+      expect(ms / best, `text ${i}: ${ms.toFixed(2)} ms against ${best.toFixed(2)} ms`).toBeLessThan(15);
+    }
   });
 
   it("returns nothing, fast, for text without an address", () => {
