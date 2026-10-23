@@ -101,6 +101,13 @@ const LEARNER = `e2e-r4-links-learner-${RUN}@example.com`;
 const NEW_TAB = "(opens in a new tab)";
 const GUIDE = "https://example.org/guide";
 const SAFE_SCHEME = /^(?:https:\/\/|http:\/\/|mailto:)/;
+/**
+ * The site's own phone links beside a learner's pages (Release 3, D93): the
+ * emergency number and the safeguarding contacts an admin saves, "tel:" and
+ * digits. No lesson link is one: the address check takes https, http and
+ * mailto only.
+ */
+const SITE_PHONE = /^tel:\+?\d+$/;
 /** The end of the text, by keyboard: ⌘↓ on a Mac, Ctrl+End elsewhere. */
 const TEXT_END = process.platform === "darwin" ? "Meta+ArrowDown" : "Control+End";
 
@@ -828,7 +835,7 @@ describe("Release 4 — links in lesson text", () => {
     for (const [name, session, path] of pages) {
       const { htmlHrefs, rscHrefs } = await served(request, session, path);
       for (const href of [...htmlHrefs, ...rscHrefs]) {
-        if (href.startsWith("/") || href.startsWith("#")) continue; // the site's own pages
+        if (href.startsWith("/") || href.startsWith("#") || SITE_PHONE.test(href)) continue; // the site's own pages and phone links
         expect(href, `${name}: ${href.slice(0, 80)}`).toMatch(SAFE_SCHEME);
         // Every link to evil.example shows another address (or is refused): none is drawn,
         // but for an email label's own words, a quick link to the address they show.
