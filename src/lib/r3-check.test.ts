@@ -81,6 +81,23 @@ describe.skipIf(!url)("r3-check against a migrated database", () => {
     expect(code).toBe(0);
   }, 60_000);
 
+  it("checks migration D's two triggers, and fails while one is missing", async () => {
+    const { output } = r3Check();
+    expect(output).toContain("migration 20261120090300_r3_sharing_and_guardian_triggers applied");
+    expect(output).toContain("smoke: a privacy written as anything but FACILITATOR unshared the Comp Card (rolled back)");
+    expect(output).toContain("smoke: a move cleared the organisation's record of a guardian's permission (rolled back)");
+    await db.query(`DROP TRIGGER "CompCard_unshare_on_privacy_change" ON "CompCard"`);
+    try {
+      const missing = r3Check();
+      expect(missing.output).toMatch(/FAIL unshare-on-privacy trigger on CompCard present/);
+      expect(missing.code).toBe(1);
+    } finally {
+      await db.query(`CREATE TRIGGER "CompCard_unshare_on_privacy_change" BEFORE UPDATE OF "privacy" ON "CompCard"
+        FOR EACH ROW WHEN (NEW."privacy" <> 'FACILITATOR') EXECUTE FUNCTION "unshare_comp_card_on_privacy_change"()`);
+    }
+    expect(r3Check().code).toBe(0);
+  }, 120_000);
+
   it("fails on a membership made before migration B started that has no profile", async () => {
     await learnerAt("r3-check-before", new Date(started.getTime() - 60 * 60 * 1000));
     const { code, output } = r3Check();

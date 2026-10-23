@@ -1,5 +1,6 @@
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
-import { setRequestLocale } from "next-intl/server";
+import { getTranslations, setRequestLocale } from "next-intl/server";
 import { AppHeader } from "@/components/AppHeader";
 import { ProfileStepForm, type ProfileStepView } from "@/components/profile/ProfileStepForm";
 import { SafeguardingBox } from "@/components/safeguarding/SafeguardingBox";
@@ -84,6 +85,13 @@ async function readStep(userId: string, name: string | null, email: string): Pro
     consentGiven: !!profile?.consentAt,
     consentMissing: rules.consent === "required" && !profile?.consentAt,
   };
+}
+
+/** The page's own title: its heading, in the page's language (WCAG 2.4.2). */
+export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }): Promise<Metadata> {
+  const { locale } = await params;
+  const t = await getTranslations({ locale, namespace: "profile" });
+  return { title: t("title") };
 }
 
 export default async function Page({ params }: { params: Promise<{ locale: string }> }) {

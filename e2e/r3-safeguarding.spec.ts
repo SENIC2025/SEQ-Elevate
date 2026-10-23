@@ -166,6 +166,8 @@ describe("Release 3 — safeguarding (F-E2, F-E4)", () => {
       expect(response?.status(), `/${locale}/help`).toBe(200);
       await expect(main(page).getByRole("heading", { level: 1 })).toHaveText(words.helpTitle);
       await expect(main(page).getByText(words.emergency)).toBeVisible();
+      // 112 can be called from the page, as every contact's number can.
+      await expect(main(page).locator('a[href="tel:112"]')).toHaveText("112");
       const headings = main(page).getByRole("heading", { level: 2 });
       await expect(headings).toHaveText(Object.values(CONTACT_FOR[locale]));
       // With nothing saved, whom to talk to instead, under every country.
@@ -251,6 +253,31 @@ describe("Release 3 — safeguarding (F-E2, F-E4)", () => {
     await expect(entry.getByLabel("Phone")).toHaveAttribute("aria-invalid", "true");
     expect(await readSetting()).toEqual(stored);
     await axeClean(page, "/en/admin/safeguarding with mistakes");
+  });
+
+  test("F-E2: on a slow device too (the page's processor twenty times slower), a save with mistakes takes the focus to the list", async ({
+    page,
+    context,
+  }) => {
+    test.setTimeout(90_000);
+    await signIn(context, people.admin!.sessionToken);
+    await page.goto("/en/admin/safeguarding");
+    await expect(main(page).getByRole("heading", { level: 1, name: "Safeguarding contacts" })).toBeVisible();
+    const cyprus = main(page).getByRole("group", { name: "Cyprus", exact: true });
+    await cyprus.getByRole("button", { name: "Add a contact for Cyprus" }).click();
+    await cyprus.getByRole("group", { name: "Contact 1 for Cyprus" }).getByLabel("Phone").fill("call us");
+    // From the Save on, the page runs as on a slow device: a frame is drawn
+    // between the save's answer and the list's first render.
+    const cdp = await context.newCDPSession(page);
+    await cdp.send("Emulation.setCPUThrottlingRate", { rate: 20 });
+    try {
+      await main(page).getByRole("button", { name: "Save contacts" }).click();
+      const summary = main(page).getByRole("alert");
+      await expect(summary).toContainText("Nothing was saved.", { timeout: 30_000 });
+      await expect(summary).toBeFocused({ timeout: 20_000 });
+    } finally {
+      await cdp.send("Emulation.setCPUThrottlingRate", { rate: 1 });
+    }
   });
 
   test("F-E4: on /admin/safeguarding, focus stays near what the keyboard pressed: Add, Remove and Save (WCAG 2.4.3)", async ({
@@ -365,6 +392,7 @@ describe("Release 3 — safeguarding (F-E2, F-E4)", () => {
       const box = page.getByRole("complementary", { name: words.title });
       await expect(box).toBeVisible();
       await expect(box).toContainText(words.emergency);
+      await expect(box.locator('a[href="tel:112"]')).toHaveText("112");
       await expect(box).toContainText(words.fallback);
       await expect(box.getByRole("link", { name: words.allContacts })).toHaveAttribute("href", "/en/help");
       // After the main area, never inside it.

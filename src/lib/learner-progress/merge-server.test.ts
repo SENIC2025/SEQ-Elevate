@@ -344,6 +344,15 @@ describe("mergeIntoEnrollment: fill mode (a guest's progress moving into the acc
       [`${OWN}/p-new00001`]: { type: "rating", values: { s1: 3 }, at: NOW.toISOString() },
     });
     expect(m.refused).toEqual([]);
+    // Where the account kept an answer of its own over a different one of the guest's.
+    expect(m.kept).toEqual([
+      "simulation/main",
+      "reflection/main",
+      "assessment/main",
+      `${OWN}/main`,
+      `${OWN}/${PART}`,
+      `${OWN}/p-rating01`,
+    ]);
   });
 
   it("leaves an entry of the account's it can't read as it is", () => {
@@ -354,6 +363,54 @@ describe("mergeIntoEnrollment: fill mode (a guest's progress moving into the acc
     });
     expect(m.next.responses).toEqual(stored.responses);
     expect(m.changed).toEqual([]);
+    expect(m.kept).toEqual([`${OWN}/${PART}`]);
+  });
+
+  it("keeps nothing of the account's over the guest's where they are the same, or the guest had none (a second move)", () => {
+    const stored = row({
+      simulationChoice: "g",
+      simulationCorrect: true,
+      scenarioRoot: "r",
+      scenarioFollowup: "f",
+      reflection: { p1: "Guest", p2: "Account" },
+      assessment: { answers: { q1: "a" }, checked: true },
+      responses: { v: 1, items: { [`${OWN}/${PART}`]: { type: "rating", values: { s1: 2, s2: 4 }, at: STAMP } } },
+    });
+    const m = merge(stored, {
+      fill: true,
+      answers: {
+        "simulation/main": { type: "practice", optionId: "g", correct: true },
+        "scenario/main": { type: "scenario", rootId: "r", followupId: "f" },
+        "reflection/main": { type: "reflection", text: { p1: "Guest" } },
+        "assessment/main": { type: "quiz", answers: { q1: "a" }, checked: true },
+        [`${OWN}/${PART}`]: { type: "rating", values: { s1: 2 } },
+      },
+    });
+    expect(m.changed).toEqual([]);
+    expect(m.kept).toEqual([]);
+    // Outside fill mode nothing is "kept".
+    expect(merge(stored, { answers: { "simulation/main": { type: "practice", optionId: "x", correct: false } } }).kept).toEqual([]);
+  });
+
+  it("keeps the account's standard quick check once it has one of its own: tried again (saved empty), or its lesson done (D49: the latest check counts)", () => {
+    const guestCheck = { "assessment/main": { type: "quiz" as const, answers: { q1: "old" }, checked: true } };
+    // "Try again" pressed in the account and left: saved empty.
+    const retaken = merge(row({ assessment: { answers: {}, checked: false } }), { fill: true, answers: guestCheck });
+    expect(retaken.next.assessment).toEqual({ answers: {}, checked: false });
+    expect(retaken.kept).toEqual(["assessment/main"]);
+    // The quick check's lesson done, its column empty.
+    const done = merge(row({ stagesCompleted: ["ASSESSMENT"], assessment: {} }), { fill: true, answers: guestCheck });
+    expect(done.next.assessment).toEqual({});
+    // A quick check of the course's own, tried again, follows the same rule.
+    const own = merge(
+      row({ responses: { v: 1, items: { [`${OWN}/${PART}`]: { type: "quiz", answers: {}, checked: false, at: STAMP } } } }),
+      { fill: true, answers: { [`${OWN}/${PART}`]: { type: "quiz", answers: { q1: "old" }, checked: true } } }
+    );
+    expect(items(own.next.responses)[`${OWN}/${PART}`]).toMatchObject({ answers: {}, checked: false });
+    // Never answered, never saved: the guest's check fills it.
+    const none = merge(row({ stagesCompleted: ["CONTEXT"], assessment: {} }), { fill: true, answers: guestCheck });
+    expect(none.next.assessment).toEqual({ answers: { q1: "old" }, checked: true });
+    expect(none.kept).toEqual([]);
   });
 
   it("moves everything into an account that has nothing", () => {

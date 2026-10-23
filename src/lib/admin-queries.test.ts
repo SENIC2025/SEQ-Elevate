@@ -47,11 +47,12 @@ vi.mock("@/lib/prisma", () => ({
 }));
 
 const { getAdminOrgs, getAdminMembers, getCountryMappings, guardianAge } = await import("./admin-queries");
-const { membershipsInScope, organisationsInScope, peopleInScope } = await import("./scope");
+const { membershipsInScope, organisationsInScope, peopleInScope, testOnlyScope } = await import("./scope");
 
-const PROJECT_SCOPE: Scope = { kind: "project", viewerId: "admin", viewerOrganisationId: null };
-const ORG_A: Scope = { kind: "organisation", viewerId: "paa", organisationId: "org-a" };
-const NONE: Scope = { kind: "none" };
+// Only the scope module makes a Scope (SS4): tests ask its test-only factory.
+const PROJECT_SCOPE: Scope = testOnlyScope({ kind: "project", viewerId: "admin", viewerOrganisationId: null });
+const ORG_A: Scope = testOnlyScope({ kind: "organisation", viewerId: "paa", organisationId: "org-a" });
+const NONE: Scope = testOnlyScope({ kind: "none" });
 
 const argsOf = (fn: { mock: { calls: unknown[][] } }) => fn.mock.calls.at(-1)?.[0] as Record<string, unknown>;
 
@@ -114,6 +115,7 @@ const person = (
           testAccountAt: null,
           guardianConsentRecordedAt: null,
           guardianSharingConsentAt: null,
+          ageRule: "SELF_MIN_AGE",
           createdAt: new Date("2026-11-20T09:00:00Z"),
           organisation: { name: "Org A" },
           ...profile,
@@ -219,6 +221,19 @@ describe("getAdminMembers: what it says about each person", () => {
     expect(
       await one(ORG_A, person("a", ["LEARNER"], { guardianConsentRecordedAt: new Date(), guardianSharingConsentAt: null }))
     ).toMatchObject({ guardianConsent: true, guardianSharing: false });
+  });
+
+  it("says when an invited learner's guardian's permission isn't recorded by their organisation (it went with the old one)", async () => {
+    const invited = { ageRule: "INVITED_WITH_GUARDIAN_CONSENT" };
+    expect(await one(ORG_A, person("a", ["LEARNER"], { ...invited, guardianConsentRecordedAt: null }))).toMatchObject({
+      guardianConsent: false,
+      guardianNeeded: true,
+    });
+    expect(await one(ORG_A, person("b", ["LEARNER"], { ...invited, guardianConsentRecordedAt: new Date() }))).toMatchObject({
+      guardianConsent: true,
+      guardianNeeded: false,
+    });
+    expect((await one(ORG_A, person("c", ["LEARNER"]))).guardianNeeded).toBe(false);
   });
 
   it("lists, for an ADMIN, someone with a profile and no role", async () => {

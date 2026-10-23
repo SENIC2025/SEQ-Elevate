@@ -197,6 +197,16 @@ describe("the legacy texts (spec 12.2: made true to the platform)", () => {
     }
   });
 
+  it("say who sees a shared Comp Card as the platform shows it: the facilitators at your organisation, not DIESIS and SENIC staff as such (D81)", () => {
+    const privacy = JSON.stringify(getLegal("privacy", "en"));
+    // D81: SENIC staff never see card text; a DIESIS admin only for DIESIS's own learners.
+    expect(privacy).not.toMatch(/DIESIS and SENIC staff who run the platform, see[^"]*They see your Comp Card only if you share it/);
+    expect(privacy).toMatch(/Your Comp Card is seen only if you share it, and then only by the facilitators at your organisation/);
+    // What staff always see includes your country and a guardian's permission, as Manage people shows them.
+    expect(privacy).toMatch(/your name and email, your country, your progress/);
+    expect(privacy).toMatch(/whether a parent's or guardian's permission is recorded for you/);
+  });
+
   it("name each cookie and browser store the platform sets", () => {
     const cookies = getLegal("cookies", "en");
     if (cookies?.kind !== "legacy") return; // counsel's text names them

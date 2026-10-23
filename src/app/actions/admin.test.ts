@@ -29,10 +29,14 @@ const cohortInScope = vi.fn();
 const organisationsInScope = vi.fn((scope: { kind: string; organisationId?: string }) => ({
   scoped: scope.kind === "project" ? "project" : scope.organisationId,
 }));
+const membershipsInScope = vi.fn((scope: { kind: string; organisationId?: string }) => ({
+  membershipsOf: scope.kind === "project" ? "project" : scope.organisationId,
+}));
 const getAdminMembers = vi.fn(async () => []);
 const getAdminOrgs = vi.fn(async () => []);
 const getCountryMappings = vi.fn(async () => []);
 const setPersonOrganisation = vi.fn(async () => ({ changed: true }));
+const releaseIfCountryElsewhere = vi.fn(async () => ({ released: false }));
 const checkRateLimit = vi.fn();
 const sendInvitation = vi.fn(async () => ({ ok: true }));
 
@@ -43,13 +47,14 @@ const db = {
   countryMapping: { count: fn(), upsert: fn(), findUnique: fn() },
   projectProfile: { count: fn(), findMany: fn(), findUnique: fn(), upsert: fn(), update: fn(), createMany: fn() },
   user: { findFirst: fn(), count: fn(), create: fn(), update: fn(), findUnique: fn(), findUniqueOrThrow: fn() },
-  membership: { findMany: fn(), upsert: fn(), delete: fn(), create: fn(), updateMany: fn(), deleteMany: fn() },
+  membership: { findMany: fn(), count: fn(), upsert: fn(), delete: fn(), create: fn(), updateMany: fn(), deleteMany: fn() },
   auditLog: { create: fn(), count: fn() },
   compCard: { updateMany: fn() },
   $transaction: vi.fn(),
   $queryRaw: vi.fn(),
 };
 
+vi.mock("server-only", () => ({}));
 vi.mock("@/lib/auth-helpers", () => ({ getCurrentUser }));
 vi.mock("@/lib/scope", () => ({
   getViewer,
@@ -57,9 +62,10 @@ vi.mock("@/lib/scope", () => ({
   inScope,
   cohortInScope,
   organisationsInScope,
+  membershipsInScope,
 }));
 vi.mock("@/lib/admin-queries", () => ({ getAdminMembers, getAdminOrgs, getCountryMappings }));
-vi.mock("@/lib/person-organisation", () => ({ setPersonOrganisation }));
+vi.mock("@/lib/person-organisation", () => ({ setPersonOrganisation, releaseIfCountryElsewhere }));
 vi.mock("@/lib/rate-limit", () => ({ checkRateLimit }));
 vi.mock("@/lib/invitations", () => ({ sendInvitation }));
 vi.mock("@/lib/prisma", () => ({ prisma: db }));
@@ -120,6 +126,7 @@ const WRITES = [
   db.membership.deleteMany,
   db.compCard.updateMany,
   setPersonOrganisation,
+  releaseIfCountryElsewhere,
 ];
 /** Did anything change (a refusal's own log row aside)? */
 const changedAnything = () => WRITES.some((w) => w.mock.calls.length > 0) || auditedActions().some((a) => !a.endsWith("_refused"));
@@ -155,6 +162,7 @@ beforeEach(() => {
     emailVerified: null,
   }));
   db.membership.findMany.mockResolvedValue([]);
+  db.membership.count.mockResolvedValue(0);
   db.membership.upsert.mockResolvedValue({});
   db.membership.deleteMany.mockResolvedValue({ count: 1 });
   db.membership.updateMany.mockResolvedValue({ count: 1 });
@@ -162,6 +170,7 @@ beforeEach(() => {
   cohortInScope.mockResolvedValue(true);
   checkRateLimit.mockResolvedValue({ ok: true, count: 1, limit: 30 });
   setPersonOrganisation.mockResolvedValue({ changed: true });
+  releaseIfCountryElsewhere.mockResolvedValue({ released: false });
   getAdminMembers.mockResolvedValue([]);
   getAdminOrgs.mockResolvedValue([]);
   getCountryMappings.mockResolvedValue([]);
@@ -279,6 +288,35 @@ describe("cohorts, in scope only (SP17, SP18)", () => {
     expect(changedAnything()).toBe(false);
   });
 
+  it("a partner admin deletes a cohort of its own when it is shown everyone in it", async () => {
+    asPartnerAdmin();
+    db.cohort.deleteMany.mockResolvedValue({ count: 1 });
+    const res = await deleteCohort("cohort-a");
+    expect(res.ok).toBe(true);
+    // Asked about the cohort's members it is NOT shown (an ADMIN, an
+    // ADMIN_EMAILS address, someone of another organisation).
+    expect(db.membership.count).toHaveBeenCalledWith({
+      where: { cohortId: "cohort-a", NOT: { membershipsOf: ORG_A } },
+    });
+    expect(db.cohort.deleteMany).toHaveBeenCalledWith({ where: { id: "cohort-a", projectId: PROJECT } });
+    expect(auditedActions()).toEqual(["cohort.deleted"]);
+  });
+
+  it("a partner admin can't delete a cohort with someone in it it isn't shown: the question it saw counted only its own people", async () => {
+    asPartnerAdmin();
+    db.membership.count.mockResolvedValue(1);
+    await expect(deleteCohort("cohort-a")).resolves.toEqual({ ok: false, error: "has-others" });
+    expect(changedAnything()).toBe(false);
+  });
+
+  it("an ADMIN, shown everyone, deletes a cohort whoever is in it", async () => {
+    db.membership.count.mockResolvedValue(3);
+    db.cohort.deleteMany.mockResolvedValue({ count: 1 });
+    const res = await deleteCohort("cohort-a");
+    expect(res.ok).toBe(true);
+    expect(db.cohort.deleteMany).toHaveBeenCalledWith({ where: { id: "cohort-a", projectId: PROJECT } });
+  });
+
   it("renames a cohort in scope, and returns the organisations as the caller sees them", async () => {
     asPartnerAdmin();
     const res = await updateCohort("cohort-a", { name: "  Spring  " });
@@ -368,6 +406,21 @@ describe("addMember (SP19)", () => {
     for (const part of ["organisationId", "profileCompletedAt", "enrollments", "compCards", "badges", '"not":"LEARNER"']) {
       expect(where).toContain(part);
     }
+  });
+
+  it("never claims an account with activity records or notes about it: they are learner data too", async () => {
+    asPartnerAdmin();
+    existing({ profile: null, roles: [] });
+    inScope.mockResolvedValue(false);
+    db.user.count.mockResolvedValue(1);
+    await addMember("x@example.org", "LEARNER");
+    const where = db.user.count.mock.calls[0][0] as { where: { AND: Record<string, unknown>[] } };
+    // Time on lessons, courses opened and video answers (gdpr-export.ts TELEMETRY_ACTIONS), whoever wrote them.
+    expect(where.where.AND).toContainEqual({
+      auditEvents: { none: { action: { in: ["course.opened", "stage.time", "video.cue_answered"] } } },
+    });
+    expect(where.where.AND).toContainEqual({ observedNotes: { none: {} } });
+    expect(where.where.AND).toContainEqual({ validatedNotes: { none: {} } });
   });
 
   it("never claims an ADMIN_EMAILS address", async () => {
@@ -536,6 +589,40 @@ describe("addMember (SP19)", () => {
     expect(changedAnything()).toBe(false);
   });
 
+  it("records a guardian's permission again for an invited learner whose record went with their old organisation", async () => {
+    asPartnerAdmin();
+    existing({
+      profile: { organisationId: ORG_A, profileCompletedAt: new Date(), ageRule: "INVITED_WITH_GUARDIAN_CONSENT", guardianConsentRecordedAt: null },
+      roles: ["LEARNER"],
+    });
+    const res = await addMember("x@example.org", "LEARNER", undefined, { guardianConsent: true, guardianSharing: true });
+    expect(res).toMatchObject({ ok: true, id: "user-x" });
+    const upsert = db.projectProfile.upsert.mock.calls[0][0] as { update: Record<string, unknown> };
+    expect(upsert.update.guardianConsentRecordedAt).toBeInstanceOf(Date);
+    expect(upsert.update.guardianSharingConsentAt).toBeInstanceOf(Date);
+    // Someone who confirmed their age themselves still needs none.
+    vi.clearAllMocks();
+    existing({ profile: { organisationId: ORG_A, profileCompletedAt: new Date(), ageRule: "SELF_MIN_AGE" }, roles: ["LEARNER"] });
+    await expect(addMember("x@example.org", "LEARNER", undefined, { guardianConsent: true })).resolves.toEqual({
+      ok: false,
+      error: "guardian-not-needed",
+    });
+  });
+
+  it("someone removed and added again as a learner gets the profile step's organisation rule (spec 5.4 (c))", async () => {
+    asPartnerAdmin();
+    existing({ profile: { organisationId: ORG_A, profileCompletedAt: new Date() }, roles: [] });
+    await addMember("x@example.org", "LEARNER");
+    expect(releaseIfCountryElsewhere).toHaveBeenCalledWith(db, "user-x", { actorId: PAA_USER.id, scope: ORG_A });
+    // Not for a role added beside another, nor a facilitator.
+    for (const [roles, role] of [[["LEARNER"], "LEARNER"], [["FACILITATOR"], "LEARNER"], [[], "FACILITATOR"]] as const) {
+      vi.clearAllMocks();
+      existing({ profile: { organisationId: ORG_A, profileCompletedAt: new Date() }, roles: [...roles] });
+      await addMember("x@example.org", role);
+      expect(releaseIfCountryElsewhere, `${roles} + ${role}`).not.toHaveBeenCalled();
+    }
+  });
+
   it("answers a guardian's permission for someone who holds a staff role as one for learners only", async () => {
     // Not done the profile step, but a facilitator: the age isn't why.
     existing({ profile: null, roles: ["FACILITATOR"] });
@@ -609,6 +696,35 @@ describe("setMemberRoles (SP21)", () => {
       await expect(setMemberRoles("colleague", ["LEARNER"])).resolves.toEqual({ ok: false, error: "not-grantable" });
     }
     expect(changedAnything()).toBe(false);
+  });
+
+  it("someone made a learner only gets the profile step's organisation rule (spec 5.4 (c)), in the same transaction", async () => {
+    asPartnerAdmin();
+    for (const before of [["FACILITATOR"], ["LEARNER", "FACILITATOR"], []]) {
+      vi.clearAllMocks();
+      db.$transaction.mockImplementation(async (work: (tx: typeof db) => unknown) => work(db));
+      holds(before);
+      const res = await setMemberRoles("facilitator-a", ["LEARNER"]);
+      expect(res.ok, JSON.stringify(before)).toBe(true);
+      expect(releaseIfCountryElsewhere, JSON.stringify(before)).toHaveBeenCalledWith(db, "facilitator-a", {
+        actorId: PAA_USER.id,
+        scope: ORG_A,
+      });
+    }
+  });
+
+  it("a learner who stays a learner, or anyone given a staff role, keeps their organisation", async () => {
+    for (const [before, after] of [
+      [["LEARNER"], ["LEARNER"]],
+      [["LEARNER"], ["LEARNER", "FACILITATOR"]],
+      [["FACILITATOR"], ["FACILITATOR"]],
+    ] as const) {
+      vi.clearAllMocks();
+      db.$transaction.mockImplementation(async (work: (tx: typeof db) => unknown) => work(db));
+      holds([...before]);
+      await setMemberRoles("person-a", [...after]);
+      expect(releaseIfCountryElsewhere, `${before} → ${after}`).not.toHaveBeenCalled();
+    }
   });
 
   it("lets a partner admin make one of its learners a facilitator", async () => {

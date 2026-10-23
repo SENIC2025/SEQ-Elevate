@@ -46,8 +46,12 @@
     "ageConfirmed": "{rule, select, invited {Du hast am {date} bestätigt, dass du die Erlaubnis deiner Eltern oder deines Vormunds hast.} other {Du hast am {date} dein Alter bestätigt.}}",
     "changeDetails": "Deinen Namen und dein Land kannst du hier nicht ändern. Wenn du sie ändern möchtest, kontaktiere uns (siehe die <privacy>Datenschutzhinweise</privacy>) oder bitte deine Partnerorganisation, die Anfrage weiterzugeben.",
     "notes": "Notizen, die Mitarbeitende über dich schreiben, sind in deinem Daten-Download.",
-    "alwaysSee": "Egal, was du wählst: Die Trainer:innen bei {organisation} und die Mitarbeitenden von DIESIS und SENIC, die die Plattform betreiben, sehen immer deinen Namen und deine E-Mail-Adresse, deinen Fortschritt, deine letzte Aktivität, wie lange du an jeder Lektion arbeitest, deine Ergebnisse in Quiz und Videofragen und deine Entscheidungen in den Übungen.",
-    "alwaysSeeNoOrganisation": "Egal, was du wählst: Die Mitarbeitenden von DIESIS und SENIC, die die Plattform betreiben, sehen immer deinen Namen und deine E-Mail-Adresse, deinen Fortschritt, deine letzte Aktivität, wie lange du an jeder Lektion arbeitest, deine Ergebnisse in Quiz und Videofragen und deine Entscheidungen in den Übungen. Sobald dein Konto einer Partnerorganisation zugeordnet ist, sehen das auch ihre Trainer:innen."
+    "alwaysSee": "Egal, was du wählst: Die Trainer:innen bei {organisation} und die Mitarbeitenden von DIESIS und SENIC, die die Plattform betreiben, sehen immer deinen Namen und deine E-Mail-Adresse, dein Land, deinen Fortschritt, deine letzte Aktivität, wie lange du an jeder Lektion arbeitest, deine Ergebnisse in Quiz und Videofragen, deine Entscheidungen in den Übungen und ob für dich die Erlaubnis deiner Eltern oder deines Vormunds vermerkt ist.",
+    "alwaysSeeNoOrganisation": "Egal, was du wählst: Die Mitarbeitenden von DIESIS und SENIC, die die Plattform betreiben, sehen immer deinen Namen und deine E-Mail-Adresse, dein Land, deinen Fortschritt, deine letzte Aktivität, wie lange du an jeder Lektion arbeitest, deine Ergebnisse in Quiz und Videofragen, deine Entscheidungen in den Übungen und ob für dich die Erlaubnis deiner Eltern oder deines Vormunds vermerkt ist. Sobald dein Konto einer Partnerorganisation zugeordnet ist, sehen das auch ihre Trainer:innen.",
+    "compCardTitle": "Deine Comp Card",
+    "compCardShared": "Deine Comp Card ist mit den Trainer:innen bei {organisation} geteilt.",
+    "compCardStop": "Zu „Nur ich“ wechseln",
+    "compCardOnlyMe": "Deine Comp Card steht auf „Nur ich“: Nur du siehst sie."
   },
   "system": {
     "notFoundTitle": "Diese Seite haben wir nicht gefunden",
@@ -280,7 +284,7 @@
         "prompt2": "Was war der schwerste Teil im Szenario?",
         "prompt3": "Was würdest du beim nächsten Mal anders versuchen?",
         "placeholder1": "Es kann ein Wort sein, ein Gefühl oder ein Satz.",
-        "placeholder2": "Sei ehrlich — nur du siehst das.",
+        "placeholder2": "Sei ehrlich. Nur du siehst das.",
         "placeholder3": "Auch eine kleine Veränderung zählt."
       },
       "assessment": {
@@ -613,6 +617,8 @@
     "privacyLabel": "Wer diese Comp Card sehen darf",
     "downloadPdf": "Als PDF herunterladen",
     "printPdf": "Comp Card drucken",
+    "printMadeBy": "Erstellt und betrieben von SENIC · senic.world",
+    "printBelongs": "Diese Comp Card gehört der lernenden Person.",
     "saved": "Gespeichert",
     "saving": "Speichert…",
     "placeholder": {
@@ -632,8 +638,8 @@
     "sharing": {
       "onlyMe": "Nur ich",
       "facilitators": "Ich und die Trainer:innen bei {organisation}",
-      "always": "Egal, was du wählst: Die Trainer:innen bei {organisation} und die Mitarbeitenden von DIESIS und SENIC, die die Plattform betreiben, sehen immer deinen Namen und deine E-Mail-Adresse, deinen Fortschritt, deine letzte Aktivität, wie lange du an jeder Lektion arbeitest, deine Ergebnisse in Quiz und Videofragen und deine Entscheidungen in den Übungen.",
-      "alwaysNoOrganisation": "Egal, was du wählst: Die Mitarbeitenden von DIESIS und SENIC, die die Plattform betreiben, sehen immer deinen Namen und deine E-Mail-Adresse, deinen Fortschritt, deine letzte Aktivität, wie lange du an jeder Lektion arbeitest, deine Ergebnisse in Quiz und Videofragen und deine Entscheidungen in den Übungen. Sobald dein Konto einer Partnerorganisation zugeordnet ist, sehen das auch ihre Trainer:innen.",
+      "always": "Egal, was du wählst: Die Trainer:innen bei {organisation} und die Mitarbeitenden von DIESIS und SENIC, die die Plattform betreiben, sehen immer deinen Namen und deine E-Mail-Adresse, dein Land, deinen Fortschritt, deine letzte Aktivität, wie lange du an jeder Lektion arbeitest, deine Ergebnisse in Quiz und Videofragen, deine Entscheidungen in den Übungen und ob für dich die Erlaubnis deiner Eltern oder deines Vormunds vermerkt ist.",
+      "alwaysNoOrganisation": "Egal, was du wählst: Die Mitarbeitenden von DIESIS und SENIC, die die Plattform betreiben, sehen immer deinen Namen und deine E-Mail-Adresse, dein Land, deinen Fortschritt, deine letzte Aktivität, wie lange du an jeder Lektion arbeitest, deine Ergebnisse in Quiz und Videofragen, deine Entscheidungen in den Übungen und ob für dich die Erlaubnis deiner Eltern oder deines Vormunds vermerkt ist. Sobald dein Konto einer Partnerorganisation zugeordnet ist, sehen das auch ihre Trainer:innen.",
       "shareConfirm": "Comp Card teilen? Die Trainer:innen bei {organisation} sehen dann alles darauf. Du kannst jederzeit zu „Nur ich“ zurückwechseln.",
       "share": "Teilen",
       "cancel": "Abbrechen",
@@ -981,7 +987,7 @@
     },
     "facilitator": {
       "title": "Lernende begleiten",
-      "desc": "Fortschritt, Reflexionen und Ergebnisse deiner Lernenden verfolgen."
+      "desc": "Fortschritt und Ergebnisse deiner Lernenden verfolgen."
     },
     "analytics": {
       "title": "Statistiken",
@@ -1358,8 +1364,8 @@
       "OTHER": "Anderes Land",
       "empty": "Wähle ein Land."
     },
-    "whoSees": "Die Trainer:innen bei {organisation} und die Mitarbeitenden von DIESIS und SENIC, die die Plattform betreiben, sehen deinen Namen und deine E-Mail-Adresse, deinen Fortschritt, deine letzte Aktivität, wie lange du an jeder Lektion arbeitest, deine Ergebnisse in Quiz und Videofragen und deine Entscheidungen in den Übungen. Deine Comp Card bleibt privat, außer du teilst sie.",
-    "whoSeesNoOrganisation": "Die Mitarbeitenden von DIESIS und SENIC, die die Plattform betreiben, sehen deinen Namen und deine E-Mail-Adresse, deinen Fortschritt, deine letzte Aktivität, wie lange du an jeder Lektion arbeitest, deine Ergebnisse in Quiz und Videofragen und deine Entscheidungen in den Übungen. Sobald dein Konto einer Partnerorganisation zugeordnet ist, sehen das auch ihre Trainer:innen. Deine Comp Card bleibt privat, außer du teilst sie.",
+    "whoSees": "Die Trainer:innen bei {organisation} und die Mitarbeitenden von DIESIS und SENIC, die die Plattform betreiben, sehen deinen Namen und deine E-Mail-Adresse, dein Land, deinen Fortschritt, deine letzte Aktivität, wie lange du an jeder Lektion arbeitest, deine Ergebnisse in Quiz und Videofragen, deine Entscheidungen in den Übungen und ob für dich die Erlaubnis deiner Eltern oder deines Vormunds vermerkt ist. Deine Comp Card bleibt privat, außer du teilst sie.",
+    "whoSeesNoOrganisation": "Die Mitarbeitenden von DIESIS und SENIC, die die Plattform betreiben, sehen deinen Namen und deine E-Mail-Adresse, dein Land, deinen Fortschritt, deine letzte Aktivität, wie lange du an jeder Lektion arbeitest, deine Ergebnisse in Quiz und Videofragen, deine Entscheidungen in den Übungen und ob für dich die Erlaubnis deiner Eltern oder deines Vormunds vermerkt ist. Sobald dein Konto einer Partnerorganisation zugeordnet ist, sehen das auch ihre Trainer:innen. Deine Comp Card bleibt privat, außer du teilst sie.",
     "setUpBy": "Dein Konto wurde von {organisation} eingerichtet.",
     "setUpByMismatch": "{organisation} begleitet Lernende in einem anderen Land. Wenn du mit {country, select, DE {Deutschland} CY {Zypern} BE {Belgien} GR {Griechenland} other {einem anderen Land}} weitermachst, prüft DIESIS, welche Organisation dich begleitet; bis dahin sehen nur Mitarbeitende von DIESIS und SENIC deinen Fortschritt.",
     "age": {
@@ -1390,10 +1396,38 @@
     "summary": "{n, plural, =0 {Kein Kursfortschritt} other {{courses}}}. Comp Card: {compCard, select, true {ja} other {nein}}. Abzeichen: {badges}.",
     "add": "Zu meinem Konto hinzufügen",
     "remove": "Aus diesem Browser entfernen",
+    "addFirst": "Füge es hinzu, bevor du in deinem Konto etwas anderes anfängst: Wo dein Konto im Kurs schon eigenen Fortschritt oder eine eigene Comp Card hat, behält es seine eigene, und das hier kann dann nicht hinzugefügt werden.",
     "added": "Zu deinem Konto hinzugefügt.",
+    "already": "Das ist schon in deinem Konto.",
+    "courseAdded": "Dein Fortschritt in {course} wurde zu deinem Konto hinzugefügt.",
+    "courseAlready": "Dein Fortschritt in {course} ist schon in deinem Konto.",
+    "courseKept": "Dein Fortschritt in {course} wurde nicht hinzugefügt: Dein Konto hat in diesem Kurs schon Fortschritt, und den behält es.",
+    "courseUnavailable": "Dein Fortschritt in {course} wurde nicht hinzugefügt: Den Kurs gibt es nicht mehr.",
+    "cardAdded": "Deine Comp Card wurde zu deinem Konto hinzugefügt.",
+    "cardAlready": "Deine Comp Card ist schon in deinem Konto.",
+    "cardKept": "Deine Comp Card wurde nicht hinzugefügt: Dein Konto hat schon eine Comp Card mit Antworten, und die behält es.",
+    "cardKeptShared": "Deine Comp Card wurde nicht hinzugefügt: Die Comp Card deines Kontos ist mit deinen Trainer:innen geteilt, und Hinzufügen teilt nie. Um sie hinzuzufügen, stell deine Comp Card zuerst auf „Nur ich“.",
+    "badgesIn": "{count, plural, one {Dein Abzeichen ist} other {Deine # Abzeichen sind}} in deinem Konto.",
+    "badgesRefused": "{count, plural, one {Ein Abzeichen konnte} other {# Abzeichen konnten}} nicht zu deinem Konto hinzugefügt werden.",
+    "keptStays": "Was nicht hinzugefügt wurde, bleibt in diesem Browser, bis du es entfernst.",
+    "changedMeanwhile": "In diesem Browser wurde inzwischen mehr gespeichert: Das wurde nicht hinzugefügt und bleibt in diesem Browser.",
+    "tooLong": "Nichts wurde hinzugefügt: {count, plural, one {Eine Antwort ist} other {# Antworten sind}} zu lang. Kürze sie oben und füge deine Arbeit dann noch einmal hinzu, oder entferne sie aus diesem Browser.",
+    "tooLarge": "Nichts wurde hinzugefügt: Diese Arbeit ist zu groß zum Hinzufügen. Kürze oben deine längsten Antworten und füge sie dann noch einmal hinzu, oder entferne sie aus diesem Browser.",
+    "otherAccount": "Nichts wurde hinzugefügt: In diesem Browser ist jetzt ein anderes Konto angemeldet.",
+    "unconfirmed": "Wir konnten nicht bestätigen, dass es hinzugefügt wurde: Die Verbindung ist fehlgeschlagen. Es ist noch in diesem Browser: Versuch es noch einmal.",
+    "shortenIntro": "{count, plural, one {Diese Antwort ist zu lang zum Hinzufügen. Kürze sie hier und füge deine Arbeit dann zu deinem Konto hinzu.} other {Diese Antworten sind zu lang zum Hinzufügen. Kürze sie hier und füge deine Arbeit dann zu deinem Konto hinzu.}} Was du hier änderst, wird nur in diesem Browser gespeichert.",
+    "shortenLarge": "Kürze hier einige dieser Antworten und füge deine Arbeit dann zu deinem Konto hinzu. Was du hier änderst, wird nur in diesem Browser gespeichert.",
+    "reflectionLabel": "Reflexionsantwort {n}",
+    "lengthOver": "{count, number} von höchstens {max, number} Zeichen: {over, plural, one {# Zeichen} other {# Zeichen}} zu viel.",
+    "lengthOk": "{count, number} von {max, number} Zeichen: kurz genug zum Hinzufügen.",
+    "shortEnough": "Jetzt kurz genug zum Hinzufügen.",
+    "nothing": "Nichts wurde hinzugefügt: In diesem Browser gibt es keine Arbeit mehr zum Hinzufügen.",
     "removed": "Aus diesem Browser entfernt.",
     "clear": "Meine Arbeit aus diesem Browser löschen",
-    "clearConfirm": "Damit werden dein Fortschritt, deine Antworten und deine Comp Card aus diesem Browser entfernt. Das lässt sich nicht rückgängig machen."
+    "clearConfirm": "Damit werden dein Fortschritt, deine Antworten und deine Comp Card aus diesem Browser entfernt. Das lässt sich nicht rückgängig machen.",
+    "signedInElsewhere": "Du hast dich in einem anderen Tab angemeldet. Was du auf dieser Seite tust, wird weiterhin nur in diesem Browser gespeichert, wie vor deiner Anmeldung. Wenn du auf eine andere Seite gehst oder diese neu lädst, geht es mit deinem Konto weiter: Du wirst gefragt, ob du diese Arbeit zu deinem Konto hinzufügen möchtest.",
+    "changedElsewhere": "Die in diesem Browser gespeicherte Arbeit wurde in einem anderen Tab geändert: zu einem Konto hinzugefügt, entfernt oder dort geändert. Auf dieser Seite wird nichts mehr gespeichert. Lade die Seite neu, um weiterzumachen.",
+    "reload": "Diese Seite neu laden"
   },
   "safeguarding": {
     "title": "Brauchst du jemanden zum Reden?",
@@ -1413,6 +1447,6 @@
     "toBeCompleted": "Vor dem Start zu ergänzen —",
     "version": "Version {version} · zuletzt aktualisiert am {date}",
     "versionInterim": "Vorläufige Fassung · zuletzt aktualisiert am {date}",
-    "poweredBy": "SEQ Elevate · Entwickelt und betrieben von SENIC"
+    "poweredBy": "SEQ Elevate · Erstellt und betrieben von SENIC"
   }
 }

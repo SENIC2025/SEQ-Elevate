@@ -28,6 +28,10 @@
  * The learner membership is made here, once the profile is complete, for
  * someone who holds no role at all and isn't on ADMIN_EMAILS (the rule of
  * learner-membership.ts; D79: not by the browser before the profile step).
+ * Someone who completed the profile before and holds no role now (removed,
+ * Q29) gets the organisation rule above when they become a learner again
+ * (releaseIfCountryElsewhere), as anyone who becomes a learner after the
+ * profile step does.
  *
  * The profile row is made if there is none and locked for the whole
  * transaction, as a partner admin's claim of the same account does
@@ -39,7 +43,7 @@ import { getCurrentUser } from "@/lib/auth-helpers";
 import { isBootstrapAdmin } from "@/lib/admin-bootstrap";
 import { isCountry } from "@/lib/countries";
 import { needsLearnerMembership } from "@/lib/learner-membership";
-import { setPersonOrganisation } from "@/lib/person-organisation";
+import { releaseIfCountryElsewhere, setPersonOrganisation } from "@/lib/person-organisation";
 import { prisma } from "@/lib/prisma";
 import {
   isProfileComplete,
@@ -185,6 +189,9 @@ export async function completeProfile(input: unknown): Promise<CompleteProfileRe
           data: [{ userId: user.id, projectId: PROJECT, role: "LEARNER" }],
           skipDuplicates: true,
         });
+        // Someone with no role left after an earlier completion ("Remove",
+        // Q29) becomes a learner again: the same organisation rule.
+        if (completed) await releaseIfCountryElsewhere(tx, user.id, { actorId: user.id });
       }
 
       await tx.auditLog.create({

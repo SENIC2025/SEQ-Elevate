@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import type { Role } from "@prisma/client";
 import {
   COMP_CARD_TEXT_MAX,
@@ -11,7 +11,13 @@ import {
   type CardRow,
   type CompCardField,
 } from "./comp-card-visibility";
-import type { Scope } from "./scope";
+import { testOnlyScope, type Scope } from "./scope";
+
+// The scope module's test-only factory makes the scopes (SS4); the module's
+// server-side imports aren't used here.
+vi.mock("server-only", () => ({}));
+vi.mock("@/lib/prisma", () => ({ prisma: {} }));
+vi.mock("@/lib/auth-helpers", () => ({ getCurrentUser: async () => null, getProjectMemberships: async () => [] }));
 
 /*
  * Who reads a Comp Card (D80, D81, spec 4.2), checked over the whole table:
@@ -37,12 +43,12 @@ const PRIVACY = ["SELF", "FACILITATOR", "FACILITATOR_AND_MENTOR", "SOMETHING_NEW
 const SHARED_AT_VALUES = [null, SHARED_AT];
 const SHARED_WITH = ["org-a", "org-b", null];
 const SCOPES: Scope[] = [
-  { kind: "organisation", viewerId: "v", organisationId: "org-a" },
-  { kind: "organisation", viewerId: "v", organisationId: "org-b" },
-  { kind: "project", viewerId: "v", viewerOrganisationId: "org-a" },
-  { kind: "project", viewerId: "v", viewerOrganisationId: "org-b" },
-  { kind: "project", viewerId: "v", viewerOrganisationId: null },
-  { kind: "none" },
+  testOnlyScope({ kind: "organisation", viewerId: "v", organisationId: "org-a" }),
+  testOnlyScope({ kind: "organisation", viewerId: "v", organisationId: "org-b" }),
+  testOnlyScope({ kind: "project", viewerId: "v", viewerOrganisationId: "org-a" }),
+  testOnlyScope({ kind: "project", viewerId: "v", viewerOrganisationId: "org-b" }),
+  testOnlyScope({ kind: "project", viewerId: "v", viewerOrganisationId: null }),
+  testOnlyScope({ kind: "none" }),
 ];
 const ROLES: Role[][] = [["FACILITATOR"], ["PARTNER_ADMIN"], ["ADMIN"], ["CONTENT_EDITOR"], ["LEARNER"], []];
 

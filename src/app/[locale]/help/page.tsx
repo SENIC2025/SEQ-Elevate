@@ -6,6 +6,7 @@ import { getViewer } from "@/lib/scope";
 import { loadSafeguarding } from "@/lib/safeguarding.server";
 import { helpGroups } from "@/lib/safeguarding";
 import { isCountry } from "@/lib/countries";
+import { EmergencyLine } from "@/components/safeguarding/EmergencyLine";
 import { LifeBuoy, PhoneCall } from "lucide-react";
 
 // Reads the contacts an admin saved, and who is asking: never prerendered.
@@ -42,7 +43,9 @@ export default async function HelpPage({ params }: { params: Promise<{ locale: s
           </h1>
           <p className="mt-6 flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] px-4 py-3 text-base font-semibold">
             <PhoneCall className="h-5 w-5 flex-shrink-0 text-[var(--accent)]" aria-hidden="true" />
-            {t("emergency")}
+            <span>
+              <EmergencyLine />
+            </span>
           </p>
           <div className="mt-8 space-y-8 text-sm">
             {groups.map((g) => (

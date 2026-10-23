@@ -131,7 +131,7 @@ describe("the profile step's form (UB5)", () => {
     const t = text(render(first({ organisation: partner, country: "CY" })));
     const check = t.indexOf("DIESIS will check which organisation supports you");
     const full = t.indexOf(
-      "The DIESIS and SENIC staff who run the platform will see your name and email, your progress, your last activity, the time you spend on each lesson"
+      "The DIESIS and SENIC staff who run the platform will see your name and email, your country, your progress, your last activity, the time you spend on each lesson"
     );
     expect(check).toBeGreaterThan(-1);
     expect(full).toBeGreaterThan(check);

@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useLocale } from "next-intl";
 import {
   EditorContent,
   useEditor,
@@ -61,6 +62,12 @@ export interface RichTextEditorProps {
   labelledBy?: string;
   /** Put the cursor at the end of the text once the editor is ready. */
   autoFocus?: boolean;
+  /**
+   * The language the text is written in: the editable text carries it
+   * (default: the page's). The editor's own words (toolbar, tip, messages)
+   * are English on every locale's page and are marked lang="en" (WCAG 3.1.2).
+   */
+  lang?: string;
   /**
    * After every edit: the new rich text and its plain text. When the text
    * can't be stored (too long, say, or with a link that can't be used) the
@@ -179,9 +186,18 @@ export function RichTextEditor({
   variant,
   labelledBy,
   autoFocus = false,
+  lang,
   onChange,
 }: RichTextEditorProps) {
   const v = VARIANT[variant];
+  const pageLang = useLocale();
+  // Read on every update of the editor (its attributes below), so the text
+  // follows its language when the parent's changes (a save that turns
+  // another language's text into this one's).
+  const textLang = React.useRef(lang ?? pageLang);
+  React.useEffect(() => {
+    textLang.current = lang ?? pageLang;
+  }, [lang, pageLang]);
   const ids = React.useId();
   const toolbarRef = React.useRef<HTMLDivElement>(null);
   const boxRef = React.useRef<HTMLDivElement>(null);
@@ -209,11 +225,13 @@ export function RichTextEditor({
     content: opening.doc,
     extensions: editorExtensions(v.placeholder, { indent: v.indent }),
     editorProps: {
-      attributes: {
+      attributes: () => ({
         // rt-editor (globals.css): the height, the empty editor's hint, and
         // no gap above a list point's first line — the editor holds it in a
         // <p>, learners see it right inside the <li>.
         class: cn("seq-prose rt-editor", v.prose),
+        // The text's language; the editor's own words around it are English.
+        lang: textLang.current,
         role: "textbox",
         "aria-multiline": "true",
         ...(labelledBy
@@ -222,7 +240,7 @@ export function RichTextEditor({
         "aria-describedby": `${ids}-tip ${ids}-keys`,
         // Where BlockEditor puts focus when it's asked to.
         "data-block-field": "",
-      },
+      }),
       transformPastedHTML: (html: string) => {
         const cleaned = cleanPastedHtmlWithReport(html);
         setNotes(pasteNotes(cleaned));
@@ -401,6 +419,7 @@ export function RichTextEditor({
   return (
     <div
       ref={boxRef}
+      lang="en"
       onBlur={(e) => {
         // Focus left the editor box (not just moved inside it).
         if (!boxRef.current?.contains(e.relatedTarget as Node | null)) setBlurTick((n) => n + 1);
@@ -681,6 +700,7 @@ function EditorLoading() {
   return (
     <div
       aria-busy="true"
+      lang="en"
       className="min-h-[8.5rem] animate-pulse rounded-md border border-[var(--border)] bg-[var(--surface-muted)] px-3 py-2 text-xs text-[var(--muted-foreground)]"
     >
       Opening the text editor…

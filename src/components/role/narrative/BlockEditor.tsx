@@ -47,7 +47,9 @@ const iconBtn =
  * One content block in the lesson editor: a header with its controls, then
  * the fields for its kind. Paragraphs and key messages are formatted text
  * (RichBlock), shown exactly as learners see them; lists, and the two sides
- * of a comparison, are plain text.
+ * of a comparison, are plain text. The block's text is marked with the
+ * language it is written in (`contentLang`); the editor's own words are
+ * English (BlockList marks them).
  */
 export function BlockEditor({
   block,
@@ -56,6 +58,7 @@ export function BlockEditor({
   focus,
   addOpen,
   pickerId,
+  contentLang,
   onChange,
   onMove,
   onDuplicate,
@@ -69,6 +72,8 @@ export function BlockEditor({
   /** The template list below this block is open ("Add block below"). */
   addOpen: boolean;
   pickerId: string;
+  /** The language the block's text is written in. */
+  contentLang: string;
   onChange: (patch: Partial<NarrativeBlock>) => void;
   onMove: (dir: -1 | 1) => void;
   onDuplicate: () => void;
@@ -183,16 +188,17 @@ export function BlockEditor({
           block={block}
           variant={block.kind}
           focusOnOpen={focusOnOpen}
+          contentLang={contentLang}
           onChange={onChange}
         />
       ) : null}
 
       {block.kind === "list" ? (
-        <ListItems block={block} onChange={onChange} />
+        <ListItems block={block} contentLang={contentLang} onChange={onChange} />
       ) : null}
 
       {block.kind === "compare" ? (
-        <CompareSides block={block} onChange={onChange} />
+        <CompareSides block={block} contentLang={contentLang} onChange={onChange} />
       ) : null}
     </div>
   );
@@ -215,12 +221,14 @@ function RichBlock({
   block,
   variant,
   focusOnOpen,
+  contentLang,
   onChange,
 }: {
   block: EditableBlock;
   variant: "paragraph" | "callout";
   /** Put the cursor in the editor if it opens as the block mounts. */
   focusOnOpen: boolean;
+  contentLang: string;
   onChange: (patch: Partial<NarrativeBlock>) => void;
 }) {
   const ids = React.useId();
@@ -234,6 +242,7 @@ function RichBlock({
         text={block.text}
         variant={variant}
         autoFocus={focusEditor}
+        lang={contentLang}
         onChange={(rich, text) => onChange({ rich, text })}
       />
     );
@@ -262,7 +271,7 @@ function RichBlock({
       onFocus={preloadRichTextEditor}
       className="group relative cursor-text rounded-md border border-dashed border-[var(--border)] px-3 py-2 pr-16 hover:border-[var(--accent)]/50"
     >
-      <div id={`${ids}-text`}>
+      <div id={`${ids}-text`} lang={contentLang}>
         <RichTextView
           rich={block.rich}
           text={block.text}
@@ -292,9 +301,11 @@ function RichBlock({
  */
 function ListItems({
   block,
+  contentLang,
   onChange,
 }: {
   block: EditableBlock;
+  contentLang: string;
   onChange: (patch: Partial<NarrativeBlock>) => void;
 }) {
   const items = block.items ?? [];
@@ -369,6 +380,7 @@ function ListItems({
               data-item={ii}
               {...(ii === 0 ? { "data-block-field": true } : {})}
               value={item}
+              lang={contentLang}
               onChange={(e) => {
                 const next = [...items];
                 next[ii] = e.target.value;
@@ -409,9 +421,11 @@ function ListItems({
 /** Two labelled sides, each marked as the way to avoid or the way to try. */
 function CompareSides({
   block,
+  contentLang,
   onChange,
 }: {
   block: EditableBlock;
+  contentLang: string;
   onChange: (patch: Partial<NarrativeBlock>) => void;
 }) {
   const ids = React.useId();
@@ -438,6 +452,7 @@ function CompareSides({
           <input
             {...(si === 0 ? { "data-block-field": true } : {})}
             value={side.label}
+            lang={contentLang}
             onChange={(e) => patchSide(si, { label: e.target.value })}
             aria-label={`Side ${si + 1} heading`}
             placeholder={
@@ -447,6 +462,7 @@ function CompareSides({
           />
           <textarea
             value={side.text}
+            lang={contentLang}
             onChange={(e) => patchSide(si, { text: e.target.value })}
             rows={3}
             aria-label={`Side ${si + 1} text`}

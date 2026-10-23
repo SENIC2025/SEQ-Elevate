@@ -1,4 +1,4 @@
-import { test, expect, type APIRequestContext, type Page } from "@playwright/test";
+import { test, expect, type APIRequestContext, type Page, type Request } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
@@ -90,6 +90,22 @@ async function cardReady(page: Page) {
 async function typeInto(page: Page, placeholder: string, text: string) {
   await cardReady(page);
   await field(page, placeholder).fill(text);
+}
+
+/** Holds the first server action whose body contains `marker`, as on a slow connection, until released. */
+async function holdAction(page: Page, marker: string) {
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => (release = resolve));
+  const state: { request: Request | null } = { request: null };
+  await page.route("**/*", async (route) => {
+    const request = route.request();
+    if (!state.request && request.method() === "POST" && (await request.headerValue("next-action")) && (request.postData() ?? "").includes(marker)) {
+      state.request = request;
+      await held;
+    }
+    await route.continue().catch(() => undefined);
+  });
+  return { state, release };
 }
 
 describe("Release 3 Comp Card, learner side", () => {
@@ -209,6 +225,54 @@ describe("Release 3 Comp Card, learner side", () => {
     ).toBe(2);
   });
 
+  test("B-E6: a shared card is taken back to \"Only me\" from the account page, also while the profile step waits for new Terms", async ({
+    page,
+    context,
+    request,
+  }) => {
+    const learner = await learnerOfA("terms-changed");
+    const marker = `cardtext-terms-changed-${RUN}`;
+    await prisma.compCard.create({
+      data: { userId: learner.userId, projectId: PROJECT, wentWell: `${marker} went well` },
+      select: { id: true },
+    });
+    const shared = await callAction(request, {
+      as: learner,
+      page: CARD_PAGE,
+      file: LEARNER_FILE,
+      name: "setCompCardSharing",
+      args: ["facilitators", learner.userId],
+    });
+    expect(shared.result, shared.raw.slice(0, 200)).toMatchObject({ ok: true, sharing: "facilitators" });
+    expect(await payload(request, world.people.FA, "/en/facilitator")).toContain(marker);
+    // A new English Terms version (D78): the one they accepted is older now,
+    // so the learner area sends them to the profile step.
+    await prisma.projectProfile.update({
+      where: { userId_projectId: { userId: learner.userId, projectId: PROJECT } },
+      data: { termsVersion: "2020-01-01" },
+    });
+    await signIn(context, learner.sessionToken);
+    await page.goto(CARD_PAGE);
+    await expect(page).toHaveURL(/\/en\/welcome$/);
+
+    // The account page stays open (spec 5.3), and takes the card back in one click (D80).
+    await page.goto("/en/account");
+    const section = page.getByRole("region", { name: "Your Comp Card" });
+    await expect(section).toContainText(`Your Comp Card is shared with the facilitators at ${world.organisations.A.name}.`);
+    await section.getByRole("button", { name: "Switch to “Only me”" }).click();
+    await expect(section.getByRole("status")).toContainText("Your Comp Card is set to “Only me”: only you see it.");
+    await expect
+      .poll(async () => {
+        const card = await cardOf(learner.userId);
+        return { privacy: card?.privacy, sharedAt: card?.sharedAt ?? null };
+      })
+      .toEqual({ privacy: "SELF", sharedAt: null });
+    expect(await payload(request, world.people.FA, "/en/facilitator"), "taken back").not.toContain(marker);
+    // Not shared: nothing to take back, so the account page says nothing of it.
+    await page.reload();
+    await expect(page.getByRole("region", { name: "Your Comp Card" })).toHaveCount(0);
+  });
+
   test("B-E6: a shared card says it is shared from the first paint, before the learner's data has loaded", async ({
     page,
     context,
@@ -264,6 +328,35 @@ describe("Release 3 Comp Card, learner side", () => {
     expect(card?.wentWell).toBe(`${marker} went well`);
     expect(await payload(request, world.people.FA, "/en/facilitator"), "A's facilitator gets none of it").not.toContain(marker);
     expect({ privacy: card?.privacy, sharedAt: card?.sharedAt ?? null }, "nothing shared").toEqual({ privacy: "SELF", sharedAt: null });
+  });
+
+  test("B-E7 (rolling forward): a card shared the Release 3 way, then set to \"Only me\" and back by Release 2's saves, stays unshared", async ({
+    request,
+  }) => {
+    test.skip(!profiles, "Release 3's sharing columns");
+    const learner = await learnerOfA("rolled-back");
+    const marker = `cardtext-rolled-back-${RUN}`;
+    await prisma.compCard.create({
+      data: { userId: learner.userId, projectId: PROJECT, wentWell: `${marker} went well` },
+      select: { id: true },
+    });
+    const shared = await callAction(request, {
+      as: learner,
+      page: CARD_PAGE,
+      file: LEARNER_FILE,
+      name: "setCompCardSharing",
+      args: ["facilitators", learner.userId],
+    });
+    expect(shared.result, shared.raw.slice(0, 200)).toMatchObject({ ok: true, sharing: "facilitators" });
+    expect(await payload(request, world.people.FA, "/en/facilitator")).toContain(marker);
+    // What Release 2's Comp Card save writes after a rollback: privacy only
+    // (spec 2.7). "Only me", then "facilitator" again from an older tab.
+    await prisma.$executeRaw`UPDATE "CompCard" SET "privacy" = 'SELF' WHERE "userId" = ${learner.userId} AND "projectId" = ${PROJECT}`;
+    expect(await payload(request, world.people.FA, "/en/facilitator"), "Only me").not.toContain(marker);
+    await prisma.$executeRaw`UPDATE "CompCard" SET "privacy" = 'FACILITATOR' WHERE "userId" = ${learner.userId} AND "projectId" = ${PROJECT}`;
+    expect(await payload(request, world.people.FA, "/en/facilitator"), "back to facilitator: still not shared").not.toContain(marker);
+    const card = await cardOf(learner.userId);
+    expect({ sharedAt: card?.sharedAt ?? null, with: card?.sharedWithOrganisationId ?? null }).toEqual({ sharedAt: null, with: null });
   });
 
   test("B-E8: a text over 2,000 characters is held back with a note, the others save, and its saved text stays; a longer saved text can be saved unchanged", async ({
@@ -325,6 +418,40 @@ describe("Release 3 Comp Card, learner side", () => {
     });
     expect(grown.result).toEqual({ ok: false, error: "too-long", field: "behaviour" });
     expect((await cardOf(learner.userId))?.behaviour).toBe(older);
+  });
+
+  test("B-E8 (saves): an answer changed, then changed back while the save of the change is on its way, ends in the account as the page shows it", async ({
+    page,
+    context,
+  }) => {
+    const learner = await learnerOfA("back");
+    const before = `went well ${RUN}`;
+    const changed = `changed ${RUN}`;
+    await prisma.compCard.create({ data: { userId: learner.userId, projectId: PROJECT, wentWell: before }, select: { id: true } });
+    await signIn(context, learner.sessionToken);
+    // The save of the change is held, as on a slow connection, until the change back is past the page's save pause.
+    const held = await holdAction(page, changed);
+    await page.goto(CARD_PAGE);
+    const box = field(page, "Even small wins count.");
+    await expect(box).toHaveValue(before);
+    try {
+      await typeInto(page, "Even small wins count.", changed);
+      await expect.poll(() => held.state.request !== null, { timeout: 15_000 }).toBe(true);
+      await box.fill(before);
+      // Past the save pause (700 ms): the change back is worked out while the server is still known to hold `before`.
+      await page.waitForTimeout(2000);
+    } finally {
+      held.release();
+    }
+    // The held save reaches the server and is answered; then the account holds what the page shows.
+    expect((await held.state.request!.response())?.status()).toBe(200);
+    await expect(box).toHaveValue(before);
+    await expect
+      .poll(async () => (await cardOf(learner.userId))?.wentWell, { timeout: 15_000, message: "the account holds what the page shows" })
+      .toBe(before);
+    await page.waitForTimeout(1500);
+    expect((await cardOf(learner.userId))?.wentWell).toBe(before);
+    await expect(box).toHaveValue(before);
   });
 
   test("B-E9: a guest's card stored with the mentor choice is Only me once it moves into the account", async ({ page, context }) => {

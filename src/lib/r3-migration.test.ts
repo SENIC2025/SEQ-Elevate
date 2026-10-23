@@ -12,7 +12,8 @@ import { fileURLToPath } from "node:url";
 // in an order that can't deadlock with its writes (checked below against
 // each of them), the two triggers, a repeat of the Membership-based
 // backfills, and last the one lock on User; then two new columns, each a
-// statement and a transaction of its own.
+// statement and a transaction of its own; then two more triggers, each
+// statement a transaction of its own.
 //
 // Each file's normalised text is pinned (a hash, and its statements' first
 // lines in order, so a change shows where it is). A deliberate change
@@ -23,6 +24,7 @@ const MIGRATIONS = "prisma/migrations";
 const A = `${MIGRATIONS}/20261120090000_r3_role_partner_admin/migration.sql`;
 const B = `${MIGRATIONS}/20261120090100_r3_people_privacy_content/migration.sql`;
 const C = `${MIGRATIONS}/20261120090200_r3_course_project_columns/migration.sql`;
+const D = `${MIGRATIONS}/20261120090300_r3_sharing_and_guardian_triggers/migration.sql`;
 const read = (file: string) => readFileSync(`${root}${file}`, "utf8");
 
 /** The SQL with comments left out and every run of whitespace one space. */
@@ -187,6 +189,26 @@ const EXPECTED_C = [
   'ALTER TABLE "Project" ADD COLUMN IF NOT EXISTS "safeguarding" JSONB',
   'ALTER TABLE "Course" ADD COLUMN IF NOT EXISTS "readyLocales" TEXT[] DEFAULT ARRAY[]::TEXT[]',
 ];
+/**
+ * Migration D, word for word: a lock timeout, then two triggers, each made
+ * by statements that each lock one table at most and can run again.
+ * - A card whose privacy is written as anything but FACILITATOR is no
+ *   longer shared (D80): Release 2's save writes privacy alone, so after a
+ *   rollback its "Only me" followed by an older tab's "facilitator" would
+ *   otherwise find the card's sharing columns still set.
+ * - A move away from an organisation clears that organisation's record of a
+ *   guardian's permission, whatever writes the move (setPersonOrganisation
+ *   does the same).
+ */
+const EXPECTED_D = [
+  "SET lock_timeout = '5s'",
+  'CREATE OR REPLACE FUNCTION "unshare_comp_card_on_privacy_change"() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN NEW."sharedAt" := NULL; NEW."sharedWithOrganisationId" := NULL; RETURN NEW; END; $$',
+  'DROP TRIGGER IF EXISTS "CompCard_unshare_on_privacy_change" ON "CompCard"',
+  'CREATE TRIGGER "CompCard_unshare_on_privacy_change" BEFORE UPDATE OF "privacy" ON "CompCard" FOR EACH ROW WHEN (NEW."privacy" <> \'FACILITATOR\') EXECUTE FUNCTION "unshare_comp_card_on_privacy_change"()',
+  'CREATE OR REPLACE FUNCTION "clear_guardian_permission_on_move"() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN NEW."guardianConsentRecordedAt" := NULL; NEW."guardianSharingConsentAt" := NULL; RETURN NEW; END; $$',
+  'DROP TRIGGER IF EXISTS "ProjectProfile_clear_guardian_permission_on_move" ON "ProjectProfile"',
+  'CREATE TRIGGER "ProjectProfile_clear_guardian_permission_on_move" BEFORE UPDATE OF "organisationId" ON "ProjectProfile" FOR EACH ROW WHEN (OLD."organisationId" IS NOT NULL AND OLD."organisationId" IS DISTINCT FROM NEW."organisationId") EXECUTE FUNCTION "clear_guardian_permission_on_move"()',
+];
 
 describe("the Release 3 migrations", () => {
   const b = statements(normalised(read(B)));
@@ -194,10 +216,11 @@ describe("the Release 3 migrations", () => {
 
   it("sort after every earlier migration", () => {
     const dirs = readdirSync(`${root}${MIGRATIONS}`).filter((d) => /^\d{14}_/.test(d)).sort();
-    expect(dirs.slice(-3)).toEqual([
+    expect(dirs.slice(-4)).toEqual([
       "20261120090000_r3_role_partner_admin",
       "20261120090100_r3_people_privacy_content",
       "20261120090200_r3_course_project_columns",
+      "20261120090300_r3_sharing_and_guardian_triggers",
     ]);
   });
 
@@ -337,6 +360,15 @@ describe("the Release 3 migrations", () => {
     for (const s of c.slice(1)) expect(locksOf(s)).toHaveLength(1);
     // readyLocales as Prisma generates it, so migrate finds no drift.
     expect(c).toContain('ALTER TABLE "Course" ADD COLUMN IF NOT EXISTS "readyLocales" TEXT[] DEFAULT ARRAY[]::TEXT[]');
+  });
+
+  it("D adds the two triggers, each statement a transaction of its own that locks one table at most, after C", () => {
+    const d = statements(normalised(read(D)));
+    expect(d).toEqual(EXPECTED_D);
+    // No BEGIN: a failure leaves at most a function or a trigger made, and
+    // every statement runs again on a retry.
+    for (const s of d) expect(locksOf(s).length).toBeLessThanOrEqual(1);
+    expect(deadlocks(d)).toEqual([]);
   });
 });
 

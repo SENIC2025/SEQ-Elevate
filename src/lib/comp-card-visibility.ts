@@ -24,6 +24,9 @@ import type { Scope } from "@/lib/scope";
 /** The longest a Comp Card text field may grow, in characters (D80). */
 export const COMP_CARD_TEXT_MAX = 2000;
 
+/** The confidence of a card no one has touched: the schema's default, and the blank card's. */
+export const COMP_CARD_BLANK_CONFIDENCE = 3;
+
 /** The version of the sharing wording (compCard.sharing.*); bumped when it changes. */
 export const SHARING_TEXT_VERSION = "2026-11-20";
 

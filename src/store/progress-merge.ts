@@ -192,48 +192,6 @@ function mergeResponses(local: ItemAnswers, saved: ItemAnswers): ItemAnswers {
 }
 
 /**
- * The account's progress (`saved`) with a guest's course (`guest`) only
- * where it has none — what the server keeps when the guest's course moves
- * in fill mode (merge-server.ts): lessons are a union; a practice, scenario
- * or quick check is the account's if it has one; a reflection or rating
- * gets the guest's answer only to a question the account hasn't answered.
- */
-function accountFirst(saved: CourseProgress, guest: CourseProgress): CourseProgress {
-  const text = (s: string, g: string) => (answered(s) ? s : g);
-  const responses: ItemAnswers = { ...guest.responses };
-  for (const [key, s] of Object.entries(saved.responses ?? {}) as [PartKey, ItemAnswer][]) {
-    const g = guest.responses[key];
-    if (s.type === "reflection" && g?.type === "reflection") {
-      const filled = { ...s.text };
-      for (const [id, t] of Object.entries(g.text)) if (!answered(filled[id] ?? "")) filled[id] = t;
-      responses[key] = { type: "reflection", text: filled };
-    } else if (s.type === "rating" && g?.type === "rating") {
-      responses[key] = { type: "rating", values: { ...g.values, ...s.values } };
-    } else {
-      responses[key] = s;
-    }
-  }
-  const assessment = readAssessment(saved.assessment);
-  return {
-    courseSlug: saved.courseSlug,
-    courseTitle: saved.courseTitle ?? guest.courseTitle,
-    stagesCompleted: union(saved.stagesCompleted, guest.stagesCompleted),
-    sectionsCompleted: union(saved.sectionsCompleted ?? [], guest.sectionsCompleted),
-    simulation: saved.simulation ?? guest.simulation,
-    scenario: saved.scenario.root ? saved.scenario : guest.scenario,
-    reflection: {
-      p1: text(saved.reflection.p1, guest.reflection.p1),
-      p2: text(saved.reflection.p2, guest.reflection.p2),
-      p3: text(saved.reflection.p3, guest.reflection.p3),
-    },
-    assessment:
-      Object.keys(assessment.answers).length > 0 || assessment.checked ? assessment : guest.assessment,
-    responses,
-    completedAt: saved.completedAt ?? guest.completedAt,
-  };
-}
-
-/**
  * `current` without the guest's course (`guest`) it still holds: only what
  * the learner did on the page besides it — a field still as the guest left
  * it reads as nothing done.
@@ -297,14 +255,15 @@ function readItemAnswers(raw: unknown): ItemAnswers {
  * progress when nothing was saved — so the store's debounced write-through
  * runs and saves what the learner did while this loaded.
  *
- * `migrated` is the guest's course when it moved into the account on
- * sign-in (guest-migration.ts) and this is its first load. It was sent in
- * fill mode, so the account wins (spec 5.4) — and so it does here: what the
- * current progress still holds of it counts as the guest's, filling only
- * what the account lacks, as the server's fill does; what the learner did
- * on the page besides it wins over the account like any local change. The
- * save that follows then sends only that and the gaps, never the guest's
- * answer over one another device saved meanwhile.
+ * `migrated` is the guest's course when it moved into the account
+ * ("Add it to my account", guest-migration.ts: the server confirmed it)
+ * and this is its first load. The server filled what the account lacked,
+ * so `saved` is what the account holds now, the account's own answers
+ * first (spec 5.4): what the current progress still holds of the guest's
+ * course is left out, and only what the learner did on the page besides it
+ * wins over the account, like any local change. The save that follows
+ * then sends only that, never the guest's answer over one another device
+ * saved, nor a quick check the account tried again (D49).
  */
 export function courseAfterLoad(
   current: CourseProgress,
@@ -315,7 +274,7 @@ export function courseAfterLoad(
   if (current.courseSlug !== slug) return null;
   if (migrated?.courseSlug === slug) {
     const account = saved?.courseSlug === slug ? saved : blankCourse(slug);
-    return mergeCourseProgress(doneBesides(current, migrated), accountFirst(account, migrated));
+    return mergeCourseProgress(doneBesides(current, migrated), account);
   }
   if (saved?.courseSlug === slug) return mergeCourseProgress(current, saved);
   return hasCourseProgress(current) ? { ...current } : null;

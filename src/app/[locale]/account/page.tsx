@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { AccountView } from "@/components/account/AccountView";
 import { UNVERSIONED_TERMS } from "@/lib/profile";
 import { LEGACY_VERSION } from "@/data/legal";
+import { effectiveSharing } from "@/lib/comp-card-visibility";
 
 // Reads the signed-in user — never prerender at build.
 export const dynamic = "force-dynamic";
@@ -25,7 +26,13 @@ export default async function Page({
     prisma.userBadge.count({ where: { userId: user.id } }),
     prisma.compCard.findUnique({
       where: { userId_projectId: { userId: user.id, projectId: PROJECT } },
-      select: { id: true },
+      select: {
+        id: true,
+        privacy: true,
+        sharedAt: true,
+        sharedWithOrganisationId: true,
+        sharedWithOrganisation: { select: { name: true } },
+      },
     }),
     // Release 3 (spec 5.7): what the profile step recorded.
     prisma.projectProfile.findUnique({
@@ -36,10 +43,17 @@ export default async function Page({
         termsAcceptedAt: true,
         ageRule: true,
         ageConfirmedAt: true,
+        organisationId: true,
         organisation: { select: { name: true } },
       },
     }),
   ]);
+  // Shared as the learner's own Comp Card page says it (D80): with the
+  // organisation they belong to now. Offered back to "Only me" here too.
+  const shared =
+    compCard && effectiveSharing(compCard, profile?.organisationId ?? null) === "facilitators"
+      ? { organisationName: compCard.sharedWithOrganisation?.name ?? profile?.organisation?.name ?? "" }
+      : null;
 
   const projectMemberships = memberships.filter((m) => m.projectId === PROJECT);
   const roles = projectMemberships.map((m) => m.role);
@@ -57,6 +71,8 @@ export default async function Page({
         badges: badgesCount,
         compCardStarted: !!compCard,
       }}
+      userId={user.id}
+      compCardShared={shared}
       profile={{
         country: profile?.country ?? null,
         organisationName: profile?.organisation?.name ?? null,

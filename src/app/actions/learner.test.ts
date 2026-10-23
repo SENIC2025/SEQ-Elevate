@@ -62,7 +62,7 @@ const prisma = {
   courseEnrollment,
   $queryRaw: vi.fn(async (strings: TemplateStringsArray) => {
     sql.push(strings.join("?").replace(/\s+/g, " ").trim());
-    return [];
+    return [{ id: "locked" }];
   }),
   // An interactive transaction runs on the same mocked client; an array
   // one waits for the queries it was given.
@@ -74,10 +74,32 @@ const prisma = {
 const projectProfile = { findUnique: vi.fn() };
 /** The Comp Card, read and written like the table: upserts merge into it. */
 let storedCard: Record<string, unknown> | null = null;
+/** A card as the table makes it: every text empty, the confidence 3, Only me. */
+const BLANK_CARD = {
+  id: "card-1",
+  wentWell: "",
+  difficult: "",
+  improve: "",
+  behaviour: "",
+  confidence: 3,
+  privacy: "SELF",
+  sharedAt: null,
+  sharedWithOrganisationId: null,
+  updatedAt: new Date("2026-11-21T09:00:00Z"),
+};
 const compCard = {
   findUnique: vi.fn(async () => (storedCard ? { ...storedCard } : null)),
   upsert: vi.fn(async ({ create, update }: { create: Record<string, unknown>; update: Record<string, unknown> }) => {
     storedCard = storedCard ? { ...storedCard, ...update } : { id: "card-1", privacy: "SELF", ...create };
+    return { ...storedCard };
+  }),
+  createMany: vi.fn(async () => {
+    if (storedCard) return { count: 0 };
+    storedCard = { ...BLANK_CARD };
+    return { count: 1 };
+  }),
+  update: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
+    storedCard = { ...storedCard, ...data };
     return { ...storedCard };
   }),
 };
@@ -85,6 +107,8 @@ const auditLog = { create: vi.fn(async () => ({})) };
 Object.assign(prisma, { projectProfile, compCard, auditLog });
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/prisma", () => ({ prisma }));
+const releaseIfCountryElsewhere = vi.fn(async () => ({ released: false }));
+vi.mock("@/lib/person-organisation", () => ({ releaseIfCountryElsewhere }));
 vi.mock("@/lib/cms", () => ({ getCourse: vi.fn() }));
 
 const {
@@ -96,6 +120,7 @@ const {
   loadCourseProgress,
   saveCompCard,
   setCompCardSharing,
+  claimGuestWork,
 } = await import("./learner");
 const { getCourse } = await import("@/lib/cms");
 const { currentTermsVersion } = await import("@/lib/profile");
@@ -157,6 +182,33 @@ describe("ensureLearnerMembership", () => {
     expect(rows).toEqual([
       { userId: "u1", projectId: "seq-elevate", role: "LEARNER" },
     ]);
+  });
+
+  it("someone given LEARNER back (after Remove) gets the profile step's organisation rule first (spec 5.4 (c))", async () => {
+    getCurrentUser.mockResolvedValue(USER);
+    getProjectMemberships.mockResolvedValue([]);
+    isBootstrapAdmin.mockReturnValue(false);
+    membership.findFirst.mockResolvedValue(null);
+    membership.findMany.mockResolvedValue([]);
+    membership.upsert.mockResolvedValue({});
+    membership.create.mockResolvedValue({});
+    await expect(ensureLearnerMembership()).resolves.toBe(true);
+    expect(releaseIfCountryElsewhere).toHaveBeenCalledWith(prisma, "u1", { actorId: "u1" });
+    const released = releaseIfCountryElsewhere.mock.invocationCallOrder[0];
+    const granted = [...membership.upsert.mock.invocationCallOrder, ...membership.create.mock.invocationCallOrder][0];
+    expect(released).toBeLessThan(granted);
+  });
+
+  it("leaves the organisation of someone who holds a role, learners included", async () => {
+    for (const held of [["LEARNER"], ["FACILITATOR"]]) {
+      vi.clearAllMocks();
+      getCurrentUser.mockResolvedValue(USER);
+      getProjectMemberships.mockResolvedValue(roles(...held));
+      isBootstrapAdmin.mockReturnValue(false);
+      membership.findMany.mockResolvedValue(roles(...held));
+      await expect(ensureLearnerMembership()).resolves.toBe(true);
+      expect(releaseIfCountryElsewhere, held.join()).not.toHaveBeenCalled();
+    }
   });
 
   it("doesn't make an ADMIN_EMAILS address a learner while its roles are still on their way", async () => {
@@ -1047,5 +1099,341 @@ describe("loadCourseProgress reads the course in the language the learner gets i
   it("in English, English", async () => {
     created([]);
     await expect(loadCourseProgress("saying-no", "en")).resolves.toMatchObject({ courseLocale: "en", courseTitle: "Saying no" });
+  });
+});
+
+/*
+ * Release 3 (D37, D69, D79, D80): "Add it to my account" adds the browser's
+ * guest work to the account part by part, in one transaction, as the
+ * account is under its locks: the course only into an account with no
+ * progress in it, the Comp Card only into none or a blank one not shared
+ * (as "Only me"), badges as a union. Nothing is written for another
+ * account, an incomplete profile, or a text too long to add.
+ */
+describe("claimGuestWork (D37, D69, D79, D80)", () => {
+  const COURSE_ROW = {
+    id: "course-1",
+    slug: "speaking-up",
+    meta: { en: {} },
+    badgeId: "badge-1",
+    status: "published",
+    publishedAt: new Date("2026-11-10T00:00:00.000Z"),
+  };
+  const COURSE_BADGE = { id: "badge-1", slug: "speaking-up-complete" };
+  const OTHER_BADGE = { id: "badge-2", slug: "another-badge" };
+  const DONE = "2026-10-01T09:00:00.000Z";
+  /** The account's badges, by id, as the table holds them. */
+  let held: string[] = [];
+  const BADGES = [COURSE_BADGE, OTHER_BADGE];
+
+  const coursePatch = (over: Record<string, unknown> = {}) => ({
+    v: 2,
+    completed: ["context", "concept"],
+    answers: { "reflection/main": { type: "reflection", text: { p1: "Guest p1" } } },
+    completedAt: DONE,
+    ...over,
+  });
+  const guestCard = { wentWell: "Guest went", difficult: "", improve: "", behaviour: "", confidence: 4 };
+  const claim = (over: Record<string, unknown> = {}) => ({
+    claim: 1,
+    course: { slug: "speaking-up", patch: coursePatch() },
+    compCard: guestCard,
+    badges: [COURSE_BADGE.slug],
+    ...over,
+  });
+
+  beforeEach(() => {
+    getCurrentUser.mockResolvedValue(USER);
+    Object.assign(prisma, { compCard });
+    course.findUnique.mockResolvedValue(COURSE_ROW);
+    badge.findMany.mockImplementation(async ({ where }: { where: { slug: { in?: string[] } } }) =>
+      BADGES.filter((b) => where.slug.in?.includes(b.slug))
+    );
+    userBadge.findMany.mockImplementation(async ({ select }: { select: Record<string, unknown> }) =>
+      held.map((badgeId) =>
+        select.badge ? { badge: { slug: BADGES.find((b) => b.id === badgeId)?.slug ?? badgeId } } : { badgeId }
+      )
+    );
+    userBadge.createMany.mockImplementation(async ({ data }: { data: { badgeId: string }[] }) => {
+      for (const d of data) if (!held.includes(d.badgeId)) held.push(d.badgeId);
+      return { count: data.length };
+    });
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllMocks();
+    badge.findMany.mockReset();
+    userBadge.findMany.mockReset();
+    userBadge.createMany.mockReset();
+    vi.unstubAllEnvs();
+    enrolment = null;
+    storedCard = null;
+    held = [];
+    lessons = [];
+    sql.length = 0;
+  });
+
+  /** The locks and writes, in the order they were made: raw locks by their SQL, writes by model. */
+  function order() {
+    const calls: [number, string][] = [];
+    prisma.$queryRaw.mock.calls.forEach((c, i) =>
+      calls.push([prisma.$queryRaw.mock.invocationCallOrder[i], (c[0] as unknown as string[]).join("?").replace(/\s+/g, " ").trim()])
+    );
+    const writes: [string, { mock: { invocationCallOrder: number[] } }][] = [
+      ["CourseEnrollment insert", courseEnrollment.createMany],
+      ["CourseEnrollment update", courseEnrollment.update],
+      ["CompCard insert", compCard.createMany],
+      ["CompCard update", compCard.update],
+      ["UserBadge insert", userBadge.createMany],
+    ];
+    for (const [name, fn] of writes) for (const n of fn.mock.invocationCallOrder) calls.push([n, name]);
+    return calls.sort((a, b) => a[0] - b[0]).map((c) => c[1]);
+  }
+
+  it("an account with nothing in it gets the course, the Comp Card as Only me and the badge, in one transaction", async () => {
+    const answer = await claimGuestWork(claim(), "u1");
+    expect(answer).toEqual({
+      ok: true,
+      course: "moved",
+      compCard: "moved",
+      card: {
+        wentWell: "Guest went",
+        difficult: "",
+        improve: "",
+        behaviour: "",
+        confidence: 4,
+        updatedAt: "2026-11-21T09:00:00.000Z",
+      },
+      badges: { moved: [COURSE_BADGE.slug], already: [], refused: [] },
+      accountBadges: [COURSE_BADGE.slug],
+    });
+    expect(enrolment).toMatchObject({
+      stagesCompleted: ["CONTEXT", "CONCEPT"],
+      reflection: { p1: "Guest p1" },
+      completedAt: new Date(DONE),
+    });
+    expect(storedCard).toMatchObject({ wentWell: "Guest went", confidence: 4, privacy: "SELF" });
+    expect(held).toEqual([COURSE_BADGE.id]);
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+  });
+
+  it("takes its locks in one order: the User row, the Course row, the enrolment, the Comp Card, the badges", async () => {
+    await claimGuestWork(claim(), "u1");
+    expect(order()).toEqual([
+      'SELECT id FROM "User" WHERE "id" = ? FOR KEY SHARE',
+      'SELECT id FROM "Course" WHERE "id" = ? FOR KEY SHARE',
+      'SELECT id FROM "CourseEnrollment" WHERE "userId" = ? AND "courseId" = ? FOR UPDATE',
+      "CourseEnrollment insert",
+      'SELECT id FROM "CourseEnrollment" WHERE "userId" = ? AND "courseId" = ? FOR UPDATE',
+      "CourseEnrollment update",
+      "CompCard insert",
+      'SELECT id FROM "CompCard" WHERE "userId" = ? AND "projectId" = ? FOR UPDATE',
+      "CompCard update",
+      "UserBadge insert",
+    ]);
+    expect(sql.join(" ")).not.toMatch(/"Lesson"/);
+  });
+
+  it("a course's first completion, with no badge yet, takes the Course row FOR UPDATE where a save would, still after the User row", async () => {
+    course.findUnique.mockResolvedValue({ ...COURSE_ROW, badgeId: null });
+    course.update.mockResolvedValue({});
+    courseEnrollment.findMany.mockResolvedValue([]);
+    badge.create.mockImplementation(async ({ data }) => ({ id: "badge-new", ...data }));
+    const answer = await claimGuestWork(claim({ badges: [] }), "u1");
+    expect(answer).toMatchObject({ ok: true, course: "moved" });
+    expect(order().slice(0, 3)).toEqual([
+      'SELECT id FROM "User" WHERE "id" = ? FOR KEY SHARE',
+      'SELECT id FROM "Course" WHERE "id" = ? FOR UPDATE',
+      'SELECT id FROM "CourseEnrollment" WHERE "userId" = ? AND "courseId" = ? FOR UPDATE',
+    ]);
+    expect(order().at(-1)).toBe("UserBadge insert");
+    expect(held).toEqual(["badge-new"]);
+  });
+
+  it("the course: an account with progress of its own in it keeps it, and nothing of the course is written", async () => {
+    enrolment = { ...EMPTY_ROW, stagesCompleted: ["CONTEXT"], reflection: { p1: "The account's" } };
+    const answer = await claimGuestWork(claim(), "u1");
+    expect(answer).toMatchObject({ ok: true, course: "kept", compCard: "moved", badges: { moved: [COURSE_BADGE.slug] } });
+    expect(courseEnrollment.update).not.toHaveBeenCalled();
+    expect(courseEnrollment.createMany).not.toHaveBeenCalled();
+    expect(enrolment).toMatchObject({ stagesCompleted: ["CONTEXT"], reflection: { p1: "The account's" }, completedAt: null });
+  });
+
+  it("the course: one lesson of the account's own, which the guest also did, is progress of its own too (D69)", async () => {
+    enrolment = { ...EMPTY_ROW, stagesCompleted: ["CONTEXT"] };
+    await expect(claimGuestWork(claim(), "u1")).resolves.toMatchObject({ ok: true, course: "kept" });
+    expect(courseEnrollment.update).not.toHaveBeenCalled();
+  });
+
+  it("the course: an account that holds all of the guest's says so, and nothing is written", async () => {
+    enrolment = {
+      ...EMPTY_ROW,
+      stagesCompleted: ["CONTEXT", "CONCEPT", "BEHAVIOUR"],
+      reflection: { p1: "Guest p1", p2: "More of the account's" },
+      completedAt: new Date("2026-11-01T00:00:00.000Z"),
+    };
+    await expect(claimGuestWork(claim({ compCard: undefined, badges: [] }), "u1")).resolves.toMatchObject({
+      ok: true,
+      course: "already",
+    });
+    expect(courseEnrollment.update).not.toHaveBeenCalled();
+  });
+
+  it("the course: an enrolment with nothing in it is no progress: the guest's course goes in", async () => {
+    enrolment = { ...EMPTY_ROW };
+    await expect(claimGuestWork(claim({ compCard: undefined, badges: [] }), "u1")).resolves.toMatchObject({
+      ok: true,
+      course: "moved",
+    });
+    expect(enrolment).toMatchObject({ stagesCompleted: ["CONTEXT", "CONCEPT"], completedAt: new Date(DONE) });
+  });
+
+  it("the course: another device's first save, there once the enrolment is inserted, is decided on as read under the lock", async () => {
+    // Not there when first looked for; there when the insert finds it (another device's, committed meanwhile).
+    courseEnrollment.createMany.mockImplementationOnce(async () => {
+      enrolment = { ...EMPTY_ROW, stagesCompleted: ["CONTEXT"], reflection: { p1: "From the phone" } };
+      return { count: 0 };
+    });
+    compCard.createMany.mockImplementationOnce(async () => {
+      storedCard = { ...BLANK_CARD, wentWell: "From the phone" };
+      return { count: 0 };
+    });
+    const answer = await claimGuestWork(claim(), "u1");
+    expect(answer).toMatchObject({ ok: true, course: "kept", compCard: "kept" });
+    expect(courseEnrollment.update).not.toHaveBeenCalled();
+    expect(compCard.update).not.toHaveBeenCalled();
+    expect(enrolment).toMatchObject({ reflection: { p1: "From the phone" } });
+    expect(storedCard).toMatchObject({ wentWell: "From the phone", difficult: "" });
+  });
+
+  it("the course: one deleted, or nobody ever published, isn't added; the rest is", async () => {
+    course.findUnique.mockResolvedValue(null);
+    await expect(claimGuestWork(claim(), "u1")).resolves.toMatchObject({ ok: true, course: "unavailable", compCard: "moved" });
+    vi.clearAllMocks();
+    storedCard = null;
+    course.findUnique.mockResolvedValue({ ...COURSE_ROW, status: "draft", publishedAt: null });
+    await expect(claimGuestWork(claim({ compCard: undefined }), "u1")).resolves.toMatchObject({ ok: true, course: "unavailable" });
+    expect(courseEnrollment.createMany).not.toHaveBeenCalled();
+    expect(enrolment).toBeNull();
+  });
+
+  it("guard (D62.f): a course unpublished after it was published still takes the guest's course", async () => {
+    course.findUnique.mockResolvedValue({ ...COURSE_ROW, status: "draft" });
+    await expect(claimGuestWork(claim({ compCard: undefined }), "u1")).resolves.toMatchObject({ ok: true, course: "moved" });
+  });
+
+  it.each([
+    ["no card at all", null, "moved"],
+    ["a blank card, made when the learner chose who sees it", {}, "moved"],
+    ["a blank card shared with an organisation the learner has left (shares nothing)", { privacy: "FACILITATOR", sharedAt: new Date(), sharedWithOrganisationId: "org-old" }, "moved"],
+    ["a blank card shared with the learner's facilitators", { privacy: "FACILITATOR", sharedAt: new Date(), sharedWithOrganisationId: "org-a" }, "shared"],
+    ["a card with an answer of its own", { improve: "Mine" }, "kept"],
+    ["a card with only answers of whitespace, and the confidence untouched", { improve: "   " }, "moved"],
+    ["a card with a confidence of its own", { confidence: 5 }, "kept"],
+    ["the guest's own card, already there", { wentWell: "Guest went", confidence: 4 }, "already"],
+  ] as const)("the Comp Card into %s: %s", async (_, row, outcome) => {
+    storedCard = row === null ? null : { ...BLANK_CARD, ...row };
+    const answer = await claimGuestWork(claim({ course: undefined, badges: [] }), "u1");
+    expect(answer).toMatchObject({ ok: true, compCard: outcome });
+    if (outcome === "moved") {
+      expect(compCard.update.mock.calls[0][0].data).toEqual({ ...guestCard, privacy: "SELF" });
+      expect(answer).toMatchObject({ card: { wentWell: "Guest went", confidence: 4 } });
+    } else {
+      expect(compCard.update).not.toHaveBeenCalled();
+    }
+    if (outcome === "already") expect(answer).toMatchObject({ card: { wentWell: "Guest went" } });
+    if (outcome === "kept" || outcome === "shared") expect(answer).not.toHaveProperty("card");
+  });
+
+  it("badges: a union, each as the award gives it: there already, added, or not given (no such badge)", async () => {
+    held = [OTHER_BADGE.id];
+    const answer = await claimGuestWork(claim({ course: undefined, compCard: undefined, badges: [OTHER_BADGE.slug, COURSE_BADGE.slug, "gone-badge"] }), "u1");
+    expect(answer).toEqual({
+      ok: true,
+      badges: { moved: [COURSE_BADGE.slug], already: [OTHER_BADGE.slug], refused: ["gone-badge"] },
+      accountBadges: [OTHER_BADGE.slug, COURSE_BADGE.slug],
+    });
+  });
+
+  it("under the kill switch: a course the Release 1 view doesn't hold isn't finished by the claim, and its badge isn't given", async () => {
+    vi.stubEnv("R2_LEARNER_PLAYER", "off");
+    const own = { ...COURSE_ROW, outline: { v: 1, sections: [{ id: "s-abcdefgh", template: "text" }], removed: ["context", "concept", "behaviour", "reflection"] } };
+    course.findUnique.mockResolvedValue(own);
+    course.findMany.mockResolvedValue([own]);
+    lessons = [
+      {
+        stageKey: "s-abcdefgh",
+        narrative: { en: { title: "Own", blocks: [{ kind: "paragraph", text: "Mine" }] } },
+        structure: null,
+        structureDraft: null,
+        parts: null,
+        video: null,
+        documents: [],
+      },
+    ];
+    const answer = await claimGuestWork(claim({ compCard: undefined }), "u1");
+    expect(answer).toMatchObject({ ok: true, course: "moved", badges: { moved: [], refused: [COURSE_BADGE.slug] } });
+    expect(enrolment?.completedAt).toBeNull();
+    expect(held).toEqual([]);
+  });
+
+  it.each([
+    ["a Comp Card answer over 2,000 characters", { compCard: { ...guestCard, difficult: "x".repeat(2001) } }, [{ part: "compCard", field: "difficult" }]],
+    [
+      "a reflection answer over 5,000 characters",
+      { course: { slug: "speaking-up", patch: coursePatch({ answers: { "reflection/main": { type: "reflection", text: { p1: "ok", p2: "y".repeat(5001) } } } }) } },
+      [{ part: "course", key: "reflection/main", prompt: "p2" }],
+    ],
+    [
+      "one of the course's own",
+      { course: { slug: "speaking-up", patch: coursePatch({ answers: { "s-abcdefgh/p-abcdefgh": { type: "reflection", text: { q1: "z".repeat(5001) } } } }) } },
+      [{ part: "course", key: "s-abcdefgh/p-abcdefgh", prompt: "q1" }],
+    ],
+  ] as const)("writes nothing for %s, and names the text", async (_, over, texts) => {
+    await expect(claimGuestWork(claim(over), "u1")).resolves.toEqual({ ok: false, error: "too-long", texts });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("writes nothing for a claim bigger than one save, or one that isn't a claim", async () => {
+    const big = { "reflection/main": { type: "reflection", text: { p1: "a".repeat(4000) } } } as Record<string, unknown>;
+    for (let i = 0; i < 80; i++) big[`s-abcdef${String(i).padStart(2, "0")}/main`] = { type: "reflection", text: { q: "b".repeat(4000) } };
+    await expect(claimGuestWork(claim({ course: { slug: "speaking-up", patch: coursePatch({ answers: big }) } }), "u1")).resolves.toEqual({
+      ok: false,
+      error: "too-large",
+    });
+    for (const bad of [null, "claim", { claim: 2 }, claim({ extra: 1 }), claim({ compCard: { ...guestCard, confidence: 9 } }), claim({ badges: "x" })]) {
+      await expect(claimGuestWork(bad, "u1")).resolves.toEqual({ ok: false, error: "bad-input" });
+    }
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("writes nothing for another account's session, or before the profile step", async () => {
+    await expect(claimGuestWork(claim(), "someone-else")).resolves.toEqual({ ok: false, error: "other-account" });
+    projectProfile.findUnique.mockResolvedValue(null);
+    await expect(claimGuestWork(claim(), "u1")).resolves.toEqual({ ok: false, error: "profile-incomplete" });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(course.findUnique).not.toHaveBeenCalled();
+  });
+
+  it("fails, to be tried again, when the session can't be read, or the account is gone", async () => {
+    getCurrentUser.mockResolvedValue(null);
+    await expect(claimGuestWork(claim(), "u1")).rejects.toThrow();
+    getCurrentUser.mockResolvedValue(USER);
+    prisma.$queryRaw.mockImplementationOnce(async () => []);
+    await expect(claimGuestWork(claim(), "u1")).rejects.toThrow(/gone/);
+    expect(courseEnrollment.createMany).not.toHaveBeenCalled();
+  });
+
+  it("logs what became of each part as counts, without the learner, the course or a text", async () => {
+    enrolment = { ...EMPTY_ROW, stagesCompleted: ["CONTEXT"] };
+    await claimGuestWork(claim(), "u1");
+    await claimGuestWork(claim({ compCard: { ...guestCard, difficult: "x".repeat(2001) } }), "u1");
+    const lines = (console.info as unknown as { mock: { calls: unknown[][] } }).mock.calls.map((c) => String(c[0]));
+    expect(lines).toEqual([
+      '[guest-claim] {"course":"kept","compCard":"moved","badgesMoved":1,"badgesAlready":0,"badgesRefused":0,"unreadable":0}',
+      '[guest-claim] {"refused":"too-long","texts":1}',
+    ]);
+    expect(lines.join(" ")).not.toMatch(/u1|person@|speaking-up|Guest/);
   });
 });

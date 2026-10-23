@@ -88,6 +88,27 @@ export async function rerunRolledBack(client, sql) {
   }
 }
 
+/**
+ * What to do after P3009 (a migration failed in an earlier deploy), for the
+ * migration Prisma names. A file that is one transaction (BEGIN … COMMIT)
+ * applied nothing. A file without one commits each statement on its own, so
+ * it may be partly applied: Release 3's are written so that every statement
+ * runs again (IF NOT EXISTS, OR REPLACE), and the file is resolved and
+ * deployed again as it stands.
+ */
+export function failedEarlier(output, readMigration) {
+  const name = /The `(\d{14}_\w+)` migration started at/.exec(output)?.[1] ?? null;
+  const resolve = (n) => `npx prisma migrate resolve --rolled-back ${n} against the DIRECT endpoint`;
+  if (!name) return `a migration failed in an earlier deploy (Prisma names it above): run ${resolve("<its folder name>")}, then deploy again`;
+  const sql = readMigration(name);
+  const statements = sql ? statementsOf(sql) : [];
+  const oneTransaction = statements[0] === "BEGIN" && statements.at(-1) === "COMMIT";
+  if (!sql) return `${name} failed in an earlier deploy: run ${resolve(name)}, then deploy again`;
+  return oneTransaction
+    ? `${name} is one transaction, so nothing of it was applied: run ${resolve(name)}, then deploy again`
+    : `${name} may be partly applied (each of its statements commits on its own, and each can run again): run ${resolve(name)}, then deploy again; the retry runs every statement`;
+}
+
 /** A migration's file, by its folder name, or null. */
 function readMigrationFile(name) {
   const file = `${MIGRATIONS}${name}/migration.sql`;
@@ -166,9 +187,7 @@ export async function main(
   if (/current transaction is aborted/i.test(output)) {
     await explainAbortedTransaction(direct, { createClient, log, readMigration });
   } else if (/\bP3009\b/.test(output)) {
-    log.error(
-      `${TAG} a migration failed in an earlier deploy (Prisma names it above): once nothing of it is applied, run npx prisma migrate resolve --rolled-back <its folder name> against the DIRECT endpoint`
-    );
+    log.error(`${TAG} ${failedEarlier(output, readMigration)}`);
   }
   log.error(`${TAG} migrate deploy FAILED — failing the build`);
   return 1;

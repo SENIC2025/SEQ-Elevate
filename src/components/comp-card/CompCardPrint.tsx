@@ -189,8 +189,8 @@ export function CompCardPrint({
             justifyContent: "space-between",
           }}
         >
-          <span>Created and Powered by SENIC · senic.world</span>
-          <span>This Comp Card belongs to the learner.</span>
+          <span>{t("printMadeBy")}</span>
+          <span>{t("printBelongs")}</span>
         </div>
       </div>
     </div>

@@ -27,6 +27,7 @@ vi.mock("@/i18n/navigation", async () => {
   return { Link: ({ href, ...rest }: { href: string }) => h("a", { href: `/${locale}${href}`, ...rest }) };
 });
 vi.mock("@/app/actions/gdpr", () => ({ deleteMyAccount: vi.fn() }));
+vi.mock("@/app/actions/learner", () => ({ setCompCardSharing: vi.fn() }));
 
 const { AccountView } = await import("./AccountView");
 
@@ -39,7 +40,12 @@ const PROFILE: AccountProfile = {
   ageConfirmedAt: "2026-11-21T09:00:00.000Z",
 };
 
-const render = (profile: AccountProfile, lang: "en" | "de" | "el" = "en", roles: Role[] = ["LEARNER"]) => {
+const render = (
+  profile: AccountProfile,
+  lang: "en" | "de" | "el" = "en",
+  roles: Role[] = ["LEARNER"],
+  compCardShared: { organisationName: string } | null = null
+) => {
   messages = { en, de, el }[lang];
   locale = lang;
   const html = renderToStaticMarkup(
@@ -51,6 +57,8 @@ const render = (profile: AccountProfile, lang: "en" | "de" | "el" = "en", roles:
       projectName: "SEQ Elevate",
       stats: { courses: 1, badges: 0, compCardStarted: true },
       profile,
+      userId: "u1",
+      compCardShared,
     })
   );
   return { html, text: html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").replace(/&#x27;|&#39;/g, "'") };
@@ -113,5 +121,35 @@ describe("the Account page's profile (spec 5.7)", () => {
   it("is in German and Greek too", () => {
     expect(render(PROFILE, "de").text).toContain("Deutschland");
     expect(render(PROFILE, "el").text).toContain("Γερμανία");
+  });
+});
+
+/*
+ * D80: "Only me" is the withdrawal, one click away wherever the learner can
+ * get to. The account page is open before the profile step (spec 5.3), so
+ * a learner held there by new Terms can still stop sharing their card.
+ */
+describe("the Account page's Comp Card sharing (D80)", () => {
+  it("says a shared card is shared and with whom, and offers \"Only me\"", () => {
+    const { html, text } = render(PROFILE, "en", ["LEARNER"], { organisationName: "Pro Arbeit" });
+    expect(html).toMatch(/<section aria-labelledby="[^"]+"/);
+    expect(text).toContain("Your Comp Card");
+    expect(text).toContain("Your Comp Card is shared with the facilitators at Pro Arbeit.");
+    expect(html).toMatch(/<button[^>]*>[^<]*Switch to “Only me”<\/button>/);
+  });
+
+  it("says nothing of a card that isn't shared: there is nothing to take back", () => {
+    const { text } = render(PROFILE);
+    expect(text).not.toContain("Your Comp Card is shared");
+    expect(text).not.toContain("Only me");
+  });
+
+  it("is in German and Greek too", () => {
+    expect(render(PROFILE, "de", ["LEARNER"], { organisationName: "Pro Arbeit" }).text).toContain(
+      "Deine Comp Card ist mit den Trainer:innen bei Pro Arbeit geteilt."
+    );
+    expect(render(PROFILE, "el", ["LEARNER"], { organisationName: "Pro Arbeit" }).text).toContain(
+      "Η Comp Card σου είναι κοινοποιημένη στους εκπαιδευτές του φορέα Pro Arbeit."
+    );
   });
 });

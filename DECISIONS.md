@@ -368,11 +368,13 @@ Single source of truth for decisions made, decisions still open, and the rationa
 - A save answered "unknown action" (a page from an older build) is kept in a per-tab outbox in the browser (`sessionStorage`, per learner and course) and the page shows "A new version is available…" with a *Reload* button. After the reload the outbox is applied as the learner's own changes and cleared once nothing is left to send.
 - *As built:* the outbox **replaces** what it held with everything not yet confirmed at the moment of failure, rather than merging (merging brought old answers back). Each entry keeps what the server held of each answer when it was kept, and an answer comes back only while the server still holds that, so an answer saved elsewhere meanwhile wins; finished lessons and the completion always come back. Signing out, or another account signing in, clears every outbox entry of the tab: privacy over the narrow case of a page from a gone build whose learner signs out before reloading.
 - *Reason:* action ids are salted with a key that changes with every build, and a save that keeps failing was dropped after four retries.
+- *As built (Release 3, D79):* a course's progress sent in fill mode (only what the account lacks) is taken only from Release 2 pages still open after the deploy. Release 3's "Add it to my account" doesn't use it.
 
 ### D69 · Guests keep one course in this browser (Release 2)
 **Decided**: 20 October 2026 · *Decider: SENIC principal (spec §8; owner default 6)*
 - Within that course a guest gets per-lesson and per-item answers, restore and resume, as a signed-in learner does.
 - On sign-in the course moves into the account only when the account has no progress in it, and only fills what the account lacks; when the course then loads, the account's answers come first (D37: the account wins).
+- *As built:* "Add it to my account" applies this per part in one server transaction (D79): the course moves whole, only into an account with no progress in it; an account that already holds all of it says so; any other keeps its own, and the course stays in the browser. What a tab still a guest saved in it while it was being added stays in the browser too. Fill mode, a builder's default of 22 October, was withdrawn before confirmation.
 - *Reason:* pilot learners sign in (Release 3's sign-up step); a guest store of several courses needs other fixes first.
 
 ### D70 · Scope notes for Release 2
@@ -382,6 +384,192 @@ Single source of truth for decisions made, decisions still open, and the rationa
 - Statistics stay per learner on their latest enrolment until Release 3; figures for each lesson of a course's own come after launch.
 - Q9 ("start from the full template") was already built; Release 2 adds a test that its empty exercise lessons aren't shown to learners.
 - **"Active in the last 24h"** on *Support learners* now counts learners whose *Last active* is within the 24 hours before the page was made, by the server's clock. Release 1 counted everyone with any progress at all under that label. Statistics' *Last seen* also counts opening a course, so the two can differ. The staff guide says so.
+
+### D71 · How Release 3 is built and shipped
+**Decided**: 21 October 2026 · *Decider: SENIC principal ("Start Release 3", Release 3 spec §16; owner confirmation 1, default applied)*
+- `r2` merged `main` once before `r3` was branched (`f02ef9e`). Only the integrator merges `r2` (until 10 Nov) or `main` (after) into `r3`, at fixed points; nothing goes from `r3` into `r2`. `r3` reaches `main` on Fri 20 Nov, after Release 2 has been live for at least 8 days; if Release 2 slips, Release 3 slips by as many days.
+- `main` is frozen from Mon 16 Nov except for emergency fixes, each merged into `r3` the same day. What deploys is the commit that passed the release check and the rehearsal (or a merge of it, tested again).
+- `r3` is not pushed before the deploy merge (D100). Its previews are deployed from the local worktree with the Vercel CLI, with the database given explicitly.
+- Migrations are additive and named `20261120…`.
+- *As built:* four migrations, not two. `20261120090000_r3_role_partner_admin` (the new role); `20261120090100_r3_people_privacy_content` (one explicit transaction, `lock_timeout` 5 s, so a failure leaves nothing of it); `20261120090200_r3_course_project_columns` (`Course.readyLocales`, `Project.safeguarding`, one statement each, split out so no migration locks the Project or Course table together with User); `20261120090300_r3_sharing_and_guardian_triggers` (two triggers, D80 and D101, added at integration). `migrate-deploy.mjs` names a failed migration and says whether it applied nothing or may be partly applied (GO-LIVE §1a).
+- *As built:* `r2` was merged into `r3` at `983be2d` on 22 Oct (Release 2 verified, with `main`'s session rule, the same as D97). The merge of `main` on 11 Nov and the last merge point on 19 Nov are still to come.
+- *Changed by the owner (21 Oct):* Release 4 started on 21 Oct on branches of its own, not after 13 Nov. It asks nothing of Release 3 and rebases on `r3`; it follows D100 too.
+
+### D72 · One profile row per person per project
+**Decided**: 21 October 2026 · *Decider: SENIC principal (spec §16)*
+- `ProjectProfile` holds the person's country, organisation, the profile step's answers and the test-account mark. It is the only thing scoping reads. `Membership.organisationId` stays in the schema but is no longer written or read for access.
+- *As built:* migration B fills the profile of everyone who held a membership, from the organisation their memberships agreed on. A profile records where its organisation came from (`organisationSource`: `admin`, `partner-admin`, `country`, `backfill` or `released`).
+- *Reason:* one row says who belongs where, whatever roles a person holds or loses.
+
+### D73 · Country → organisation is data
+**Decided**: 21 October 2026 · *Decider: SENIC principal (spec §16); consortium default Q24 (answers due 27 Oct; the built default applies until then)*
+- `CountryMapping` maps each country (Germany, Cyprus, Belgium, Greece, Other) to one organisation. An ADMIN sets it on Organisations & cohorts. The default is Q24's: Germany → Pro Arbeit, Cyprus → Synthesis, Greece → University of Macedonia, Belgium and Other → DIESIS.
+- *As built:* the migration inserts the default only for the seeded organisation ids; on a fresh database the seed inserts it (the seed runs after the migrations). `setCountryMapping` with "place unplaced learners" places only learners of that country who have no organisation. The screen shows each change from the action's own answer.
+- *If the answer differs:* an ADMIN changes the mapping on the screen; no code.
+
+### D74 · Who sees whom
+**Decided**: 21 October 2026 · *Decider: SENIC principal (spec §16; owner confirmation 2, default applied); consortium default Q25 (whole organisation)*
+- An ADMIN (DIESIS, SENIC) sees the whole project, learners with no organisation included. A partner admin and a facilitator see the learners of their own organisation: the whole organisation, not one cohort. Staff with no organisation, editors and learners see no learner data. A DIESIS facilitator sees DIESIS's learners (Belgium and Other).
+- *As built:* an ADMIN's people list covers anyone with a membership or a profile in the project. An organisation's people never include an ADMIN or an address on `ADMIN_EMAILS`.
+- *If Q25 says cohort only:* a cohort scope kind in the same module (+1 day). *If DIESIS facilitators must see everyone:* a setting listing the organisations whose facilitators see the project, read-only in effect (+0.5 day).
+
+### D75 · One scoping module, failing closed; the session carries no roles
+**Decided**: 21 October 2026 · *Decider: SENIC principal (spec §16)*
+- `src/lib/scope.ts` decides every staff read and every staff write about another person. The scope is a required argument; "none" matches nothing. Roles and the organisation are read on every request, never put in the session.
+- A guard test (`src/lib/scope-guard.test.ts`) reads the sources: every read of learner or people data goes through a scope builder, every write of a person's organisation goes through `setPersonOrganisation`, and anything it can't follow fails.
+- *As built:* the guard's relation list is longer than the spec's; a function counts as scoped through a helper in the same file, or when it is called only from scoped functions; an organisation written through a relation, a nested write or `Object.assign` is refused outside `setPersonOrganisation`. `getViewer` lets Next's own signals through, so a page is never built once as "nobody". A failed read of the viewer gives "none", logged without personal data.
+- *As built (22 October, SS4):* a `Scope` is made only by `src/lib/scope.ts`: its type carries a brand no other module can name, its fields are read-only and every scope is frozen; the scope of chosen roles and settings is not exported (tests reach it as `testOnlyScopeFor`). The guard fails, outside tests and the module, for the test-only factories, an assertion to a Scope under any spelling, an any or never where one is expected (also inside an array or a promise), an object literal there, a Scope changed or copied by `Object.assign` and the like, a generic function of `src/` that makes its type parameter's value (an assertion, a spread, `Object.assign`, an any) when a Scope comes out of it, a type predicate or an overload answering one, and a server action that takes a Scope or a Viewer from its caller.
+- *As built (22 October, after the second review):* a Scope is also checked when it is used: the scope module keeps every scope it makes (by identity), and every function of it that takes a Scope throws (`NotAScopeError`) for any other value before reading it — no filter is built and no row counted for it. So an object from JSON or posted by the browser, a copy (a spread, `Object.assign`, a structured clone), or a value a generic class or callback built is never read as a scope, whatever the type check and the guard saw. The guard also reads a Viewer taken through `Pick`, `Partial`, `Omit` or `Readonly`, and every "use server" module of `src/` exports its actions where they are declared (no export list, `export *` or `export default` of a value).
+
+### D76 · The partner admin role
+**Decided**: 21 October 2026 · *Decider: SENIC principal (spec §16); consortium defaults Q25 (partner admins edit and translate) and Q28 (the partner admin signs off a translation)*
+- `PARTNER_ADMIN` includes Editor and Facilitator. It manages its own organisation's people: it gives only the Learner and Facilitator roles, and changes or removes only people who hold nothing else, so one partner admin can't lock out another. It never sees or changes an ADMIN, signs off translations (D90), and is given only by an ADMIN.
+- *As built:* a partner admin adds people to its own organisation only, and claims an existing account only when it holds nothing (D101). An address on `ADMIN_EMAILS` is refused before it is looked up. It may change its own learners' names, never their country or organisation (an ADMIN's). It deletes one of its organisation's cohorts only when it is shown everyone in the cohort. It creates and deletes no organisation, maps no country, and has no data tools and no safeguarding settings.
+- Facilitators no longer publish or withdraw lesson documents: a course's editors do, and each change is audited.
+- *If partner admins must not edit courses:* drop Editor from the role's implied roles (one line); sign-off stays.
+
+### D77 · Partner access is off until the production security review starts
+**Decided**: 21 October 2026 · *Decider: SENIC principal (spec §16; owner confirmations 3 and 9, defaults applied)*
+- `R3_PARTNER_ACCESS` must be `on` for a partner admin or a partner facilitator to see any learner. The owner sets it, with a redeploy, at the start of the production security review (Mon 23 Nov), while only marked test accounts hold partner roles with an organisation. Real staff get their organisations, and partner staff are invited, only after the review passes (Wed 25 Nov).
+- From the moment partner staff hold Facilitator or Partner admin, or real learners exist, problems are fixed forward with the switches (GO-LIVE §11), never by going back to Release 2. Before that, going back to Release 2 is allowed only after the pre-rollback step: no Partner admin membership left (`scripts/r3-check.ts` counts them).
+
+### D78 · The profile step
+**Decided**: 21 October 2026 · *Decider: SENIC principal (spec §16); consortium defaults Q16 (`PROFILE_CONSENT` off), Q17 (a first name or nickname), Q18 (`AGE_RULE`: 16), Q24 (an admin changes the country)*
+- One screen, `/welcome`, for every signed-in account without a complete profile. It is asked for in the hub and the five workspace layouts (learner, facilitator, statistics, admin, content), never in the proxy or the root layout; the legal pages, the account page, `/help`, sign-out and the data download stay open. When in doubt it sends the person to the screen.
+- Fields: a first name or nickname (1–50 characters, on one line), the country, the Terms (version and time stored), the privacy notice (linked, not accepted), the age statement (the minimum age, or "invited, with a parent's or guardian's permission recorded by the inviter"), and a consent box that is built but off.
+- Name and country are changed later only by an admin (a partner admin: its own learners' names). After the first completion the action takes only a new Terms version, consent, and a name when the stored one is blank. A new English Terms version brings the screen back with only the Terms box; a translation never does.
+- *As built:* an `AGE_RULE` under 13, or one that can't be read, means 16 (logged once, without the value). `PROFILE_CONSENT` reads as off while the consent text's version starts with "draft-". A later visit keeps a consent already given; only an explicit "no" withdraws it. The age tick counts only for the statement it was given for. The Terms version stored is the English Terms text's own version.
+- *As built:* a partner-admin-set organisation that doesn't match the country picked is released for an ADMIN to confirm (D101), at the first completion and whenever the person becomes a learner later.
+
+### D79 · Learner membership and guest work wait for the profile; guest work moves only when claimed (amends D25, D37, D53)
+**Decided**: 21 October 2026 · *Decider: SENIC principal (spec §16)*
+- The Learner membership is created by the profile step, not by the browser. Before the profile is complete nothing of the person's learning is saved (they are told), and nothing moves from the browser into the account.
+- After it, a browser holding guest work asks "Add it to my account" or "Remove it from this browser", and moves nothing unasked (shared computers).
+- *As built:* "Added" shows only once the work is in the account, and the browser's copy is removed then. Activity records wait until the person's data has loaded.
+- *As built (Release 3, 22 and 23 October):* "Add it to my account" sends the browser's guest work to the server once, and the server decides each part in one transaction, as the account is under its locks (D37, D69, D80): the course moves only into an account with no progress in it; the Comp Card only into an account with no card, or a blank one (no answer, the confidence untouched) that isn't shared, and as "Only me" (moving never shares); badges as a union, each given as the badge award gives it. A part the account already holds is "already" there, and nothing is added twice. A course the account has progress in, a Comp Card with something of the account's own in it, or a shared one keep the account's, and the guest's stays in the browser; so does a course no one can open any more. A text too long to add (a Comp Card answer over 2,000 characters, a reflection answer over 5,000) or work too big for one save means nothing is written, and the offer shows the texts to be shortened; work too big for one save is found so by the browser, by the server's own measure, before anything is sent (23 October). Another account signed in on the browser means nothing is written and the browser keeps all of it. The browser then removes only the parts the server says are in the account, and only as it read them, whoever is signed in by then. What a tab still a guest saved while the work was being added isn't added: the page says so (23 October), and it stays in the browser, offered with whatever else stays there; added again, a part the account now holds keeps the account's (D69, D80). The page says what became of each part, and the offer asks for the work to be added before anything else is started in the account. Each claim's outcome per part is logged as counts, without personal data. A guest's page on which someone signs in in another tab stays the guest's and says so: any other page loads in full, as the account's; it isn't refreshed; it saves to the browser only over what it last saved, and once another tab adds, removes or changes the work it stops and offers a reload.
+
+### D80 · Comp Card privacy (amends D19)
+**Decided**: 21 October 2026 · *Decider: SENIC principal (spec §16; owner confirmation 4, default applied); consortium default Q16 (sharing is consent-based)*
+- Two choices: "Only me" (the default, in the schema, the server and the browser) and "Me and the facilitators at ‹organisation›". A card counts as shared only with a sharing date and the learner's organisation at that moment, both written by `setCompCardSharing`. Saving the card never changes its sharing. Every card was reset to "Only me" by migration B. Any later change of the learner's organisation unshares it (D101).
+- The mentor option is gone from every screen and write; the enum value goes after the pilot (D99). Each field holds up to 2,000 characters: longer text is refused, never cut. Every field is optional in a save, so a field left out keeps its text.
+- A sharing change is logged by the card's id (sharing and withdrawal are both recorded), with the version of the sharing wording. A learner invited under the guardian rule shares only when the inviting organisation records that the permission covers it.
+- *As built:* migration D adds a trigger: a card whose privacy is written as anything but "shared with facilitators", by any code, loses its sharing date and organisation. The account page shows a shared card and takes it back to "Only me" in one click, also while the profile step waits for new Terms. A guest's card is always "Only me".
+- *As built (23 October):* a page saves only the fields the learner changed on it from what the server is known to hold (what loaded, what "Add it to my account" answered, what a save confirmed; a field whose save wasn't confirmed goes with the next one). A card that loads isn't saved back, and a page opened before another tab or device changed the card never writes its older copy of a field it didn't change: of two pages editing the same field, the last save of it stays. A signed-in page reads the account's card and badges again when the browser's guest card or badges change in another tab (added to the account there, removed or changed), and keeps what was changed on it and isn't saved yet; a sharing choice made there is about the card it then shows.
+- *Depends on:* Q16 (the sharing date and version are the consent record, "Only me" the withdrawal); counsel confirms the guardian rule (Art. 8 GDPR).
+
+### D81 · Who sees a shared Comp Card
+**Decided**: 21 October 2026 · *Decider: SENIC principal (spec §16; owner confirmation 2, default applied); DIESIS default O-1*
+- The facilitators and partner admins of the organisation it was shared with, and an ADMIN only for the ADMIN's own organisation. SENIC's admins see no card text. Nobody sets their own organisation, and every change is in the log.
+- *As built:* the filter is applied on the server (`src/lib/comp-card-visibility.ts`). A confidence the card template hides reads as empty; a failed template read shows an empty roster rather than hidden fields. The screen says "Nothing shared with you." or "Shared with you. Nothing is filled in yet.". The privacy notice says a shared card is seen only by the facilitators at the learner's organisation.
+- *If DIESIS's admins must see every shared card:* one condition, and the learner's label becomes "Me, the facilitators at ‹organisation› and DIESIS".
+
+### D82 · Exercise choices and results are progress
+**Decided**: 21 October 2026 · *Decider: SENIC principal (spec §16)*
+- Scenario choices, practice and quiz results are always visible to the learner's organisation, whatever the Comp Card choice. The scenario line moves out of the Comp Card into Activity. Learners are told so on the Comp Card, the profile step and the account page.
+- *As built:* what staff always see is listed in full in those three places and the privacy notice: name and email, country, progress, last activity, time per lesson, quiz and video-question results, exercise choices, and whether a guardian's permission is recorded.
+- *Depends on:* counsel's open item on scenario choices. *If the choice must follow the card:* hide it when the card isn't shared (+0.5 day).
+
+### D83 · Statistics count real learners from 1 December (amends D53 for statistics only; D70)
+**Decided**: 21 October 2026 · *Decider: SENIC principal (spec §16; owner confirmation 5, default applied); consortium default Q19*
+- A separate filter: no current staff role, never a staff role, not a test account, and only enrolments, activity and badges from `STATS_FROM` (unset: 1 Dec 2026, 00:00 Brussels time). The roster, notes and the editor's counts keep D53. The admin Learners figure uses the filter without the date.
+- *As built:* with a date, a learner counts once they have an enrolment in a project course since it. The Statistics page says counting starts on 1 December, and when it is empty it says why (no learners yet, a failed read, or an account that sees no learners). The admin figure carries the note "Staff, former staff and test accounts left out."
+- Known limit: running-total activity records started before the date are left out whole.
+
+### D84 · "Ever held a staff role" is recorded by a trigger
+**Decided**: 21 October 2026 · *Decider: SENIC principal (spec §16)*
+- `StaffHistory` is filled by a trigger on `Membership` for every role but Learner, plus a one-off backfill from current memberships, staff-only log actions, note authors and the demo staff addresses. Viewers who left no trace are covered by the date and the review lists on Admin → Data.
+
+### D85 · Test accounts (Q19)
+**Decided**: 21 October 2026 · *Decider: SENIC principal (spec §16); consortium default Q19 (filter, and delete marked test accounts)*
+- ADMINs mark, reset and erase test accounts on Admin → Data. Reset deletes the person's sessions first, then their enrolments and badges, and keeps the account and profile. Marked accounts leave the statistics at once and are erased by the go-live clean-up. Partner admins can't do any of this.
+- *If all trial records must go:* the run also resets the learner data of accounts in `StaffHistory` (+0.5 day).
+
+### D86 · Erasure is complete and one transaction (amends D12)
+**Decided**: 21 October 2026 · *Decider: SENIC principal (spec §16)*
+- Erasure locks the user row first, then deletes in one transaction: the account and everything linked to it, the person's activity records, the log of their Comp Card's sharing, their sign-in links (whatever the case of the address) and their rate-limit records (keyed by id and by email). Other log rows lose the person's id; one `account.deleted` row keeps it, without name or address, so an erasure can be applied again after a restore.
+- *Depends on:* A12 (log retention) for later pruning of that row.
+
+### D87 · The data download says what it holds, and holds the activity (amends D12)
+**Decided**: 21 October 2026 · *Decider: SENIC principal (spec §16)*
+- Added: the profile, sharing, activity records, log entries about the person (action and date), sessions and pending sign-in links (count and expiry, never a token) and staff history. Notes about the person are signed by organisation, never by name; notes the person wrote are counted, not copied. Learners read notes only in the download; the account page says they are there.
+- *As built:* a note is signed "a facilitator at ‹organisation›" while its author is still in the organisation they wrote it in, otherwise "a member of staff". An organisation recorded on a membership before 20 Nov 2026 is labelled as no longer used. A shared card carries the version of the sharing wording.
+- *Depends on:* counsel (Art. 15(4) for notes written; naming authors).
+
+### D88 · Admin data tools and the go-live clean-up
+**Decided**: 21 October 2026 · *Decider: SENIC principal (spec §16); scoping map question 5 (default: ADMIN only)*
+- On Admin → Data, for an ADMIN with a completed profile only: find anyone by email; export (a form posted from the page, origin checked) and erase, each with a request reference `REQ-YYYY-NNN` from DIESIS's register; mark and reset test accounts; review lists; the log, in Brussels time and in words; and a logged clean-up run (dry run first) that erases marked test accounts (reference `CLEANUP-<run>`), ends every showcase sign-in session, purges expired sessions and sign-in links, and deletes queued course files (D92). The run asks for `ERASE <n> TEST ACCOUNTS`.
+- Nobody edits the production database by hand: `prisma/purge-demo.mjs` is deleted; `docs/data-management.md` is the runbook.
+- *As built:* the page reads its lists and log from each action's own answer. On deploy day a first run with nothing marked ends the showcase sessions (GO-LIVE §2b, step 0).
+- *If partner admins must handle requests for their organisation:* the same actions with the scope check (+0.5 day), recommended against while DIESIS is the controller.
+
+### D89 · Staff notes outlive their author, unsigned
+**Decided**: 21 October 2026 · *Decider: SENIC principal (spec §16); DIESIS default A12*
+- A note's or a validation's author is set to none when the author's account is erased. *If DIESIS wants them deleted:* one line in the erasure.
+
+### D90 · The "German / Greek version ready" switch (Q28; amends D51)
+**Decided**: 21 October 2026 · *Decider: SENIC principal (spec §16; owner confirmations 6 and 12, defaults applied); consortium default Q28*
+- `Course.readyLocales`. Existing created courses start not ready; built-in courses are always ready. A learner using a language that isn't ready gets the whole course in English, with a note, marked as English. Preview shows the requested language with a banner. A partner admin or an ADMIN switches a language on, with its coverage and limits shown, audited; until partner admins are invited (25 Nov) an ADMIN does it at the partner's written request. A live language is never switched off automatically. `R3_LANGUAGE_READY=off` counts every language as switched on.
+- English is the source language: a created course is first published only with complete English.
+- *As built:* a live language's chip on Manage courses says "live". The completion screen, the dashboard's step names and badge, the facilitator's current course, the scenario choice and the Comp Card's course title carry the language they are shown in.
+
+### D91 · YouTube only after a click; other media only from our own store (Q27, A7)
+**Decided**: 21 October 2026 · *Decider: SENIC principal (spec §16); consortium default Q27*
+- The one player shows a gate: nothing from YouTube loads until the viewer presses play, then the privacy-enhanced youtube-nocookie player loads. No thumbnail; nothing is remembered; a press plays only the video it was for. The server works out the provider and accepts videos, captions, posters and documents only from the platform's own store (`BLOB_PUBLIC_HOST` on production) or a YouTube link; rows already stored on other hosts show as links out.
+- *As built:* the content security policy admits the same one store the server accepts; on production without `BLOB_PUBLIC_HOST`, or with a value that isn't one host name, it admits none, and no upload can be attached.
+- *If other hosts are wanted:* each behind the same gate and in the policy (+0.5 day per host).
+
+### D92 · Course files go with their record, a week later; they stay public by link
+**Decided**: 21 October 2026 · *Decider: SENIC principal (spec §16; owner confirmation 7, default applied)*
+- A removed or replaced file is queued in the editor's own transaction and deleted by the logged admin run once it is 7 days old and nothing refers to it; on production only, from the platform's own store only. `R3_BLOB_DELETE=off` keeps queued files.
+- *As built:* a file counts as in use when any address names the same file (host case, query, fragment and encoding aside), so the run only ever keeps more.
+
+### D93 · Safeguarding contacts are an admin setting; 112 is in code
+**Decided**: 21 October 2026 · *Decider: SENIC principal (spec §16)*
+- `Project.safeguarding`: up to three entries per country (the organisation's contact and help lines), edited by ADMINs on `/admin/safeguarding`. A box after the main content of learner and account pages and the profile step, `/help`, the first footer link on every page, and a line beside every reflection; never empty (112 and a fallback line).
+- *As built:* 112 is a phone link. A reflection's line says facilitators don't read what is written there and links to help (the recorded walk's one difference, R3-D1).
+- *Depends on:* the partners' and DIESIS's contacts (by 20 Nov; a go/no-go item).
+
+### D94 · Legal texts are versioned files; only final text is committed
+**Decided**: 21 October 2026 · *Decider: SENIC principal (spec §16; O7)*
+- One file per document per language, in a Markdown subset rendered by the platform's own parser; version and last-updated date shown, the Terms version stored with each acceptance. A test refuses placeholders.
+- *As built:* a text written before counsel's shows "Interim version · last updated …"; counsel's texts show their version. A line break in a text is a line break on the page. A document with no text answers "not found" and isn't linked; the legal notice is listed once its English text exists.
+
+### D95 · Security headers without a nonce
+**Decided**: 21 October 2026 · *Decider: SENIC principal (spec §16; owner confirmation 8, default applied)*
+- A content security policy, `X-Frame-Options`, `nosniff`, `strict-origin-when-cross-origin` and a Permissions-Policy, all from `next.config.ts`. Plausible's and Sentry's hosts only when they are switched on. `R3_CSP=report-only` reports instead of blocking.
+- *As built:* the policy is written when the site is built, so a change of `BLOB_PUBLIC_HOST`, `R3_CSP` or the Plausible and Sentry settings needs a redeploy that builds again (GO-LIVE §1). A nonce policy is a hardening item after launch.
+
+### D96 · The rate limiter
+**Decided**: 21 October 2026 · *Decider: SENIC principal (spec §16)*
+- Every key is stored as a keyed hash (HMAC with `RATE_LIMIT_SECRET`, else a key derived from `AUTH_SECRET`). Windows are compared in epoch seconds. When the limiter can't count, staff-only limits refuse (decided from the key's prefix) and sign-in links are allowed.
+
+### D97 · The session response carries only id, email and name
+**Decided**: 21 October 2026 · *Decider: SENIC principal (spec §16)*
+- The session callback answers exactly `{ user: { id, email, name }, expires }`. Roles and the organisation are read from the database on every request (D75).
+- *As built:* `main` took the same rule on 21 Oct; it came into `r3` with the merge of `r2`.
+
+### D98 · Demo sign-in is opt-in and never runs on production (amends D16, D23)
+**Decided**: 21 October 2026 · *Decider: SENIC principal (spec §16; owner confirmation 10, default applied)*
+- It runs only with `DEMO_LOGIN_ENABLED=true` and a private `DEMO_ACCESS_CODE` of at least 12 characters (no default in the code), and never where `VERCEL_ENV` is `production`. Never with production's database or a branch of it. The admin demo profile is `demo-admin@seq-elevate.eu`. Showcase sessions are ended by the clean-up run; rotating `AUTH_SECRET` ends no database session.
+- *As built:* demo learners get the organisation Germany maps to; demo staff get none, so the demo facilitator sees nobody until an admin links it. `DEMO_LOGIN_DISABLED` is no longer read; production keeps it `true` for a rollback to Release 2.
+
+### D99 · Scope notes for Release 3
+**Decided**: 21 October 2026 · *Decider: SENIC principal (spec §16)*
+- Not in Release 3: spec §1.2. German and Greek staff screens stay English (Support learners excepted) and are marked as English under `/de` and `/el`. The `FACILITATOR_AND_MENTOR` enum value and Release 2's old `saveCourseProgress` action are removed after the pilot, each by a decision of its own.
+
+### D100 · The repository is public: what a change enforces is said, not what it closes
+**Decided**: 21 October 2026 · *Decider: SENIC principal (spec §16; owner confirmations 1 and 11, defaults applied)*
+- `r3` is not pushed before the deploy merge. Review findings, and tests that show a weakness while it is still live, stay in the private drafts folder or on local branches. Commit messages, `DECISIONS.md` and `BUILDLOG.md` state the rule a change enforces until it is live; the full account is added after the deploy.
+- After launch a security fix is developed on an unpushed branch and reaches GitHub only in the merge that deploys it; if learner data is exposed meanwhile, `R3_PARTNER_ACCESS` is switched off first. Release 4 follows the same rule.
+- *Depends on:* whether the repository must stay public (the owner asks the consortium; default: public, with this rule).
+
+### D101 · One writer of a person's organisation; any change unshares the Comp Card
+**Decided**: 21 October 2026 · *Decider: SENIC principal (spec §16); consortium default Q24*
+- `setPersonOrganisation` is the only code that writes a profile's organisation. It unshares the Comp Card, clears cohorts of other organisations, records who set the organisation and logs the change. A database trigger unshares the card for any other writer.
+- `addMember` never changes an existing organisation. It sets one only for a new person or a claimable account: no organisation, no completed profile and no learner data (no enrolment, Comp Card or badge, no activity record, no note or validation about them).
+- A partner-admin-set organisation that doesn't match the person's country is released for an ADMIN to confirm: at the first completion of the profile step, and whenever the person becomes a learner later (made Learner only, or a Learner again after Remove). The release is logged (`profile.organisation_released`) and listed for ADMINs. Nobody changes their own organisation.
+- *As built:* a guardian's permission belongs to the organisation that recorded it: a change of organisation clears both records (in the code, and by migration D's trigger). Manage people says when an invited under-16's permission isn't recorded by their organisation, which records its own by adding them again with the tick.
+- *Depends on:* Q24.
 
 ### D103–D107 as built (D104 and D105 amended) · Learners see the site each named link opens; link text is refused only when it shows another site's address
 **Decided**: 22 October 2026; built and frozen 23 October 2026 · *Deciders: the site box: SENIC principal, the owner's decision of 22 October 2026 via the chat question ("Yes, show the site": the link-rules review's items 11–13, each answered with its default: show each named link's site, narrow D104 to rule G only with the box, international names in punycode); the rest: Release 4's integrator (build decisions under the link-rules review's plan)*. D103–D107 themselves are Release 4's (spec §8). From 23 October the rule and the box change only under the stop rule below (BUILDLOG: the blobs and the measured targets).

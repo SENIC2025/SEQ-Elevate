@@ -127,12 +127,13 @@ const analyticsFor = async (...args: Parameters<typeof readAnalytics>) => {
   if (data === "unreadable") throw new Error("the statistics read failed");
   return data;
 };
-const { statisticsMembershipsInScope } = await import("./scope");
+const { statisticsMembershipsInScope, testOnlyScope } = await import("./scope");
 
+// Only the scope module makes a Scope (SS4): tests ask its test-only factory.
 /** An ADMIN's scope: the whole project. */
-const PROJECT_SCOPE: Scope = { kind: "project", viewerId: "admin", viewerOrganisationId: null };
-const ORG_A: Scope = { kind: "organisation", viewerId: "fac-a", organisationId: "org-a" };
-const NONE: Scope = { kind: "none" };
+const PROJECT_SCOPE: Scope = testOnlyScope({ kind: "project", viewerId: "admin", viewerOrganisationId: null });
+const ORG_A: Scope = testOnlyScope({ kind: "organisation", viewerId: "fac-a", organisationId: "org-a" });
+const NONE: Scope = testOnlyScope({ kind: "none" });
 /** The statistics as an ADMIN reads them with no start date (STATS_FROM=off): most tests. */
 const buildRealAnalytics = (locale: "en") => analyticsFor(PROJECT_SCOPE, locale, null);
 

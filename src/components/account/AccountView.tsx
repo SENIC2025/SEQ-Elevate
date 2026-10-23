@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { deleteMyAccount } from "@/app/actions/gdpr";
+import { setCompCardSharing } from "@/app/actions/learner";
 import {
   UserRound,
   Download,
@@ -56,6 +57,8 @@ export function AccountView({
   projectName,
   stats,
   profile = NO_PROFILE,
+  userId,
+  compCardShared = null,
 }: {
   email: string;
   name: string | null;
@@ -64,8 +67,18 @@ export function AccountView({
   projectName: string;
   stats: { courses: number; badges: number; compCardStarted: boolean };
   profile?: AccountProfile;
+  /** The signed-in person's id: whose card a change of sharing is for. */
+  userId?: string;
+  /**
+   * The Comp Card as shared now (effectiveSharing), with whom; null when it
+   * isn't. "Only me" is offered here too (D80: withdrawal is one click),
+   * because this page is open before the profile step (spec 5.3): a learner
+   * held there by new Terms can still stop sharing.
+   */
+  compCardShared?: { organisationName: string } | null;
 }) {
   const t = useTranslations("account");
+  const tCard = useTranslations("compCard.sharing");
   const tRoles = useTranslations("roles");
   const tProfile = useTranslations("profile");
   const locale = useLocale();
@@ -78,6 +91,25 @@ export function AccountView({
   const [error, setError] = React.useState<string | null>(null);
 
   const canDelete = confirmText.trim().toLowerCase() === email.toLowerCase();
+
+  // The card's sharing: shared (with whom), then "Only me" once taken back here.
+  const [shared, setShared] = React.useState(compCardShared);
+  const [stopping, setStopping] = React.useState(false);
+  const [stopFailed, setStopFailed] = React.useState(false);
+  const cardHeadingId = React.useId();
+  async function stopSharing() {
+    if (stopping || !userId) return;
+    setStopping(true);
+    setStopFailed(false);
+    try {
+      const res = await setCompCardSharing("onlyMe", userId);
+      if (res.ok) setShared(null);
+      else setStopFailed(true);
+    } catch {
+      setStopFailed(true);
+    }
+    setStopping(false);
+  }
 
   const memberSinceLabel = new Date(memberSince).toLocaleDateString(undefined, {
     year: "numeric",
@@ -208,6 +240,40 @@ export function AccountView({
           </div>
         </CardContent>
       </Card>
+
+      {/* Comp Card sharing (D80): taken back to "Only me" in one click. */}
+      {compCardShared ? (
+        <section aria-labelledby={cardHeadingId}>
+          <Card>
+            <CardContent className="p-5">
+              <div className="flex items-center gap-2 mb-1">
+                <FileText className="h-4 w-4 text-[var(--accent)]" aria-hidden="true" />
+                <h2 id={cardHeadingId} className="text-sm font-semibold">
+                  {t("compCardTitle")}
+                </h2>
+              </div>
+              <div role="status">
+                {shared ? null : <p className="text-sm">{t("compCardOnlyMe")}</p>}
+              </div>
+              {shared ? (
+                <>
+                  <p className="text-sm text-[var(--muted-foreground)]">
+                    {t("compCardShared", { organisation: shared.organisationName })}
+                  </p>
+                  <Button variant="outline" size="sm" className="mt-3" disabled={stopping} onClick={stopSharing}>
+                    {t("compCardStop")}
+                  </Button>
+                </>
+              ) : null}
+              {stopFailed ? (
+                <p className="mt-2 text-sm text-[var(--danger)]" role="alert">
+                  {tCard("failed")}
+                </p>
+              ) : null}
+            </CardContent>
+          </Card>
+        </section>
+      ) : null}
 
       {/* Reading help note */}
       <Card>
