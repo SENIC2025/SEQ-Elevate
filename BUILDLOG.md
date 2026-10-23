@@ -1124,3 +1124,17 @@ On `r2` after `491e5a5`. Nothing pushed (D100).
   - Release 2's recorded walk on one worker: **7/7**;
   - the server logged the known kinds: 10 "No signed-in learner", 3 "No signed-in user", 2 refused sign-ins (`AccessDenied`), one audit write for a staff account another test had removed (`AuditLog_actorId_fkey`, as in earlier runs), and the `output: standalone` warning.
 - `[NOTE]` Known limits (course saves): the page loaded again brings an answer back over what the server held when it loaded the course, so a save the page before sent as it went, written only after that load, stays on the server; more than eight saves of one answer that aren't confirmed before the page goes or finds a newer build leave the answer coming back over the first seven and the newest only; a browser that blocks `sessionStorage`, or a page that goes without `pagehide` or a hidden `visibilitychange` (a crash), keeps nothing.
+
+### Release 3 — Release 2's rule for a page hidden or left with a course save on its way, merged (2026-10-23)
+On `r3` after `1a876a2`. Nothing pushed (D100).
+- `[MERGE]` `a630a94` `r2` at `828e647` (Release 2's entry above, `ec2f0ae`: a page hidden or left with a course save on its way, or one that failed, keeps what the server hasn't confirmed in the tab's outbox, beside each value a save not confirmed may have left; an entry follows what is confirmed). Conflicts: `src/store/demo-state.tsx`, Release 3's imports with `pageHidden`; the build log. Release 3's read again after guest work moved into a course (`courseReread`) is kept as it was.
+- `[DOCS]` D71: `r2` merged into `r3` again at `828e647`.
+- `[TEST]` Release 2's entry above, red on 491e5a5. `course-save.ts`, `patch.ts`, `outbox.ts` and their tests were the same on `r3` at `1a876a2` as on `r2` at `491e5a5`; on `r3` all of the new tests pass.
+- `[VERIFY]` On the local Postgres `seq_r3`:
+  - tsc ✓ eslint ✓ **5,019 unit** ✓ (216 files, one skipped; 4 tests skipped: the `r3-check` database tests);
+  - production build ✓ (through the build lock), no warnings;
+  - affected specs `r2-course-save`, `r2-progress-safety`, `r2-player`, `r2-resume`, `r3-comp-card`, `r3-guest-claim` and `r3-guest-tab`: **73/73**; the course-save verification scenarios V-1 to V-8: **9/9**;
+  - **full E2E 935 passed, 2 skipped** (F-E1a and F-E1b, by design) in 8.2 min on two workers, exit 0. By project: chromium 922, cutoff 3, switches 5, last 5;
+  - `db-backed-progress` on one worker: **57/57**;
+  - Release 2's recorded walk with R3-D1 and R3-D2 on one worker: **7/7**; `r3-scoping` **9/9**; `r3-actions` **497/497**;
+  - the server logged only the known kinds: 21 "No signed-in learner", 6 "No signed-in user", 2 `transformAlgorithm`, 2 `AccessDenied`, the `BLOB_PUBLIC_HOST` notice and the `output: standalone` warning.
