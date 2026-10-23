@@ -1,6 +1,7 @@
 import { test, expect, type BrowserContext, type Page, type Request } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
+import { createSession } from "./fixtures/people";
 import { learnerWithSession, removeLearners, runId, signIn } from "./fixtures/r2-course";
 
 /**
@@ -490,11 +491,8 @@ describe("Release 2: signing out sends the saves waiting and clears the tab's ou
     expect(await p1Of(userId), "the account holds the change once the sign-out is done").toBe(typed);
     expect(await prisma.session.count({ where: { sessionToken } }), "signed out").toBe(0);
 
-    const again = `e2e-r2-cs-again-${RUN}-${Math.random().toString(36).slice(2)}`;
-    await prisma.session.create({
-      data: { sessionToken: again, userId, expires: new Date(Date.now() + 86_400_000) },
-      select: { sessionToken: true },
-    });
+    // Signed in again: a session as a sign-in makes one (the people fixture, FD-U19).
+    const again = await createSession(prisma, userId);
     await context.addCookies([
       { name: "authjs.session-token", value: again, domain: "localhost", path: "/", httpOnly: true, sameSite: "Lax" },
     ]);
