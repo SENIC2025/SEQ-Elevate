@@ -27,6 +27,24 @@ import { learnerWithSession, removeLearners, runId, signIn } from "./fixtures/r2
  *   CS-E7  guard: hidden the same way, every save answered while hidden,
  *          then gone and loaded again
  *
+ * Signing out (D68): the header's Sign out first sends every waiting
+ * course and Comp Card save and waits for them, and for the save on its
+ * way, up to 3 s; then it signs out and clears every outbox entry of the
+ * tab.
+ *
+ *   CS-E8  signed out within the save pause after a change: the account
+ *          holds the change once the sign-out is done; signed in again, a
+ *          new tab shows it
+ *   CS-E9  signed out with the change's save on its way and held past the
+ *          wait: the sign-out goes ahead, and nothing of the learner stays
+ *          in the tab's outbox
+ *   CS-E10 another tab signs out while this one, hidden with a save on its
+ *          way, kept an entry: the entry is cleared once this tab lets go
+ *          of the learner, and the save's late answer from a newer build
+ *          keeps nothing
+ *   CS-E11 the Comp Card: signed out within the save pause after a change;
+ *          the account holds the change
+ *
  * The change's save is held, as on a slow connection, until the change
  * back is made and its pause (700 ms) has passed; for a lost answer the
  * server gets it and writes it, and the page gets a dropped connection
@@ -35,7 +53,10 @@ import { learnerWithSession, removeLearners, runId, signIn } from "./fixtures/r2
  * shows the answer before it, and the reloaded page shows the change.
  * CS-E5 and CS-E6 are red on the build before what a page hidden or left
  * keeps (491e5a5): the reloaded page shows the change, and the account
- * holds it.
+ * holds it. CS-E8 to CS-E11 are red on the build before the sign-out rule
+ * (828e647): the account keeps the answer before the change (its save
+ * leaves the page after the session is gone, and is refused), and the
+ * tab keeps the learner's entry.
  *
  * Requires a real database — gated on E2E_DB=1, like db-backed-progress.
  * Everything it creates is unique to this run and removed afterwards.
@@ -57,6 +78,10 @@ const EMAILS = {
   onItsWay: `e2e-r2-cs-onitsway-${RUN}@example.com`,
   discarded: `e2e-r2-cs-discarded-${RUN}@example.com`,
   hiddenAnswered: `e2e-r2-cs-hidden-answered-${RUN}@example.com`,
+  signOutPause: `e2e-r2-cs-signout-pause-${RUN}@example.com`,
+  signOutHeld: `e2e-r2-cs-signout-held-${RUN}@example.com`,
+  signOutElsewhere: `e2e-r2-cs-signout-elsewhere-${RUN}@example.com`,
+  signOutCard: `e2e-r2-cs-signout-card-${RUN}@example.com`,
 };
 
 const enrolment = (userId: string) =>
@@ -71,9 +96,10 @@ const p1Of = async (userId: string) => ((await enrolment(userId))?.reflection as
  * connection, until released. `lost`: the server gets it (and writes it),
  * and the page gets a dropped connection instead of the answer. `written`:
  * the server gets it and writes it once released, and the page gets
- * nothing until finish() — then a dropped connection.
+ * nothing until finish() — then a dropped connection. `unknown`: a newer
+ * build's server answers it, which doesn't know this page's action (D68).
  */
-async function holdAction(page: Page, marker: string, answer: "slow" | "lost" | "written") {
+async function holdAction(page: Page, marker: string, answer: "slow" | "lost" | "written" | "unknown") {
   let release!: () => void;
   let finish!: () => void;
   const held = new Promise<void>((resolve) => (release = resolve));
@@ -89,6 +115,13 @@ async function holdAction(page: Page, marker: string, answer: "slow" | "lost" | 
     ) {
       state.request = request;
       await held;
+      if (answer === "unknown") {
+        state.serverStatus = 200;
+        await route
+          .fulfill({ status: 200, headers: { "x-nextjs-action-not-found": "1" }, body: "" })
+          .catch(() => undefined);
+        return;
+      }
       if (answer !== "slow") {
         state.serverStatus = (await route.fetch()).status();
         if (answer === "written") await finished;
@@ -406,5 +439,145 @@ describe("Release 2: an answer changed back while the change's save is on its wa
     if (await step.isEnabled()) await step.click();
     await expect(reflectionBox(page), "the page after the reload shows what the learner left").toHaveValue(before);
     expect(await p1Of(userId)).toBe(before);
+  });
+});
+
+/** The header's Sign out. */
+const signOutButton = (page: Page) => page.getByRole("button", { name: /^sign out$/i }).first();
+/** The tab's outbox entries (D68). */
+const outboxKeys = (page: Page) =>
+  page.evaluate(() => Object.keys(sessionStorage).filter((k) => k.startsWith("seq-elevate-outbox-v1:")));
+/** The course opened at the reflection, with `before` saved. */
+async function atReflection(context: BrowserContext, before: string) {
+  const page = await openCourse(context);
+  await toPractice(page);
+  await practice(page, BEST);
+  await toReflection(page);
+  const saved = nextSave(page, before);
+  await reflectionBox(page).fill(before);
+  await saved;
+  return page;
+}
+/** Signed out from the header: the page has left the learner area. */
+async function signOutFromHeader(page: Page) {
+  await signOutButton(page).click();
+  await page.waitForURL((u) => !u.pathname.includes("/learner/"), { timeout: 20_000 });
+}
+
+describe("Release 2: signing out sends the saves waiting and clears the tab's outbox (D68)", () => {
+  let own: string | null = null;
+  const learner = async (key: keyof typeof EMAILS) => {
+    own = EMAILS[key];
+    return learnerWithSession(prisma, own);
+  };
+  test.afterEach(async () => {
+    if (own) await removeLearners(prisma, [own]);
+    own = null;
+  });
+
+  test("CS-E8 signed out within the save pause after a change: the account holds the change once the sign-out is done; signed in again, a new tab shows it", async ({
+    context,
+  }) => {
+    test.setTimeout(90_000);
+    const { userId, sessionToken } = await learner("signOutPause");
+    await signIn(context, sessionToken);
+    const before = `before signout ${RUN}`;
+    const typed = `typed signout ${RUN}`;
+    const page = await atReflection(context, before);
+    await reflectionBox(page).fill(typed);
+    await page.waitForTimeout(150); // within the save pause (700 ms)
+    await signOutFromHeader(page);
+    expect(await p1Of(userId), "the account holds the change once the sign-out is done").toBe(typed);
+    expect(await prisma.session.count({ where: { sessionToken } }), "signed out").toBe(0);
+
+    const again = `e2e-r2-cs-again-${RUN}-${Math.random().toString(36).slice(2)}`;
+    await prisma.session.create({
+      data: { sessionToken: again, userId, expires: new Date(Date.now() + 86_400_000) },
+      select: { sessionToken: true },
+    });
+    await context.addCookies([
+      { name: "authjs.session-token", value: again, domain: "localhost", path: "/", httpOnly: true, sameSite: "Lax" },
+    ]);
+    const fresh = await openCourse(context);
+    await reflectionAfterReload(fresh);
+    await expect(reflectionBox(fresh), "signed in again, a new tab shows the change").toHaveValue(typed);
+  });
+
+  test("CS-E9 signed out with the change's save on its way and held past the wait: the sign-out goes ahead, and nothing of the learner stays in the tab's outbox", async ({
+    context,
+  }) => {
+    test.setTimeout(90_000);
+    const { sessionToken } = await learner("signOutHeld");
+    await signIn(context, sessionToken);
+    const before = `before held signout ${RUN}`;
+    const changed = `secret held signout ${RUN}`;
+    const page = await atReflection(context, before);
+    const held = await holdAction(page, changed, "slow");
+    try {
+      await reflectionBox(page).fill(changed);
+      await expect.poll(() => held.state.request !== null, { timeout: 15_000 }).toBe(true);
+      const clicked = Date.now();
+      await signOutFromHeader(page);
+      expect(Date.now() - clicked, "the sign-out waited for the save on its way, then went ahead").toBeLessThan(15_000);
+    } finally {
+      held.release();
+    }
+    await page.waitForTimeout(2000);
+    expect(await prisma.session.count({ where: { sessionToken } }), "signed out").toBe(0);
+    expect(await outboxKeys(page), "nothing of the learner stays in the tab once signed out").toEqual([]);
+  });
+
+  test("CS-E10 another tab signs out while this one, hidden with a save on its way, kept an entry: the entry is cleared once this tab lets go, and the save's late answer from a newer build keeps nothing", async ({
+    context,
+  }) => {
+    test.setTimeout(90_000);
+    const { sessionToken } = await learner("signOutElsewhere");
+    await signIn(context, sessionToken);
+    const before = `before elsewhere ${RUN}`;
+    const changed = `secret elsewhere ${RUN}`;
+    const page = await atReflection(context, before);
+    const held = await holdAction(page, changed, "unknown");
+    try {
+      await reflectionBox(page).fill(changed);
+      await expect.poll(() => held.state.request !== null, { timeout: 15_000 }).toBe(true);
+      await hide(page);
+      expect(await outboxKeys(page), "hidden with a save on its way: the tab keeps an entry").toHaveLength(1);
+
+      const other = await context.newPage();
+      await other.goto("/en/learner");
+      await signOutFromHeader(other);
+      await expect
+        .poll(() => outboxKeys(page), { timeout: 20_000, message: "this tab lets go of the learner: the entry is cleared" })
+        .toEqual([]);
+    } finally {
+      held.release();
+    }
+    await expect.poll(() => held.state.serverStatus, { timeout: 15_000 }).toBe(200);
+    await page.waitForTimeout(2000);
+    expect(await outboxKeys(page), "the late answer keeps nothing of the learner").toEqual([]);
+  });
+
+  test("CS-E11 the Comp Card: signed out within the save pause after a change; the account holds the change", async ({
+    context,
+  }) => {
+    test.setTimeout(90_000);
+    const { userId, sessionToken } = await learner("signOutCard");
+    await prisma.compCard.create({
+      data: { userId, projectId: "seq-elevate", wentWell: `Saved: before ${RUN}`, privacy: "SELF" },
+      select: { id: true },
+    });
+    await signIn(context, sessionToken);
+    const page = await context.newPage();
+    await page.goto("/en/learner/comp-card");
+    const wentWell = page.getByPlaceholder("Even small wins count.").filter({ visible: true });
+    await expect(wentWell, "the saved card has loaded").toHaveValue(`Saved: before ${RUN}`, { timeout: 15_000 });
+    await page.waitForTimeout(300);
+    await wentWell.fill(`Typed: just before signing out ${RUN}`);
+    await page.waitForTimeout(150); // within the save pause (700 ms)
+    await signOutFromHeader(page);
+    expect(
+      (await prisma.compCard.findFirst({ where: { userId }, select: { wentWell: true } }))?.wentWell,
+      "the account holds the change once the sign-out is done"
+    ).toBe(`Typed: just before signing out ${RUN}`);
   });
 });

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
-import { pendingSave } from "./pending-save";
+import { pendingSave, settleWithin } from "./pending-save";
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -360,6 +360,146 @@ describe("pendingSave", () => {
       await vi.advanceTimersByTimeAsync(0);
       expect(settle.settled).toBe(true);
       expect(courseB).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("settleAll and settleWithin: signing out (D68)", () => {
+    beforeEach(() => {
+      vi.spyOn(console, "error").mockImplementation(() => undefined);
+    });
+
+    const watch = <T>(promise: Promise<T>) => {
+      const seen: { settled: boolean; value?: T } = { settled: false };
+      void promise.then((value) => {
+        seen.settled = true;
+        seen.value = value;
+      });
+      return seen;
+    };
+    /** A save whose answer the test gives. */
+    const answered = () => {
+      let answer!: () => void;
+      const save = vi.fn(() => new Promise<void>((resolve) => (answer = resolve)));
+      return { save, answer: () => answer() };
+    };
+
+    it("sends every save waiting out the pause, whatever it saves, and resolves once they are answered", async () => {
+      const course = pendingSave(700);
+      const card = pendingSave(700);
+      const a = answered();
+      const c = answered();
+      course.schedule(a.save, "course-a");
+      card.schedule(c.save);
+
+      const settled = watch(settleWithin([course, card], 3000));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(a.save).toHaveBeenCalledTimes(1);
+      expect(c.save).toHaveBeenCalledTimes(1);
+      expect(settled.settled).toBe(false);
+      a.answer();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(settled.settled).toBe(false);
+      c.answer();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(settled).toEqual({ settled: true, value: true });
+    });
+
+    it("waits for the save on its way, and for one handed over behind it", async () => {
+      const saves = pendingSave(700);
+      const first = answered();
+      const second = answered();
+      saves.schedule(first.save, "course-a");
+      saves.flush();
+      saves.schedule(second.save, "course-a");
+
+      const settled = watch(settleWithin([saves], 3000));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(second.save).toHaveBeenCalledTimes(1);
+      first.answer();
+      await vi.advanceTimersByTimeAsync(500);
+      expect(settled.settled).toBe(false);
+      second.answer();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(settled).toEqual({ settled: true, value: true });
+    });
+
+    it("sends the save a confirmed one schedules (something left), and waits for it too", async () => {
+      const saves = pendingSave(700);
+      const first = answered();
+      const followUp = answered();
+      saves.schedule(async () => {
+        await first.save();
+        // Something is left once it is confirmed: another save (course-save.ts again()).
+        saves.schedule(followUp.save, "course-a");
+      }, "course-a");
+
+      const settled = watch(settleWithin([saves], 3000));
+      await vi.advanceTimersByTimeAsync(0);
+      first.answer();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(followUp.save, "sent now, not after the pause").toHaveBeenCalledTimes(1);
+      expect(settled.settled).toBe(false);
+      followUp.answer();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(settled).toEqual({ settled: true, value: true });
+    });
+
+    it("sends a failed save waiting to be tried again at once, and waits for its retries", async () => {
+      const saves = pendingSave(700);
+      const save = failing(2);
+      saves.schedule(save, "course-a");
+      saves.flush();
+      await vi.advanceTimersByTimeAsync(0); // failed: retry in 1 s
+
+      const settled = watch(settleWithin([saves], 3000));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(save).toHaveBeenCalledTimes(2); // sent now, failed again: retry in 2 s
+      expect(settled.settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(save).toHaveBeenCalledTimes(3);
+      expect(settled).toEqual({ settled: true, value: true });
+    });
+
+    it("answers false once the wait is over with a save still on its way, and sends nothing more after", async () => {
+      const saves = pendingSave(700);
+      const held = answered();
+      const later = ok();
+      saves.schedule(held.save, "course-a");
+
+      const settled = watch(settleWithin([saves], 3000));
+      await vi.advanceTimersByTimeAsync(2999);
+      expect(settled.settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(settled).toEqual({ settled: true, value: false });
+
+      // A change after the wait is over isn't sent by it.
+      saves.schedule(later, "course-a");
+      held.answer();
+      await vi.advanceTimersByTimeAsync(100);
+      expect(later).not.toHaveBeenCalled();
+    });
+
+    it("answers true at once when nothing is waiting or on its way", async () => {
+      const settled = watch(settleWithin([pendingSave(700), pendingSave(700)], 3000));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(settled).toEqual({ settled: true, value: true });
+    });
+
+    it("settleAll resolves once nothing is left of any key", async () => {
+      const saves = pendingSave(700);
+      const a = answered();
+      const b = answered();
+      saves.schedule(a.save, "course-a");
+      saves.schedule(b.save, "course-b"); // course-a's is sent at once
+      const settled = watch(saves.settleAll());
+      await vi.advanceTimersByTimeAsync(0);
+      expect(b.save).toHaveBeenCalledTimes(1);
+      b.answer();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(settled.settled).toBe(false);
+      a.answer();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(settled.settled).toBe(true);
     });
   });
 });

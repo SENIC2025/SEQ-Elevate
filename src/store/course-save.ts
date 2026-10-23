@@ -34,6 +34,9 @@
  * build the server no longer has (D68): only a reload helps, so what isn't
  * confirmed when it fails goes to the tab's outbox instead (outbox.ts).
  *
+ * Once the store has let go of the learner (signed out, another account
+ * signed in), a save's answer keeps nothing of theirs in the tab (D68).
+ *
  * Next sends a page's server actions one at a time: a save handed over
  * while another is on its way waits behind it, and one waiting never
  * leaves a page that goes. So when the page is hidden or left (pageHidden:
@@ -412,6 +415,9 @@ export async function saveCourse(
   } catch (err) {
     answered();
     if (unstable_isUnrecognizedActionError(err)) {
+      // The store has let go of the learner (signed out, another account):
+      // nothing of theirs is kept in the tab (D68).
+      if (!deps.current()) return;
       // What isn't confirmed now, not when it was sent: an answer changed
       // back meanwhile mustn't come back after the reload.
       keepUnconfirmed(refs, slug, forUser, deps.outbox, false);
