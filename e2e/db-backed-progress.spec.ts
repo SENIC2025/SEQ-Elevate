@@ -2897,13 +2897,29 @@ describe("creating a course in the CMS (no code)", () => {
     page,
     context,
   }) => {
+    test.setTimeout(60000);
     await asEditor(context);
-    await page.goto("/en/content");
+    // A slow device: the form is on screen before the page's scripts have
+    // run, and the editor types the title then. Held here until it's typed,
+    // so the test always takes that path; nothing typed is lost.
+    const held: import("@playwright/test").Route[] = [];
+    let hold = true;
+    await page.route(/\/_next\/static\/chunks\/.+\.js(?:\?|$)/, (route) =>
+      hold ? void held.push(route) : route.continue()
+    );
+    await page.goto("/en/content", { waitUntil: "commit" });
 
-    await page.getByLabel(/^title$/i).first().fill(TITLE);
+    const title = page.getByLabel(/^title$/i).first();
+    const create = page.getByRole("button", { name: /create draft/i }).first();
+    await title.fill(TITLE);
+    hold = false;
+    for (const route of held.splice(0)) await route.continue();
+    // Once the page has taken over, the form holds the title it shows.
+    await expect(create).toBeEnabled({ timeout: 30000 });
     await page.getByLabel(/^tagline$/i).first().fill("Say the thing, kindly");
     await page.getByLabel(/skill area/i).first().fill("Communication");
-    await page.getByRole("button", { name: /create draft/i }).first().click();
+    await expect(title).toHaveValue(TITLE);
+    await create.click();
 
     // It opens on its own course page, as a draft.
     await expect(page).toHaveURL(new RegExp(`/en/content/courses/${SLUG}`), {
