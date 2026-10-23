@@ -892,11 +892,13 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
       if (migrated) migratedRef.current = null;
       dispatch({ type: "courseProgressLoaded", slug, saved, migrated });
       // What this tab kept for this learner when a save of the course found
-      // a newer build (D68): applied as changes made here, so it's saved
-      // like any, in the same render as the merge — and the outbox cleared
-      // once nothing is left to send (course-save.ts). Only what the server
-      // still holds as it was when it was kept: an answer saved elsewhere
-      // since is newer (outbox.ts restoreOutbox).
+      // a newer build (D68), or when a page was hidden or left with a save
+      // of it on its way or failed (course-save.ts pageHidden): applied as
+      // changes made here, so it's saved like any, in the same render as
+      // the merge — and the outbox cleared once nothing is left to send
+      // (course-save.ts). Only what the server still holds as it was when it
+      // was kept, or as a save not confirmed may have left it: an answer
+      // saved elsewhere since is newer (outbox.ts restoreOutbox).
       const kept = forUser ? restoreOutbox(tabStorage(), forUser, slug, server) : null;
       if (kept) dispatch({ type: "outboxRestored", slug, patch: kept });
     })();
