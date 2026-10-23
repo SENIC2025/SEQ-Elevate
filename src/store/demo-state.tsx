@@ -44,7 +44,7 @@ import {
   storedGuestState,
 } from "./progress-merge";
 import { migrateGuest } from "./guest-migration";
-import { courseChanged, courseLoaded, courseSaveRefs, saveCourse } from "./course-save";
+import { courseChanged, courseLoaded, courseSaveRefs, pageHidden, saveCourse } from "./course-save";
 import { clearEveryOutbox, restoreOutbox } from "./outbox";
 import { pendingSave } from "./pending-save";
 import { RETRY_DELAYS_MS, wait, withRetry } from "./retry";
@@ -1015,13 +1015,20 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
   // ---- Unmounting: send what's still waiting now ----
   // A tab that's hidden (another app, another tab) or closed sends what's
   // waiting now: the pause before a save would otherwise outlive the page.
-  // Only what was already scheduled, under the rules above, is sent. A
-  // closing page can still drop it if another server action is ahead of it
-  // in Next's queue: this narrows the gap, it doesn't close it.
+  // Only what was already scheduled, under the rules above, is sent. Next
+  // sends server actions one at a time, so a course save may wait behind
+  // another, never to leave a page that goes, and one on its way may be
+  // written with its answer reaching no page; a phone may discard a hidden
+  // tab and load it again. So what the page has of a course that the
+  // server hasn't confirmed, while a save of it is on its way or failed,
+  // goes to the tab's outbox, and the page that loads the course next
+  // brings it back (course-save.ts pageHidden).
   React.useEffect(() => {
     const sendWaiting = () => {
       courseSave.flush();
       cardSave.flush();
+      const forUser = dbOwnerRef.current;
+      if (forUser) pageHidden(progressRefs.current, forUser, tabStorage());
     };
     const onVisibility = () => {
       if (document.visibilityState === "hidden") sendWaiting();

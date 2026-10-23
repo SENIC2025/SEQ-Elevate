@@ -16,13 +16,22 @@
  * newer progress on a later load. Another learner's entry (an account
  * signed in after a sign-out on this tab) is never read.
  *
+ * A page hidden or left while a course save is on its way, or after one
+ * failed, keeps what the server hasn't confirmed here too (course-save.ts
+ * pageHidden): a save on its way may never leave a page that goes, or be
+ * written with its answer reaching no page — and a phone may discard a
+ * hidden tab and load it again. While there is an entry, it follows what
+ * the server confirms (course-save.ts).
+ *
  * Each entry keeps beside its patch what the server held of each answer
  * when it was kept (its base), and only what the server still holds as it
  * was comes back (restoreOutbox): an answer saved since on another device
  * — or by a page of an older build after a rollback, which never reads
- * the outbox — is newer, and stays. An answer whose save's answer was
- * lost may have been written, so beside its base the entry keeps what the
- * server holds if it was (`alt`): either comes back. Nothing of a learner stays in the tab
+ * the outbox — is newer, and stays. A save of an answer not confirmed (its
+ * answer lost, or on its way when the page went) may have been written,
+ * so beside its base the entry keeps each value such a save may have left
+ * on the server (`alt`, at most OUTBOX_ALT_MAX an answer): any of them
+ * comes back. Nothing of a learner stays in the tab
  * once the store lets go of them (signed out, another account, erased):
  * every entry is cleared then (clearEveryOutbox), at the cost of what a
  * page from a build that was gone hadn't sent yet.
@@ -34,9 +43,12 @@
 import { isSectionId } from "@/lib/cms/sections/contract";
 import type { PatchAnswer, ProgressPatch, ProgressState, StoredAnswer } from "@/lib/learner-progress/contract";
 import { readAnswer } from "@/lib/learner-progress/parse";
-import { baseOf, restorablePatch } from "@/lib/learner-progress/patch";
+import { baseOf, restorablePatch, sameAnswer } from "@/lib/learner-progress/patch";
 
 export const OUTBOX_PREFIX = "seq-elevate-outbox-v1:";
+
+/** At most this many values kept beside an answer that a save not confirmed may have left on the server. */
+export const OUTBOX_ALT_MAX = 8;
 
 /** The part of the Web Storage API the outbox uses: the store hands in sessionStorage. */
 export type OutboxStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
@@ -85,21 +97,26 @@ function readBase(raw: unknown, patch: ProgressPatch): Record<string, StoredAnsw
   );
 }
 
-/** What the server holds of an answer of the patch if a save of it whose answer was lost was written: only those kept. */
-function readAlt(raw: unknown, patch: ProgressPatch): Record<string, StoredAnswer | null> {
+/** What a save of an answer of the patch not confirmed may have left on the server: only those kept. */
+function readAlt(raw: unknown, patch: ProgressPatch): Record<string, (StoredAnswer | null)[]> {
   const alt = isRecord(raw) && isRecord(raw.alt) ? raw.alt : {};
   return Object.fromEntries(
     Object.keys(patch.answers ?? {})
       .filter((key) => key in alt)
-      .map((key) => [key, (readAnswer(key, alt[key]) as StoredAnswer | null) ?? null])
+      .map((key) => {
+        const kept = alt[key];
+        // One value, as a page of the build before keeps it.
+        const values = Array.isArray(kept) ? kept.slice(0, OUTBOX_ALT_MAX) : [kept];
+        return [key, values.map((value) => (readAnswer(key, value) as StoredAnswer | null) ?? null)];
+      })
   );
 }
 
 interface Entry {
   patch: ProgressPatch;
   base: Record<string, StoredAnswer | null>;
-  /** For an answer whose save's answer was lost: what the server holds if it was written. */
-  alt: Record<string, StoredAnswer | null>;
+  /** For an answer a save not confirmed carried: each value it may have left on the server. */
+  alt: Record<string, (StoredAnswer | null)[]>;
 }
 
 function readEntry(storage: OutboxStorage | null, forUser: string, slug: string): Entry | null {
@@ -137,7 +154,7 @@ export function readOutbox(
  * What the outbox brings back for `forUser` in `slug` over what the server
  * holds now (`server`, the progress just loaded): its finished lessons and
  * completion, and each answer the server still holds as it was when the
- * entry was kept, or as a lost save of it would have left it
+ * entry was kept, or as a save of it not confirmed may have left it
  * (restorablePatch) — never one over an answer saved elsewhere since.
  * What can't come back is dropped from the entry for good, and an entry
  * with nothing left is cleared. Null when nothing comes back.
@@ -160,7 +177,7 @@ export function restoreOutbox(
     writeEntry(storage, forUser, slug, {
       patch,
       base: Object.fromEntries(keys.map((key) => [key, entry.base[key] ?? null])),
-      alt: Object.fromEntries(keys.filter((key) => key in entry.alt).map((key) => [key, entry.alt[key] ?? null])),
+      alt: Object.fromEntries(keys.filter((key) => key in entry.alt).map((key) => [key, entry.alt[key]])),
     });
   }
   return patch;
@@ -170,9 +187,11 @@ export function restoreOutbox(
  * Keeps `patch` as what waits for `forUser` in `slug`: all the page sending
  * it has that the server hasn't confirmed, worked out against `acked`
  * (what the server is known to hold), which is kept beside it as each
- * answer's base (baseOf). `ifWritten` is what the server holds if every
- * save whose answer was lost was written: kept beside an answer where it
- * differs from the base (`alt`). It takes the place of what waited, which
+ * answer's base (baseOf). `mayHold` is what the server may hold besides,
+ * as this page knows: what each save not confirmed would have left
+ * written. Beside each answer, every value of it there that differs from
+ * the base is kept once (`alt`), the first OUTBOX_ALT_MAX in that order.
+ * It takes the place of what waited, which
  * that page took in when it loaded the course, or which it changed since —
  * merged in, an answer changed since would come back after the reload.
  * Fill mode is never kept: only the move of a guest's progress sends it.
@@ -185,17 +204,30 @@ export function putInOutbox(
   slug: string,
   patch: ProgressPatch,
   acked?: ProgressState,
-  ifWritten?: ProgressState
+  mayHold: readonly ProgressState[] = []
 ): boolean {
   if (!storage) return false;
   const { fill: _fill, ...own } = patch;
   void _fill;
   const base = acked ? baseOf(own, acked) : {};
-  const written = ifWritten ? baseOf(own, ifWritten) : {};
-  const alt = Object.fromEntries(
-    Object.entries(written).filter(([key, answer]) => JSON.stringify(answer) !== JSON.stringify(base[key] ?? null))
-  );
+  const alt: Record<string, (StoredAnswer | null)[]> = {};
+  for (const held of mayHold) {
+    for (const [key, answer] of Object.entries(baseOf(own, held))) {
+      const kept = alt[key] ?? [];
+      if (kept.length >= OUTBOX_ALT_MAX || sameAnswer(answer, base[key])) continue;
+      if (!kept.some((other) => sameAnswer(other, answer))) alt[key] = [...kept, answer];
+    }
+  }
   return writeEntry(storage, forUser, slug, { patch: own, base, alt });
+}
+
+/** Does the tab's outbox hold an entry for `forUser` in `slug`? False when it can't be read. */
+export function inOutbox(storage: OutboxStorage | null, forUser: string, slug: string): boolean {
+  try {
+    return storage?.getItem(outboxKey(forUser, slug)) != null;
+  } catch {
+    return false;
+  }
 }
 
 /** Forgets what waits for `forUser` in `slug`: the server has it, or the learner changed it since. */
