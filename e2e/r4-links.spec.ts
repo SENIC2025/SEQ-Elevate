@@ -570,12 +570,16 @@ describe("Release 4 — links in lesson text", () => {
     await page.keyboard.type("help@verein.de");
     await page.keyboard.press("Enter");
     await expect(form).toHaveCount(0);
+    // Applying puts the cursor back in the text, right after the link, a frame later.
+    await expect(textbox).toBeFocused();
     await expect(textbox.locator("a")).toHaveAttribute("href", "mailto:help@verein.de");
 
     // No selection: focus goes to the text to show; a bare host is completed.
     await page.keyboard.press(TEXT_END);
     await page.keyboard.type(" See ");
+    await expect(textbox).toContainText("or read more. See");
     await page.keyboard.press("ControlOrMeta+k");
+    await expect(form).toBeVisible();
     await expect(text).toBeFocused();
     await page.keyboard.type("the bpb");
     await address.fill("www.bpb.de");
