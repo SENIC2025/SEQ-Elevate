@@ -38,6 +38,7 @@ import type {
   StoredAnswer,
 } from "@/lib/learner-progress/contract";
 import { completeLesson, withAnswer } from "@/lib/learner-progress/answers";
+import { BEACON_PATH } from "@/lib/learner-progress/beacon";
 import { EMPTY_PROGRESS, applyPatch, patchSince } from "@/lib/learner-progress/patch";
 import {
   courseAfterLoad,
@@ -49,7 +50,7 @@ import {
 } from "./progress-merge";
 import { guestClaimOf, guestWorkOf, storeAfterClaim, withText, type GuestWork } from "./guest-migration";
 import { cardAfterReread, guestCardOrBadgesChanged, saveCard, savedCardOf, type SavedCard } from "./card-save";
-import { courseChanged, courseLoaded, courseSaveRefs, pageHidden, saveCourse } from "./course-save";
+import { courseChanged, courseLoaded, courseSaveRefs, pageHidden, progressBeacons, saveCourse } from "./course-save";
 import { clearEveryOutbox, restoreOutbox } from "./outbox";
 import { pendingSave } from "./pending-save";
 import { RETRY_DELAYS_MS, wait, withRetry } from "./retry";
@@ -205,6 +206,25 @@ export const DEFAULT_STATE: DemoState = {
   },
   refusedKeys: {},
 };
+
+/**
+ * POST /api/progress/beacon with fetch(keepalive): the browser finishes it
+ * after the page has gone (D37 as built; course-save.ts progressBeacons).
+ * Nothing waits for its answer, and it never throws.
+ */
+function sendBeacon(body: string): void {
+  try {
+    void fetch(BEACON_PATH, {
+      method: "POST",
+      keepalive: true,
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body,
+    }).catch(() => undefined);
+  } catch {
+    /* the page is going: nothing more can be done */
+  }
+}
 
 /** This tab's sessionStorage, for the outbox; null where the browser has none or blocks it. */
 function tabStorage(): Storage | null {
@@ -1424,11 +1444,14 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
   // tab and load it again. So what the page has of a course that the
   // server hasn't confirmed, while a save of it is on its way or failed,
   // goes to the tab's outbox, and the page that loads the course next
-  // brings it back (course-save.ts pageHidden). Signing out from this page,
+  // brings it back (course-save.ts pageHidden). A page that is left
+  // (pagehide) also sends that outside Next's queue, with fetch(keepalive),
+  // which the browser finishes after the page has gone (progressBeacons;
+  // POST /api/progress/beacon, D37 as built). Signing out from this page,
   // the saves were sent first (sign-out.ts), and the page that goes keeps
   // nothing of the learner in the tab (D68).
   React.useEffect(() => {
-    const sendWaiting = () => {
+    const sendWaiting = (left: boolean) => {
       if (signingOutRef.current) {
         clearEveryOutbox(tabStorage());
         return;
@@ -1436,16 +1459,19 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
       courseSave.flush();
       cardSave.flush();
       const forUser = dbOwnerRef.current;
-      if (forUser) pageHidden(progressRefs.current, forUser, tabStorage());
+      if (!forUser) return;
+      pageHidden(progressRefs.current, forUser, tabStorage());
+      if (left) for (const body of progressBeacons(progressRefs.current, forUser)) sendBeacon(body);
     };
     const onVisibility = () => {
-      if (document.visibilityState === "hidden") sendWaiting();
+      if (document.visibilityState === "hidden") sendWaiting(false);
     };
+    const onPageHide = () => sendWaiting(true);
     document.addEventListener("visibilitychange", onVisibility);
-    window.addEventListener("pagehide", sendWaiting);
+    window.addEventListener("pagehide", onPageHide);
     return () => {
       document.removeEventListener("visibilitychange", onVisibility);
-      window.removeEventListener("pagehide", sendWaiting);
+      window.removeEventListener("pagehide", onPageHide);
     };
   }, [courseSave, cardSave]);
 
