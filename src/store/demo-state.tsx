@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { getSession, useSession } from "next-auth/react";
+import { getSession, signOut as endSession, useSession } from "next-auth/react";
 import { usePathname, useRouter } from "next/navigation";
 import { useLocale } from "next-intl";
 import {
@@ -53,6 +53,7 @@ import { courseChanged, courseLoaded, courseSaveRefs, pageHidden, saveCourse } f
 import { clearEveryOutbox, restoreOutbox } from "./outbox";
 import { pendingSave } from "./pending-save";
 import { RETRY_DELAYS_MS, wait, withRetry } from "./retry";
+import { signOutAfterSaves } from "./sign-out";
 import { isRefusedAward } from "@/lib/badge-award";
 import {
   SESSION_RECHECK_MS,
@@ -723,6 +724,13 @@ interface ContextValue {
    * to reload (GuestWorkPrompt).
    */
   guestStoreChanged: boolean;
+  /**
+   * The header's Sign out (D68, sign-out.ts): every course and Comp Card
+   * save still waiting is sent and waited for, with the save on its way,
+   * up to 3 s; then the session ends and the page goes, and nothing of the
+   * learner stays in the tab's outbox. True when no save was left.
+   */
+  signOut: () => Promise<boolean>;
 }
 
 const DemoStateContext = React.createContext<ContextValue | null>(null);
@@ -844,6 +852,9 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
   React.useEffect(() => {
     cardShown.current = state.compCard;
   }, [state.compCard]);
+  // Signing out from this page (sign-out.ts): once the saves are in, or the
+  // wait ran out, the page keeps nothing of the learner in the tab.
+  const signingOutRef = React.useRef(false);
   // next-auth's "read the session again, and tell the other tabs", for the
   // identity effect below: the latest one, without re-running it.
   const updateSession = React.useRef(update);
@@ -1295,7 +1306,9 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
           staleBuild: () => setStaleBuild(true),
           outbox: tabStorage(),
           again: () => courseSave.schedule(save, slug),
-          current: () => refs === progressRefs.current,
+          // Not once signing out has gone ahead: an answer then keeps
+          // nothing in the tab, and moves nothing on.
+          current: () => refs === progressRefs.current && !signingOutRef.current,
         });
       return save;
     },
@@ -1411,9 +1424,15 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
   // tab and load it again. So what the page has of a course that the
   // server hasn't confirmed, while a save of it is on its way or failed,
   // goes to the tab's outbox, and the page that loads the course next
-  // brings it back (course-save.ts pageHidden).
+  // brings it back (course-save.ts pageHidden). Signing out from this page,
+  // the saves were sent first (sign-out.ts), and the page that goes keeps
+  // nothing of the learner in the tab (D68).
   React.useEffect(() => {
     const sendWaiting = () => {
+      if (signingOutRef.current) {
+        clearEveryOutbox(tabStorage());
+        return;
+      }
       courseSave.flush();
       cardSave.flush();
       const forUser = dbOwnerRef.current;
@@ -1663,6 +1682,17 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
     return false;
   }, []);
 
+  const signOut = React.useCallback(
+    () =>
+      signOutAfterSaves({
+        saves: [courseSave, cardSave],
+        signingOut: (on) => void (signingOutRef.current = on),
+        outbox: tabStorage(),
+        signOut: () => endSession({ callbackUrl: "/" }),
+      }),
+    [courseSave, cardSave]
+  );
+
   // A signed-in learner's course once loaded and merged; a guest's as soon
   // as the guest store has been read (it holds their one course, D69), also
   // on a guest's page kept the guest's (guestPinned).
@@ -1690,6 +1720,7 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
       accountLoaded: dbReady,
       signedInElsewhere: guestPinned,
       guestStoreChanged: guestStopped,
+      signOut,
     }),
     [
       state,
@@ -1706,6 +1737,7 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
       dbReady,
       guestPinned,
       guestStopped,
+      signOut,
     ]
   );
 
@@ -1785,6 +1817,12 @@ export function LearnerView({
   return <React.Fragment key={generation}>{children}</React.Fragment>;
 }
 
+/** A preview saves nothing: signing out from it goes ahead at once. */
+async function signOutNow(): Promise<boolean> {
+  await endSession({ callbackUrl: "/" });
+  return true;
+}
+
 /** A preview's store: no profile, no guest store, nothing shared or saved. */
 const NOTHING_SAVED = {
   profileIncomplete: false,
@@ -1814,7 +1852,7 @@ export function PreviewStateProvider({
 }) {
   const [state, dispatch] = React.useReducer(reducer, DEFAULT_STATE);
   const value = React.useMemo(
-    () => ({ state, dispatch, readyCourse: true as const, staleBuild: false, ...NOTHING_SAVED }),
+    () => ({ state, dispatch, readyCourse: true as const, staleBuild: false, ...NOTHING_SAVED, signOut: signOutNow }),
     [state]
   );
   return (
