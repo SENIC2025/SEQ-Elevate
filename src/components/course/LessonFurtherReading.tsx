@@ -7,7 +7,7 @@ import { QuickLink } from "@/components/rich-text/QuickLink";
 import { itemLanguageMark, linkPlace } from "@/lib/cms/lesson-links";
 import type { LessonLinkRef } from "@/lib/cms/reading-types";
 import type { Locale } from "@/lib/cms/types";
-import { linkSite, textIsSite } from "@/lib/rich-text/link-site";
+import { linkSite, linkWords, textIsSite } from "@/lib/rich-text/link-site";
 import { useContentLang } from "./CourseText";
 
 /**
@@ -27,7 +27,9 @@ import { useContentLang } from "./CourseText";
  * link, by a ", " only screen readers hear and the site in a box
  * (link-site.ts; the look is globals.css's, as in lesson text), so the link
  * is heard as "title, site (opens in a new tab)". The box is left out only
- * when the whole title is the link's address (textIsSite). The site is the
+ * when the whole title is the link's address (textIsSite). The title is
+ * drawn with each run of blank characters as one space (linkWords), so no
+ * blank pushes the box away from its words. The site is the
  * one D104 compares (the registrable domain, in punycode for an
  * international name), never a host that begins with another site's name,
  * and the box is the one place a web link's site is shown.
@@ -68,7 +70,7 @@ export function LessonFurtherReading({ links }: { links?: readonly LessonLinkRef
               <p className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
                 <QuickLink href={link.url}>
                   <span lang={lang} className="font-medium">
-                    {link.title}
+                    {linkWords([link.title])[0]}
                   </span>
                   {site !== null && !textIsSite(link.title, link.url) ? (
                     <>
