@@ -1478,19 +1478,19 @@ describe("progress kept when the session is lost, changes hands or the course ch
       },
     });
     await signIn(context, emails.readFailsStale);
-    // Once loaded, the Comp Card is saved back as it came; once that's in…
-    const savedBack = page.waitForResponse(
-      (r) =>
-        r.request().method() === "POST" &&
-        (r.request().postData() ?? "").startsWith(
-          '[{"wentWell":"Draft from Monday"'
-        )
-    );
+    // Every Comp Card save this tab sends (its first argument is the card's fields).
+    const cardSaves: string[] = [];
+    page.on("request", (r) => {
+      const body = r.postData() ?? "";
+      if (r.method() === "POST" && /^\[\{"(wentWell|difficult|improve|behaviour|confidence)"/.test(body)) cardSaves.push(body);
+    });
     await page.goto("/en/learner/comp-card");
     await expect(compCardField(page, "Even small wins count.")).toHaveValue(
       "Draft from Monday"
     );
-    await savedBack;
+    // Once loaded, the Comp Card isn't saved back: nothing was changed here (D80).
+    await page.waitForTimeout(2000); // past the save debounce
+    expect(cardSaves).toEqual([]);
     const signOut = page.getByRole("button", { name: "Sign out" });
     await expect(signOut).toBeVisible();
 
@@ -1514,6 +1514,7 @@ describe("progress kept when the session is lost, changes hands or the course ch
         select: { wentWell: true },
       })
     ).toEqual({ wentWell: "Final, from the phone" });
+    expect(cardSaves, "this tab's copy was never sent").toEqual([]);
   });
 
   test("a save still failing when the learner leaves the course and comes back isn't replaced by the save of the course loaded again", async ({
