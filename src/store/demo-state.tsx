@@ -1334,7 +1334,10 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
   // sees it alone (updatedAt and the texts as they were) isn't an edit, and
   // sends nothing. A save confirmed while the card still differs from what
   // the server is then known to hold — an answer changed back while it was
-  // on its way — is followed by another, of the card as it is then.
+  // on its way — is followed by another, of the card as it is then; so is a
+  // save that fails once the card has changed since it was sent (its own
+  // retry would be skipped for the newer save, which may have found nothing
+  // to send), tried again as any save is.
   const saveCardFor = React.useCallback(
     (card: CompCardData, forUser: string) => {
       const save = (c: CompCardData): Promise<void> =>
