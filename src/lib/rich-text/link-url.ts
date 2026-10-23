@@ -17,7 +17,9 @@ import { MAX_HOST_CHARS, MAX_LABEL_CHARS, beyondDns, hostAfterUser, hostReadAlik
  *   every character between its full stops counted (beyondDns), is refused
  *   before the address is parsed; or
  * - an email address, `mailto:` followed by the address and, at most, a
- *   `subject` (with no "&", "?" or "#" in it);
+ *   `subject` (with no "&", "?" or "#" in it); its domain one DNS can hold
+ *   as typed, every character counted (beyondDns), as a web host's before
+ *   it is parsed;
  * - at most MAX_HREF_CHARS characters, before and after it is normalised;
  * - free of whitespace inside, control characters, invisible direction and
  *   zero-width marks, a byte-order mark and unpaired surrogates;
@@ -191,6 +193,9 @@ function web(typed: string, opts?: { ownFileHost?: string | null }): LinkCheck {
 function email(rest: string): LinkCheck {
   const q = rest.indexOf("?");
   const address = q < 0 ? rest : rest.slice(0, q);
+  // A domain DNS can't hold is none, and costs its length times its
+  // characters in punycode wherever it is shown (the site's box).
+  if (beyondDns(address.slice(address.lastIndexOf("@") + 1))) return refuse("email");
   if (!isEmailAddress(address)) return refuse("email");
   if (q >= 0) {
     // Only a subject: a link must not copy a learner's message to someone
