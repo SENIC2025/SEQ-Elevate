@@ -1039,6 +1039,106 @@ On `r3` after the claim's review above. Nothing pushed (D100).
   - `db-backed-progress` on one worker: **57/57**;
   - the server logged only the known kinds: 19 "No signed-in learner", 4 "No signed-in user", 2 `AccessDenied`, 2 `transformAlgorithm`, 1 `SessionTokenError`, 1 `P2003` (`Membership_userId_fkey`, a row written after a test's clean-up), and the `BLOB_PUBLIC_HOST` notice.
 
+### Release 3 — the verification's follow-ups: a Comp Card save whose answer is lost is followed by another, a "[" in a quick link's host is read as the URL parser reads it, the clean-up's focus on any device (2026-10-23)
+On `r3` after the claim's verification above. Nothing pushed (D100).
+- `[FIX]` `736f994` (D80 as built) **A Comp Card save that fails once the page has changed since it was sent is followed by another**, if the page still differs from what the server is then known to hold (`saveCard` in `src/store/card-save.ts`). Its own retry is skipped for the newer save (`pending-save.ts`), which may have been worked out while the server was still known to hold what it sent, and found nothing to send (an answer changed back). The save that follows sends the field whose save wasn't confirmed. Failing, it is tried again as any save is (1 s, 2 s, 4 s, 8 s), then left until the next change, never sent every 700 ms. A page still as the failed save sent it tries that save again, and nothing follows once the learner's data was let go of.
+- `[FIX]` `cb20cac` (D55) **Quick links: a "[" anywhere in a web address's host opens "[…]"**, and a "]" closes it, as for the URL parser (`webHost` in `src/lib/rich-text/linkify.ts`). The port starts at the first colon outside the brackets, so a host the parser reads whole is measured whole against DNS's limits (`hostFits`) before it is parsed. `scripts/linkify-cost.ts` measures such hosts against the budget too.
+- `[FIX]` `d197eee` (WCAG 2.4.3, as F-E2) **/admin/data: the clean-up's dry run and run move the focus to what they show once it is on the screen** (`Cleanup` in `DataTools.tsx`). The focus moves from an effect after the render that shows it, never from a frame scheduled before that render.
+- `[DOCS]` D80's 23 October line: a save follows on its own once a save fails, when the page has changed since that save was sent.
+- `[TEST]` Each change's tests ran red first, on d6a39cf:
+  - `r3-comp-card` B-E8 (saves, the answer lost: the change's save held, written by the server, its answer turned into a dropped connection) on the d6a39cf build: red 2 of 2, the page showing the first answer and the account holding the change;
+  - `card-save.test.ts`: red 3 of the 6 new tests ("called 0 times"; sent only `[{"wentWell":"Y"}]`); green, their guards (the answer confirmed, a newer change still waiting, a page as sent, data let go of);
+  - the `linkify.test.ts` test of a host behind "x[:]" or "b[1:2]": red, 135.6 ms against 0.40 ms (335 times ordinary text);
+  - `r3-data-last` D-E6, the dry run and the run with Chrome's CPU throttling at 20×, on the d6a39cf build: red 4 of 4 at the dry run's focus. With both checks soft, red 3 of 3: the dry run's focus 2 of 3, the run's 2 of 3.
+- `[VERIFY]` What is linked, d6a39cf and after, all alike:
+  - c611bd1's 31 linkify tests pass on both, and their 109 `findLinks` and 6 `linkifyInline` inputs give the same links;
+  - 153,684 texts of ordinary writing (every line and every file of the repository at c611bd1, the en/de/el messages, Release 4's link corpora) show no difference;
+  - so do 19 texts of real addresses near the limits and of brackets in a path, query, fragment, user name, IPv6 address or host.
+- `[VERIFY]` On the local Postgres `seq_r3`:
+  - tsc ✓ eslint ✓ **4,973 unit** ✓ (216 files, one skipped; 4 tests skipped: the `r3-check` database tests). Each commit on its own, with tsc, eslint and unit ✓: `d197eee` 4,966, `cb20cac` 4,967, `736f994` 4,973;
+  - production build ✓ (through the build lock), no warnings;
+  - **full E2E 928 passed, 2 skipped** (F-E1a and F-E1b, by design) in 9.0 min on two workers, exit 0. By project: chromium 915, cutoff 3, switches 5, last 5;
+  - affected specs `r3-comp-card` (10), `r0-links`, `rich-text-learner` and `r3-data`: **37/37**; `r3-data-last`: **4/4**;
+  - with eight CPU-bound processes: both B-E8 (saves) tests ×5 **10/10**, and the clean-up's slow-device test ×5 on one worker **5/5**;
+  - the verifier's four V3 attacks (lost, three values, rapid, two tabs): **4/4**;
+  - `db-backed-progress` on one worker: **57/57**;
+  - `linkify-cost.ts`: every block within the budget (the hosts behind "x[:]" 1.42 and 1.36 ms per 10,000 characters);
+  - the server logged only the known kinds: 22 "No signed-in learner", 5 "No signed-in user", 3 `transformAlgorithm`, 2 `AccessDenied`, and the `BLOB_PUBLIC_HOST` notice.
+
+### Release 2 — a course answer changed back while its save is on its way is saved (2026-10-23)
+On `r2` after `983be2d`. Nothing pushed (D100).
+- `[FIX]` `da3472b` (D62 as built) **What a course save sends isn't known on the server until that save is confirmed** (`src/store/course-save.ts`; `patchSince`'s `unsure` in `src/lib/learner-progress/patch.ts`): it may still be written while it is on its way, and one that fails (a dropped connection) may have been. An answer a save on its way carries that the page has changed since, and an answer whose save failed until a save of it is confirmed or the course loads again (`courseLoaded`), is sent as the page has it. An answer changed back to what the server was known to hold gets a save of its own: the reflection, the practice, the quick check and the self-assessment alike. A save that fails once the page has changed since it was worked out is followed by another if something is left; failing with the page unchanged, it is tried again (1 s, 2 s, 4 s, 8 s) and then left until the next change, never sent every 700 ms. Once a save is confirmed, another follows only for what no save on its way carries. A save that finds a newer build wrote nothing.
+- `[FIX]` `da3472b` (D68 as built) **The outbox keeps, beside an answer whose save failed, what the server holds if it was written** (`alt` in `src/store/outbox.ts`; `restorablePatch`'s `ifWritten`), and brings the answer back over either, never over an answer saved elsewhere.
+- `[FIX]` `da3472b` (D62) **A refused answer that comes back unchanged isn't sent again, and the learner is told again**, on every save that leaves it out.
+- `[DOCS]` D62's 23 October line.
+- `[TEST]` Each change's tests ran red first, on 983be2d:
+  - `course-save.test.ts` (the committed file against 983be2d's code, the course load as `demo-state.tsx` did it there): 19 of the 26 new tests red — the account ending with the change while the page shows the answer before it (reflection, practice, self-assessment, quick check; a newer save after the change back; the connection gone for every try), the reloaded or reopened page showing the change, the outbox not bringing the answer back, the learner not told again. Green there, their 7 guards: a slow answer (twice), a lesson finished, a newer build, data let go of, the course loaded again, saves slower than the pause. `patch.test.ts` 2 of 2 and `outbox.test.ts` 1 of 1 new tests red;
+  - `e2e/r2-course-save.spec.ts` on the 983be2d build: CS-E1, CS-E3 and CS-E4 red (the account held "changed …" while the page showed "before …"; the practice `shrink` while the page showed `iStatement`; the reloaded page showed "changed …"); CS-E2, a slow answer, green.
+- `[VERIFY]` On the local Postgres `seq_r2i_v3`:
+  - tsc ✓ eslint ✓ **3,744 unit** ✓ (156 files);
+  - production build ✓ (through the build lock), no warnings;
+  - **full E2E 272/272** in 5.6 min on two workers, exit 0 (chromium 269, cutoff 3);
+  - `r2-course-save` three times: **12/12**;
+  - `db-backed-progress` on one worker: **57/57**;
+  - Release 2's recorded walk on one worker: **7/7**;
+  - the server logged only the known kinds: 13 "No signed-in learner", 3 "No signed-in user", 2 refused sign-ins (`AccessDenied`), and the `output: standalone` warning.
+
+### Release 3 — Release 2's course save rule merged; a "[" in a quick link's host but at its start isn't an address (2026-10-23)
+On `r3` after the verification's follow-ups above. Nothing pushed (D100).
+- `[MERGE]` `152e7bb` `r2` at `491e5a5` (Release 2's entry above, `da3472b`: what a course save sends isn't known on the server until that save is confirmed; the outbox keeps what the server holds if a failed save was written; a refused answer coming back unchanged is told again). Conflicts in `src/store/demo-state.tsx`, where the course's load calls `courseLoaded` and keeps Release 3's read again after guest work moved into the course (`courseReread`, its base taken before the load) and Release 3's imports; and in `BUILDLOG.md`, Release 2's entry after Release 3's of the same day. `card-save.ts` and the claim are unchanged.
+- `[FIX]` `ac2656a` (D55) **Quick links: a "[" anywhere in a web address's host but at its first character means the text isn't a web address** (`webHost` in `src/lib/rich-text/linkify.ts`), its port included. The URL parser refuses every such host, and reads on from a "[" to the next "]" (or the end) past a "/", "?" or "\" that would otherwise end the host, so such a host is never parsed. A host that starts with "[" is measured as the URL parser reads it, up to the next "]" (or the end, or a fragment) whatever "/", "?" or "\" it holds, with its port after that "]" (`hostFits`). One rule for every place a "[" can stand in a host. `scripts/linkify-cost.ts` measures hosts behind "x[?", "x[/", "x[\", "x[?:]", "x[\:]", "x[?]", "a[?@", "u]@x[?", "a@x[/", "[/", "[?" and "[\" against the budget too.
+- `[DOCS]` D71: `r2` merged into `r3` again at `491e5a5`.
+- `[TEST]` Each change's tests ran red first:
+  - the merge: Release 2's entry above, red on 983be2d; `course-save.ts`, `patch.ts`, `outbox.ts` and `pending-save.ts` are the same at 5b4dfdd as at 983be2d, and on r3 all of Release 2's new tests pass (`r2-course-save` 4/4 on the r3 build);
+  - quick links, on 152e7bb: the new `linkify.test.ts` ratio test red (text 0: 135.39 ms against 0.41 ms, 328 times); `linkify-cost.ts` 9 blocks over the budget, the nine forms behind "x[" or "a[" (135.6–141.0 ms per 10,000 characters), the three behind "[" within it.
+- `[VERIFY]` What is linked, 152e7bb and after, all alike:
+  - c611bd1's 31 linkify tests pass on both, and their 109 `findLinks` and 6 `linkifyInline` inputs give the same links;
+  - 153,684 texts of ordinary writing (every line and every file of the repository at c611bd1, the en/de/el messages, Release 4's link corpora) show no difference;
+  - so do the 19 texts of real addresses near the limits and of brackets in a path, query, fragment, user name, IPv6 address or host;
+  - 43 bracket, at-sign, backslash and percent forms: all within the budget (2 over on 152e7bb).
+- `[VERIFY]` On the local Postgres `seq_r3`:
+  - tsc ✓ eslint ✓ **5,003 unit** ✓ (216 files, one skipped; 4 tests skipped: the `r3-check` database tests). Each commit on its own, with tsc, eslint and unit ✓: `152e7bb` 5,002, `ac2656a` 5,003;
+  - production build ✓ (through the build lock), no warnings;
+  - **full E2E 932 passed, 2 skipped** (F-E1a and F-E1b, by design) in 8.9 min on two workers, exit 0. By project: chromium 919, cutoff 3, switches 5, last 5;
+  - affected specs `r2-course-save`, `r2-progress-safety`, `r2-player`, `r3-comp-card`, `r3-guest-claim`, `r3-guest-tab`, `r0-links` and `rich-text-learner`: **71/71**;
+  - `db-backed-progress` on one worker: **57/57**;
+  - Release 2's recorded walk with R3-D1 and R3-D2: **7/7**; `r3-scoping` **9/9**; `r3-actions` **497/497**;
+  - `linkify-cost.ts`: every block within the budget (the hosts behind "x[" and "[" 1.27–1.38 ms per 10,000 characters);
+  - the server logged only the known kinds: 20 "No signed-in learner", 6 "No signed-in user", 2 `transformAlgorithm`, 2 `AccessDenied`, the `BLOB_PUBLIC_HOST` notice and the `output: standalone` warning.
+
+### Release 2 — a page hidden or left keeps what a course save on its way hasn't confirmed (2026-10-23)
+On `r2` after `491e5a5`. Nothing pushed (D100).
+- `[FIX]` `ec2f0ae` (D68 as built) **A page hidden or left with a course save on its way, or one that failed, keeps what the server hasn't confirmed in the tab's outbox** (`pageHidden` in `src/store/course-save.ts`, on `pagehide` and on `visibilitychange` to hidden in `src/store/demo-state.tsx`, once the waiting saves are sent). Next sends a page's server actions one at a time: a save handed over while another is on its way waits behind it. Every answer a save on its way carries counts as not confirmed, and beside what the server held the entry keeps what those saves leave as they are written in turn. The page that loads the course next — after a reload, or after a phone discards the hidden tab — brings the answer back over any of them. Synchronous, `sessionStorage` only.
+- `[FIX]` `ec2f0ae` (D68 as built) **The outbox keeps beside an answer every value a save not confirmed may have left**, each once, at most eight (`alt` as a list, `OUTBOX_ALT_MAX`; `restorablePatch`'s `ifWritten`); the store keeps what each failed save would leave apart (the first seven and the newest), so after two lost saves of one answer, then a newer build, the answer comes back whichever was written. An entry kept with one value reads as before.
+- `[FIX]` `ec2f0ae` **While the outbox holds an entry for a course, it follows what is confirmed**: written again after each confirmed save, each save that finds nothing to send and each change that leaves nothing new; cleared once nothing the server would take is left and no save is on its way.
+- `[DOCS]` D68's 23 October line.
+- `[TEST]` Red first, on 491e5a5:
+  - `course-save.test.ts`, its page harness now sending saves one at a time as Next sends server actions, and a reload or a discarded tab being the page going (the save on its way written or not, its answer reaching no page; those waiting behind it never leave); with `outbox.test.ts`, against 491e5a5's code with its pagehide (the flush only): 15 of the 79 tests red — the reloaded or reloaded-after-discard page showing the change, not the answer the learner left (4, the test that passed there only because its harness sent saves at once among them); nothing kept while saves were on their way (3); nothing brought back over the value the first of two lost saves wrote; one value kept beside an answer (4); an entry not following what is confirmed (2); the course opened again without the answer whose save kept failing after the page was hidden (1). Green there, their 5 guards: the change's save not written; its answer lost before the reload; no save on its way; nothing kept for a course with none; an entry with one value. Without the rule that an entry follows what is confirmed, its test is red: the course opened again brings the answer before back over the one given again and confirmed;
+  - `e2e/r2-course-save.spec.ts` on the 491e5a5 build: CS-E5 and CS-E6 red (the page loaded again showed "changed …"), with only the held save leaving the page before the reload; CS-E7, a guard, green.
+- `[VERIFY]` On the local Postgres `seq_r2i_v3`:
+  - tsc ✓ eslint ✓ **3,760 unit** ✓ (156 files);
+  - production build ✓ (through the build lock), no warnings;
+  - `r2-course-save` **7/7**; the course-save verification scenarios V-1 to V-8 **9/9** (V-1: the reloaded page and the account hold the answer the learner left); progress safety, player, resume and finishing at once **33/33**;
+  - **full E2E 275/275** in 5.6 min on two workers, exit 0 (chromium 272, cutoff 3);
+  - `db-backed-progress` on one worker: **57/57**;
+  - Release 2's recorded walk on one worker: **7/7**;
+  - the server logged the known kinds: 10 "No signed-in learner", 3 "No signed-in user", 2 refused sign-ins (`AccessDenied`), one audit write for a staff account another test had removed (`AuditLog_actorId_fkey`, as in earlier runs), and the `output: standalone` warning.
+- `[NOTE]` Known limits (course saves): the page loaded again brings an answer back over what the server held when it loaded the course, so a save the page before sent as it went, written only after that load, stays on the server; more than eight saves of one answer that aren't confirmed before the page goes or finds a newer build leave the answer coming back over the first seven and the newest only; a browser that blocks `sessionStorage`, or a page that goes without `pagehide` or a hidden `visibilitychange` (a crash), keeps nothing.
+
+### Release 3 — Release 2's rule for a page hidden or left with a course save on its way, merged (2026-10-23)
+On `r3` after `1a876a2`. Nothing pushed (D100).
+- `[MERGE]` `a630a94` `r2` at `828e647` (Release 2's entry above, `ec2f0ae`: a page hidden or left with a course save on its way, or one that failed, keeps what the server hasn't confirmed in the tab's outbox, beside each value a save not confirmed may have left; an entry follows what is confirmed). Conflicts: `src/store/demo-state.tsx`, Release 3's imports with `pageHidden`; the build log. Release 3's read again after guest work moved into a course (`courseReread`) is kept as it was.
+- `[DOCS]` D71: `r2` merged into `r3` again at `828e647`.
+- `[TEST]` Release 2's entry above, red on 491e5a5. `course-save.ts`, `patch.ts`, `outbox.ts` and their tests were the same on `r3` at `1a876a2` as on `r2` at `491e5a5`; on `r3` all of the new tests pass.
+- `[VERIFY]` On the local Postgres `seq_r3`:
+  - tsc ✓ eslint ✓ **5,019 unit** ✓ (216 files, one skipped; 4 tests skipped: the `r3-check` database tests);
+  - production build ✓ (through the build lock), no warnings;
+  - affected specs `r2-course-save`, `r2-progress-safety`, `r2-player`, `r2-resume`, `r3-comp-card`, `r3-guest-claim` and `r3-guest-tab`: **73/73**; the course-save verification scenarios V-1 to V-8: **9/9**;
+  - **full E2E 935 passed, 2 skipped** (F-E1a and F-E1b, by design) in 8.2 min on two workers, exit 0. By project: chromium 922, cutoff 3, switches 5, last 5;
+  - `db-backed-progress` on one worker: **57/57**;
+  - Release 2's recorded walk with R3-D1 and R3-D2 on one worker: **7/7**; `r3-scoping` **9/9**; `r3-actions` **497/497**;
+  - the server logged only the known kinds: 21 "No signed-in learner", 6 "No signed-in user", 2 `transformAlgorithm`, 2 `AccessDenied`, the `BLOB_PUBLIC_HOST` notice and the `output: standalone` warning.
+
 ### Release 4 — links and references (started 2026-10-22)
 Release 4 of the plan answering the consortium's change requests, built from its spec of 21 October (deploy planned for Thu 26 November 2026): named links in lesson text, and links kept when pasting from Word and Google Docs (Part A); further-reading links next to a lesson's documents, a language for each document or link, and a references & bibliography list per course (Part B). Built on three local branches taken from `r3`, each one a part as it would ship: `r4` (the shared commit, then Part A), `r4b` (from the shared commit: Part B) and `r4r` (from `r4b`: the references screens), merged into one another only at the checkpoints; none is pushed before the deploy merge (D100, D102). First step: the Foundation-light, the contracts both parts code against.
 - `[DECISION]` D102: the early start was confirmed by the owner on 21 October 2026; Release 3's integrator acknowledges it (no change asked of Release 3).

@@ -83,6 +83,12 @@ describe("findLinks — web addresses", () => {
     expect(linked("https://example.org/a[1]")).toEqual([
       "https://example.org/a[1]",
     ]);
+    // In a path, query or fragment, a "[" isn't in the host.
+    expect(linked("https://example.org/?a[]=1&b[x]=2 and https://example.org/#[x] and https://example.org\\a[1]")).toEqual([
+      "https://example.org/?a[]=1&b[x]=2",
+      "https://example.org/#[x]",
+      "https://example.org\\a[1]",
+    ]);
   });
 
   it("ends an address at a space, line break, quote or angle bracket", () => {
@@ -324,37 +330,31 @@ describe("findLinks — performance", () => {
     expect(performance.now() - started).toBeLessThan(500);
   });
 
-  it("costs no more for a host past DNS's limits than for ordinary text of the same length", () => {
-    // Ordinary lesson text: many short paragraphs with addresses, 10,000 characters in all.
-    const paragraphs = [
-      "Read more at https://www.bpb.de/themen/ or write to help@example.org before Friday.",
-      "Μάθε περισσότερα στο https://παράδειγμα.ελ/σελίδα και γράψε στο info@example.gr.",
-      "Mehr dazu unter https://www.bundesregierung.de/breg-de/themen (Stand: 2026).",
-      "Pause before you answer. Ask why: who benefits, and who is left out?",
-      "See (https://en.wikipedia.org/wiki/Social_enterprise) and mailto:team@example.org?subject=Hi.",
-    ];
-    const ordinary: string[] = [];
-    for (let length = 0, i = 0; length < 10_000; i++) {
-      ordinary.push(paragraphs[i % paragraphs.length]);
-      length += paragraphs[i % paragraphs.length].length;
-    }
-    // One block at the text limit each: a host of thousands of different
-    // letters, which the URL parser would convert at a cost growing with the
-    // square of its length.
-    const letters = (from: number, n: number) => Array.from({ length: n }, (_, i) => String.fromCodePoint(from + i)).join("");
-    const hostile = [
-      `https://${letters(0x4e00, 9_980)}.com`,
-      Array.from({ length: 4 }, (_, k) => `https://${letters(0x4e00 + k * 2_490, 2_490)}.com`).join(" "),
-      `https://www.example.org.${letters(0xac00, 9_960)}/`,
-      `mailto:help@${letters(0x4e00, 9_970)}.com`,
-      `help@${letters(0x4e00, 9_980)}.com`,
-    ];
-    const timed = (texts: readonly string[]) => {
-      const started = performance.now();
-      for (const text of texts) findLinks(text);
-      return performance.now() - started;
-    };
-    // The best of several rounds, taken in turn, so a busy machine slows both alike.
+  // Ordinary lesson text: many short paragraphs with addresses, 10,000 characters in all.
+  const paragraphs = [
+    "Read more at https://www.bpb.de/themen/ or write to help@example.org before Friday.",
+    "Μάθε περισσότερα στο https://παράδειγμα.ελ/σελίδα και γράψε στο info@example.gr.",
+    "Mehr dazu unter https://www.bundesregierung.de/breg-de/themen (Stand: 2026).",
+    "Pause before you answer. Ask why: who benefits, and who is left out?",
+    "See (https://en.wikipedia.org/wiki/Social_enterprise) and mailto:team@example.org?subject=Hi.",
+  ];
+  const ordinary: string[] = [];
+  for (let length = 0, i = 0; length < 10_000; i++) {
+    ordinary.push(paragraphs[i % paragraphs.length]);
+    length += paragraphs[i % paragraphs.length].length;
+  }
+  const letters = (from: number, n: number) => Array.from({ length: n }, (_, i) => String.fromCodePoint(from + i)).join("");
+  const timed = (texts: readonly string[]) => {
+    const started = performance.now();
+    for (const text of texts) findLinks(text);
+    return performance.now() - started;
+  };
+  /**
+   * Each of `hostile` costs less than 15 times ordinary text of the same
+   * length: the best of several rounds, taken in turn, so a busy machine
+   * slows both alike.
+   */
+  function costsAsOrdinary(hostile: readonly string[]) {
     let best = Infinity;
     const worst = hostile.map(() => Infinity);
     for (let round = 0; round < 9; round++) {
@@ -364,6 +364,42 @@ describe("findLinks — performance", () => {
     for (const [i, ms] of worst.entries()) {
       expect(ms / best, `text ${i}: ${ms.toFixed(2)} ms against ${best.toFixed(2)} ms`).toBeLessThan(15);
     }
+  }
+
+  it("costs no more for a host past DNS's limits than for ordinary text of the same length", () => {
+    // One block at the text limit each: a host of thousands of different
+    // letters, which the URL parser would convert at a cost growing with the
+    // square of its length.
+    costsAsOrdinary([
+      `https://${letters(0x4e00, 9_980)}.com`,
+      Array.from({ length: 4 }, (_, k) => `https://${letters(0x4e00 + k * 2_490, 2_490)}.com`).join(" "),
+      `https://www.example.org.${letters(0xac00, 9_960)}/`,
+      `mailto:help@${letters(0x4e00, 9_970)}.com`,
+      `help@${letters(0x4e00, 9_980)}.com`,
+    ]);
+  });
+
+  it("reads a host with a '[' in it as the URL parser does: a ':' inside '[…]' doesn't end it, so a long one costs no more", () => {
+    // For the URL parser a "[" anywhere in the host opens "[…]", and a ":"
+    // inside doesn't start the port: the host it converts is the long one.
+    const hostile = [
+      `https://x[:]${letters(0x4e00, 9_970)}.com`,
+      Array.from({ length: 4 }, (_, k) => `https://x[:]${letters(0x4e00 + k * 2_480, 2_480)}.com`).join(" "),
+      `http://a.b[1:2]${letters(0xac00, 9_960)}/`,
+    ];
+    for (const text of hostile) expect(findLinks(text)).toEqual([]);
+    costsAsOrdinary(hostile);
+  });
+
+  it("a '[' in a host anywhere but at its start: not an address, whatever follows the '[', so a long one behind it costs no more", () => {
+    // For the URL parser a "[" opens "[…]" up to the next "]" (or the end),
+    // a "/", "?" or "\\" inside included, and it refuses every host with a
+    // "[" anywhere but at its start: a host behind one is never parsed.
+    const at = (head: string) => `https://${head}${letters(0x4e00, 10_000 - 12 - [...head].length)}.com`;
+    const forms = ["x[?", "x[/", "x[\\", "x[?:]", "x[\\:]", "x[?]", "a[?@", "u]@x[?", "a@x[/", "[/", "[?", "[\\"];
+    const hostile = forms.map(at);
+    for (const text of hostile) expect(findLinks(text), text.slice(0, 16)).toEqual([]);
+    costsAsOrdinary(hostile);
   });
 
   it("returns nothing, fast, for text without an address", () => {

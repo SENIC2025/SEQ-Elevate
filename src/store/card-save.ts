@@ -14,7 +14,9 @@
  * the server refused keeps what it was known to hold. When something is
  * still left once a save is confirmed — an answer changed back while that
  * save was on its way, whose own save found nothing to send — another is
- * scheduled (saveCard), as a course's is (course-save.ts).
+ * scheduled (saveCard), as a course's is (course-save.ts); so it is when a
+ * save fails once the page has changed since it was sent, as a newer save
+ * may have been worked out while what it sent was still known.
  *
  * Another tab may change the card under a page (the guest's card added to
  * the account): the page then reads the account's card again, and keeps
@@ -95,13 +97,20 @@ export interface CardSaveDeps {
 /**
  * Sends what the learner changed on `card` from what the server is known
  * to hold (`saved`), for `forUser`, and moves that on by the answer
- * (afterCardSave); a thrown error is thrown on, so it's tried again
- * (pending-save.ts). Once a save is confirmed, a card that still differs
+ * (afterCardSave). Once a save is confirmed, a card that still differs
  * from what the server is now known to hold gets another (`again`): an
  * answer changed and changed back while the first save was on its way had
  * nothing to send then, the server being known to hold it, and holds the
  * change once that save is confirmed. Not after a refusal: the same save
  * would be refused again.
+ *
+ * A thrown error is thrown on, so the save is tried again (pending-save.ts)
+ * — unless a newer one has been scheduled since, which may already have
+ * been worked out while the server was still known to hold what this one
+ * sent, and found nothing to send (an answer changed back). So once the
+ * page has changed since `card`, a card that differs from what the server
+ * is now known to hold gets another save (`again`), which a failure tries
+ * again as any (1 s, 2 s, 4 s, 8 s); the page as `card` is tries this one.
  */
 export async function saveCard(card: CompCardData, forUser: string, saved: CardSavedRef, deps: CardSaveDeps): Promise<void> {
   const known = saved.current;
@@ -112,18 +121,22 @@ export async function saveCard(card: CompCardData, forUser: string, saved: CardS
     const now = saved.current;
     if (now?.forUser === forUser) saved.current = { forUser, card: afterCardSave(now.card, input, answer) };
   };
+  /** Another save, if the page (`latest`) differs from what the server is now known to hold. */
+  const againIfLeft = (latest: CompCardData | null) => {
+    const now = saved.current;
+    if (now?.forUser === forUser && latest && Object.keys(cardChanges(latest, now.card)).length > 0) deps.again();
+  };
   let result: SaveCompCardResult;
   try {
     result = await deps.send(input, forUser);
   } catch (err) {
     answered("failed");
+    const latest = deps.latest();
+    if (latest !== card) againIfLeft(latest);
     throw err;
   }
   answered(result.ok ? "ok" : "refused");
-  if (!result.ok) return;
-  const now = saved.current;
-  const latest = deps.latest();
-  if (now?.forUser === forUser && latest && Object.keys(cardChanges(latest, now.card)).length > 0) deps.again();
+  if (result.ok) againIfLeft(deps.latest());
 }
 
 /**

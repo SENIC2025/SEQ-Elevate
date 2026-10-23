@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import type { CompCardInput, SaveCompCardResult } from "@/app/actions/learner";
 import {
   afterCardSave,
@@ -10,6 +10,12 @@ import {
   type CardSavedRef,
 } from "./card-save";
 import type { CompCardData } from "./demo-state";
+import { pendingSave } from "./pending-save";
+
+afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
 
 const blank: CompCardData = {
   wentWell: "",
@@ -102,13 +108,13 @@ describe("saveCard: a save, and another once it is confirmed if the page still d
   function page() {
     const saved: CardSavedRef = { current: { forUser: "u", card: savedCardOf(X, blank) } };
     const sent: CompCardInput[] = [];
-    const answers: ((result: SaveCompCardResult) => void)[] = [];
+    const answers: { resolve: (result: SaveCompCardResult) => void; reject: (err: Error) => void }[] = [];
     let latest: typeof X | null = X;
     const again = vi.fn();
     const deps = {
       send: (input: CompCardInput) => {
         sent.push(input);
-        return new Promise<SaveCompCardResult>((resolve) => answers.push(resolve));
+        return new Promise<SaveCompCardResult>((resolve, reject) => answers.push({ resolve, reject }));
       },
       latest: () => latest,
       again,
@@ -119,7 +125,9 @@ describe("saveCard: a save, and another once it is confirmed if the page still d
       again,
       show: (card: typeof X | null) => (latest = card),
       save: (card: typeof X, forUser = "u") => saveCard(card, forUser, saved, deps),
-      answer: (n: number, result: SaveCompCardResult) => answers[n](result),
+      answer: (n: number, result: SaveCompCardResult) => answers[n].resolve(result),
+      /** The save's answer never comes: a dropped connection (the server may have written it). */
+      fail: (n: number) => answers[n].reject(new TypeError("Failed to fetch")),
     };
   }
 
@@ -184,6 +192,178 @@ describe("saveCard: a save, and another once it is confirmed if the page still d
     await expect(saveCard(Y, "u", saved, deps)).rejects.toThrow("offline");
     expect(saved.current?.card).not.toHaveProperty("wentWell");
     expect(again).not.toHaveBeenCalled();
+  });
+
+  it("a save that fails once the page has changed since it was sent: another is scheduled, as a newer save may have been worked out without what it sent", async () => {
+    const p = page();
+    p.show(Y);
+    const first = p.save(Y);
+    // Changed back while Y is on its way: nothing to send then.
+    p.show(backToX);
+    await p.save(backToX);
+    expect(p.sent).toHaveLength(1);
+    // Y's answer is lost: the server may hold Y now, and the page shows X.
+    p.fail(0);
+    await expect(first).rejects.toThrow("Failed to fetch");
+    expect(p.saved.current?.card).not.toHaveProperty("wentWell");
+    expect(p.again).toHaveBeenCalledTimes(1);
+    // The save scheduled then sends what the page shows.
+    const second = p.save(backToX);
+    expect(p.sent[1]).toEqual({ wentWell: "X" });
+    p.answer(1, { ok: true });
+    await second;
+    expect(p.saved.current?.card.wentWell).toBe("X");
+    expect(p.again).toHaveBeenCalledTimes(1);
+  });
+
+  it("not when the page is as the failed save sent it (it is tried again itself), nor once the learner's data was let go of", async () => {
+    const same = page();
+    same.show(Y);
+    const a = same.save(Y);
+    same.fail(0);
+    await expect(a).rejects.toThrow();
+    expect(same.again).not.toHaveBeenCalled();
+
+    const letGo = page();
+    letGo.show(Y);
+    const b = letGo.save(Y);
+    letGo.show(backToX);
+    letGo.saved.current = null;
+    letGo.fail(0);
+    await expect(b).rejects.toThrow();
+    expect(letGo.again).not.toHaveBeenCalled();
+  });
+});
+
+describe("saveCard with the page's pending saves (pending-save.ts), as DemoStateProvider wires them: a save whose answer is lost (V3)", () => {
+  const X = { ...blank, wentWell: "X", updatedAt: "2026-11-21T10:00:00.000Z" };
+
+  /**
+   * A page signed in as "u", whose card loaded as X, and the server. Each
+   * save's answer is held until the test gives it: `ok`, or `lost` (the
+   * server writes it, and the page gets a dropped connection). Offline,
+   * every save fails at once and nothing is written.
+   */
+  function wired() {
+    vi.useFakeTimers();
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const server = { wentWell: "X", improve: "" };
+    const sent: CompCardInput[] = [];
+    const answers: { ok: () => void; lost: () => void }[] = [];
+    const net = { offline: false };
+    const saved: CardSavedRef = { current: { forUser: "u", card: savedCardOf(X, blank) } };
+    let scheduled: CompCardData = X;
+    const cardSave = pendingSave(700);
+    const write = (input: CompCardInput) => {
+      if (input.wentWell !== undefined) server.wentWell = input.wentWell;
+      if (input.improve !== undefined) server.improve = input.improve;
+    };
+    const send = (input: CompCardInput) => {
+      sent.push(input);
+      if (net.offline) return Promise.reject(new TypeError("Failed to fetch"));
+      return new Promise<SaveCompCardResult>((resolve, reject) =>
+        answers.push({
+          ok: () => {
+            write(input);
+            resolve({ ok: true });
+          },
+          lost: () => {
+            write(input);
+            reject(new TypeError("Failed to fetch"));
+          },
+        })
+      );
+    };
+    // demo-state.tsx: saveCardFor and the card write-through.
+    const save = (c: CompCardData): Promise<void> =>
+      saveCard(c, "u", saved, {
+        send,
+        latest: () => scheduled,
+        again: () => {
+          const latest = scheduled;
+          cardSave.schedule(() => save(latest));
+        },
+      });
+    let t = 0;
+    const change = (fields: Partial<CompCardData>) => {
+      const card = { ...scheduled, ...fields, updatedAt: new Date(Date.parse(X.updatedAt) + ++t * 1000).toISOString() };
+      scheduled = card;
+      cardSave.schedule(() => save(card));
+    };
+    return { server, sent, answers, net, change, shown: () => scheduled };
+  }
+
+  it("the change's save is written by the server and its answer lost, once the change back worked out nothing: another save sends what the page shows", async () => {
+    const p = wired();
+    p.change({ wentWell: "Y" });
+    await vi.advanceTimersByTimeAsync(700);
+    expect(p.sent).toEqual([{ wentWell: "Y" }]);
+    p.change({ wentWell: "X" });
+    await vi.advanceTimersByTimeAsync(700); // the change back: nothing to send, the server being known to hold X
+    expect(p.sent).toHaveLength(1);
+    p.answers[0].lost();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(p.sent).toEqual([{ wentWell: "Y" }, { wentWell: "X" }]);
+    p.answers[1].ok();
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(p.shown().wentWell).toBe("X");
+    expect(p.server.wentWell, "the account holds what the page shows").toBe("X");
+    expect(p.sent).toHaveLength(2);
+  });
+
+  it("the same with the answer confirmed (B-E8): the account holds what the page shows", async () => {
+    const p = wired();
+    p.change({ wentWell: "Y" });
+    await vi.advanceTimersByTimeAsync(700);
+    p.change({ wentWell: "X" });
+    await vi.advanceTimersByTimeAsync(700);
+    p.answers[0].ok();
+    await vi.advanceTimersByTimeAsync(800);
+    expect(p.sent).toEqual([{ wentWell: "Y" }, { wentWell: "X" }]);
+    p.answers[1].ok();
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(p.server.wentWell).toBe("X");
+    expect(p.sent).toHaveLength(2);
+  });
+
+  it("a newer change still waiting when the answer is lost: one save, of the card as the page shows it", async () => {
+    const p = wired();
+    p.change({ wentWell: "Y" });
+    await vi.advanceTimersByTimeAsync(700);
+    p.change({ wentWell: "Z" });
+    await vi.advanceTimersByTimeAsync(300);
+    p.answers[0].lost();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(p.sent).toEqual([{ wentWell: "Y" }, { wentWell: "Z" }]);
+    p.answers[1].ok();
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(p.server.wentWell).toBe("Z");
+    expect(p.sent).toHaveLength(2);
+  });
+
+  it("offline: the save scheduled then is tried again as any save is (1 s, 2 s, 4 s, 8 s) and then left, never every 700 ms; the next change sends the answer too", async () => {
+    const p = wired();
+    p.change({ wentWell: "Y" });
+    await vi.advanceTimersByTimeAsync(700);
+    p.change({ wentWell: "X" });
+    await vi.advanceTimersByTimeAsync(700);
+    p.net.offline = true;
+    p.answers[0].lost();
+    await vi.advanceTimersByTimeAsync(60_000);
+    // Y's save, then the one scheduled after it: its first try and four more.
+    expect(p.sent).toEqual([{ wentWell: "Y" }, ...Array.from({ length: 5 }, () => ({ wentWell: "X" }))]);
+    await vi.advanceTimersByTimeAsync(10 * 60_000);
+    expect(p.sent).toHaveLength(6);
+    expect(console.error).toHaveBeenCalledTimes(1);
+    // Online again: the learner's next change carries the answer whose save wasn't confirmed.
+    p.net.offline = false;
+    p.change({ improve: "I" });
+    await vi.advanceTimersByTimeAsync(700);
+    expect(p.sent[6]).toEqual({ wentWell: "X", improve: "I" });
+    p.answers[1].ok();
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(p.server).toEqual({ wentWell: "X", improve: "I" });
+    expect(p.sent).toHaveLength(7);
   });
 });
 

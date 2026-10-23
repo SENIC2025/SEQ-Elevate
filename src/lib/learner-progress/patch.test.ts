@@ -101,6 +101,45 @@ describe("patchSince", () => {
   });
 });
 
+describe("patchSince with answers the server may hold otherwise than it is known to (a save on its way, or one whose answer was lost)", () => {
+  it("sends the page's value of each though the server is known to hold it: a reflection or rating question by question, any other answer whole", () => {
+    const key = `${OWN}/${PART}`;
+    const acked = state({
+      simulation: { choice: "a", correct: true },
+      reflection: { p1: "X", p2: "Same", p3: "" },
+      responses: { [key]: { type: "rating", values: { s1: 3, s2: 4 } } },
+    });
+    const latest = structuredClone(acked);
+    expect(patchSince(acked, latest)).toBeNull();
+    const unsure = new Map<string, Set<string> | null>([
+      ["simulation/main", null],
+      ["reflection/main", new Set(["p1"])],
+      [key, new Set(["s1"])],
+    ]);
+    expect(patchSince(acked, latest, unsure)).toEqual({
+      v: 2,
+      answers: {
+        "simulation/main": { type: "practice", optionId: "a", correct: true },
+        "reflection/main": { type: "reflection", text: { p1: "X" } },
+        [key]: { type: "rating", values: { s1: 3 } },
+      },
+    });
+  });
+
+  it("adds them to what changed, and sends nothing for an answer the page doesn't hold", () => {
+    const acked = state({ reflection: { p1: "X", p2: "", p3: "" } });
+    const latest = state({ reflection: { p1: "X", p2: "New", p3: "" } });
+    const unsure = new Map<string, Set<string> | null>([
+      ["reflection/main", new Set(["p1"])],
+      ["scenario/main", null],
+    ]);
+    expect(patchSince(acked, latest, unsure)).toEqual({
+      v: 2,
+      answers: { "reflection/main": { type: "reflection", text: { p1: "X", p2: "New" } } },
+    });
+  });
+});
+
 describe("applyPatch", () => {
   it("round-trips: once the patch is confirmed, nothing is left to send", () => {
     const latest = state({
