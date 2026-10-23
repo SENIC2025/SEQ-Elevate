@@ -1,6 +1,6 @@
 import { Fragment, type ReactNode } from "react";
 import { legacyTextToDoc } from "@/lib/rich-text/from-legacy";
-import { linkSite, textIsSite } from "@/lib/rich-text/link-site";
+import { linkSite, linkWords, textIsSite } from "@/lib/rich-text/link-site";
 import { emailAddressOf } from "@/lib/rich-text/link-url";
 import { linkifyInline } from "@/lib/rich-text/linkify";
 import { isEmptyDoc, sanitizeRichText } from "@/lib/rich-text/sanitize";
@@ -38,9 +38,14 @@ import { QuickLink } from "./QuickLink";
  * new tab): a named link (D104) is the run of neighbouring text with the
  * same link mark — an address the sanitizer has just checked and
  * normalised — drawn as one <a> with its bold and italic inside it; a line
- * break ends it. After its words, inside it, a named web link shows the
- * site it opens in a small box (link-site.ts; the owner's decision of 22
- * October 2026), unless its words are its address. Quick links: web and
+ * break ends it. After its words, inside it, a named link shows the site
+ * it opens in a small box (link-site.ts; the owner's decision of 22
+ * October 2026; an email link its address's domain's), unless its words
+ * are its address; its words are drawn with each run of blank characters
+ * as one space (linkWords), so no blank pushes the box away from them, and
+ * an invisible left-to-right mark before and after every link
+ * (globals.css) keeps right-to-left characters around it, visible or not,
+ * from moving it, its words or its box. Quick links: web and
  * email addresses typed in the rest of the text are found at render time
  * by linkifyInline, which never looks inside a named link, so no link is
  * ever inside another and a typed address never runs into a named one;
@@ -263,8 +268,8 @@ function renderInline(
 /**
  * One link: live, a QuickLink; inert, a span that looks like one (a named
  * link's span says where it goes: the address, or an email link's bare
- * address). A named link's words are followed by its site's box, if it
- * has one.
+ * address). A named link's words, each run of blanks drawn as one space
+ * (linkWords), are followed by its site's box, if it has one.
  */
 function renderLink(
   href: string,
@@ -273,9 +278,12 @@ function renderLink(
   links: LinkMode,
   named: boolean
 ): ReactNode {
-  const text = content.map((part, j) => (
-    <Fragment key={j}>{withMarks(part)}</Fragment>
-  ));
+  const words = named ? linkWords(content.map((part) => part.text)) : null;
+  const text = content.map((part, j) =>
+    words?.[j] === "" ? null : (
+      <Fragment key={j}>{withMarks(words ? { ...part, text: words[j] } : part)}</Fragment>
+    )
+  );
   const site = named ? siteLabel(href, content) : null;
   if (links === "live") {
     return (
@@ -303,8 +311,8 @@ function renderLink(
  * globals.css), so its name reads "the guide, example.org (opens in a new
  * tab)". The ", " is hidden by .seq-link-sep, not .sr-only: an absolutely
  * positioned element counts as a block in a link's name, and browsers put
- * a space before it ("the guide , example.org"). Nothing when the link
- * has no site (an email link) or its words are its address (textIsSite).
+ * a space before it ("the guide , example.org"). Nothing when its words
+ * are its address (textIsSite).
  */
 function siteLabel(href: string, content: readonly RtText[]): ReactNode {
   const site = linkSite(href);

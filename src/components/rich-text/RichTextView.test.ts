@@ -606,7 +606,7 @@ describe("RichTextView named links (D104)", () => {
       })
     ).toBe(
       wrap(
-        `<p>${inertNamed("https://example.org/guide", "the guide", "example.org")} or ${inertNamed("team@example.org", "us", null)}</p>`
+        `<p>${inertNamed("https://example.org/guide", "the guide", "example.org")} or ${inertNamed("team@example.org", "us", "example.org")}</p>`
       )
     );
   });
@@ -716,10 +716,26 @@ describe("RichTextView shows the site each named link opens (the site label)", (
     expect(html.indexOf("seq-link-site")).toBeGreaterThan(html.indexOf(words.slice(-20)));
   });
 
-  it("shows no site for an email link: its words are heard with what it opens", () => {
-    const html = renderIn("en", { rich: v2(p(named("our team", "mailto:help@example.org?subject=Course"))) });
-    expect(html).not.toContain("seq-link-site");
-    expect(linkNames(html)).toEqual(["our team (opens in a new tab)"]);
+  it("shows an email link's site: its address's domain, told as a web link's", () => {
+    const rows: [string, string, string][] = [
+      ["our team", "mailto:help@example.org?subject=Course", "example.org"],
+      ["GOV.UK", "mailto:info@evil.example", "evil.example"],
+      ["Contact the ministry", "mailto:minister@evil.example", "evil.example"],
+      ["PayPal support", "mailto:support@paypal.com.evil.example", "evil.example"],
+      ["the press office", "mailto:press@www.bbc.co.uk", "bbc.co.uk"],
+      ["Bücher", "mailto:info@bücher.example", "xn--bcher-kva.example"],
+      ["info@bücher.example", "mailto:info@bücher.example", "xn--bcher-kva.example"],
+    ];
+    for (const [words, href, site] of rows) {
+      const html = renderIn("en", { rich: v2(p(text("Write to "), named(words, href), text(" today."))) });
+      expect(linkNames(html), words).toEqual([`${words}, ${site} (opens in a new tab)`]);
+    }
+    // Left out only when the whole of the words is the address.
+    for (const words of ["help@example.org", "mailto:help@example.org", "Help@Example.org"]) {
+      const html = renderIn("en", { rich: v2(p(named(words, "mailto:help@example.org?subject=Course"))) });
+      expect(html, words).not.toContain("seq-link-site");
+      expect(linkNames(html), words).toEqual([`${words} (opens in a new tab)`]);
+    }
   });
 
   it("shows our own file store's site like any other link's", () => {
@@ -731,6 +747,32 @@ describe("RichTextView shows the site each named link opens (the site label)", (
     const html = renderIn("en", { rich: doc(p(text("Read https://example.org/guide or www.bpb.de/x or help@example.org."))) });
     expect(html).not.toContain("seq-link-site");
     expect(html).not.toContain("seq-link-sep");
+  });
+
+  it("draws a run of blank characters in a link's words as one space, across its parts, so no blank pushes the box away", () => {
+    const EVIL = "https://evil.example/login";
+    const rows: [string, Json[]][] = [
+      ["spaces", [named(`Sign in to PayPal${" ".repeat(1_500)}`, EVIL)]],
+      ["em spaces", [named(`Sign in to PayPal${"\u2003".repeat(1_500)}`, EVIL)]],
+      ["braille blanks", [named(`Sign in to PayPal ${"\u2800".repeat(1_500)}`, EVIL)]],
+      ["Hangul fillers", [named(`Sign in to PayPal${"\u3164".repeat(1_500)}`, EVIL)]],
+      ["spaces and zero-width spaces", [named(`Sign in to PayPal${" \u200B".repeat(800)}`, EVIL)]],
+      ["em spaces in bold and italic parts", [named("Sign in to PayPal", EVIL), ...Array.from({ length: 300 }, (_, i) => named("\u2003", EVIL, i % 2 ? "bold" : "italic"))]],
+    ];
+    for (const [name, content] of rows) {
+      const html = renderIn("en", { rich: v2(p(...content, text(" and read on."))) });
+      expect(linkNames(html), name).toEqual(["Sign in to PayPal , evil.example (opens in a new tab)"]);
+      expect(html, name).toMatch(/Sign in to PayPal(?:<em>)? (?:<\/em>)?<span class="seq-link-sep">/);
+    }
+    // Words between blanks, and the text around the link, stay as typed.
+    const html = renderIn("en", {
+      rich: v2(p(text("Read  "), named(`the ${"\u2003".repeat(40)}guide\u00A0to  it`, EVIL), text("  now."))),
+    });
+    expect(html).toBe(wrap(`<p>Read  ${namedTo(EVIL, "the guide\u00A0to it", "evil.example")}  now.</p>`));
+    // The same in the inert block preview.
+    expect(render({ rich: v2(p(named(`Sign in to PayPal${"\u2003".repeat(1_500)}.`, EVIL))), inertLinks: true })).toBe(
+      wrap(`<p>${inertNamed(EVIL, "Sign in to PayPal .", "evil.example")}</p>`)
+    );
   });
 
   it("shows the site in the inert block preview as learners see it, with no link", () => {
