@@ -194,6 +194,13 @@ function hrefsIn(html: string): string[] {
 }
 /** A link's address a page may hold: content links (https, http, mailto) and the app's own (a path or an anchor). */
 const SAFE_HREF = /^(https?:\/\/|mailto:|\/|#)/i;
+/**
+ * The site's own phone links beside a learner's pages (Release 3, D93): the
+ * emergency number and the safeguarding contacts an admin saves, "tel:" and
+ * digits. No list link is one: the address check takes https, http and
+ * mailto only.
+ */
+const SITE_PHONE = /^tel:\+?\d+$/;
 
 /** The computed hanging indent of an entry, in multiples of its font size. */
 async function hanging(entry: Locator) {
@@ -822,7 +829,9 @@ describe("Release 4: references & bibliography, part 1 (spec 5, D109)", () => {
       const raw = await (
         await request.get(address, { headers: { Cookie: `authjs.session-token=${cookie}` }, failOnStatusCode: false })
       ).text();
-      for (const href of hrefsIn(raw)) expect(href, `${address}: an href in the HTML or its payload`).toMatch(SAFE_HREF);
+      for (const href of hrefsIn(raw)) {
+        if (!SITE_PHONE.test(href)) expect(href, `${address}: an href in the HTML or its payload`).toMatch(SAFE_HREF);
+      }
       expect(raw).not.toMatch(/javascript:alert|vbscript:|data:text\/html/i);
     };
     const staff = await as(browser, editor);
