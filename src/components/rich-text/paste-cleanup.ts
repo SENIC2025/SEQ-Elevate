@@ -1,4 +1,5 @@
 import { classifyPastedLink, NO_LINKS_DROPPED, type PasteReport } from "./paste-links";
+import { removeReviewMarks } from "./paste-review";
 import {
   listTreeToHtml,
   nestListItems,
@@ -17,12 +18,16 @@ import {
  * written as lists, or say which links weren't kept, so this does, in the
  * pasted HTML:
  *
+ * - A reviewer's marks (paste-review.ts): tracked deletions go with their
+ *   text, tracked insertions stay as text, and comments go, references and
+ *   all. Done first, so a link's words are read as they are once the
+ *   changes are accepted.
  * - Links (D106, paste-links.ts): each <a> is kept, with nothing but its
  *   normalised address, or unwrapped to its text — and counted, so the
  *   editor can say how many links weren't kept and why, and how many use
  *   http. An Outlook safe link in an anchor's text shows the original
- *   address instead (counted too). Done first, so a link inside a Word list
- *   point is rebuilt with it.
+ *   address instead (counted too). Done before the lists, so a link
+ *   inside a Word list point is rebuilt with it.
  * - Word: each list point is a paragraph styled `mso-list:l0 level2 …`, its
  *   bullet or number drawn by a marker span Word asks others to ignore. They
  *   become real <ul>/<ol> (word-list.ts), and Word's empty <o:p> fillers go.
@@ -52,6 +57,7 @@ export function cleanPastedHtmlWithReport(html: string): PasteReport & { html: s
   try {
     const doc = new DOMParser().parseFromString(html, "text/html");
     const body = doc.body;
+    removeReviewMarks(body);
     const report = cleanLinks(body);
     if (WORD_HTML.test(html)) {
       removeOfficeFillers(body);
