@@ -1,5 +1,5 @@
-import { MAX_HREF_CHARS, checkLinkHref, emailAddressOf, type LinkRefusal } from "./link-url";
-import { addressesShown, showsAnotherAddress, visibleLinkText } from "./link-text";
+import { MAX_HREF_CHARS, checkLinkHref, emailAddressOf, type LinkCheck, type LinkRefusal } from "./link-url";
+import { addressesShown, showsAnotherAddressOverAny, visibleLinkText } from "./link-text";
 import { ownFileHost } from "./own-file-host";
 import {
   RT_LIMITS,
@@ -259,6 +259,10 @@ class Walker {
   sawLink = false;
   /** A link was kept: the doc is version 2. */
   keptLink = false;
+  /** Our own file store's host, read once for the text. */
+  private readonly ownHost = ownFileHost();
+  /** Each address checked once, however many link marks carry it. */
+  private readonly checked = new Map<string, LinkCheck>();
 
   /** Count one visited node or mark; false once over budget (or failed). */
   private take(): boolean {
@@ -383,8 +387,9 @@ class Walker {
 
   /**
    * A link mark's address, checked. Its length counts against the scanned
-   * budget first, so a huge address costs one length check, never a parse.
-   * Every attribute but `href` is ignored.
+   * budget first, so a huge address costs one length check, never a parse;
+   * an address many marks carry is checked once. Every attribute but `href`
+   * is ignored.
    */
   private link(mark: Rec): WalkLink {
     const href = attrOf(mark, "href");
@@ -394,7 +399,11 @@ class Walker {
       this.fail("too-much-text");
       return { ok: false, reason: "refused", key: {} };
     }
-    const check = checkLinkHref(href, { ownFileHost: ownFileHost() });
+    let check = this.checked.get(href);
+    if (!check) {
+      check = checkLinkHref(href, { ownFileHost: this.ownHost });
+      this.checked.set(href, check);
+    }
     if (!check.ok) {
       if (check.reason === "redirect") return { ok: false, reason: "redirect", key: href };
       return { ok: false, reason: "refused", key: href, detail: addressProblem(check.reason, href) };
@@ -430,9 +439,10 @@ class Walker {
    *   "https://bank." and "example" linked apart, or a typed
    *   "https://bank.example" and a link on "/login", read as one address;
    * - a kept link to our own file store is reported (own-file-link).
-   * Each stretch of words is read once, so the cost follows the paragraph's
-   * length, however many links touch. Then the text nodes are rebuilt,
-   * neighbours with the same marks joined.
+   * Each stretch of words is read once, and what it shows is compared with
+   * all its links at once (showsAnotherAddressOverAny), so the cost follows
+   * the paragraph's length, however many links touch. Then the text nodes
+   * are rebuilt, neighbours with the same marks joined.
    */
   private finishLinks(nodes: WalkInline[]): RtInline[] {
     // The paragraph's text as learners read it, a line break as "\n";
@@ -523,7 +533,7 @@ class Walker {
       let misleading: string | null = null;
       for (const reading of readings.values()) {
         const shown = addressesShown(reading.text);
-        if (shown !== null && reading.runs.some((run) => showsAnotherAddress(shown, run.link.href))) {
+        if (showsAnotherAddressOverAny(shown, reading.runs.map((run) => run.link.href))) {
           misleading = reading.text;
           break;
         }
