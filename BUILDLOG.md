@@ -847,6 +847,14 @@ Owner's request: "Start Release 3" — the release that readies the platform for
   - No rollback below Release 3 after Wed 25 November, and before it only after the pre-rollback step (GO-LIVE §11).
   - A Release 2 tab open across the deploy saves Comp Card text but can't share, its over-length edits aren't saved, and it still moves guest work into an account unasked once the profile is complete (no real learners before 1 December).
   - A partner admin's question before deleting a cohort counts only the members it sees; the refusal comes when it presses Delete.
+  - "Add it to my account" (D37, D69, D79) as it stands:
+    - one text too long to add holds back every part until it is shortened, a part the account keeps of its own included;
+    - work a tab still a guest saves while it is being added stays in the browser, and is said not to have been added; where the account then has progress in that course, the course is kept there;
+    - a request whose answer was lost, sent again after another account signed in on the browser: the work is in the first account, the page says nothing was added and offers it to the second, which can add a copy;
+    - a sharing choice made in another signed-in tab in the moment before that tab has read the account's card again (well under a second after the work was added) is about the card the account then holds;
+    - with the learner player's kill switch on, a created course moves with the completion a save of the same lessons keeps, and its badge stays in the browser as not added;
+    - from a guest store the page didn't write (damaged, or edited by hand), answers the server can't read or refuses are left out of the course that moves.
+  - Of two pages editing the same Comp Card field, the last save of that field stays (D80).
 - `[NOTE]` Known server-log lines of the e2e suite, each harmless and each a deliberate or understood kind: "No signed-in learner" and "No signed-in user" (tests of a lost session and the action table's no-session rows), `AccessDenied` (refused sign-ins), `TypeError: controller[kState].transformAlgorithm is not a function` (Node 22.19's web streams, when a navigation leaves a page still streaming), Auth.js `SessionTokenError` (a test deleting a person whose closing page still asks for its session), `P2003` on a row written after a test's clean-up deleted its user, and the `BLOB_PUBLIC_HOST` notice of a build without it.
 - `[NOTE]` Open, outside the build: the merge of `main` on Wed 11 Nov and the last merge point on Thu 19 Nov; the owner's Neon rehearsal (GO-LIVE §1b, with I-E3 on the branch) on Tue 17 Nov; counsel's English texts (F-E1b, `@launch`, a go/no-go item) and the German and Greek ones; the partners' review of the German and Greek drafts (Wed 18 Nov); the safeguarding contacts; the consortium's answers (Tue 27 Oct) and the lawful basis (Fri 30 Oct); two wording questions (the English `reflection.placeholder2`, and spec 9.3's note that the completion screen and the Comp Card now mark their language). The intermittent learner-data test ("a guest who builds progress then signs in keeps it server-side": the completion not yet in the database within 15 s, seen on 20, 21 and 22 Oct) is left for its owner.
 
@@ -987,3 +995,25 @@ On `r3` after the polish above. Nothing pushed (D100).
   - B-E3 (4), B-E9, A-E8 and `r0-player`'s quick-check tests (4): **10/10**;
   - Release 2's recorded walk with R3-D1 and R3-D2: **7/7**; `r3-scoping` **9/9**; `r3-actions` **497/497**;
   - the server logged only the known kinds: 24 "No signed-in learner", 7 "No signed-in user", 4 `AccessDenied`, 2 `transformAlgorithm`, 1 `SessionTokenError`.
+
+### Release 3 — the claim's review: a Comp Card save sends only what the page changed, a signed-in page reads the account's card again (2026-10-23)
+On `r3` after the claim above. Nothing pushed (D100).
+- `[FIX]` `8e4a4b2` (D80 as built) **A page saves only the Comp Card fields the learner changed on it from what the server is known to hold** (`src/store/card-save.ts`): what loaded, what "Add it to my account" answered, moved on by every save the server confirmed; a field whose save wasn't confirmed goes with the next one. It is worked out when the save is sent, as a course's patch is. A card that loads isn't saved back, and a page opened before another tab or device changed the card never writes its older copy of a field it didn't change. The server already wrote only the fields sent; Release 2 pages open across the deploy save as before.
+- `[FIX]` `8e4a4b2` **A signed-in page reads the account's Comp Card and badges again when the browser's guest card or badges change in another tab** (the `storage` listener, `rereadAccount`; added to the account there, removed or changed): it shows what the account holds, keeping what was changed on it and isn't saved yet (`cardAfterReread`); badges are a union. A page whose own "Add" is on its way doesn't.
+- `[FIX]` `78f143e` (D79 as built) **Work too big to add is said to be too big before it is sent** (`claimTooLarge`, the server's own measure): the offer shows its texts to be shortened, as the server's answer would. **What a tab still a guest saved while the work was being added is said not to have been added**, and stays in the browser (`guestWork.changedMeanwhile`, en/de/el).
+- `[TEST]` `fdbf598` `db-backed-progress` "the learner found again after a session read that failed…" restated: the Comp Card that loaded is never sent (it waited for the card's save-back, which no longer happens).
+- `[DOCS]` D80 and D79 as built; the known limits of "Add it to my account" in the list above.
+- `[TEST]` Each change's tests ran red first:
+  - on the 9e7af61 build: `r3-guest-claim`'s new tests **4 of 4 red**, each losing the guest's texts (a second signed-in tab open before Add on the Comp Card page, and on a dashboard that opens it; another tab's edit on its way while the guest's card moved into a blank card; a tab that loaded the card and saved it back during the claim): the account's card ended `wentWell ""`, `difficult ""`, confidence 3;
+  - work past 1 MB, on a build without the browser's check (that block alone off): red, "the connection failed" where it is too big;
+  - `db-backed-progress` :1466 as it was, on the new build: red (it waited for the save-back); restated, green.
+- `[VERIFY]` On the local Postgres `seq_r3`:
+  - tsc ✓ eslint ✓ **4,957 unit** ✓ (216 files, one skipped; 4 tests skipped: the `r3-check` database tests); each commit on its own: tsc, eslint and unit ✓ (`8e4a4b2`, `78f143e`, `fdbf598`: 4,957 each);
+  - production build ✓ (through the build lock), no warnings;
+  - **full E2E 924 passed, 2 skipped** (F-E1a and F-E1b, by design) in 7.8 min on two workers, exit 0. By project: chromium 912, cutoff 3, switches 5, last 4;
+  - `r3-guest-claim`, `r3-guest-tab`, `r3-profile` and `r3-comp-card` three times each with eight CPU-bound processes beside them: **129/129**;
+  - `db-backed-progress` on one worker: **57/57**;
+  - B-E3 (4), B-E9, A-E8 and `r0-player`'s quick-check tests (4): **10/10**;
+  - Release 2's recorded walk with R3-D1 and R3-D2: **7/7**; `r3-scoping` **9/9**; `r3-actions` **497/497**;
+  - the server logged only the known kinds: 18 "No signed-in learner", 4 "No signed-in user", 2 `AccessDenied`, 1 `transformAlgorithm`, 2 `P2003` (`Membership_userId_fkey`, `AuditLog_actorId_fkey`: rows written after a test's clean-up), 1 `P2025` (an activity row's time added after a test's clean-up removed it), and the `BLOB_PUBLIC_HOST` notice.
+- `[NOTE]` A first run of the four specs above three times under load, on a build of the same code before the commits were split, had 128 of 129: in `r3-guest-tab` "the work added in the other tab…" the signed-in tab's offer didn't show within 30 s while the machine's load average was about 75. That test alone eight times under load: 8/8; then the 129/129 above on the committed build.
