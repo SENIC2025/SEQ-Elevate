@@ -173,8 +173,8 @@ function longerThan(text: string, most: number): boolean {
   return false;
 }
 
-/** A domain as the URL parser writes it (asciiLabel, label by label). */
-const asciiDomain = (domain: string) => domain.split(".").map(asciiLabel).join(".");
+/** A domain as the URL parser writes it (asciiLabel, label by label): an email link's domain as D104 compares it, and as its box shows it (link-site.ts). */
+export const asciiDomain = (domain: string) => domain.split(".").map(asciiLabel).join(".");
 
 /** A host shown: its name without one leading "www.", and whether it was read only by its top-level domain (`named`: no scheme, "www.", path or port). */
 export interface ShownHost {

@@ -56,6 +56,8 @@ const ACCEPTED: [string, string, input: string, href: string][] = [
   ["email", "the scheme in upper case, the address kept as typed", "MAILTO:HELP@example.org", "mailto:HELP@example.org"],
   ["email", "a subject", "mailto:help@example.org?subject=Course%20question", "mailto:help@example.org?subject=Course%20question"],
   ["email", "an international domain, kept as typed", "mailto:info@bücher.example", "mailto:info@bücher.example"],
+  ["email", "a domain label of 63 characters, the most DNS holds", `mailto:help@${"a".repeat(63)}.example`, `mailto:help@${"a".repeat(63)}.example`],
+  ["email", "a domain of 253 characters, the most DNS holds", `mailto:help@${HOST_253}`, `mailto:help@${HOST_253}`],
 ];
 
 const REFUSED: [string, input: unknown, reason: LinkRefusal][] = [
@@ -150,6 +152,11 @@ const REFUSED: [string, input: unknown, reason: LinkRefusal][] = [
   ["mailto: with no address", "mailto:", "email"],
   ["mailto: with two addresses", "mailto:a@example.org,b@example.org", "email"],
   ["mailto: with a domain without a dot", "mailto:help@localhost", "email"],
+  // A domain DNS can hold (RFC 1035), every character counted, as for a web host.
+  ["mailto: with a domain label of 64 characters", `mailto:help@${"a".repeat(64)}.example`, "email"],
+  ["mailto: with a domain of 254 characters", `mailto:help@${HOST_254}`, "email"],
+  ["mailto: with an international domain label of 64 characters", `mailto:help@${"ü".repeat(64)}.example`, "email"],
+  ["mailto: with a domain label of a letter and 63 combining marks", `mailto:help@a${"\u0301".repeat(63)}.example`, "email"],
   ["mailto: with javascript", "mailto:javascript:alert(1)", "email"],
   ["mailto: with a second question mark in the subject", "mailto:help@example.org?subject=Hi?cc=boss@example.org", "email"],
   ["mailto: with a fragment in the subject", "mailto:help@example.org?subject=Hi#x", "email"],
@@ -185,6 +192,16 @@ describe("checkLinkHref refuses everything else, and says why", () => {
     const check = checkLinkHref(huge);
     expect(performance.now() - started).toBeLessThan(200);
     expect(brief(check)).toEqual({ ok: false, reason: "too-long" });
+  });
+
+  it("refuses an email address whose domain DNS can't hold before reading it, in time", () => {
+    const label = Array.from({ length: 2_000 }, (_, i) => String.fromCodePoint(0x4e00 + i)).join("");
+    for (const href of [`mailto:help@${label}.example`, `mailto:help@${"a".repeat(2_000)}.example?subject=Hi`]) {
+      checkLinkHref(href);
+      const started = performance.now();
+      for (let i = 0; i < 10; i++) expect(checkLinkHref(href)).toEqual({ ok: false, reason: "email" });
+      expect((performance.now() - started) / 10).toBeLessThan(1);
+    }
   });
 
   it("refuses an address that is too long only once normalised", () => {
