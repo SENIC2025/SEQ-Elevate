@@ -148,6 +148,7 @@ describe("LinkForm markup", () => {
     renderToStaticMarkup(
       createElement(LinkForm, {
         id: "lf",
+        lang: "en",
         initialText: "the guide",
         initialAddress: "",
         editing: false,
@@ -188,6 +189,17 @@ describe("LinkForm markup", () => {
     expect(out).toMatch(/<button type="button"[^>]*>Remove link<\/button>/);
     expect(out).toMatch(/<p id="lf-will-open"[^>]*>Will open: https:\/\/example.org\/guide<\/p>/);
     expect(/<p id="lf-will-open"[^>]*>/.exec(out)?.[0]).not.toMatch(/aria-live|role=/);
+  });
+
+  it("marks the text to show with the language the text is written in; the address and the form's words keep the editor's English", () => {
+    // The form sits in the editor's box, which is lang="en" (its own words
+    // are English); the words to link are the text's (WCAG 3.1.2).
+    const out = html({ lang: "de", initialText: "die Anleitung" });
+    expect(/<input[^>]* id="lf-text"[^>]*>/.exec(out)?.[0]).toContain('lang="de"');
+    expect(/<input[^>]* id="lf-address"[^>]*>/.exec(out)?.[0]).not.toContain("lang=");
+    expect(/^<div[^>]*>/.exec(out)?.[0]).not.toContain("lang=");
+    expect(out.match(/\slang="/g)).toHaveLength(1);
+    expect(/<input[^>]* id="lf-text"[^>]*>/.exec(html({ lang: "el" }))?.[0]).toContain('lang="el"');
   });
 
   it("keeps a polite status line for its warnings, empty at first", () => {

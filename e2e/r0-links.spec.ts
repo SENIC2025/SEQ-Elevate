@@ -19,6 +19,10 @@ import { createPerson } from "./fixtures/people";
  * in a new tab, say so to screen readers, stay readable and focusable, and
  * a long one wraps on a 320 px phone. Nothing stored changes, and the editor keeps plain text.
  *
+ * Changed on purpose by Release 4 (D105): an email link still opens in a new
+ * tab, and screen readers hear "(opens your email program)" after it
+ * instead of "(opens in a new tab)".
+ *
  * Requires a real database — gated on E2E_DB=1, like db-backed-progress.
  * Seeds its own published course under names unique to this run, and
  * removes everything it made afterwards.
@@ -46,6 +50,10 @@ const QUIZ_INTRO = "Stuck? Read https://example.org/quiz-help first.";
 
 const TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
 const NEW_TAB = "(opens in a new tab)";
+/** What screen readers hear after an email link (Release 4, D105). */
+const EMAIL_PROGRAM = "(opens your email program)";
+/** The words after a link's own: an email address's, or a web address's. */
+const cueOf = (shown: string) => (/^(?:mailto:)?[^\s/:@]+@/i.test(shown) ? EMAIL_PROGRAM : NEW_TAB);
 
 // Long enough to be wider than a 320 px screen on one line.
 const LONG_URL = `https://example.org/${"a-very-long-path-segment-".repeat(6)}end`;
@@ -157,10 +165,10 @@ function main(page: Page) {
   return page.getByRole("main").filter({ visible: true });
 }
 
-/** A link by its visible text, with the new-tab cue in its name. */
+/** A link by its visible text, with what it opens in its name: a new tab, or for an email address the email program. */
 function linkNamed(scope: Page | Locator, shown: string) {
   return scope
-    .getByRole("link", { name: `${shown} ${NEW_TAB}`, exact: true })
+    .getByRole("link", { name: `${shown} ${cueOf(shown)}`, exact: true })
     .filter({ visible: true });
 }
 
@@ -206,7 +214,7 @@ async function expectLessonLinks(scope: Page | Locator) {
   // Links in a rich list, nested too, and in plain text's list.
   await expect(
     scope.locator("li li").filter({ visible: true }).getByRole("link")
-  ).toHaveText(`mailto:team@example.org ${NEW_TAB}`);
+  ).toHaveText(`mailto:team@example.org ${EMAIL_PROGRAM}`);
   await expect(
     scope
       .locator("ul.list-disc > li")

@@ -339,7 +339,9 @@ describe("RichTextView keeps hostile content inert", () => {
 });
 
 // Quick links: web and email addresses typed in lesson text are links for
-// learners, with the "(opens in a new tab)" cue in the interface language.
+// learners. Every link opens in a new tab (D105); screen readers hear what
+// it opens, in the interface language, marked with it: "(opens in a new
+// tab)", or for an email link "(opens your email program)".
 const IntlProvider = NextIntlClientProvider as FC<{
   locale: string;
   messages: typeof en;
@@ -360,8 +362,12 @@ function renderIn(
   );
 }
 
-const linkTo = (href: string, inner: string, cue = "(opens in a new tab)") =>
-  `<a href="${href}" target="_blank" rel="noopener noreferrer" class="seq-link">${inner}<span class="sr-only"> ${cue}</span></a>`;
+const NEW_TAB = "(opens in a new tab)";
+const EMAIL = "(opens your email program)";
+/** What screen readers hear after a link, by its address. */
+const cueFor = (href: string) => (href.startsWith("mailto:") ? EMAIL : NEW_TAB);
+const linkTo = (href: string, inner: string, cue = cueFor(href), lang = "en") =>
+  `<a href="${href}" target="_blank" rel="noopener noreferrer" class="seq-link">${inner}<span class="sr-only" lang="${lang}"> ${cue}</span></a>`;
 
 describe("RichTextView quick links", () => {
   it("links a web address typed in rich text, punctuation outside", () => {
@@ -444,11 +450,44 @@ describe("RichTextView quick links", () => {
   it("says the link opens in a new tab in the interface language", () => {
     const rich = doc(p(text("https://example.org")));
     expect(renderIn("de", { rich })).toContain(
-      '<span class="sr-only"> (öffnet in einem neuen Tab)</span>'
+      '<span class="sr-only" lang="de"> (öffnet in einem neuen Tab)</span>'
     );
     expect(renderIn("el", { rich })).toContain(
-      '<span class="sr-only"> (ανοίγει σε νέα καρτέλα)</span>'
+      '<span class="sr-only" lang="el"> (ανοίγει σε νέα καρτέλα)</span>'
     );
+  });
+
+  it("says an email link opens the email program, in the interface language, and still opens it in a new tab", () => {
+    const rich = doc(p(text("Ask help@example.org or mailto:team@example.org?subject=Hi")));
+    expect(renderIn("en", { rich })).toBe(
+      wrap(
+        `<p>Ask ${linkTo("mailto:help@example.org", "help@example.org", EMAIL)} or ${linkTo(
+          "mailto:team@example.org?subject=Hi",
+          "mailto:team@example.org?subject=Hi",
+          EMAIL
+        )}</p>`
+      )
+    );
+    expect(renderIn("de", { rich })).toContain(
+      `${linkTo("mailto:help@example.org", "help@example.org", "(öffnet dein E-Mail-Programm)", "de")}`
+    );
+    expect(renderIn("el", { rich })).toContain(
+      `${linkTo("mailto:help@example.org", "help@example.org", "(ανοίγει το πρόγραμμα email σου)", "el")}`
+    );
+  });
+
+  it("marks what screen readers hear with the interface language, inside text in another language", () => {
+    // A German learner on a course still shown in English (Release 3): the
+    // text is lang="en", the words after each link are German, marked so.
+    const html = renderIn("de", {
+      rich: doc(p(text("Read https://example.org/guide or ask help@example.org"))),
+      lang: "en",
+    });
+    expect(html).toMatch(/^<div lang="en" /);
+    expect(html).toContain(
+      linkTo("https://example.org/guide", "https://example.org/guide", "(öffnet in einem neuen Tab)", "de")
+    );
+    expect(html).toContain(linkTo("mailto:help@example.org", "help@example.org", "(öffnet dein E-Mail-Programm)", "de"));
   });
 
   it("never links other schemes, in any letter case", () => {
@@ -514,7 +553,7 @@ const v2 = (...content: Json[]) => ({ v: 2, doc: { type: "doc", content } });
  */
 const siteBox = (site: string) => `<span class="seq-link-sep">, </span><span class="seq-link-site">${site}</span>`;
 /** A named link drawn live: its words, the site's box (none for null), the new-tab cue. */
-const namedTo = (href: string, inner: string, site: string | null, cue = "(opens in a new tab)") =>
+const namedTo = (href: string, inner: string, site: string | null, cue = cueFor(href)) =>
   linkTo(href, `${inner}${site === null ? "" : siteBox(site)}`, cue);
 /** The same in an inert preview: a span that says where it goes. */
 const inertNamed = (title: string, inner: string, site: string | null) =>
@@ -728,14 +767,20 @@ describe("RichTextView shows the site each named link opens (the site label)", (
     ];
     for (const [words, href, site] of rows) {
       const html = renderIn("en", { rich: v2(p(text("Write to "), named(words, href), text(" today."))) });
-      expect(linkNames(html), words).toEqual([`${words}, ${site} (opens in a new tab)`]);
+      expect(linkNames(html), words).toEqual([`${words}, ${site} (opens your email program)`]);
+      // Still in a new tab (D105): the lesson stays where the learner left it.
+      expect(html, words).toContain('target="_blank" rel="noopener noreferrer"');
     }
     // Left out only when the whole of the words is the address.
     for (const words of ["help@example.org", "mailto:help@example.org", "Help@Example.org"]) {
       const html = renderIn("en", { rich: v2(p(named(words, "mailto:help@example.org?subject=Course"))) });
       expect(html, words).not.toContain("seq-link-site");
-      expect(linkNames(html), words).toEqual([`${words} (opens in a new tab)`]);
+      expect(linkNames(html), words).toEqual([`${words} (opens your email program)`]);
     }
+    // In the interface language, beside a web link's words.
+    expect(
+      linkNames(renderIn("de", { rich: v2(p(named("unser Team", "mailto:help@example.org"), text(" und "), named("die Anleitung", "https://example.org/guide"))) }))
+    ).toEqual(["unser Team, example.org (öffnet dein E-Mail-Programm)", "die Anleitung, example.org (öffnet in einem neuen Tab)"]);
   });
 
   it("shows our own file store's site like any other link's", () => {

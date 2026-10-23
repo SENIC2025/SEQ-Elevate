@@ -20,6 +20,7 @@ import { LINK_INPUTS } from "@/lib/rich-text/link-fixtures";
 import { toLinkInput } from "@/lib/rich-text/link-text";
 import { checkLinkHref, emailAddressOf, isEmailAddress, type LinkRefusal } from "@/lib/rich-text/link-url";
 import { addressProblem } from "@/lib/rich-text/sanitize";
+import de from "../src/messages/de.json";
 
 /**
  * Release 4, Part A (spec 3, 10.2, 10.3): named links in lesson text.
@@ -38,8 +39,14 @@ import { addressProblem } from "@/lib/rich-text/sanitize";
  *          time; focus; Escape; a bare email address and host are
  *          completed, never blocked; the "Link: …" line; Ctrl+K on words
  *          across paragraphs says why it can't link them.
- *   R4-E5  email links keep target="_blank" (their screen-reader words change
- *          in L2, with QuickLink).
+ *   R4-E3b the form's "Text to show" carries the language the text is
+ *          written in, in a reflection lesson's introduction and in a
+ *          paragraph; the address and the form's own words keep the
+ *          editor's English (WCAG 3.1.2).
+ *   R4-E5  email links, named and typed, keep target="_blank" and say
+ *          "(opens your email program)"; web links "(opens in a new tab)";
+ *          in the interface language, marked with it inside course text in
+ *          another language (D105).
  *   R4-E6  (guard) every hostile address and mark sent straight to
  *          saveLessonNarrative and savePartText is refused by name (extra
  *          attributes: stored without them), and nothing changes; so are
@@ -100,9 +107,15 @@ const SLUG = `e2e-r4-links-${RUN}`;
 // Hostile links stored straight into the database: a course of their own,
 // so they are its first lesson, which a learner opens on.
 const SLUG_H = `e2e-r4-links-h-${RUN}`;
+// German text in the lesson editor, for the Link form's language: a course
+// whose reflection lesson's introduction and a lesson's text are German.
+const SLUG_L = `e2e-r4-links-l-${RUN}`;
+const GERMAN_TEXT = ownLessonId();
 const EDITOR = `e2e-r4-links-editor-${RUN}@example.com`;
 const LEARNER = `e2e-r4-links-learner-${RUN}@example.com`;
 const NEW_TAB = "(opens in a new tab)";
+/** What screen readers hear after an email link (D105). */
+const EMAIL_PROGRAM = "(opens your email program)";
 const GUIDE = "https://example.org/guide";
 const SAFE_SCHEME = /^(?:https:\/\/|http:\/\/|mailto:)/;
 /**
@@ -336,6 +349,14 @@ describe("Release 4 — links in lesson text", () => {
         { id: "context", narrative: narrative("R4 hostile standard", HOSTILE_BLOCKS.slice(0, 8)) },
       ],
     });
+    await seedECourse(prisma, {
+      slug: SLUG_L,
+      title: { en: `E2E R4 links German ${RUN}`, de: `E2E R4 Links Deutsch ${RUN}` },
+      lessons: [
+        { id: GERMAN_TEXT, narrative: { de: { title: "Deutscher Text", blocks: [plain("Lies die Anleitung heute.")] } } as Json },
+        { id: "reflection", narrative: { de: { title: "Rückblick", blocks: [plain("Nimm dir einen Moment.")] } } as Json },
+      ],
+    });
     editor = await createPerson(prisma, { email: EDITOR, roles: ["CONTENT_EDITOR"] });
     learner = await createPerson(prisma, { email: LEARNER, roles: ["LEARNER"] });
   });
@@ -344,6 +365,7 @@ describe("Release 4 — links in lesson text", () => {
     await prisma.auditLog.deleteMany({ where: { actor: { is: { email: { in: [EDITOR, LEARNER] } } } } });
     await removeECourse(prisma, SLUG);
     await removeECourse(prisma, SLUG_H);
+    await removeECourse(prisma, SLUG_L);
     await removePeople(prisma, [EDITOR, LEARNER]);
     await prisma.$disconnect();
   });
@@ -723,6 +745,65 @@ describe("Release 4 — links in lesson text", () => {
     await expect(cantLink).toHaveCount(0);
   });
 
+  test("R4-E3b: the Link form's \"Text to show\" carries the text's language; the address and the form's words keep the editor's English", async ({
+    page,
+    context,
+  }) => {
+    await signIn(context, editor.sessionToken);
+    /** The language a screen reader reads an element in: its own lang, or the nearest one around it. */
+    const langOf = (el: Locator) => el.evaluate((node) => node.closest("[lang]")?.getAttribute("lang") ?? null);
+    const expectLanguages = async (form: Locator, words: string) => {
+      const text = form.getByLabel("Text to show");
+      await expect(text).toHaveValue(words);
+      expect(await langOf(text), "the text to show").toBe("de");
+      expect(await langOf(form.getByLabel("Address")), "the address").toBe("en");
+      expect(await langOf(form.getByText("Text to show", { exact: true })), "the form's own words").toBe("en");
+      expect(await langOf(form.getByRole("button", { name: "Apply", exact: true })), "the form's own words").toBe("en");
+    };
+
+    // A reflection lesson's introduction, in German: its editor sits outside the lesson's block list.
+    await page.goto(`/en/content/courses/${SLUG_L}?lesson=reflection&lang=de`);
+    const reflection = page
+      .locator("#lesson-reflection")
+      .filter({ visible: true })
+      .getByRole("region", { name: /reflection text/i });
+    await expect(reflection).toBeVisible({ timeout: 20_000 });
+    const intro = reflection.getByRole("textbox", { name: /^introduction$/i });
+    await expect(intro).toHaveText("Nimm dir einen Moment.", { timeout: 30_000 });
+    await expect(intro).toHaveAttribute("lang", "de");
+    await expect(async () => {
+      await intro.focus();
+      await expect(intro).toBeFocused({ timeout: 2000 });
+    }).toPass({ timeout: 15_000 });
+    // "Moment": 6 characters, before ".".
+    await selectBeforeEnd(page, 1, 6);
+    await page.keyboard.press("ControlOrMeta+k");
+    const introForm = reflection.getByRole("group", { name: "Link", exact: true });
+    await expect(introForm).toBeVisible();
+    await expectLanguages(introForm, "Moment");
+    await page.keyboard.press("Escape");
+    await expect(introForm).toHaveCount(0);
+
+    // A paragraph of a lesson's text, in German, the same.
+    await page.goto(`/en/content/courses/${SLUG_L}?lesson=${GERMAN_TEXT}&lang=de`);
+    const region = page
+      .locator(`#lesson-${GERMAN_TEXT}`)
+      .filter({ visible: true })
+      .getByRole("region", { name: /lesson text/i });
+    await expect(region).toBeVisible({ timeout: 20_000 });
+    const block = region.getByRole("group", { name: /^block 1 of 1/i });
+    const textbox = await openParagraph(page, block);
+    await expect(textbox).toHaveAttribute("lang", "de");
+    // "Anleitung": 9 characters, before " heute." (7).
+    await selectBeforeEnd(page, 7, 9);
+    await page.keyboard.press("ControlOrMeta+k");
+    const form = linkForm(block);
+    await expect(form).toBeVisible();
+    await expectLanguages(form, "Anleitung");
+    await page.keyboard.press("Escape");
+    await expect(form).toHaveCount(0);
+  });
+
   test("R4-E5 (Part A): a named email link keeps target=_blank and opens the email address", async ({ page, context }) => {
     await setNarrative(
       EDITED,
@@ -749,9 +830,67 @@ describe("Release 4 — links in lesson text", () => {
     }
   });
 
-  // The words screen readers hear for email links change with QuickLink in
-  // Part A's second half (L2, from Mon 16 Nov: lessonLinks.email, D105).
-  test.fixme("R4-E5 (L2): email links say \"(opens your email program)\"", async () => {});
+  test("R4-E5 (L2): email links say \"(opens your email program)\" and web links \"(opens in a new tab)\", in the interface language, marked with it", async ({
+    page,
+    context,
+  }) => {
+    const OURS = "mailto:help@example.org?subject=Course";
+    await setNarrative(
+      EDITED,
+      narrative("R4 links lesson", [
+        richBlock(
+          paragraphDoc([
+            { type: "text", text: "Ask help@example.org, write to " },
+            { type: "text", text: "our team", marks: [{ type: "link", attrs: { href: OURS } }] },
+            { type: "text", text: " or read " },
+            { type: "text", text: "the guide", marks: [{ type: "link", attrs: { href: GUIDE } }] },
+            { type: "text", text: "." },
+          ]),
+          `Ask help@example.org, write to our team (help@example.org) or read the guide (${GUIDE}).`
+        ),
+      ])
+    );
+    await signIn(context, learner.sessionToken);
+    // Each link by what screen readers hear, where it goes, and the language of the words after it.
+    const expectLinks = async (rows: [name: string, href: string][], lang: string) => {
+      const lesson = main(page);
+      for (const [name, href] of rows) {
+        const link = lesson.getByRole("link", { name, exact: true });
+        await expect(link, name).toHaveCount(1);
+        await expect(link).toHaveAttribute("href", href);
+        // Still in a new tab, the lesson kept where the learner left it (D105).
+        await expect(link).toHaveAttribute("target", "_blank");
+        await expect(link).toHaveAttribute("rel", "noopener noreferrer");
+        await expect(link.locator(".sr-only")).toHaveAttribute("lang", lang);
+      }
+    };
+
+    await page.goto(`/en/learner/course/${SLUG}`);
+    await expect(main(page).getByRole("heading", { level: 2, name: "R4 links lesson" })).toBeVisible({ timeout: 20_000 });
+    await expectLinks(
+      [
+        [`help@example.org ${EMAIL_PROGRAM}`, "mailto:help@example.org"], // typed: a quick link
+        [`our team, example.org ${EMAIL_PROGRAM}`, OURS], // named, with its site's box
+        [`the guide, example.org ${NEW_TAB}`, GUIDE],
+      ],
+      "en"
+    );
+
+    // A German learner on a course shown in English (Release 3): the text is
+    // marked lang="en", the words after each link are German, marked so.
+    await page.goto(`/de/learner/course/${SLUG}`);
+    await expect(main(page).getByRole("heading", { level: 2, name: "R4 links lesson" })).toBeVisible({ timeout: 20_000 });
+    await expectLinks(
+      [
+        [`help@example.org ${de.lessonLinks.email}`, "mailto:help@example.org"],
+        [`our team, example.org ${de.lessonLinks.email}`, OURS],
+        [`the guide, example.org ${de.lessonLinks.newTab}`, GUIDE],
+      ],
+      "de"
+    );
+    const text = main(page).getByRole("link", { name: `our team, example.org ${de.lessonLinks.email}`, exact: true });
+    expect(await text.evaluate((a) => a.parentElement?.closest("[lang]")?.getAttribute("lang") ?? null), "the course text").toBe("en");
+  });
 
   test("R4-E6 (guard): hostile links sent straight to saveLessonNarrative and savePartText are refused by name; nothing changes", async ({
     request,
@@ -1219,7 +1358,9 @@ describe("Release 4 — links in lesson text", () => {
         ["our team", "example.org"], // an email link: its address's domain
       ];
       for (const [words, site] of named) {
-        const name = site ? `${words}, ${site} ${NEW_TAB}` : `${words} ${NEW_TAB}`;
+        // An email link opens the email program (D105).
+        const cue = words === "our team" ? EMAIL_PROGRAM : NEW_TAB;
+        const name = site ? `${words}, ${site} ${cue}` : `${words} ${cue}`;
         const one = lesson.getByRole("link", { name, exact: true });
         await expect(one, name.slice(0, 60)).toHaveCount(1);
         if (site) await expect(one.locator(".seq-link-site")).toHaveText(site);

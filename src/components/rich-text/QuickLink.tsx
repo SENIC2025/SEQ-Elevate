@@ -1,18 +1,25 @@
 import type { ReactNode } from "react";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 
 /**
- * A web or email address in lesson text, as a link (quick links, see
- * src/lib/rich-text/linkify.ts). It opens in a new tab so the lesson stays
- * where the learner left it, without giving the other page a handle on
- * this one (noopener) or telling it where the learner came from
- * (noreferrer). Screen readers hear "(opens in a new tab)" in the
- * interface language; the look comes from .seq-link in globals.css.
+ * A link in lesson text: an address typed in the text (a quick link, see
+ * src/lib/rich-text/linkify.ts) or words an author linked (a named link,
+ * D104). Every link opens in a new tab (D105), an email link too: a browser
+ * may hand mailto: to a web mail service, and the lesson stays where the
+ * learner left it. It gives the other page no handle on this one
+ * (noopener) and doesn't tell it where the learner came from (noreferrer).
  *
- * `href` is only ever one linkify built: https, http or mailto.
+ * Screen readers hear what the link opens after its words: "(opens in a
+ * new tab)" for a web link, "(opens your email program)" for an email link
+ * (its kind read from `href`). Those are the interface's words inside
+ * course text, which can be in another language (a German learner on a
+ * course still shown in English), so they carry the interface's lang. The
+ * look comes from .seq-link in globals.css.
+ *
+ * `href` is only ever one checkLinkHref accepted: https, http or mailto.
  *
  * Its own component, so the renderer around it stays free of hooks and
- * only text that has an address needs the interface messages.
+ * only text that has a link needs the interface messages.
  */
 export function QuickLink({
   href,
@@ -22,6 +29,8 @@ export function QuickLink({
   children: ReactNode;
 }) {
   const t = useTranslations("lessonLinks");
+  const locale = useLocale();
+  const opens = /^mailto:/i.test(href) ? t("email") : t("newTab");
   return (
     <a
       href={href}
@@ -30,7 +39,7 @@ export function QuickLink({
       className="seq-link"
     >
       {children}
-      <span className="sr-only"> {t("newTab")}</span>
+      <span className="sr-only" lang={locale}> {opens}</span>
     </a>
   );
 }

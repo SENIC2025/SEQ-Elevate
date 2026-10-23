@@ -65,7 +65,8 @@ export interface RichTextEditorProps {
   autoFocus?: boolean;
   /**
    * The language the text is written in: the editable text carries it
-   * (default: the page's). The editor's own words (toolbar, tip, messages)
+   * (default: the page's), and so does the Link form's "Text to show". The
+   * editor's own words (toolbar, tip, messages, the rest of the Link form)
    * are English on every locale's page and are marked lang="en" (WCAG 3.1.2).
    */
   lang?: string;
@@ -453,6 +454,7 @@ export function RichTextEditor({
         <LinkForm
           key={linkForm.key}
           id={`${ids}-link-form`}
+          lang={lang ?? pageLang}
           initialText={linkForm.text}
           initialAddress={linkForm.address}
           editing={linkForm.editing}

@@ -600,7 +600,8 @@
     "hostUnconfigured": "Hochgeladene Dateien können erst angehängt werden, wenn die Speicheradresse der Website eingestellt ist. Sag SENIC Bescheid."
   },
   "lessonLinks": {
-    "newTab": "(öffnet in einem neuen Tab)"
+    "newTab": "(öffnet in einem neuen Tab)",
+    "email": "(öffnet dein E-Mail-Programm)"
   },
   "compCard": {
     "title": "Comp Card",

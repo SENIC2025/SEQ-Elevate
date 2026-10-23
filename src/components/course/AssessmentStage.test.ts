@@ -271,7 +271,7 @@ describe("AssessmentStage quick links", () => {
   // (FormattedText); learners must get the same links.
   it("links an address typed in the intro", () => {
     expect(renderIntro("Questions? Write to help@example.org.")).toContain(
-      `${INTRO}Questions? Write to <a href="mailto:help@example.org" target="_blank" rel="noopener noreferrer" class="seq-link">help@example.org<span class="sr-only"> (opens in a new tab)</span></a>.</p>`
+      `${INTRO}Questions? Write to <a href="mailto:help@example.org" target="_blank" rel="noopener noreferrer" class="seq-link">help@example.org<span class="sr-only" lang="en"> (opens your email program)</span></a>.</p>`
     );
   });
 

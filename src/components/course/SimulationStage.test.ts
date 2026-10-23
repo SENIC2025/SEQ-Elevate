@@ -136,8 +136,8 @@ describe("SimulationStage", () => {
   });
 });
 
-function renderInstruction(instruction: string): string {
-  return render("en", {
+function renderInstruction(instruction: string, locale: "en" | "de" = "en"): string {
+  return render(locale, {
     key: "simulation",
     title: "Practice",
     simulation: {
@@ -155,7 +155,17 @@ describe("SimulationStage quick links", () => {
   // (FormattedText); learners must get the same links.
   it("links an address typed in the instruction", () => {
     expect(renderInstruction("Read https://example.org/policy first")).toContain(
-      `${INSTRUCTION}Read <a href="https://example.org/policy" target="_blank" rel="noopener noreferrer" class="seq-link">https://example.org/policy<span class="sr-only"> (opens in a new tab)</span></a> first</p>`
+      `${INSTRUCTION}Read <a href="https://example.org/policy" target="_blank" rel="noopener noreferrer" class="seq-link">https://example.org/policy<span class="sr-only" lang="en"> (opens in a new tab)</span></a> first</p>`
+    );
+  });
+
+  it("says an email link opens the email program, in the interface language, and keeps it in a new tab", () => {
+    // Release 4 (D105): the words in the interface's language, marked with it.
+    expect(renderInstruction("Questions? help@example.org", "de")).toContain(
+      `${INSTRUCTION}Questions? <a href="mailto:help@example.org" target="_blank" rel="noopener noreferrer" class="seq-link">help@example.org<span class="sr-only" lang="de"> (öffnet dein E-Mail-Programm)</span></a></p>`
+    );
+    expect(renderInstruction("Read https://example.org/policy first", "de")).toContain(
+      `<span class="sr-only" lang="de"> (öffnet in einem neuen Tab)</span>`
     );
   });
 

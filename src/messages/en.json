@@ -600,7 +600,8 @@
     "hostUnconfigured": "Uploads can't be attached until the site's storage address is set. Tell SENIC."
   },
   "lessonLinks": {
-    "newTab": "(opens in a new tab)"
+    "newTab": "(opens in a new tab)",
+    "email": "(opens your email program)"
   },
   "compCard": {
     "title": "Comp Card",

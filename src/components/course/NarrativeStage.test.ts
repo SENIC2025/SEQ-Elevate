@@ -134,8 +134,12 @@ function renderWithMessages(blocks: NarrativeBlock[]): string {
   );
 }
 
+// Every link opens in a new tab (D105); screen readers hear what it opens,
+// in the interface language: an email link, the email program.
 const link = (href: string, shown: string) =>
-  `<a href="${href}" target="_blank" rel="noopener noreferrer" class="seq-link">${shown}<span class="sr-only"> (opens in a new tab)</span></a>`;
+  `<a href="${href}" target="_blank" rel="noopener noreferrer" class="seq-link">${shown}<span class="sr-only" lang="en"> ${
+    href.startsWith("mailto:") ? "(opens your email program)" : "(opens in a new tab)"
+  }</span></a>`;
 
 describe("NarrativeBlocks quick links", () => {
   it("links addresses in a list block's points", () => {
@@ -165,5 +169,15 @@ describe("NarrativeBlocks quick links", () => {
     expect(html).toContain(link("https://example.org/a", "https://example.org/a"));
     expect(html).toContain(link("mailto:help@example.org", "help@example.org"));
     expect(html).toContain(link("https://example.org/b", "https://example.org/b"));
+  });
+
+  it("says a web link opens in a new tab and an email link the email program, both in a new tab", () => {
+    const html = renderWithMessages([{ kind: "paragraph", text: "See https://example.org/a or ask help@example.org" }]);
+    expect(html).toContain(
+      '<a href="https://example.org/a" target="_blank" rel="noopener noreferrer" class="seq-link">https://example.org/a<span class="sr-only" lang="en"> (opens in a new tab)</span></a>'
+    );
+    expect(html).toContain(
+      '<a href="mailto:help@example.org" target="_blank" rel="noopener noreferrer" class="seq-link">help@example.org<span class="sr-only" lang="en"> (opens your email program)</span></a>'
+    );
   });
 });

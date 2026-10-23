@@ -34,6 +34,9 @@ import { cn } from "@/lib/utils";
  *   key.
  * - Escape cancels. When the editor box loses focus while the form holds
  *   input it didn't open with, the status line says it isn't applied yet.
+ * - "Text to show" holds the text's own words, so it carries the language
+ *   the text is written in; the address and the form's words are the
+ *   editor's, English like the box around them (WCAG 3.1.2).
  *
  * No Tiptap here: RichTextEditor applies the link. Authoring copy, English
  * (like the toolbar).
@@ -83,6 +86,8 @@ const ANNOUNCE_AFTER_MS = 750;
 export interface LinkFormProps {
   /** The group's id (the Link button's aria-controls); its fields' ids start with it. */
   id: string;
+  /** The language the text is written in: "Text to show" carries it. */
+  lang: string;
   /** What the form opens with: the selected text (or the link's), and the link's address. */
   initialText: string;
   initialAddress: string;
@@ -100,6 +105,7 @@ export interface LinkFormProps {
 
 export function LinkForm({
   id,
+  lang,
   initialText,
   initialAddress,
   editing,
@@ -204,6 +210,7 @@ export function LinkForm({
           ref={textRef}
           id={ids.text}
           type="text"
+          lang={lang}
           value={text}
           aria-invalid={error?.field === "text" || undefined}
           aria-describedby={describedBy("text")}
