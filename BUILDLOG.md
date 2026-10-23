@@ -1038,3 +1038,29 @@ On `r3` after the claim's review above. Nothing pushed (D100).
   - the linkify ratio test ×10 with eight CPU-bound processes: 10/10; `linkify-cost.ts`: every block within the budget;
   - `db-backed-progress` on one worker: **57/57**;
   - the server logged only the known kinds: 19 "No signed-in learner", 4 "No signed-in user", 2 `AccessDenied`, 2 `transformAlgorithm`, 1 `SessionTokenError`, 1 `P2003` (`Membership_userId_fkey`, a row written after a test's clean-up), and the `BLOB_PUBLIC_HOST` notice.
+
+### Release 3 — the verification's follow-ups: a Comp Card save whose answer is lost is followed by another, a "[" in a quick link's host is read as the URL parser reads it, the clean-up's focus on any device (2026-10-23)
+On `r3` after the claim's verification above. Nothing pushed (D100).
+- `[FIX]` `736f994` (D80 as built) **A Comp Card save that fails once the page has changed since it was sent is followed by another**, if the page still differs from what the server is then known to hold (`saveCard` in `src/store/card-save.ts`). Its own retry is skipped for the newer save (`pending-save.ts`), which may have been worked out while the server was still known to hold what it sent, and found nothing to send (an answer changed back). The save that follows sends the field whose save wasn't confirmed. Failing, it is tried again as any save is (1 s, 2 s, 4 s, 8 s), then left until the next change, never sent every 700 ms. A page still as the failed save sent it tries that save again, and nothing follows once the learner's data was let go of.
+- `[FIX]` `cb20cac` (D55) **Quick links: a "[" anywhere in a web address's host opens "[…]"**, and a "]" closes it, as for the URL parser (`webHost` in `src/lib/rich-text/linkify.ts`). The port starts at the first colon outside the brackets, so a host the parser reads whole is measured whole against DNS's limits (`hostFits`) before it is parsed. `scripts/linkify-cost.ts` measures such hosts against the budget too.
+- `[FIX]` `d197eee` (WCAG 2.4.3, as F-E2) **/admin/data: the clean-up's dry run and run move the focus to what they show once it is on the screen** (`Cleanup` in `DataTools.tsx`). The focus moves from an effect after the render that shows it, never from a frame scheduled before that render.
+- `[DOCS]` D80's 23 October line: a save follows on its own once a save fails, when the page has changed since that save was sent.
+- `[TEST]` Each change's tests ran red first, on d6a39cf:
+  - `r3-comp-card` B-E8 (saves, the answer lost: the change's save held, written by the server, its answer turned into a dropped connection) on the d6a39cf build: red 2 of 2, the page showing the first answer and the account holding the change;
+  - `card-save.test.ts`: red 3 of the 6 new tests ("called 0 times"; sent only `[{"wentWell":"Y"}]`); green, their guards (the answer confirmed, a newer change still waiting, a page as sent, data let go of);
+  - the `linkify.test.ts` test of a host behind "x[:]" or "b[1:2]": red, 135.6 ms against 0.40 ms (335 times ordinary text);
+  - `r3-data-last` D-E6, the dry run and the run with Chrome's CPU throttling at 20×, on the d6a39cf build: red 4 of 4 at the dry run's focus. With both checks soft, red 3 of 3: the dry run's focus 2 of 3, the run's 2 of 3.
+- `[VERIFY]` What is linked, d6a39cf and after, all alike:
+  - c611bd1's 31 linkify tests pass on both, and their 109 `findLinks` and 6 `linkifyInline` inputs give the same links;
+  - 153,684 texts of ordinary writing (every line and every file of the repository at c611bd1, the en/de/el messages, Release 4's link corpora) show no difference;
+  - so do 19 texts of real addresses near the limits and of brackets in a path, query, fragment, user name, IPv6 address or host.
+- `[VERIFY]` On the local Postgres `seq_r3`:
+  - tsc ✓ eslint ✓ **4,973 unit** ✓ (216 files, one skipped; 4 tests skipped: the `r3-check` database tests). Each commit on its own, with tsc, eslint and unit ✓: `d197eee` 4,966, `cb20cac` 4,967, `736f994` 4,973;
+  - production build ✓ (through the build lock), no warnings;
+  - **full E2E 928 passed, 2 skipped** (F-E1a and F-E1b, by design) in 9.0 min on two workers, exit 0. By project: chromium 915, cutoff 3, switches 5, last 5;
+  - affected specs `r3-comp-card` (10), `r0-links`, `rich-text-learner` and `r3-data`: **37/37**; `r3-data-last`: **4/4**;
+  - with eight CPU-bound processes: both B-E8 (saves) tests ×5 **10/10**, and the clean-up's slow-device test ×5 on one worker **5/5**;
+  - the verifier's four V3 attacks (lost, three values, rapid, two tabs): **4/4**;
+  - `db-backed-progress` on one worker: **57/57**;
+  - `linkify-cost.ts`: every block within the budget (the hosts behind "x[:]" 1.42 and 1.36 ms per 10,000 characters);
+  - the server logged only the known kinds: 22 "No signed-in learner", 5 "No signed-in user", 3 `transformAlgorithm`, 2 `AccessDenied`, and the `BLOB_PUBLIC_HOST` notice.
