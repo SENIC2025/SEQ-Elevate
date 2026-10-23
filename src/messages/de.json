@@ -845,7 +845,7 @@
       "off": "Nicht freigeschaltet: Lernende mit {language} bekommen diesen Kurs auf Englisch.",
       "confirmTitle": "{language} für Lernende freischalten?",
       "confirmBody": "Ein Teil dieses Kurses ist noch nicht auf {language}. Lernende mit {language} sehen Englisch überall dort, wo Text fehlt.",
-      "notChecked": "Die Abdeckung zählt nur den Haupttext und die Übungen. Prüfe zusätzliche Inhalte, Schrittnamen, Videofragen und Dokumente selbst.",
+      "notChecked": "Die Abdeckung zählt nur den Haupttext und die Übungen. Prüfe zusätzliche Inhalte, Schrittnamen, Videofragen, Dokumente, Links zum Weiterlesen und die Literaturliste selbst.",
       "readOnly": "Nur Partner-Admins oder Admins können eine Sprache für Lernende ein- oder ausschalten.",
       "liveIncomplete": "{language} ist freigeschaltet, aber jetzt fehlt dort etwas Text (meist, weil sich das Englische geändert hat). Lernende sehen dort Englisch.",
       "notLive": "Lernende mit {language} bekommen Englisch, bis {language} freigeschaltet ist.",

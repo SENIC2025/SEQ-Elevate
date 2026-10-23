@@ -16,6 +16,7 @@ import {
 import type { StoredAnswer } from "@/lib/learner-progress/contract";
 import { InteractiveVideoPlayer } from "../InteractiveVideoPlayer";
 import { LessonDocuments } from "../LessonDocuments";
+import { LessonFurtherReading } from "../LessonFurtherReading";
 import { ContinueNote, FLAGGED_CLASS, useContinue, type ContinueApi } from "../useContinue";
 import { useLessonAnswers } from "../useLessonAnswers";
 import { RefusedNote } from "../refused-note";
@@ -54,6 +55,13 @@ import { useContentLang } from "../CourseText";
  * When the standard reflection's three questions were replaced by the
  * lesson's own (`replacedPrompts`), a learner who answered them earlier
  * finds those answers, read only, under "Your earlier answers".
+ *
+ * Release 4 (D107, spec 4.5): the lesson's further reading comes after its
+ * own content, inside its card, after the pieces and the notes and before
+ * Continue, so learners meet the lesson before its links out; the heading
+ * order stays the lesson's h2, its pieces' h3s, then "Further reading"
+ * (h3). Continue waits for the pieces only. A lesson without links is
+ * drawn as before.
  */
 export function SectionView({
   stage,
@@ -188,6 +196,12 @@ export function SectionView({
               <Info aria-hidden className="mt-0.5 h-4 w-4 flex-shrink-0 text-[var(--muted-foreground)]" />
               <span>{t("skippedNote", { count: stage.skipped })}</span>
             </p>
+          ) : null}
+
+          {stage.links?.length ? (
+            <div className="mt-6">
+              <LessonFurtherReading links={stage.links} />
+            </div>
           ) : null}
 
           {/* What Continue waits for, above it: plain text, read in page

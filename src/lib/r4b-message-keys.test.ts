@@ -102,3 +102,24 @@ describe("Release 4's message keys (Part B)", () => {
     }
   });
 });
+
+/*
+ * Release 4, R2 (spec 6.2): Release 3's note on what a language's coverage
+ * counts (courseManager.languageReady.notChecked) also names further
+ * reading and the references list, which it doesn't count either. Its value
+ * only: the key is Release 3's.
+ */
+describe("the coverage note names further reading and references (Part B, R2)", () => {
+  it("in English, as the spec says", () => {
+    expect(at(en, "courseManager.languageReady.notChecked")).toBe(
+      "Coverage counts the main text and exercises only. Check extra content, step names, video questions, documents, further reading and references yourself."
+    );
+  });
+
+  it("in German and Greek, in the platform's words", () => {
+    expect(at(de, "courseManager.languageReady.notChecked")).toBe(
+      "Die Abdeckung zählt nur den Haupttext und die Übungen. Prüfe zusätzliche Inhalte, Schrittnamen, Videofragen, Dokumente, Links zum Weiterlesen und die Literaturliste selbst."
+    );
+    expect(at(el, "courseManager.languageReady.notChecked")).toMatch(/τα έγγραφα, την περαιτέρω μελέτη και τη βιβλιογραφία\.$/);
+  });
+});

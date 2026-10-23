@@ -1,4 +1,4 @@
-import "server-only";
+"use server";
 
 /**
  * Release 4, Part B (D107, D108, D110; spec 4.3): a lesson's further-reading
@@ -32,11 +32,11 @@ import "server-only";
  * changed, never a title, an address or a description (an email address
  * may name a person).
  *
- * The "use server" directive comes with the action table's rows for these
- * exports and the screen that calls them (D102), so every action a request
- * can reach has its row from the first build that serves it. Until then
- * this module is server-only. Its exports are async functions only, as a
- * "use server" module's must be.
+ * Server actions since R2 (spec 10.5): the lesson's document card calls
+ * them, and each export has its row in Release 3's action table
+ * (e2e/fixtures/r3-action-table/r4.ts), so every action a request can reach
+ * is tried as each person who must be refused. Its exports are async
+ * functions only, as a "use server" module's must be.
  */
 
 import type { Prisma } from "@prisma/client";

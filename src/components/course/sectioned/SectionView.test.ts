@@ -367,3 +367,40 @@ describe("SectionView", () => {
     expect(render(stage, { replacedPrompts })).not.toContain("<details");
   });
 });
+
+/*
+ * Release 4, R2 (D107, spec 4.5): a lesson's further reading is drawn after
+ * its own content, inside the lesson's card, after its pieces and notes and
+ * before Continue, so learners meet the lesson before its links out; the
+ * heading order stays the lesson's h2, then "Further reading" (h3). A lesson
+ * without links is drawn exactly as before. Continue still waits for the
+ * pieces only.
+ */
+describe("SectionView: further reading (Release 4)", () => {
+  const links = [
+    { id: "k1", title: "The guide", url: "https://example.org/guide", kind: "web" as const, description: "Read it first.", languages: [], published: true },
+    { id: "k2", title: "Ask us", url: "mailto:help@example.org", kind: "email" as const, description: "", languages: [], published: true },
+  ];
+
+  it("draws the list after the lesson's pieces and before Continue, inside the lesson's card", () => {
+    const html = render({ ...sectionStage, links });
+    const list = html.indexOf(">Further reading</h3>");
+    expect(list).toBeGreaterThan(-1);
+    const lastPiece = html.indexOf("How you speak up");
+    const cont = html.indexOf(">Continue");
+    expect(lastPiece).toBeGreaterThan(-1);
+    expect(list).toBeGreaterThan(lastPiece);
+    expect(cont).toBeGreaterThan(list);
+    // The heading order: the lesson's h2, its pieces' h3s, then "Further reading".
+    expect(elements(html, "h3").map((h) => textOf(h.inner)).at(-1)).toBe("Further reading");
+    // Each title a link that opens a new tab, as lesson text's links do.
+    expect(html).toMatch(/<a[^>]*href="https:\/\/example\.org\/guide"[^>]*target="_blank"/);
+    expect(html).toMatch(/<a[^>]*href="mailto:help@example\.org"/);
+    expect(textOf(html)).toContain("Read it first.");
+  });
+
+  it("draws a lesson without further reading as before", () => {
+    expect(render({ ...sectionStage, links: [] })).toBe(render(sectionStage));
+    expect(render(sectionStage)).not.toContain("Further reading");
+  });
+});

@@ -12,6 +12,7 @@
  */
 
 import type { RichText } from "@/lib/rich-text/types";
+import type { LessonLinkRef } from "./reading-types";
 
 export type Locale = "en" | "de" | "el";
 
@@ -139,6 +140,12 @@ export interface LessonDocumentRef {
    * shown inside the page.
    */
   external?: boolean;
+  /**
+   * Release 4 (D108): the languages it is for; absent or [] = every
+   * language. Learners get it in those languages only (item-language.ts);
+   * whether a lesson is there never depends on it.
+   */
+  languages?: Locale[];
 }
 
 export interface CourseStage {
@@ -149,6 +156,12 @@ export interface CourseStage {
   video?: VideoContent;
   /** Documents attached to this lesson (authored in the CMS). */
   documents?: LessonDocumentRef[];
+  /**
+   * Release 4 (D107): the lesson's further reading, published links only,
+   * each address checked again as it was read (lesson-links.ts). Never
+   * content: it makes no lesson appear and counts for nothing.
+   */
+  links?: LessonLinkRef[];
   /** narrative stages */
   blocks?: NarrativeBlock[];
   /** simulation stage */

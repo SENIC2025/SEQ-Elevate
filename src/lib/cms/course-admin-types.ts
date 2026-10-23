@@ -17,6 +17,7 @@ import type {
   VideoContent,
 } from "./types";
 import type { StoredStructure } from "./structure";
+import type { StaffLessonLink } from "./lesson-links";
 import type { CourseStatus } from "./course-status";
 import type {
   ExtraPartId,
@@ -153,6 +154,13 @@ export interface LessonOutline {
   builtInVideo: boolean;
   /** Every document, drafts included, in the learner's order. */
   documents: LessonDocumentRef[];
+  /**
+   * Release 4 (D107, spec 4.6): every further-reading link, drafts
+   * included, in the learner's order, each address checked again as it was
+   * read (an `unusable` one is shown as text). Absent only where a page's
+   * data was built without them.
+   */
+  links?: StaffLessonLink[];
   /** ISO time the lesson row last changed, or null when there is no row. */
   updatedAt: string | null;
   // The four below are for the lesson list of a created course: null for

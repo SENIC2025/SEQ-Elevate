@@ -96,7 +96,7 @@ describe("course route", () => {
     setup({ status: "published", editor: false });
     const el = await visit({ locale: "de" });
     expect(el.type).toBe(CoursePlayer);
-    expect(getLearnerCourse).toHaveBeenCalledWith("seq-elevate", "speak-up", "de", base, { editor: false });
+    expect(getLearnerCourse).toHaveBeenCalledWith("seq-elevate", "speak-up", "de", base, { editor: false, requested: "de" });
     expect(el.props).toEqual({
       course: flexible,
       draftPreview: false,
@@ -165,7 +165,7 @@ describe("course route", () => {
     setup({ status: "draft", editor: true, user: { id: "editor" } });
     for (const lesson of ["s-abcd1234", "concept", "assessment"]) {
       const el = await visit({ locale: "de", lesson, ui: "en" });
-      expect(getLearnerCourse).toHaveBeenLastCalledWith("seq-elevate", "speak-up", "de", base, { editor: true });
+      expect(getLearnerCourse).toHaveBeenLastCalledWith("seq-elevate", "speak-up", "de", base, { editor: true, requested: "de" });
       expect(el.type).toBe(PreviewStateProvider);
       const p = player(el);
       expect(p.type).toBe(CoursePlayer);
@@ -197,7 +197,7 @@ describe("course route", () => {
     const playing = await visit({ lesson: "concept" });
     expect(playing.type).toBe(CoursePlayer);
     expect(playing.props).toMatchObject({ preview: false, canEdit: true, initialLesson: undefined });
-    expect(getLearnerCourse).toHaveBeenLastCalledWith("seq-elevate", "speak-up", "en", base, { editor: false });
+    expect(getLearnerCourse).toHaveBeenLastCalledWith("seq-elevate", "speak-up", "en", base, { editor: false, requested: "en" });
   });
 
   it("is a 404 for a learner on a draft, as before", async () => {
@@ -264,12 +264,26 @@ describe("which language the course is shown in", () => {
     learnerLocale.value = null;
   });
 
+  // Release 4, R2 (D108, spec 4.4): the lessons are built in the language
+  // shown, and get the documents and links for the page's language too, so
+  // a German learner on a course still shown in English gets German-only
+  // material (marked "In German"). In a preview both are the language asked for.
+  it("gives a learner's lessons the page's language as well as the course's, for documents and links", async () => {
+    setup({ status: "published", editor: false });
+    learnerLocale.value = "en";
+    await visit({ locale: "de" });
+    expect(getLearnerCourse).toHaveBeenLastCalledWith("seq-elevate", "speak-up", "en", base, { editor: false, requested: "de" });
+    learnerLocale.value = null;
+    await visit({ locale: "el" });
+    expect(getLearnerCourse).toHaveBeenLastCalledWith("seq-elevate", "speak-up", "el", base, { editor: false, requested: "el" });
+  });
+
   it("gives a learner on /de the English course, lessons built in English too", async () => {
     setup({ status: "published", editor: false });
     learnerLocale.value = "en";
     const el = await visit({ locale: "de" });
     expect(getCourse).toHaveBeenCalledWith("seq-elevate", "speak-up", "en");
-    expect(getLearnerCourse).toHaveBeenCalledWith("seq-elevate", "speak-up", "en", base, { editor: false });
+    expect(getLearnerCourse).toHaveBeenCalledWith("seq-elevate", "speak-up", "en", base, { editor: false, requested: "de" });
     expect(el.props.languageNotLive).toBeUndefined();
   });
 
@@ -278,7 +292,7 @@ describe("which language the course is shown in", () => {
     learnerLocale.value = "en";
     const el = player(await visit({ locale: "de" }));
     expect(getCourse).toHaveBeenCalledWith("seq-elevate", "speak-up", "de");
-    expect(getLearnerCourse).toHaveBeenCalledWith("seq-elevate", "speak-up", "de", base, { editor: true });
+    expect(getLearnerCourse).toHaveBeenCalledWith("seq-elevate", "speak-up", "de", base, { editor: true, requested: "de" });
     expect(el.props.languageNotLive).toBe("de");
   });
 

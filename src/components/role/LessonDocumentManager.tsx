@@ -11,7 +11,11 @@ import {
   setLessonDocumentOrder,
   setLessonDocumentPublished,
 } from "@/app/actions/lesson";
-import type { LessonDocumentRef } from "@/lib/cms/types";
+import { setLessonDocumentLanguages } from "@/app/actions/lesson-reading";
+import type { StaffLessonLink } from "@/lib/cms/lesson-links";
+import type { LessonDocumentRef, Locale } from "@/lib/cms/types";
+import { LessonLinkManager } from "@/components/role/LessonLinkManager";
+import { Button } from "@/components/ui/button";
 import { DOCUMENT_UPLOAD, acceptAttribute, formatSize } from "@/lib/uploads";
 import {
   attachFailureMessage,
@@ -35,7 +39,42 @@ import {
   Eye,
   EyeOff,
   AlertTriangle,
+  Languages,
+  Plus,
 } from "lucide-react";
+
+/** The languages a document can be for (D108), in the order they are named. */
+const LANGUAGES: { code: Locale; name: string }[] = [
+  { code: "en", name: "English" },
+  { code: "de", name: "German" },
+  { code: "el", name: "Greek" },
+];
+const EVERY: Locale[] = ["en", "de", "el"];
+const nameOf = (code: Locale) => LANGUAGES.find((l) => l.code === code)?.name ?? code;
+/** Three boxes ticked, or none stored ([]): every language. */
+const isEvery = (languages: readonly Locale[] | undefined) =>
+  !languages?.length || EVERY.every((l) => languages.includes(l));
+
+/** Why an upload's (or a row's) languages can't be used: none ticked. Null when they can. */
+export function uploadLanguagesProblem(languages: readonly Locale[]): string | null {
+  return languages.length ? null : "Choose at least one language.";
+}
+
+/** A document's badge: the languages it is for, named; null when it is for every language. */
+export function documentLanguagesBadge(languages: readonly Locale[] | undefined): string | null {
+  return isEvery(languages) ? null : EVERY.filter((l) => languages!.includes(l)).map(nameOf).join(", ");
+}
+
+/** What the status line says once a document's languages are saved. */
+function languagesNotice(name: string, languages: readonly Locale[]): string {
+  if (isEvery(languages)) return `“${name}” is for every language.`;
+  const names = EVERY.filter((l) => languages.includes(l)).map(nameOf);
+  const list = names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names.at(-1)}` : names[0];
+  return `“${name}” is for ${list} learners.`;
+}
+
+/** Said on a row whose languages couldn't be set after its upload (spec 4.6). */
+export const LANGUAGES_FAILED = "Added for every language; set its languages again.";
 
 /** An uploaded file waiting to be added to the lesson. */
 interface PendingDocument {
@@ -43,6 +82,41 @@ interface PendingDocument {
   url: string;
   mimeType: string;
   sizeBytes: number;
+}
+
+type AddAnswer = Awaited<ReturnType<typeof addLessonDocument>>;
+
+/**
+ * Adds an uploaded file to the lesson with the languages it is for (D108):
+ * first for every language, as addLessonDocument always adds one (D68: no
+ * new required argument), then, for a choice other than every language,
+ * its languages (setLessonDocumentLanguages). A document whose languages
+ * couldn't be set stays, a draft, for every language (`languages:
+ * "failed"`), and the card says to set them again. Throws only what adding
+ * it throws.
+ */
+export async function attachDocument(
+  courseSlug: string,
+  stageKey: string,
+  doc: PendingDocument,
+  languages: readonly Locale[],
+  actions: {
+    addLessonDocument: typeof addLessonDocument;
+    setLessonDocumentLanguages: typeof setLessonDocumentLanguages;
+  } = { addLessonDocument, setLessonDocumentLanguages }
+): Promise<
+  | { added: false; answer: Exclude<AddAnswer, { ok: true }> }
+  | { added: true; id: string; languages: "every" | "set" | "failed" }
+> {
+  const answer = await actions.addLessonDocument(courseSlug, stageKey, doc);
+  if (!answer.ok) return { added: false, answer };
+  if (isEvery(languages)) return { added: true, id: answer.id, languages: "every" };
+  try {
+    const set = await actions.setLessonDocumentLanguages(answer.id, [...languages]);
+    return { added: true, id: answer.id, languages: set.ok ? "set" : "failed" };
+  } catch {
+    return { added: true, id: answer.id, languages: "failed" };
+  }
 }
 
 type AttachState =
@@ -75,38 +149,67 @@ async function changeFailure(
 }
 
 /**
- * Upload documents (PDF/Office/images) and attach them to a lesson. Two
- * steps: the file goes to Vercel Blob (useBlobUpload), then the lesson gets a
- * row pointing at it — each with its own "Try again".
+ * A lesson's documents and further reading, in one card ("Documents and
+ * further reading", Release 4, spec 4.6).
  *
- * A new document starts hidden from learners (even on a live course) until
- * the editor chooses "Show to learners"; the list says so in words.
+ * Documents (PDF/Office/images): two steps, the file goes to Vercel Blob
+ * (useBlobUpload), then the lesson gets a row pointing at it — each with
+ * its own "Try again". The languages a document is for (D108) are chosen
+ * before the upload (three boxes, every language ticked) and changed on its
+ * row ("Languages"); a row for some languages only names them.
  *
- * The course page gives the lesson (`courseSlug`, `stageKey`, and its
- * documents as `initialDocuments`); `onChange` reports the list after every
- * change that went through.
+ * Further reading (D107): "Add a link" sits next to "Upload document" and
+ * opens the link manager's form; the links follow the documents
+ * (LessonLinkManager). Further reading is never content: it makes no lesson
+ * appear (`linkHints`, the page's words on that).
+ *
+ * A new document or link starts hidden from learners (even on a live
+ * course) until the editor chooses "Show to learners"; the list says so in
+ * words.
+ *
+ * The course page gives the lesson (`courseSlug`, `stageKey`, its documents
+ * as `initialDocuments` and its links as `initialLinks`); `onChange` and
+ * `onLinksChanged` report the lists after every change that went through.
  */
 export function LessonDocumentManager({
   courseSlug,
   stageKey,
   initialDocuments,
+  initialLinks,
   embedded = false,
   onChange,
+  onLinksChanged,
+  linkHints = [],
 }: {
   courseSlug: string;
   /** The lesson's id: a stage key, or a Release 1 lesson's "s-…". */
   stageKey: string;
   /** Every document on the lesson, drafts included; skips the first load. */
   initialDocuments?: LessonDocumentRef[];
+  /** Every further-reading link on the lesson, drafts included; skips their first load. */
+  initialLinks?: StaffLessonLink[];
   /** Inside a lesson on the course page: lighter frame. */
   embedded?: boolean;
   onChange?: (docs: LessonDocumentRef[]) => void;
+  onLinksChanged?: (links: StaffLessonLink[]) => void;
+  /** What the page knows of the lesson, in words (LessonLinkManager's linkHints). */
+  linkHints?: readonly string[];
 }) {
   const [docs, setDocs] = React.useState<LessonDocumentRef[]>(
     initialDocuments ?? []
   );
   // The page's language: a document's name keeps it (see the render).
-  const pageLang = useLocale();
+  const pageLang = useLocale() as Locale;
+  // The languages of the next upload (D108): every language unless changed.
+  const [uploadLanguages, setUploadLanguages] = React.useState<Locale[]>(EVERY);
+  const uploadProblem = uploadLanguagesProblem(uploadLanguages);
+  // Documents whose languages couldn't be set after their upload.
+  const [languagesFailed, setLanguagesFailed] = React.useState<ReadonlySet<string>>(new Set());
+  // The row whose "Languages" are open, and the link form opened from this card.
+  const [editingLanguages, setEditingLanguages] = React.useState<string | null>(null);
+  const [addingLink, setAddingLink] = React.useState(false);
+  const addLinkRef = React.useRef<HTMLButtonElement>(null);
+  const ids = React.useId();
   const upload = useBlobUpload(DOCUMENT_UPLOAD);
   const [attach, setAttach] = React.useState<AttachState>({ phase: "idle" });
   const [listError, setListError] = React.useState("");
@@ -142,7 +245,7 @@ export function LessonDocumentManager({
 
   const busy =
     upload.state.phase === "uploading" || attach.phase === "attaching";
-  const pickerDisabled = upload.problem !== null || busy;
+  const pickerDisabled = upload.problem !== null || busy || uploadProblem !== null;
 
   function onPick(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0];
@@ -166,12 +269,14 @@ export function LessonDocumentManager({
   async function attachToLesson(doc: PendingDocument) {
     setAttach({ phase: "attaching" });
     try {
-      const res = await addLessonDocument(courseSlug, stageKey, doc);
-      if (res.ok) {
+      const attached = await attachDocument(courseSlug, stageKey, doc, uploadLanguages);
+      if (attached.added) {
+        if (attached.languages === "failed") setLanguagesFailed((s) => new Set(s).add(attached.id));
         setAttach({ phase: "done", name: doc.name });
         refresh();
         return;
       }
+      const res = attached.answer;
       // A file that isn't on our own store (D91): trying again can't work.
       if (res.error === "host-refused" || res.error === "host-unconfigured") {
         setAttach({ phase: "failed", message: res.message, retry: null });
@@ -282,6 +387,14 @@ export function LessonDocumentManager({
     if (j < 0 || j >= docs.length) return;
     const next = [...docs];
     [next[index], next[j]] = [next[j], next[index]];
+    // The pressed arrow moves with its row; at either end it can't be
+    // pressed again, so focus goes to the row's other arrow.
+    const moved = docs[index].id;
+    if (j === 0 || j === docs.length - 1) {
+      requestAnimationFrame(() =>
+        document.getElementById(`${ids}-${j === 0 ? "down" : "up"}-${moved}`)?.focus()
+      );
+    }
     await applyOptimistic(next, "Couldn't save the new order", () =>
       setLessonDocumentOrder(next.map((d) => d.id))
     );
@@ -298,10 +411,36 @@ export function LessonDocumentManager({
     );
   }
 
+  /** A row's languages saved (D108): the list follows, and the status line says what they are now. */
+  async function saveLanguages(doc: LessonDocumentRef, languages: Locale[]): Promise<string | null> {
+    const what = `Couldn't set the languages of “${doc.name}”`;
+    setListError("");
+    setListNotice("");
+    try {
+      const res = await setLessonDocumentLanguages(doc.id, languages);
+      if (!res.ok) return await changeFailure(what, "refused");
+    } catch (thrown) {
+      return await changeFailure(what, { thrown });
+    }
+    const stored = isEvery(languages) ? [] : EVERY.filter((l) => languages.includes(l));
+    const next = docs.map((d) => (d.id === doc.id ? { ...d, languages: stored } : d));
+    setDocs(next);
+    report.current?.(next);
+    setLanguagesFailed((s) => {
+      const left = new Set(s);
+      left.delete(doc.id);
+      return left;
+    });
+    setListNotice(languagesNotice(doc.name, stored));
+    return null;
+  }
+
   // Its own words are English on every locale's page: marked lang="en"
-  // (WCAG 3.1.2). A document's name is in a language no one has recorded,
-  // so it keeps the page's, as the lesson's read view and learners' pages
-  // show it.
+  // (WCAG 3.1.2). A document's name, or a link's title, is in the one
+  // language it is for, else in a language no one has recorded, so it
+  // keeps the page's, as the lesson's read view and learners' pages show it.
+  const nameLang = (languages: readonly Locale[] | undefined) =>
+    languages?.length === 1 ? languages[0] : pageLang;
   return (
     <Card lang="en" className={cn(embedded && "shadow-none")}>
       <CardContent className="p-5">
@@ -311,13 +450,41 @@ export function LessonDocumentManager({
           </div>
           <div>
             <h3 ref={headingRef} tabIndex={-1} className="font-semibold">
-              Lesson documents
+              Documents and further reading
             </h3>
             <p className="text-xs text-[var(--muted-foreground)]">
-              Attach PDFs, Office files or images to a lesson.
+              Attach PDFs, Office files or images to a lesson, and links to read further.
             </p>
           </div>
         </div>
+
+        <fieldset className="mb-3" aria-describedby={uploadProblem ? `${ids}-upload-languages-p` : undefined}>
+          <legend className="text-xs font-medium">Languages of the next document you upload</legend>
+          <div className="mt-1 flex flex-wrap gap-3">
+            {LANGUAGES.map((l) => (
+              <label key={l.code} className="inline-flex items-center gap-1.5 text-sm">
+                <input
+                  type="checkbox"
+                  checked={uploadLanguages.includes(l.code)}
+                  onChange={(e) =>
+                    setUploadLanguages(
+                      e.target.checked
+                        ? EVERY.filter((c) => c === l.code || uploadLanguages.includes(c))
+                        : uploadLanguages.filter((c) => c !== l.code)
+                    )
+                  }
+                />
+                {l.name}
+              </label>
+            ))}
+          </div>
+          {uploadProblem ? (
+            <p id={`${ids}-upload-languages-p`} className="mt-1 flex items-start gap-1 text-xs text-[var(--danger)]">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" aria-hidden />
+              {uploadProblem}
+            </p>
+          ) : null}
+        </fieldset>
 
         <div className="flex flex-wrap items-end gap-2">
           <label
@@ -338,10 +505,26 @@ export function LessonDocumentManager({
               accept={acceptAttribute(DOCUMENT_UPLOAD)}
               onChange={onPick}
               disabled={pickerDisabled}
-              aria-describedby={upload.storage ? noticeId : undefined}
+              aria-describedby={
+                [upload.storage ? noticeId : null, uploadProblem ? `${ids}-upload-languages-p` : null]
+                  .filter(Boolean)
+                  .join(" ") || undefined
+              }
               className="sr-only"
             />
           </label>
+          <Button
+            ref={addLinkRef}
+            type="button"
+            size="sm"
+            variant="outline"
+            aria-expanded={addingLink}
+            onClick={() => setAddingLink(true)}
+            className="h-auto py-2"
+          >
+            <Plus className="h-4 w-4" aria-hidden />
+            Add a link
+          </Button>
         </div>
         <p className="mt-2 text-xs text-[var(--muted-foreground)]">
           {DOCUMENT_UPLOAD.formats} · up to{" "}
@@ -370,24 +553,27 @@ export function LessonDocumentManager({
                     <span className="flex h-6 w-7 flex-shrink-0 items-center justify-center rounded bg-[var(--accent)]/10 text-xs font-semibold text-[var(--accent)] tabular-nums">
                       {i + 1}
                     </span>
+                    {/* Each arrow a 24 × 24 pixel target (WCAG 2.5.8), as the link list's. */}
                     <div className="flex flex-col flex-shrink-0">
                       <button
+                        id={`${ids}-up-${d.id}`}
                         type="button"
                         onClick={() => move(i, "up")}
                         disabled={i === 0}
                         aria-label={`Move ${d.name} up`}
-                        className="text-[var(--muted-foreground)] hover:text-[var(--accent)] disabled:opacity-30"
+                        className="inline-flex h-6 w-6 items-center justify-center rounded text-[var(--muted-foreground)] hover:text-[var(--accent)] disabled:opacity-30"
                       >
-                        <ChevronUp className="h-3.5 w-3.5" />
+                        <ChevronUp className="h-3.5 w-3.5" aria-hidden />
                       </button>
                       <button
+                        id={`${ids}-down-${d.id}`}
                         type="button"
                         onClick={() => move(i, "down")}
                         disabled={i === docs.length - 1}
                         aria-label={`Move ${d.name} down`}
-                        className="text-[var(--muted-foreground)] hover:text-[var(--accent)] disabled:opacity-30"
+                        className="inline-flex h-6 w-6 items-center justify-center rounded text-[var(--muted-foreground)] hover:text-[var(--accent)] disabled:opacity-30"
                       >
-                        <ChevronDown className="h-3.5 w-3.5" />
+                        <ChevronDown className="h-3.5 w-3.5" aria-hidden />
                       </button>
                     </div>
                     <FileText className="h-4 w-4 text-[var(--muted-foreground)] flex-shrink-0" />
@@ -395,7 +581,7 @@ export function LessonDocumentManager({
                       href={d.url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      lang={pageLang}
+                      lang={nameLang(d.languages)}
                       className={`min-w-0 flex-1 truncate hover:underline ${
                         d.published ? "" : "text-[var(--muted-foreground)]"
                       }`}
@@ -408,6 +594,11 @@ export function LessonDocumentManager({
                   </div>
                   {/* Wraps under the name on a phone. */}
                   <div className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
+                    {documentLanguagesBadge(d.languages) ? (
+                      <Badge variant="muted" className="text-[10px]">
+                        {documentLanguagesBadge(d.languages)}
+                      </Badge>
+                    ) : null}
                     {d.published ? (
                       <Badge variant="success" className="text-[10px]">
                         Published
@@ -435,6 +626,17 @@ export function LessonDocumentManager({
                       {d.published ? "Hide from learners" : "Show to learners"}
                     </button>
                     <button
+                      id={`${ids}-languages-${d.id}`}
+                      type="button"
+                      onClick={() => setEditingLanguages(editingLanguages === d.id ? null : d.id)}
+                      aria-expanded={editingLanguages === d.id}
+                      aria-label={`Languages: ${d.name}`}
+                      className="inline-flex items-center gap-1 rounded-md border border-[var(--border)] px-2 py-1 text-xs text-[var(--foreground)] hover:bg-[var(--surface-muted)] hover:text-[var(--accent)]"
+                    >
+                      <Languages className="h-3.5 w-3.5" aria-hidden />
+                      Languages
+                    </button>
+                    <button
                       type="button"
                       onClick={() => onRemove(d)}
                       aria-label={`Remove ${d.name}`}
@@ -443,6 +645,29 @@ export function LessonDocumentManager({
                       <Trash2 className="h-4 w-4" />
                     </button>
                   </div>
+                  {languagesFailed.has(d.id) ? (
+                    <p className="basis-full flex items-start gap-1 text-xs text-[var(--danger)]">
+                      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" aria-hidden />
+                      {LANGUAGES_FAILED}
+                    </p>
+                  ) : null}
+                  {editingLanguages === d.id ? (
+                    <DocumentLanguages
+                      name={d.name}
+                      initial={isEvery(d.languages) ? EVERY : (d.languages as Locale[])}
+                      onSave={async (languages) => {
+                        const problem = await saveLanguages(d, languages);
+                        if (problem) return problem;
+                        setEditingLanguages(null);
+                        requestAnimationFrame(() => document.getElementById(`${ids}-languages-${d.id}`)?.focus());
+                        return null;
+                      }}
+                      onCancel={() => {
+                        setEditingLanguages(null);
+                        requestAnimationFrame(() => document.getElementById(`${ids}-languages-${d.id}`)?.focus());
+                      }}
+                    />
+                  ) : null}
                 </li>
               ))}
             </ol>
@@ -473,7 +698,122 @@ export function LessonDocumentManager({
             </p>
           ) : null}
         </div>
+
+        {/* Further reading (D107): its own list, after the documents; its
+            form opens from "Add a link" above. */}
+        <div className="mt-5 border-t border-[var(--border)] pt-4">
+          <LessonLinkManager
+            courseSlug={courseSlug}
+            stageKey={stageKey}
+            initialLinks={initialLinks}
+            onLinksChanged={onLinksChanged}
+            adding={addingLink}
+            onAddingChange={(open) => {
+              setAddingLink(open);
+              // The form closed: focus goes back to the button that opened it.
+              if (!open) requestAnimationFrame(() => addLinkRef.current?.focus());
+            }}
+            hints={linkHints}
+            textLang={pageLang}
+          />
+        </div>
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * A document's languages (D108), on its row: three boxes, at least one
+ * ticked; Save sends them, Cancel or Escape leaves them as they were.
+ * Problems show under the boxes, which they describe. Not a <form>: the card
+ * may sit inside one.
+ */
+function DocumentLanguages({
+  name,
+  initial,
+  onSave,
+  onCancel,
+}: {
+  name: string;
+  initial: readonly Locale[];
+  /** Saves; answers a problem in words, or null once saved. */
+  onSave: (languages: Locale[]) => Promise<string | null>;
+  onCancel: () => void;
+}) {
+  const ids = React.useId();
+  const [languages, setLanguages] = React.useState<Locale[]>([...initial]);
+  const [problem, setProblem] = React.useState<string | null>(null);
+  const [saving, setSaving] = React.useState(false);
+  const first = React.useRef<HTMLInputElement>(null);
+  React.useEffect(() => {
+    first.current?.focus();
+  }, []);
+
+  async function save() {
+    if (saving) return;
+    const none = uploadLanguagesProblem(languages);
+    if (none) {
+      setProblem(none);
+      first.current?.focus();
+      return;
+    }
+    setSaving(true);
+    try {
+      setProblem(await onSave(languages));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div
+      role="group"
+      aria-label={`Languages of “${name}”`}
+      className="basis-full space-y-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3"
+      onKeyDown={(e) => {
+        if (e.key === "Escape") {
+          e.stopPropagation();
+          onCancel();
+        }
+      }}
+    >
+      <fieldset aria-describedby={problem ? `${ids}-p` : undefined}>
+        <legend className="text-xs font-medium">Languages it is for</legend>
+        <div className="mt-1 flex flex-wrap gap-3">
+          {LANGUAGES.map((l, i) => (
+            <label key={l.code} className="inline-flex items-center gap-1.5 text-sm">
+              <input
+                ref={i === 0 ? first : undefined}
+                type="checkbox"
+                checked={languages.includes(l.code)}
+                onChange={(e) =>
+                  setLanguages(
+                    e.target.checked
+                      ? EVERY.filter((c) => c === l.code || languages.includes(c))
+                      : languages.filter((c) => c !== l.code)
+                  )
+                }
+              />
+              {l.name}
+            </label>
+          ))}
+        </div>
+      </fieldset>
+      {problem ? (
+        <p id={`${ids}-p`} role="alert" className="flex items-start gap-1 text-xs text-[var(--danger)]">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" aria-hidden />
+          {problem}
+        </p>
+      ) : null}
+      <div className="flex flex-wrap gap-2">
+        <Button type="button" size="sm" onClick={() => void save()} aria-disabled={saving ? true : undefined}>
+          {saving ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
+          Save
+        </Button>
+        <Button type="button" size="sm" variant="outline" onClick={onCancel}>
+          Cancel
+        </Button>
+      </div>
+    </div>
   );
 }
