@@ -1,8 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { useTranslations } from "next-intl";
-import { useRouter } from "@/i18n/navigation";
+import { useLocale, useTranslations } from "next-intl";
+import { getPathname } from "@/i18n/navigation";
 import { Button } from "@/components/ui/button";
 import { createCourse } from "@/app/actions/course";
 import type { Locale } from "@/lib/cms/types";
@@ -16,7 +16,11 @@ const labelCls = "block text-xs text-[var(--muted-foreground)]";
  * Start a new course: a title (and optionally a tagline, skill area and
  * length), created as a draft in the page's language. On success it goes
  * straight to the new course's page, where the lessons are written — unless
- * the host passes `onCreated`.
+ * the host passes `onCreated`. The course's page opens as a page load of
+ * its own, not through the app's router: a server action of this page
+ * still on its way (the page's own loads) can then never put this page
+ * back over it (the router applies such an action's page after a
+ * navigation that started later; vercel/next.js#88343).
  *
  * "Start from the full template" stores all seven standard lessons from the
  * start, the three exercises still to write (still the standard layout, so
@@ -38,7 +42,7 @@ export function NewCourseForm({
   locale: Locale;
   onCreated?: (slug: string) => void;
 }) {
-  const router = useRouter();
+  const ui = useLocale();
   const tList = useTranslations("lessonList");
   const [title, setTitle] = React.useState("");
   const [tagline, setTagline] = React.useState("");
@@ -86,7 +90,7 @@ export function NewCourseForm({
       });
       if (res.ok) {
         if (onCreated) onCreated(res.slug);
-        else router.push(`/content/courses/${res.slug}?lang=${locale}`);
+        else window.location.assign(getPathname({ locale: ui, href: `/content/courses/${res.slug}?lang=${locale}` }));
         // Stay "pending" while the course page loads.
         return;
       }
