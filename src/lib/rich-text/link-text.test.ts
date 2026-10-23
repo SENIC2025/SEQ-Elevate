@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { cpuRatio } from "./cpu-time.test-helpers";
 import { checkLinkHref } from "./link-url";
 import {
   COMMON_TOP_LEVEL_DOMAINS,
@@ -519,9 +520,11 @@ describe("linkTextProblem: a label longer than DNS allows", () => {
 
   // A text of up to 10,000 characters (a block's most) is read on every save
   // and every server render: what it costs grows with its length, never
-  // with its square. Compared as eight texts of 1,250 characters against
-  // one of 10,000, the same characters in all: about equal when the cost
-  // grows with the length, eight times more when with its square.
+  // with its square, and stays within 10 ms. Compared as eight texts of
+  // 1,250 characters against one of 10,000, the same characters in all, by
+  // CPU time (cpuRatio: the least of 9 rounds each, run in turn): about
+  // equal when the cost grows with the length, eight times more when with
+  // its square.
   it.each([
     ["a title before thousands of common labels", (n: number) => `Dr.${"de.".repeat(Math.floor((n - 5) / 3))}de`],
     ["an address of thousands of common labels", (n: number) => `https://${"com.".repeat(Math.floor((n - 20) / 4))}evil-shop.de`],
@@ -536,22 +539,12 @@ describe("linkTextProblem: a label longer than DNS allows", () => {
     ["one long Greek label", (n: number) => `${greek(n - 16)}.evil-shop.de`],
     ["thousands of compatibility forms", (n: number) => "paypal.\u217Dom ".repeat(Math.floor(n / 11))],
   ])("reads %s in time proportional to its length", (_, make) => {
-    const time = (texts: string[]) => {
-      let best = Infinity;
-      for (let k = 0; k < 3; k++) {
-        const started = performance.now();
-        for (const text of texts) linkTextProblem(text, EVIL);
-        best = Math.min(best, performance.now() - started);
-      }
-      return best;
+    const read = (texts: string[]) => () => {
+      for (const text of texts) linkTextProblem(text, EVIL);
     };
-    const short = Array.from({ length: 8 }, () => make(1_250));
-    const long = [make(10_000)];
-    time(short);
-    // Within the budget of 10 ms a text, a fraction of a millisecond is noise: under 3 ms passes.
-    const took = time(long);
-    const ratio = took / time(short);
-    expect(took < 3 || ratio < 3, `${took.toFixed(2)} ms, ${ratio.toFixed(1)} times`).toBe(true);
+    const { long, ratio } = cpuRatio(read([make(10_000)]), read(Array.from({ length: 8 }, () => make(1_250))));
+    expect(ratio, `${long.toFixed(2)} ms, ${ratio.toFixed(1)} times`).toBeLessThan(3);
+    expect(long, "the long text, in ms of CPU time").toBeLessThan(10);
   }, 30_000);
 });
 
