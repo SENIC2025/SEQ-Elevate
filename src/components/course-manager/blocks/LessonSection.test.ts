@@ -17,6 +17,16 @@ vi.mock("@/app/actions/parts", () => ({}));
 vi.mock("@/app/actions/structure", () => ({}));
 vi.mock("@/app/actions/lesson", () => ({}));
 vi.mock("@/app/actions/course", () => ({}));
+// Release 4: the lesson's further reading, in the document card (server actions).
+vi.mock("@/app/actions/lesson-reading", () => ({
+  addLessonLink: vi.fn(),
+  getLessonLinks: vi.fn(async () => ({ links: [] })),
+  removeLessonLink: vi.fn(),
+  setLessonLinkOrder: vi.fn(),
+  setLessonLinkPublished: vi.fn(),
+  updateLessonLink: vi.fn(),
+  setLessonDocumentLanguages: vi.fn(),
+}));
 
 import { DirtyProvider } from "../dirty-registry";
 import { LessonSection } from "../LessonSection";
@@ -107,7 +117,7 @@ describe("LessonSection — the lesson's editors", () => {
     expect(html).toContain("Save stage");
     // Its video and documents can be added like any lesson's, before its content.
     const video = html.indexOf("Interactive video");
-    const documents = html.indexOf("Lesson documents");
+    const documents = html.indexOf("Documents and further reading");
     expect(video).toBeGreaterThan(-1);
     expect(documents).toBeGreaterThan(video);
     expect(html.indexOf("Interactive stage — Assessment")).toBeGreaterThan(documents);

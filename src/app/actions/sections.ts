@@ -383,10 +383,12 @@ export async function renameSection(
  * Delete a lesson in every language: out of the list (a standard text
  * lesson is remembered as deleted, or learners would get it back empty) and
  * its row with everything in it — text, exercise, draft, extra content,
- * video and documents (LessonDocument rows cascade). Its uploaded files go
- * to the queue in the same transaction (D92, blob-files.ts), for the admin
- * run to delete a week later unless a lesson uses them again; every one of
- * their addresses (video, poster, captions, documents) goes in the audit row.
+ * video, documents and further-reading links (LessonDocument and LessonLink
+ * rows cascade). Its uploaded files go to the queue in the same transaction
+ * (D92, blob-files.ts), for the admin run to delete a week later unless a
+ * lesson uses them again; every one of their addresses (video, poster,
+ * captions, documents) goes in the audit row, and how many further-reading
+ * links went with it (Release 4, D107), never their addresses.
  *
  * The delete rules of spec 7.2 (D66), with the learners counted under the
  * Course lock: refused (has-learners) on a published course with learners,
@@ -398,7 +400,8 @@ export async function renameSection(
  * keeps at least one lesson learners see (last-lesson). Never needs a confirmation: the
  * page's own "Delete … in all languages?" is it. Also refused when the
  * lesson's content changed since the page opened (`contentBase`,
- * sectionContentVersion): nobody deletes what they haven't seen. Learner
+ * sectionContentVersion, which counts its further-reading links once it has
+ * some): nobody deletes what they haven't seen. Learner
  * saves take the Course row FOR KEY SHARE (learner.ts), which this FOR
  * UPDATE waits for — so a first enrolment and a delete are serialised.
  */
@@ -435,6 +438,8 @@ export async function deleteSection(
           parts: true,
           video: true,
           documents: { select: { id: true, url: true } },
+          // Release 4 (D107): its further-reading links go with it.
+          links: { select: { id: true } },
         },
       });
       const madeHere =
@@ -445,9 +450,12 @@ export async function deleteSection(
         lesson.structureDraft === null &&
         lesson.parts === null &&
         lesson.video === null &&
-        lesson.documents.length === 0;
+        lesson.documents.length === 0 &&
+        lesson.links.length === 0;
       const version = sectionContentVersion(
-        lesson && !madeHere ? { ...lesson, documentIds: lesson.documents.map((d) => d.id) } : null
+        lesson && !madeHere
+          ? { ...lesson, documentIds: lesson.documents.map((d) => d.id), linkIds: lesson.links.map((l) => l.id) }
+          : null
       );
       if (version !== contentBase) throw new ChangedElsewhere();
 
@@ -462,12 +470,15 @@ export async function deleteSection(
       // Its files go to the queue with it (D92): the admin run deletes them
       // a week later, unless a lesson uses them again by then.
       await queueFileDeletion(tx, [...videoFileUrls(video), ...documentUrls], "section.deleted");
+      const links = lesson?.links.length ?? 0;
       return {
         template: section.template,
         documentUrls,
         videoSrc: typeof video?.src === "string" ? video.src : null,
         posterUrl: typeof video?.poster === "string" && video.poster ? video.poster : null,
         captionUrls: videoFileUrls({ captions: video?.captions }),
+        // How many further-reading links went with it (never their addresses), only when it had some.
+        ...(links ? { links } : {}),
       };
     })
   );

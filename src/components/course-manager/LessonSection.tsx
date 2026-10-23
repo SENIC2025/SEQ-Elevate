@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { LessonNarrativeEditor } from "@/components/role/LessonNarrativeEditor";
 import { VideoBlockAuthor } from "@/components/role/VideoBlockAuthor";
 import { LessonDocumentManager } from "@/components/role/LessonDocumentManager";
+import { linkHints } from "@/components/role/LessonLinkManager";
 import { DraftBadge, StructureAuthor } from "@/components/role/StructureAuthor";
 import type { StoredStructure, StructureStageKey } from "@/lib/cms/structure";
 import { offersAdd } from "@/lib/cms/course-derive";
@@ -16,6 +17,19 @@ import { PreviewLink } from "./CourseHeader";
 import type { LessonSectionProps } from "./lesson-section-props";
 import { PartList } from "./blocks/PartList";
 import { Check, FileText, PenLine, Plus, Video } from "lucide-react";
+
+/**
+ * What the page can say of a lesson's further reading (Release 4, spec
+ * 4.6), from what it knows: whether learners get the lesson now, whether it
+ * has anything but documents (text, an exercise, extra content or a video:
+ * what Delete would remove; a built-in lesson always has its text), and its
+ * documents with their languages.
+ */
+function readingHints(lesson: LessonSectionProps["lesson"]): string[] {
+  const summary = lesson.section?.deleteSummary;
+  const otherContent = summary ? summary.textBlocks + summary.questionBlocks > 0 || summary.video : true;
+  return linkHints({ live: lesson.live, otherContent, documents: lesson.documents });
+}
 
 /**
  * One lesson on the course page. Closed, it shows what learners see
@@ -53,6 +67,7 @@ export function LessonSection(props: LessonSectionProps) {
     onStructureCleared,
     onVideoSaved,
     onDocumentsChanged,
+    onLinksChanged,
     reasons,
     live,
     addLocked,
@@ -312,8 +327,11 @@ export function LessonSection(props: LessonSectionProps) {
                 courseSlug={slug}
                 stageKey={key}
                 initialDocuments={lesson.documents}
+                initialLinks={lesson.links}
                 embedded
                 onChange={onDocumentsChanged}
+                onLinksChanged={onLinksChanged}
+                linkHints={readingHints(lesson)}
               />
             ) : null}
             {content}

@@ -9,7 +9,6 @@ import { DraftBadge } from "@/components/role/StructureAuthor";
 import { QuickLink } from "@/components/rich-text/QuickLink";
 import type { LessonOutline } from "@/lib/cms/course-admin-types";
 import { linkPlace, type StaffLessonLink } from "@/lib/cms/lesson-links";
-import type { ItemLanguages } from "@/lib/cms/reading-types";
 import type { PartView, ResolvedPart, SectionStage } from "@/lib/cms/sections/contract";
 import type { CourseStage, Locale, OutcomeQuality } from "@/lib/cms/types";
 import { BookOpen, Check, FileText, Star, Video } from "lucide-react";
@@ -84,7 +83,7 @@ export function LessonReadView({
   const video = lesson.video;
   const videoKind =
     video?.provider === "youtube" ? t("youtubeVideo") : t("fileVideo");
-  const links = (lesson as LessonOutline & { links?: StaffLessonLink[] }).links;
+  const links = lesson.links;
 
   return (
     <div className="space-y-4">
@@ -136,7 +135,7 @@ export function LessonReadView({
                       {t("draftDocument")}
                     </Badge>
                   ) : null}
-                  <LanguagesBadge languages={(d as ItemLanguages).languages} />
+                  <LanguagesBadge languages={d.languages} />
                 </li>
               ))}
             </ul>

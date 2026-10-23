@@ -107,6 +107,15 @@ export const rows: Row[] = [
     refuse: NOT_EDITORS,
     outcome: () => answers({ video: null, documents: [] }),
     tables: COURSE_TABLES,
+    // Release 4 (D108): an editor reads each document with the languages it is for.
+    control: {
+      as: "EA",
+      answer: (r) => {
+        const documents = (r as { documents?: { languages?: unknown }[] } | null)?.documents;
+        return Array.isArray(documents) && documents.length > 0 && documents.every((d) => Array.isArray(d.languages));
+      },
+      what: "the lesson's documents, each with the languages it is for",
+    },
     why: "a lesson's media, drafts included, is read in the editor only",
   },
 

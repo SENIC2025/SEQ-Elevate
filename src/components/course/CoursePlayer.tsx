@@ -32,6 +32,7 @@ import { AssessmentStage } from "./AssessmentStage";
 import { CompletionStage } from "./CompletionStage";
 import { InteractiveVideoPlayer } from "./InteractiveVideoPlayer";
 import { LessonDocuments } from "./LessonDocuments";
+import { LessonFurtherReading } from "./LessonFurtherReading";
 import { SectionView } from "./sectioned/SectionView";
 import { completionCourse } from "./sectioned/completion-course";
 import { PlayerAnnouncer, useAnnounce } from "./PlayerAnnouncer";
@@ -481,6 +482,11 @@ function Player({
  * screen (spec 5.3), with its video and documents above it. An unknown kind
  * of stage draws nothing — never the completion screen, which would
  * complete the course.
+ *
+ * Release 4 (D107, spec 4.5): its further reading comes after the stage
+ * screen, which ends with its own Continue, so learners meet the lesson
+ * before its links out and the list is the last thing in the lesson. A
+ * lesson without links is drawn as before.
  */
 function StageLesson({
   lesson,
@@ -516,6 +522,7 @@ function StageLesson({
       ) : stage.key === "assessment" ? (
         <AssessmentStage stage={stage} onContinue={onContinue} />
       ) : null}
+      <LessonFurtherReading links={stage.links} />
     </>
   );
 }

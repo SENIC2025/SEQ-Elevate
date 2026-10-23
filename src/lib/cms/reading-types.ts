@@ -1,8 +1,9 @@
 /**
- * Release 4's types for further reading and languages (spec 4.4), kept here
- * until they join types.ts (D102): pages and loaders use them as
- * intersections with the types they extend, such as
- * `LessonDocumentRef & ItemLanguages` and `CourseStage & StageReading`.
+ * Release 4's types for further reading and languages (spec 4.4). Since R2
+ * the two optional fields are in types.ts as well
+ * (`LessonDocumentRef.languages`, `CourseStage.links`); the intersections
+ * written before it (`LessonDocumentRef & ItemLanguages`,
+ * `CourseStage & StageReading`) stay valid.
  *
  * Types only: nothing here runs.
  */

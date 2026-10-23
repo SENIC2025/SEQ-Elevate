@@ -306,6 +306,12 @@ export interface WorldCourse {
   documentId: string;
   /** Extra content of that lesson ("p-…"). */
   partId: string;
+  /**
+   * A further-reading link of that lesson (Release 4, D107), a draft
+   * learners never get; null where the database has no LessonLink table
+   * (Release 3's build).
+   */
+  linkId: string | null;
 }
 
 /**
@@ -453,6 +459,16 @@ export async function createWorld(
     },
     select: { id: true },
   });
+  // Release 4 (D107): a further-reading link of the lesson, a draft (hidden
+  // from learners), where the database has the table. Raw SQL, so a client
+  // generated from Release 3's schema takes it too.
+  const [links] = await prisma.$queryRaw<{ t: string | null }[]>`SELECT to_regclass('"LessonLink"')::text AS t`;
+  const linkId = links.t ? `e2e-world-link-${run}` : null;
+  if (linkId) {
+    await prisma.$executeRaw`
+      INSERT INTO "LessonLink" ("id", "lessonId", "title", "url", "description", "published", "updatedAt")
+      VALUES (${linkId}, ${lesson.id}, ${`World reading ${run}`}, 'https://example.org/world-reading', '', false, now())`;
+  }
   // The draft course: a quiz lesson whose extra content is a quiz part,
   // both still empty (null), as an editor's newly added ones are.
   const draftSlug = `e2e-draft-${run}`;
@@ -493,7 +509,7 @@ export async function createWorld(
     organisations,
     ownOrganisations: own,
     people,
-    course: { id: courseId, slug, lessonId, documentId: document.id, partId },
+    course: { id: courseId, slug, lessonId, documentId: document.id, partId, linkId },
     draftCourse: { id: draftCourseId, slug: draftSlug, quizLessonId, quizPartId },
     marker,
     cardMarker,

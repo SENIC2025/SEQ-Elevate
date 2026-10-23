@@ -337,6 +337,14 @@ describe("getLearnerCourse and getLessonPlans agree (golden)", () => {
           plan.lessons.map((l) => [l.id, l.kind, l.label, l.lang])
         );
         expect(learner.unseen).toEqual(plan.unseen);
+        // Release 4 (D108, R2): the learner page also asks for the page's
+        // language's documents and links; the lessons stay the plan's.
+        for (const requested of LOCALES) {
+          const asked = await getLearnerCourse("seq-elevate", "golden", locale, base, { requested });
+          expect(asked.lessons.map((l) => [l.id, l.kind, l.label, l.lang]), `requested ${requested}`).toEqual(
+            plan.lessons.map((l) => [l.id, l.kind, l.label, l.lang])
+          );
+        }
         // A stage lesson is the very stage getCourse built.
         for (const l of learner.lessons) {
           if (l.kind === "stage") expect(base.stages).toContain(l.stage);
@@ -520,7 +528,7 @@ describe("getLessonPlans", () => {
  * there are, and what counts, stays the same in every language.
  */
 describe("getLearnerCourse: further reading and languages (Release 4)", () => {
-  const doc = (id: string, languages: string[]) => ({
+  const doc = (id: string, languages: Locale[]) => ({
     id,
     name: `${id}.pdf`,
     url: `https://x/${id}.pdf`,

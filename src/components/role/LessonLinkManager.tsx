@@ -210,7 +210,8 @@ const languagesBadge = (languages: readonly Locale[]) =>
  * base follow.
  *
  * The form opens from its own "Add a link" button, or from outside
- * (`adding` and `onAddingChange`, when the document card holds the button).
+ * (`adding` and `onAddingChange`, when the document card holds the button,
+ * which then takes the focus back when the form closes).
  * It isn't a <form>: no browser check blocks an address the form completes
  * (help@verein.de, www.bpb.de), and Enter in a field saves.
  *
@@ -225,6 +226,7 @@ export function LessonLinkManager({
   adding: addingProp,
   onAddingChange,
   hints = [],
+  textLang,
 }: {
   courseSlug: string;
   stageKey: string;
@@ -236,6 +238,13 @@ export function LessonLinkManager({
   onAddingChange?: (adding: boolean) => void;
   /** What the page knows of the lesson, in words (linkHints). */
   hints?: readonly string[];
+  /**
+   * The language a title is read in when the link is for more than one
+   * language (whose language no one has recorded): the page's, as the
+   * document card marks a document's name (WCAG 3.1.2). A link for one
+   * language only is read in it.
+   */
+  textLang?: Locale;
 }) {
   const ids = React.useId();
   const [links, setLinks] = React.useState<StaffLessonLink[]>(initialLinks ?? []);
@@ -256,15 +265,17 @@ export function LessonLinkManager({
   const idOf = React.useCallback((what: RowControl, linkId: string) => `${ids}-${what}-${linkId}`, [ids]);
   /**
    * Once a form closes, focus goes back to where it was opened from: the
-   * row's Edit button, or "Add a link" (the heading when the page holds that
-   * button, whose own focus the page keeps).
+   * row's Edit button, or "Add a link" (when the page holds that button, the
+   * page takes it back, onAddingChange).
    */
-  const focusAfterForm = (linkId?: string) =>
+  const focusAfterForm = (linkId?: string) => {
+    if (!linkId && addingProp !== undefined) return;
     requestAnimationFrame(() => {
       const edit = linkId ? document.getElementById(idOf("edit", linkId)) : null;
       const add = addingProp === undefined ? document.getElementById(`${ids}-add`) : null;
       (edit ?? add ?? headingRef.current)?.focus();
     });
+  };
   /**
    * After a move, focus stays on the moved link's arrow where the link now
    * is (arrowAfterMove), or goes to the heading when the link is gone. Only
@@ -465,6 +476,7 @@ export function LessonLinkManager({
                   index={i}
                   count={links.length}
                   busy={busy}
+                  textLang={textLang}
                   idOf={idOf}
                   onMove={(dir) => void move(i, dir)}
                   onEdit={() => {
@@ -516,6 +528,7 @@ export function LinkRow({
   index,
   count,
   busy,
+  textLang,
   idOf,
   onMove,
   onEdit,
@@ -526,6 +539,8 @@ export function LinkRow({
   index: number;
   count: number;
   busy: boolean;
+  /** The language of a title for more than one language (LessonLinkManager's textLang). */
+  textLang?: Locale;
   idOf: (what: RowControl, linkId: string) => string;
   onMove: (dir: -1 | 1) => void;
   onEdit: () => void;
@@ -533,6 +548,8 @@ export function LinkRow({
   onRemove: () => void;
 }) {
   const unavailable = busy || undefined;
+  // A title is read in the one language its link is for, else in textLang.
+  const lang = l.languages.length === 1 ? l.languages[0] : textLang;
   const arrow =
     "inline-flex h-6 w-6 items-center justify-center rounded text-[var(--muted-foreground)] hover:text-[var(--accent)] disabled:opacity-30 aria-disabled:opacity-30";
   return (
@@ -564,7 +581,9 @@ export function LinkRow({
       <div className="min-w-[10rem] flex-1">
         {l.unusable ? (
           <>
-            <span className="font-medium">{l.title}</span>
+            <span lang={lang} className="font-medium">
+              {l.title}
+            </span>
             <p className="break-all text-xs text-[var(--muted-foreground)]">{l.url}</p>
             <p className="flex items-start gap-1 text-xs text-[var(--danger)]">
               <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" aria-hidden />
@@ -573,7 +592,7 @@ export function LinkRow({
           </>
         ) : (
           <>
-            <a href={l.url} target="_blank" rel="noopener noreferrer" className="font-medium hover:underline">
+            <a href={l.url} target="_blank" rel="noopener noreferrer" lang={lang} className="font-medium hover:underline">
               {l.title}
               <span className="sr-only"> {NEW_TAB}</span>
             </a>

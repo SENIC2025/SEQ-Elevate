@@ -20,7 +20,18 @@ export type Row = {
   structureDraft: unknown;
   parts: unknown;
   video: unknown;
-  documents: { id: string; url: string; published?: boolean }[];
+  documents: {
+    id: string;
+    url: string;
+    published?: boolean;
+    name?: string;
+    mimeType?: string;
+    sizeBytes?: number;
+    /** Release 4 (D108): the languages it is for; [] or absent = every language. */
+    languages?: string[];
+  }[];
+  /** Release 4 (D107): the lesson's further-reading links, drafts included. */
+  links?: { id: string }[];
 };
 
 /** A queued course file (PendingFileDeletion, D92). */
@@ -75,6 +86,7 @@ export const row = (stageKey: string, cols: Partial<Row> = {}): Row => ({
   parts: null,
   video: null,
   documents: [],
+  links: [],
   ...cols,
 });
 

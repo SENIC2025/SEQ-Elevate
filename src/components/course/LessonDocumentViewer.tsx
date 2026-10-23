@@ -1,9 +1,11 @@
 "use client";
 
 import * as React from "react";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
-import type { LessonDocumentRef } from "@/lib/cms/types";
+import { itemLanguageMark } from "@/lib/cms/lesson-links";
+import type { LessonDocumentRef, Locale } from "@/lib/cms/types";
+import { useContentLang } from "./CourseText";
 import {
   X,
   ChevronLeft,
@@ -20,6 +22,12 @@ import {
  * don't route documents through a third-party viewer (privacy). A document
  * on another host (`external`, stored before Release 3, D91) gets that card
  * too: it is never loaded inside the page.
+ *
+ * Release 4 (D108; WCAG 3.1.2): a document's name is marked as the list
+ * marks it (LessonDocuments): one for some languages only, none of them the
+ * one the course text is shown in, carries that language, with "In German"
+ * beside it (in the page's words); so do the picture's alternative text and
+ * the frame's title that repeat the name.
  */
 export function LessonDocumentViewer({
   documents,
@@ -33,6 +41,9 @@ export function LessonDocumentViewer({
   onClose: () => void;
 }) {
   const t = useTranslations("lesson");
+  const tReading = useTranslations("furtherReading");
+  const page = useLocale() as Locale;
+  const courseLang = useContentLang();
   const [index, setIndex] = React.useState(
     Math.min(Math.max(startIndex, 0), documents.length - 1)
   );
@@ -62,6 +73,8 @@ export function LessonDocumentViewer({
   if (!documents.length) return null;
   const doc = documents[index];
   const seq = stageNumber ? `${stageNumber}.${index + 1}` : `${index + 1}`;
+  const mark = itemLanguageMark(doc.languages, courseLang ?? page, page);
+  const lang = mark ?? courseLang;
 
   return (
     <div
@@ -77,7 +90,12 @@ export function LessonDocumentViewer({
         <span className="rounded bg-white/15 px-2 py-0.5 text-sm font-semibold tabular-nums">
           {seq}
         </span>
-        <p className="flex-1 truncate text-sm font-medium">{doc.name}</p>
+        <p className="flex-1 truncate text-sm font-medium">
+          <span lang={lang}>{doc.name}</span>
+        </p>
+        {mark ? (
+          <span className="flex-shrink-0 rounded bg-white/15 px-1.5 py-0.5 text-xs">{tReading(`language.${mark}`)}</span>
+        ) : null}
         <span className="text-xs text-white/70 tabular-nums">
           {t("docPosition", { current: index + 1, total: documents.length })}
         </span>
@@ -93,7 +111,7 @@ export function LessonDocumentViewer({
 
       {/* Preview */}
       <div className="relative my-3 flex-1 overflow-hidden rounded-lg bg-[var(--surface)]">
-        <DocPreview key={doc.id} doc={doc} t={t} />
+        <DocPreview key={doc.id} doc={doc} t={t} lang={lang} />
       </div>
 
       {/* Footer nav */}
@@ -138,22 +156,26 @@ export function LessonDocumentViewer({
 function DocPreview({
   doc,
   t,
+  lang,
 }: {
   doc: LessonDocumentRef;
   t: ReturnType<typeof useTranslations>;
+  /** The language of the document's name, when it isn't the page's. */
+  lang?: Locale;
 }) {
   if (doc.external) return <OpenCard doc={doc} t={t} />;
   if (doc.mimeType.startsWith("image/")) {
     // Arbitrary author-uploaded images of unknown dimensions — a plain <img>
     // is correct here (next/image needs known sizes + configured domains).
     // eslint-disable-next-line @next/next/no-img-element
-    return <img src={doc.url} alt={doc.name} className="h-full w-full object-contain" />;
+    return <img src={doc.url} alt={doc.name} lang={lang} className="h-full w-full object-contain" />;
   }
   if (doc.mimeType === "application/pdf") {
     return (
       <iframe
         src={doc.url}
         title={doc.name}
+        lang={lang}
         className="h-full w-full border-0"
       />
     );

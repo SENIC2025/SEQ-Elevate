@@ -164,9 +164,12 @@ export default async function Page({
   // as a link out, never loaded in the page (D91).
   const origin = serverAppOrigin();
   // The lessons in the language of the course itself (`base`), so the fail
-  // open of getLearnerCourse shows the same language.
+  // open of getLearnerCourse shows the same language. Release 4 (D108,
+  // spec 4.4): documents and further reading for the page's language too,
+  // so a German learner on a course still shown in English gets German-only
+  // material, marked; in a preview both are the language asked for.
   const learner = markExternalMedia(
-    await getLearnerCourse(PROJECT, courseId, contentLocale, course, { editor: preview }),
+    await getLearnerCourse(PROJECT, courseId, contentLocale, course, { editor: preview, requested }),
     (url) => isFirstPartyMediaUrl(url, origin)
   );
   const ids = learner.lessons.map((l) => l.id);

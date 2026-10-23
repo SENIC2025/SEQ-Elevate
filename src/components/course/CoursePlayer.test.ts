@@ -260,6 +260,45 @@ describe("CoursePlayer", () => {
   });
 });
 
+/*
+ * Release 4, R2 (D107, spec 4.5): a standard lesson drawn by its stage
+ * screen ends with its further reading, after the stage (which ends with
+ * its own Continue), so the list is the last thing in the lesson; a stage
+ * lesson without links is drawn exactly as before.
+ */
+describe("CoursePlayer: a standard lesson's further reading (Release 4)", () => {
+  const withLinks: LearnerCourse = {
+    ...course,
+    lessons: course.lessons.map((l) =>
+      l.kind === "stage"
+        ? {
+            ...l,
+            stage: {
+              ...l.stage,
+              links: [
+                { id: "k1", title: "The guide", url: "https://example.org/guide", kind: "web", description: "", languages: [], published: true },
+              ],
+            },
+          }
+        : l
+    ),
+  };
+
+  it("draws the list after the stage screen, its Continue included", () => {
+    const html = renderIn(createElement(CoursePlayer, { course: withLinks, preview: true, initialLesson: "concept" }), "en");
+    const list = html.indexOf(">Further reading</h3>");
+    expect(list).toBeGreaterThan(-1);
+    expect(list).toBeGreaterThan(html.indexOf("Speak early."));
+    expect(html.lastIndexOf(">Continue")).toBeGreaterThan(html.indexOf("Speak early."));
+    expect(list).toBeGreaterThan(html.lastIndexOf(">Continue"));
+    expect(html).toMatch(/<a[^>]*href="https:\/\/example\.org\/guide"[^>]*target="_blank"/);
+  });
+
+  it("draws a stage lesson without links as before", () => {
+    expect(render({ preview: true, initialLesson: "concept" })).not.toContain("Further reading");
+  });
+});
+
 describe("afterContinue and backFrom", () => {
   const ids: SectionId[] = ["s-abcd1234", "concept", "assessment"];
 

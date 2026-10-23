@@ -33,6 +33,16 @@ vi.mock("@/app/actions/lesson", () => ({
   saveLessonNarrative: vi.fn(),
   clearLessonNarrative: vi.fn(),
 }));
+// Release 4: the lesson's further reading, in the document card (server actions).
+vi.mock("@/app/actions/lesson-reading", () => ({
+  addLessonLink: vi.fn(),
+  getLessonLinks: vi.fn(async () => ({ links: [] })),
+  removeLessonLink: vi.fn(),
+  setLessonLinkOrder: vi.fn(),
+  setLessonLinkPublished: vi.fn(),
+  updateLessonLink: vi.fn(),
+  setLessonDocumentLanguages: vi.fn(),
+}));
 vi.mock("@/app/actions/comp-card-template", () => ({
   getCompCardEditorState: vi.fn(() => new Promise(() => {})),
   saveCompCardTemplate: vi.fn(),
@@ -101,7 +111,9 @@ describe("the English editors mark their English, and what is written in them it
       published: true,
     };
     const all = render(createElement(LessonDocumentManager, { courseSlug: "c", stageKey: "concept", initialDocuments: [doc] }));
-    expect(langOf(all, "Lesson documents")).toBe("en");
+    // Release 4 (spec 4.6): one card for documents and further reading.
+    expect(langOf(all, "Documents and further reading")).toBe("en");
+    expect(langOf(all, "Further reading")).toBe("en");
     expect(langOf(all, "Hide from learners")).toBe("en");
     expect(notEnglish(all)).toEqual([{ text: "Arbeitsblatt.pdf", lang: "de", field: false }]);
   });

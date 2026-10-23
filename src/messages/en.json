@@ -845,7 +845,7 @@
       "off": "Not live: learners using {language} get this course in English.",
       "confirmTitle": "Switch {language} on for learners?",
       "confirmBody": "Some of this course isn't in {language} yet. Learners using {language} will see English wherever text is missing.",
-      "notChecked": "Coverage counts the main text and exercises only. Check extra content, step names, video questions and documents yourself.",
+      "notChecked": "Coverage counts the main text and exercises only. Check extra content, step names, video questions, documents, further reading and references yourself.",
       "readOnly": "Only a partner admin or an admin can switch a language on or off for learners.",
       "liveIncomplete": "{language} is live, but some text is missing in it now (usually because the English changed). Learners see English there.",
       "notLive": "Learners using {language} get English until {language} is switched on.",

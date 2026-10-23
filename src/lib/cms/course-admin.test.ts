@@ -29,6 +29,10 @@ let lessons: {
   structureDraft?: unknown;
   parts?: unknown;
   video?: unknown;
+  updatedAt?: Date;
+  documents?: Record<string, unknown>[];
+  /** Release 4 (D107): LessonLink rows, drafts included. */
+  links?: Record<string, unknown>[];
 }[];
 
 const courseFindFirst = vi.fn();
@@ -56,6 +60,7 @@ vi.mock("@/lib/prisma", () => ({
           courseSlug: "asking-for-help",
           video: null,
           documents: [],
+          links: [],
           updatedAt: at,
           structure: null,
           structureDraft: null,
@@ -614,5 +619,141 @@ describe("which languages are live for learners", () => {
     // Greek is live and complete: nothing to say.
     expect(live?.readiness).toContainEqual({ level: "warning", code: "language-live-incomplete", locale: "de" });
     expect(live?.readiness.filter((r) => r.locale === "el")).toEqual([]);
+  });
+});
+
+/*
+ * Release 4, R2 (spec 4.6, 4.7, D107, D108): the course page's data holds
+ * each lesson's further-reading links, drafts included, each stored
+ * address checked again as it is read (one the check refuses is marked
+ * unusable, to be shown as text); the documents' languages; links in what
+ * Delete would remove and in the content base deleteSection checks; a key
+ * with links isn't free for "Add lesson"; the lesson's preview in each
+ * language shows the published links for that language; and "last edited"
+ * takes a link's last change.
+ */
+describe("further reading and languages on the course page (Release 4)", () => {
+  const link = (id: string, fields: Record<string, unknown> = {}) => ({
+    id,
+    title: `Reading ${id}`,
+    url: `https://example.org/${id}`,
+    description: "",
+    languages: [],
+    order: 0,
+    published: true,
+    createdAt: at,
+    updatedAt: at,
+    ...fields,
+  });
+  const doc = (id: string, languages: string[]) => ({
+    id,
+    name: `${id}.pdf`,
+    url: `https://store.public.blob.vercel-storage.com/${id}.pdf`,
+    mimeType: "application/pdf",
+    sizeBytes: 10,
+    order: 0,
+    published: true,
+    createdAt: at,
+    languages,
+  });
+  const ownCourse = () => {
+    outline = {
+      v: 1,
+      sections: [
+        { id: OWN, template: "text", label: { en: "Warm-up" } },
+        { id: "context", template: "context" },
+        { id: "concept", template: "concept" },
+        { id: "behaviour", template: "behaviour" },
+        { id: "reflection", template: "reflection" },
+      ],
+    };
+  };
+
+  it("gives each lesson its links, drafts included, an address the check refuses marked unusable", async () => {
+    ownCourse();
+    lessons.push({
+      stageKey: OWN,
+      narrative: { en: written("Warm-up text", "Before we start") },
+      links: [
+        link("k1", { languages: ["de"] }),
+        link("k2", { published: false, url: "mailto:help@example.org" }),
+        link("k3", { url: "javascript:alert(1)" }),
+      ],
+    });
+    const o = await getCourseOutline("asking-for-help");
+    const own = o?.lessons.find((l) => l.key === OWN);
+    expect(own?.links).toEqual([
+      { id: "k1", title: "Reading k1", url: "https://example.org/k1", kind: "web", description: "", languages: ["de"], published: true },
+      { id: "k2", title: "Reading k2", url: "mailto:help@example.org", kind: "email", description: "", languages: [], published: false },
+      { id: "k3", title: "Reading k3", url: "javascript:alert(1)", kind: null, unusable: true, description: "", languages: [], published: true },
+    ]);
+    // Every lesson has its list, empty or not.
+    expect(o?.lessons.find((l) => l.key === "context")?.links).toEqual([]);
+  });
+
+  it("counts the links in what Delete removes and in the content base, and keeps a key with links from being free", async () => {
+    lessons.push(
+      { stageKey: "simulation", links: [link("k9")] },
+    );
+    lessons[1] = { ...lessons[1], links: [link("k1"), link("k2", { published: false })] };
+    const o = await getCourseOutline("asking-for-help");
+    const concept = o?.lessons.find((l) => l.key === "concept");
+    expect(concept?.section?.deleteSummary).toMatchObject({ links: 2 });
+    const { sectionContentVersion } = await import("./sections/versions");
+    expect(concept?.contentVersion).toBe(
+      sectionContentVersion({
+        narrative: lessons[1].narrative,
+        structure: null,
+        structureDraft: null,
+        parts: null,
+        video: null,
+        documentIds: [],
+        linkIds: ["k1", "k2"],
+      })
+    );
+    // "Add guided practice" would bring its old links back: it isn't free.
+    expect(o?.sections?.freeKeys).toEqual(["scenario", "assessment"]);
+    // A lesson without links keeps the summary and base it had.
+    expect(o?.lessons.find((l) => l.key === "context")?.section?.deleteSummary).not.toHaveProperty("links");
+  });
+
+  it("shows, in the lesson's preview in each language, the published links for that language, and documents with their languages", async () => {
+    ownCourse();
+    lessons.push({
+      stageKey: OWN,
+      narrative: { en: written("Warm-up text", "Before we start") },
+      documents: [doc("d-de", ["de"]), doc("d-all", [])],
+      links: [
+        link("all"),
+        link("en", { languages: ["en"] }),
+        link("de", { languages: ["de"] }),
+        link("draft", { published: false }),
+        link("bad", { url: "javascript:alert(1)" }),
+      ],
+    });
+    const o = await getCourseOutline("asking-for-help");
+    const own = o?.lessons.find((l) => l.key === OWN);
+    expect(own?.documents.map((d) => [d.id, d.languages])).toEqual([
+      ["d-de", ["de"]],
+      ["d-all", []],
+    ]);
+    expect(own?.byLang.en.sectioned?.links?.map((l) => l.id)).toEqual(["all", "en"]);
+    expect(own?.byLang.de.sectioned?.links?.map((l) => l.id)).toEqual(["all", "de"]);
+    expect(own?.byLang.el.sectioned?.links?.map((l) => l.id)).toEqual(["all"]);
+    // Documents follow the previewed language too.
+    expect(own?.byLang.en.sectioned?.documents?.map((d) => d.id)).toEqual(["d-all"]);
+    expect(own?.byLang.de.sectioned?.documents?.map((d) => d.id)).toEqual(["d-de", "d-all"]);
+  });
+
+  it("takes a link's last change as the course's last edit, on the page and on the grid", async () => {
+    const later = new Date("2026-10-20T08:00:00.000Z");
+    lessons[0] = { ...lessons[0], links: [link("k1", { updatedAt: later })] };
+    expect((await getCourseOutline("asking-for-help"))?.lastEdited).toBe(later.toISOString());
+    listCourses.mockResolvedValueOnce([
+      { slug: "asking-for-help", title: "Asking for help", tagline: "t", clusterLabel: "c", status: "draft", durationMinutes: 15 },
+    ]);
+    courseFindMany.mockResolvedValueOnce([{ slug: "asking-for-help", meta, outline, updatedAt: at, _count: { enrollments: 0 } }] as never);
+    const [card] = await getCourseGrid("en");
+    expect(card.lastEdited).toBe(later.toISOString());
   });
 });
