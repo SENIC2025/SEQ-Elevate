@@ -1,4 +1,5 @@
 import { test, expect, type APIRequestContext, type Browser, type BrowserContext, type Locator, type Page } from "@playwright/test";
+import AxeBuilder from "@axe-core/playwright";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import {
@@ -37,6 +38,7 @@ import {
 } from "./fixtures/r3-action-table/kit";
 import en from "../src/messages/en.json";
 import de from "../src/messages/de.json";
+import el from "../src/messages/el.json";
 
 /**
  * Release 4, Stream R part 1 on r4r (spec 5, D109, D110; R4-E12's parts
@@ -78,8 +80,23 @@ import de from "../src/messages/de.json";
  *
  * Each R4-E12 test is red on the old build (Release 3), which has no
  * references page, editor or action: the page answers "not found" and the
- * action has no id. The player's link and the completion screen's link
- * (R2) are in other specs.
+ * action has no id.
+ *
+ * Release 4, Stream R part 2 on r4r (spec 5.4, R4-E12's entry points,
+ * R4-E14), in a describe of its own below:
+ *
+ *   R4-E12  the player's top bar links to a course's list in a new tab,
+ *           which says "Close this tab to return to your lesson.", the
+ *           lesson's tab left where it was; the completion screen links to
+ *           it in the same tab, and the page offers "Back to the course";
+ *           an editor's preview keeps the preview, on a draft too; a course
+ *           without a list, and a built-in course, show no link
+ *   R4-E14  the player with its link, the completion screen and the
+ *           references page, at 320 px and on a desktop, in en, de and el:
+ *           axe clean, no sideways scroll, no policy violation
+ *
+ * Its entry-point tests are red on the build before part 2 (R1's r4r), whose
+ * player has no link and whose completion screen isn't told there is a list.
  *
  * Requires a real database — gated on E2E_DB=1. Everything the run makes
  * is unique to it and removed afterwards.
@@ -1074,4 +1091,318 @@ describe("Release 4: the references actions refuse who they must, and change not
       ]);
     }
   });
+});
+
+/* ------------------------------------------------- part 2: entry points --- */
+
+const TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
+
+/** Every policy violation the browser reports in `context` (Release 3's collector, F-E3). */
+async function collectViolations(context: BrowserContext) {
+  const reports: { directive: string; blocked: string; page: string }[] = [];
+  await context.exposeBinding("__e2eR4rCspViolation", (_source, v: { directive: string; blocked: string; page: string }) => {
+    reports.push(v);
+  });
+  await context.addInitScript(() => {
+    document.addEventListener("securitypolicyviolation", (e) => {
+      (window as unknown as { __e2eR4rCspViolation: (v: unknown) => void }).__e2eR4rCspViolation({
+        directive: e.effectiveDirective,
+        blocked: e.blockedURI,
+        page: location.pathname,
+      });
+    });
+  });
+  return reports;
+}
+
+/** Nothing scrolls sideways on the page as it is now. */
+async function expectNoSidewaysScroll(page: Page, where: string) {
+  const sideways = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  expect(sideways, `${where}: no sideways scroll`).toBeLessThanOrEqual(0);
+}
+
+/** axe's WCAG 2.2 AA rules: none broken in `scope`, and nothing serious or critical anywhere on the page. */
+async function expectAxeClean(page: Page, scope: string, where: string) {
+  const inScope = await new AxeBuilder({ page }).include(scope).withTags(TAGS).analyze();
+  expect(inScope.violations.map((v) => [v.id, v.nodes.map((n) => n.target)]), `${where}: ${scope}`).toEqual([]);
+  const all = await new AxeBuilder({ page }).withTags(TAGS).analyze();
+  const serious = all.violations.filter((v) => v.impact === "serious" || v.impact === "critical");
+  expect(serious.map((v) => [v.id, v.nodes.map((n) => n.target)]), `${where}: the whole page`).toEqual([]);
+}
+
+/**
+ * The completion screen's entrance animations are over: everything that
+ * fades in is fully shown, so axe reads its colours as learners get them
+ * (mid-fade, a line's contrast is the fade's, not the page's).
+ */
+async function settled(page: Page) {
+  await expect
+    .poll(
+      () =>
+        page.evaluate(() =>
+          [...document.querySelectorAll("main [style*='opacity']")].every((e) => getComputedStyle(e).opacity === "1")
+        ),
+      { timeout: 10_000 }
+    )
+    .toBe(true);
+}
+
+/** The words these tests look for, in a page's language. */
+type Messages = {
+  courseReferences: { title: string };
+  lessonLinks: { newTab: string };
+  coursePlayer: { openCompCard: string };
+};
+/** The top bar's link to the list: opens a new tab, and says so. */
+const playerLink = (p: Page, m: Messages = en) =>
+  visible(p.getByRole("link", { name: `${m.courseReferences.title} ${m.lessonLinks.newTab}`, exact: true }));
+/** The completion screen's link to the list (same tab: nothing more to say). */
+const completionLink = (p: Page, m: Messages = en) => visible(p.getByRole("link", { name: m.courseReferences.title, exact: true }));
+/** Any link to a list, by its words. */
+const anyReferencesLink = (p: Page, m: Messages = en) =>
+  p.getByRole("link", { name: new RegExp(m.courseReferences.title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")) });
+/** The completion screen is up: its way to the Comp Card is shown. */
+const completionOn = (p: Page, m: Messages = en) => visible(p.getByRole("link", { name: m.coursePlayer.openCompCard }));
+
+/** Continue lesson by lesson until the completion screen, retried against the hydration race. */
+async function continueToCompletion(page: Page) {
+  const done = completionOn(page);
+  await expect(async () => {
+    if (!(await done.isVisible())) {
+      await visible(page.getByRole("main").getByRole("button", { name: en.common.continue, exact: true })).click({ timeout: 3000 });
+    }
+    await expect(done).toBeVisible({ timeout: 3000 });
+  }).toPass({ timeout: 45_000 });
+}
+
+describe("Release 4: the ways to a course's references, from the player and the completion screen (spec 5.4, Stream R part 2)", () => {
+  const ENTRY = {
+    listed: `e2e-r4r-entry-${RUN}`,
+    draft: `e2e-r4r-entrydraft-${RUN}`,
+    bare: `e2e-r4r-entrybare-${RUN}`,
+  };
+  const people = {
+    reader: `e2e-r4r-entry-reader-${RUN}@example.com`,
+    finisher: `e2e-r4r-entry-finisher-${RUN}@example.com`,
+    staffer: `e2e-r4r-entry-editor-${RUN}@example.com`,
+  };
+  let reader: Person;
+  let finisher: Person;
+  let staffer: Person;
+  let listed: R4Course;
+  let draftListed: R4Course;
+  let bareLesson: string;
+
+  /** A completed enrolment: the course opens on its completion screen (spec 5.5). */
+  async function completed(who: Person, slug: string, lessons: string[]) {
+    const course = await prisma.course.findFirstOrThrow({ where: { projectId: "seq-elevate", slug }, select: { id: true } });
+    await prisma.courseEnrollment.create({
+      data: { userId: who.userId, courseId: course.id, stagesCompleted: [], sectionsCompleted: lessons, completedAt: new Date() },
+      select: { id: true },
+    });
+  }
+
+  test.beforeAll(async () => {
+    await removePeople(prisma, Object.values(people));
+    reader = await createPerson(prisma, { email: people.reader, roles: ["LEARNER"] });
+    finisher = await createPerson(prisma, { email: people.finisher, roles: ["LEARNER"] });
+    staffer = await createPerson(prisma, { email: people.staffer, roles: ["CONTENT_EDITOR"], organisation: "A" });
+    listed = await seedR4Course(prisma, { slug: ENTRY.listed });
+    draftListed = await seedR4Course(prisma, { slug: ENTRY.draft, status: "draft" });
+    bareLesson = ownLessonId();
+    await seedECourse(prisma, {
+      slug: ENTRY.bare,
+      title: { en: `E2E R4 ${ENTRY.bare}` },
+      status: "published",
+      lessons: [{ id: bareLesson, label: { en: "One" }, narrative: narrative({ en: { title: "One", text: "E2E: one." } }) }],
+    });
+    await completed(finisher, ENTRY.listed, [listed.lessons.one, listed.lessons.two]);
+    await completed(finisher, ENTRY.bare, [bareLesson]);
+  });
+
+  test.afterAll(async () => {
+    const ids = [reader, finisher, staffer].filter(Boolean).map((p) => p.userId);
+    await prisma.auditLog.deleteMany({ where: { actorId: { in: ids } } });
+    await removePeople(prisma, Object.values(people));
+    for (const slug of [ENTRY.listed, ENTRY.draft]) await removeR4Course(prisma, slug);
+    await removeECourse(prisma, ENTRY.bare);
+  });
+
+  test("R4-E12 (R2): the player's top bar opens the course's list in a new tab, which says to close it; the lesson stays where it was", async ({
+    browser,
+  }) => {
+    expect(listed.references, "the database has the references table").toBe(true);
+    const { context, page } = await as(browser, reader);
+    try {
+      await page.goto(`/en/learner/course/${listed.slug}`);
+      const link = playerLink(page);
+      await expect(link).toBeVisible({ timeout: 15_000 });
+      await expect(link).toHaveAttribute("href", `/en/learner/course/${listed.slug}/references?from=lesson`);
+      await expect(link).toHaveAttribute("target", "_blank");
+      await expect(link).toHaveAttribute("rel", "noopener noreferrer");
+      // In the top bar's left group, beside the way to the dashboard, above the step bar.
+      const dashboard = visible(page.getByRole("link", { name: en.coursePlayer.dashboard, exact: true }));
+      const [d, l] = [(await dashboard.boundingBox())!, (await link.boundingBox())!];
+      expect(l.x, "after the dashboard link").toBeGreaterThan(d.x);
+      expect(Math.abs(l.y - d.y), "on its line").toBeLessThan(d.height);
+      const lessonAt = page.url();
+
+      const [tab] = await Promise.all([context.waitForEvent("page"), link.click()]);
+      await tab.waitForLoadState();
+      await expect(tab).toHaveURL(new RegExp(`/en/learner/course/${listed.slug}/references\\?from=lesson$`));
+      await expect(listOn(tab)).toContainText("Author, A. A. (2020).", { timeout: 15_000 });
+      await expect(visible(tab.getByText(en.courseReferences.closeTab))).toBeVisible();
+      await expect(visible(tab.getByRole("link", { name: en.courseReferences.back }))).toHaveCount(0);
+
+      // The lesson's tab is where the learner left it.
+      expect(page.url()).toBe(lessonAt);
+      await expect(link).toBeVisible();
+      await expect(completionOn(page)).toHaveCount(0);
+    } finally {
+      await context.close();
+    }
+  });
+
+  test("R4-E12 (R2): the completion screen opens the list in the same tab, and the list leads back to the course", async ({
+    browser,
+  }) => {
+    const { context, page } = await as(browser, finisher);
+    try {
+      await page.goto(`/en/learner/course/${listed.slug}`);
+      await expect(completionOn(page)).toBeVisible({ timeout: 15_000 });
+      const link = completionLink(page);
+      await expect(link).toHaveAttribute("href", `/en/learner/course/${listed.slug}/references`);
+      await expect(link).not.toHaveAttribute("target", /.*/);
+      // The completion screen's other ways on are as they were.
+      await expect(visible(page.getByRole("link", { name: en.coursePlayer.backToDashboard }))).toBeVisible();
+
+      await link.click();
+      await expect(page).toHaveURL(new RegExp(`/en/learner/course/${listed.slug}/references$`));
+      await expect(listOn(page)).toContainText("Author, A. A. (2020).", { timeout: 15_000 });
+      await expect(visible(page.getByText(en.courseReferences.closeTab))).toHaveCount(0);
+      await visible(page.getByRole("link", { name: en.courseReferences.back })).click();
+      await expect(page).toHaveURL(new RegExp(`/en/learner/course/${listed.slug}$`));
+      await expect(completionOn(page)).toBeVisible({ timeout: 15_000 });
+    } finally {
+      await context.close();
+    }
+  });
+
+  test("R4-E12 (R2): a course without a list shows no link, in the player or on its completion screen; nor does a built-in course", async ({
+    browser,
+  }) => {
+    const learnerTab = await as(browser, reader);
+    const doneTab = await as(browser, finisher);
+    try {
+      for (const slug of [ENTRY.bare, BUILT_IN]) {
+        await learnerTab.page.goto(`/en/learner/course/${slug}`);
+        await expect(visible(learnerTab.page.getByRole("link", { name: en.coursePlayer.dashboard, exact: true }))).toBeVisible({
+          timeout: 15_000,
+        });
+        await expect(visible(learnerTab.page.getByRole("button", { name: en.common.continue, exact: true })).first()).toBeVisible();
+        await expect(anyReferencesLink(learnerTab.page), slug).toHaveCount(0);
+      }
+      await doneTab.page.goto(`/en/learner/course/${ENTRY.bare}`);
+      await expect(completionOn(doneTab.page)).toBeVisible({ timeout: 15_000 });
+      await expect(visible(doneTab.page.getByRole("link", { name: en.coursePlayer.backToDashboard }))).toBeVisible();
+      await expect(anyReferencesLink(doneTab.page)).toHaveCount(0);
+    } finally {
+      await learnerTab.context.close();
+      await doneTab.context.close();
+    }
+  });
+
+  test("R4-E12 (R2): an editor's preview keeps the preview, from the top bar and the completion screen, on a draft too", async ({
+    browser,
+  }) => {
+    const { context, page } = await as(browser, staffer);
+    try {
+      await page.goto(`/en/learner/course/${listed.slug}?preview=1`);
+      await expect(playerLink(page)).toHaveAttribute("href", `/en/learner/course/${listed.slug}/references?from=lesson&preview=1`, {
+        timeout: 15_000,
+      });
+      await continueToCompletion(page);
+      const link = completionLink(page);
+      await expect(link).toHaveAttribute("href", `/en/learner/course/${listed.slug}/references?preview=1`);
+      await link.click();
+      await expect(listOn(page)).toContainText("Author, A. A. (2020).", { timeout: 15_000 });
+      await expect(visible(page.getByRole("link", { name: en.courseReferences.back }))).toHaveAttribute(
+        "href",
+        `/en/learner/course/${listed.slug}?preview=1`
+      );
+
+      // A draft is always a preview for its editors; its list opens for them.
+      await page.goto(`/en/learner/course/${draftListed.slug}`);
+      const draftLink = playerLink(page);
+      await expect(draftLink).toHaveAttribute("href", `/en/learner/course/${draftListed.slug}/references?from=lesson&preview=1`, {
+        timeout: 15_000,
+      });
+      const [tab] = await Promise.all([context.waitForEvent("page"), draftLink.click()]);
+      await tab.waitForLoadState();
+      await expect(listOn(tab)).toContainText("Author, A. A. (2020).", { timeout: 15_000 });
+      await expect(visible(tab.getByText(en.courseReferences.closeTab))).toBeVisible();
+    } finally {
+      await context.close();
+    }
+    // Nothing a preview did is recorded: the editor has no enrolment in either course.
+    expect(
+      await prisma.courseEnrollment.count({ where: { userId: staffer.userId, course: { slug: { in: [ENTRY.listed, ENTRY.draft] } } } })
+    ).toBe(0);
+  });
+
+  for (const [locale, messages] of [
+    ["en", en],
+    ["de", de],
+    ["el", el],
+  ] as const) {
+    test(`R4-E14 (${locale}): the player with its link, the completion screen and the references page, at 320 px and on a desktop: axe clean, no sideways scroll, no policy violation`, async ({
+      browser,
+    }) => {
+      const reading = await browser.newContext();
+      const done = await browser.newContext();
+      const reported = { reading: await collectViolations(reading), done: await collectViolations(done) };
+      await signIn(reading, reader.sessionToken);
+      await signIn(done, finisher.sessionToken);
+      const page = await reading.newPage();
+      const finished = await done.newPage();
+      try {
+        for (const width of [320, 1280]) {
+          const where = `${locale} at ${width}`;
+          await page.setViewportSize({ width, height: 720 });
+          await finished.setViewportSize({ width, height: 720 });
+
+          // The player, with the link in its top bar.
+          const response = await page.goto(`/${locale}/learner/course/${listed.slug}`);
+          expect(response?.headers()["content-security-policy"], "an enforced policy").toBeTruthy();
+          const link = playerLink(page, messages);
+          await expect(link).toBeVisible({ timeout: 15_000 });
+          const box = (await link.boundingBox())!;
+          expect(box.x, `${where}: the link starts on the screen`).toBeGreaterThanOrEqual(0);
+          expect(box.x + box.width, `${where}: and ends on it`).toBeLessThanOrEqual(width);
+          await expectNoSidewaysScroll(page, `${where}, the player`);
+          await expectAxeClean(page, "main", `${where}, the player`);
+
+          // The completion screen, with its link.
+          await finished.goto(`/${locale}/learner/course/${listed.slug}`);
+          await expect(completionLink(finished, messages)).toBeVisible({ timeout: 15_000 });
+          await settled(finished);
+          await expectNoSidewaysScroll(finished, `${where}, the completion screen`);
+          await expectAxeClean(finished, "main", `${where}, the completion screen`);
+
+          // The references page, opened from a lesson and by its address.
+          for (const from of ["?from=lesson", ""]) {
+            await page.goto(`/${locale}/learner/course/${listed.slug}/references${from}`);
+            await expect(listOn(page)).toContainText("Author, A. A. (2020).", { timeout: 15_000 });
+            await expectNoSidewaysScroll(page, `${where}, the references page${from}`);
+            await expectAxeClean(page, "main", `${where}, the references page${from}`);
+          }
+        }
+        expect(reported.reading, "no policy violation (the learner's pages)").toEqual([]);
+        expect(reported.done, "no policy violation (the completion screen)").toEqual([]);
+      } finally {
+        await reading.close();
+        await done.close();
+      }
+    });
+  }
 });
