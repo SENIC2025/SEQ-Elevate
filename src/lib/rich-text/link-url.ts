@@ -27,10 +27,14 @@ import { MAX_HOST_CHARS, MAX_LABEL_CHARS, beyondDns, hostAfterUser, hostReadAlik
  *   was sent to (callers that want its target unwrap it first: toLinkInput
  *   and paste do; this check never unwraps).
  *
- * An accepted address comes back normalised: web addresses as the URL parser
- * writes them (ASCII: international hosts in punycode, other characters
- * percent-encoded), email addresses as given after `mailto:`. Checking a
- * normalised address again gives the same address.
+ * An accepted address comes back normalised: web addresses as the URL
+ * standard writes them (ASCII: international hosts in punycode, other
+ * characters percent-encoded), alike in every engine: a path's "^" and "|"
+ * as typed, and its "%5E" and "%7C" as "^" and "|", where Chrome's parser
+ * writes "%5E" and "%7C" (standardPath); email addresses as given after
+ * `mailto:`. Its length is counted in that form, so the server and the
+ * learner's browser accept the same addresses, with the same site. Checking
+ * a normalised address again gives the same address.
  *
  * `ownFile` flags an address of our own file store; it is a flag, not a
  * refusal, and each caller decides (new links refuse it; quick links ignore
@@ -129,6 +133,19 @@ export function comparableHost(host: string): string {
   return host.trim().toLowerCase().replace(/\.$/, "");
 }
 
+// "%5E" and "%7C", in either letter case: "^" and "|" as Chrome writes them in a path.
+const PATH_SIGNS = /%5E|%7C/gi;
+
+/**
+ * A URL's path as the URL standard writes it in every engine: "^" and "|"
+ * as typed, "%5E" and "%7C" as "^" and "|". The URL standard, and Node,
+ * keep "^" and "|" in a path; Chrome writes them "%5E" and "%7C". No other
+ * printable ASCII character is written differently by the two.
+ */
+export function standardPath(pathname: string): string {
+  return pathname.replace(PATH_SIGNS, (sign) => (sign[1] === "5" ? "^" : "|"));
+}
+
 /** Is `hostname` Outlook's safe-link wrapper? */
 export function isSafeLinkHost(hostname: string): boolean {
   const host = comparableHost(hostname);
@@ -178,7 +195,9 @@ function web(typed: string, opts?: { ownFileHost?: string | null }): LinkCheck {
   if (host.length > MAX_HOST_CHARS || labels.some((label) => label.length > MAX_LABEL_CHARS)) return refuse("host");
   if (!hostReadAlike(typed, host)) return refuse("host");
   if (isSafeLinkHost(host)) return refuse("redirect");
-  const href = url.href;
+  // As the URL standard writes it, its path alike in every engine (no user name or password: refused above).
+  const before = `${url.protocol}//${url.host}`;
+  const href = `${before}${standardPath(url.pathname)}${url.href.slice(before.length + url.pathname.length)}`;
   if (href.length > MAX_HREF_CHARS) return refuse("too-long");
   return {
     ok: true,
