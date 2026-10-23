@@ -173,10 +173,15 @@ function webHost(typed: string): [number, number] {
     if (char === "/" || char === "\\" || char === "?" || char === "#") break;
     if (char === "@") from = to + 1;
   }
-  // "[…]" holds an IPv6 address's colons; otherwise a colon starts the port.
-  const bracketed = typed[from] === "[";
+  // The port starts at the first colon outside "[…]", which holds an IPv6
+  // address's colons. As for the URL parser, a "[" anywhere in the host
+  // opens it and a "]" closes it, not only one the host starts with.
+  let bracketed = false;
   for (let i = from; i < to; i++) {
-    if (bracketed ? typed[i] === "]" : typed[i] === ":") return [from, bracketed ? i + 1 : i];
+    const char = typed[i];
+    if (char === "[") bracketed = true;
+    else if (char === "]") bracketed = false;
+    else if (char === ":" && !bracketed) return [from, i];
   }
   return [from, to];
 }
