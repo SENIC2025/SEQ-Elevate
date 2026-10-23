@@ -1,17 +1,21 @@
 import { describe, it, expect } from "vitest";
 import { cpuRatio } from "./cpu-time.test-helpers";
-import { checkLinkHref } from "./link-url";
+import { checkLinkHref, emailAddressOf } from "./link-url";
 import {
   COMMON_TOP_LEVEL_DOMAINS,
   LONG_LINK_TEXT,
   addressesShown,
+  asciiDomain,
   linkTextProblem,
   linkTextWarnings,
   showsAnotherAddress,
+  showsAnotherAddressOverAny,
   toLinkInput,
   visibleLinkText,
+  type ShownAddresses,
 } from "./link-text";
-import { TOP_LEVEL_DOMAINS } from "./top-level-domains";
+import corpus from "./link-text.corpus.json";
+import { TOP_LEVEL_DOMAINS, publicSuffixLength, registrableDomain } from "./top-level-domains";
 
 /*
  * Release 4 spec 3.2 (U2): what a link's words say against where it goes
@@ -492,6 +496,108 @@ describe("addressesShown and showsAnotherAddress", () => {
       { host: "paypal.com", named: false },
     ]);
     expect(addressesShown("https://paypal.com@evil-shop.de")?.elsewhere).toBe(true);
+  });
+});
+
+describe("showsAnotherAddressOverAny: a text read over several links at once", () => {
+  // The rule's comparison as D104 states it, one host shown against one
+  // link's host at a time: the same host; a host under the one shown; the
+  // same registrable domain; a public suffix named by itself goes to every
+  // host under it, shown with a scheme, "www.", a path or a port to itself.
+  const withoutWww = (host: string) => (host.startsWith("www.") && host.indexOf(".", 4) > 4 ? host.slice(4) : host);
+  const isPublicSuffix = (host: string) => publicSuffixLength(host.split(".")) === host.split(".").length;
+  const samePair = (shownHost: string, linkHost: string, named: boolean): boolean => {
+    if (shownHost === linkHost) return true;
+    if (isPublicSuffix(shownHost)) return named && linkHost.endsWith(`.${shownHost}`);
+    if (linkHost.endsWith(`.${shownHost}`)) return true;
+    const site = registrableDomain(shownHost);
+    return site !== null && site === registrableDomain(linkHost);
+  };
+  /** One link alone: what the text shows, compared pair by pair with it. */
+  const overOne = (shown: ShownAddresses | null, href: string): boolean => {
+    if (!shown) return false;
+    if (shown.elsewhere) return true;
+    const check = checkLinkHref(href);
+    if (!check.ok) return true;
+    const mailbox = emailAddressOf(check.href)?.toLowerCase() ?? null;
+    const at = mailbox?.lastIndexOf("@") ?? -1;
+    const domain = mailbox ? asciiDomain(mailbox.slice(at + 1)) : new URL(check.href).hostname;
+    const linkHost = withoutWww(domain);
+    const domainOf = (address: string) => address.slice(address.lastIndexOf("@") + 1);
+    if (mailbox) {
+      if (shown.email.some((address) => address !== `${mailbox.slice(0, at)}@${domain}`)) return true;
+    } else if (shown.email.some((address) => !samePair(domainOf(address), linkHost, true))) {
+      return true;
+    }
+    return shown.web.some(({ host, named }) => !samePair(host, linkHost, named));
+  };
+
+  const HREFS = [
+    "https://example.org/a", "https://www.example.org/", "https://en.example.org/x", "https://example.org./x",
+    "https://example.org.evil.example/", "https://evil.example/login", "https://evil-shop.de/", "https://uni.example/page",
+    "https://paypal.com/", "https://www.paypal.com/signin", "https://xn--bcher-kva.example/", "https://bücher.example/",
+    "https://minedu.gov.gr/", "https://gov.gr/", "https://www.gov.gr/", "https://bbc.co.uk/", "https://www.gov.uk/x",
+    "https://co.uk/", "https://a.b.ck/", "https://b.ck/", "https://www.ck/", "https://x.y.sch.uk/", "https://sch.uk/",
+    "https://example.it/", "https://a.example.jp/", "https://192.0.2.1/x", "https://ec.europa.eu/", "https://europa.eu/",
+    "mailto:help@example.org", "mailto:other@example.org", "mailto:Help@Example.ORG", "mailto:info@www.example.org",
+    "mailto:support@paypal.com.evil.example", "mailto:a@bücher.example", "mailto:help@gov.gr?subject=Hi",
+    "javascript:alert(1)", "https://bank.example@evil.example/", "",
+  ];
+  const TEXTS = [
+    "gov.gr", "GOV.GR", "https://gov.gr", "www.gov.gr", "co.uk and bbc.co.uk", "https://co.uk/", "b.ck", "a.b.ck",
+    "www.ck", "https://www.ck", "sch.uk", "https://sch.uk/x", "example.it", "https://a.example.jp/x", "https://192.0.2.1/x",
+    "help@example.org", "Help@example.org and other@example.org", "mail@www.example.org", "paypal.com.evil.example",
+    "info@paypal.com.evil.example", "https://paypal.com@evil.example", "example.org/a", "en.example.org", "europa.eu",
+    "ec.europa.eu und europa.eu", "https://bücher.example", "www.example.org/x und mail@www.example.org", "pаypal.com",
+    "a@bücher.example", "the guide", "https://example.org./x", "evil.example/login", "https://uni.example",
+    ...(corpus.honest as { text: string }[]).map((row) => row.text),
+    ...(corpus.refusedHostile as [string, string][]).map(([text]) => text),
+  ];
+  // A fixed pseudo-random draw, so a failure repeats.
+  let seed = 7;
+  const draw = (n: number) => {
+    seed = (seed * 1_103_515_245 + 12_345) % 2_147_483_648;
+    return seed % n;
+  };
+
+  it("answers each text over one link as comparing it pair by pair", () => {
+    const differ: string[] = [];
+    for (const text of TEXTS) {
+      const shown = addressesShown(text);
+      for (const href of HREFS) {
+        if (showsAnotherAddress(shown, href) !== overOne(shown, href)) differ.push(`${JSON.stringify(text)} over ${href}`);
+      }
+    }
+    expect(differ).toEqual([]);
+  });
+
+  it("answers each text over two to five links as any of them alone, a link repeated or not", () => {
+    const differ: string[] = [];
+    for (const text of TEXTS) {
+      const shown = addressesShown(text);
+      for (let k = 0; k < 24; k++) {
+        const hrefs = Array.from({ length: 2 + draw(4) }, () => HREFS[draw(HREFS.length)]);
+        if (showsAnotherAddressOverAny(shown, hrefs) !== hrefs.some((href) => overOne(shown, href))) {
+          differ.push(`${JSON.stringify(text)} over ${hrefs.join(" ")}`);
+        }
+      }
+      expect(showsAnotherAddressOverAny(shown, [])).toBe(false);
+    }
+    expect(differ).toEqual([]);
+  });
+
+  it("compares many hosts shown with many links of one site, and finds the one of another site", () => {
+    const text = Array.from({ length: 440 }, (_, i) => `b${i}.a.de,`.repeat(3)).join("");
+    const hrefs = Array.from({ length: 440 }, (_, i) => `https://c${i}.a.de/`);
+    const shown = addressesShown(text);
+    expect(shown?.web).toHaveLength(1_320);
+    expect(showsAnotherAddressOverAny(shown, hrefs)).toBe(false);
+    expect(showsAnotherAddressOverAny(shown, [...hrefs, "https://c.a.com/"])).toBe(true);
+    expect(showsAnotherAddressOverAny(addressesShown(`${text}b.a.com`), hrefs)).toBe(true);
+    // Under a host shown, at a dot, though another site by the List: "sch.uk" over x.y.sch.uk.
+    expect(showsAnotherAddressOverAny(addressesShown("https://sch.uk/ and sch.uk"), ["https://x.y.sch.uk/", "https://sch.uk/"])).toBe(false);
+    expect(showsAnotherAddressOverAny(addressesShown("https://sch.uk/"), ["https://x.y.sch.uk/", "https://y.sch.uk/"])).toBe(false);
+    expect(showsAnotherAddressOverAny(addressesShown("x.y.sch.uk"), ["https://sch.uk/"])).toBe(true);
   });
 });
 

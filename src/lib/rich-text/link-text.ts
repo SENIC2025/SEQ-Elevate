@@ -11,7 +11,8 @@ import { MOST_SUFFIX_LABELS, TOP_LEVEL_DOMAINS, publicSuffixLength, registrableD
  *   opening another site). A refusal, wherever links are made: the
  *   sanitizer, the Link form, paste, and the further-reading actions.
  *   (addressesShown and showsAnotherAddress are its two halves, for a text
- *   compared with several links.)
+ *   compared with several links; showsAnotherAddressOverAny compares it
+ *   with them all at once.)
  * - linkTextWarnings: words that don't say where the link goes ("click
  *   here"), or text too long to follow with a screen reader. The Link form's
  *   warnings only, never refusals.
@@ -73,7 +74,9 @@ import { MOST_SUFFIX_LABELS, TOP_LEVEL_DOMAINS, publicSuffixLength, registrableD
  * Pure, like link-url.ts. A text is read in time in proportion to its
  * length: a label longer than DNS allows (more than MAX_LABEL_CHARS
  * characters, every one counted) is no host's, and stands for itself
- * rather than being written in punycode.
+ * rather than being written in punycode. What it shows is compared with its
+ * links in time that follows the number of addresses shown and of links,
+ * each site looked up once.
  */
 
 export type LinkTextProblem = "empty" | "misleading";
@@ -192,7 +195,9 @@ export interface ShownAddresses {
   readonly elsewhere: boolean;
 }
 
-type Shown = { web: ShownHost[]; email: string[]; elsewhere: boolean };
+// What a text shows as it is read, and the names in front of the site of each
+// host it shows (namesInFront), found once a host.
+type Shown = { web: ShownHost[]; email: string[]; elsewhere: boolean; fronts: Map<string, string[]> };
 
 /**
  * The names in a run of name characters (NAME_RUN) that starts at `at`:
@@ -245,11 +250,21 @@ function namesInFront(host: string): string[] {
   return names;
 }
 
+/** namesInFront of a host a text shows, found once however often the text shows it. */
+function frontsOf(shown: Shown, host: string): string[] {
+  let names = shown.fronts.get(host);
+  if (!names) {
+    names = namesInFront(host);
+    shown.fronts.set(host, names);
+  }
+  return names;
+}
+
 /** Adds a host shown, and the names it shows in front of its site. */
 function addHost(shown: Shown, host: string, named: boolean) {
   const bare = host.startsWith("www.") && host.indexOf(".", 4) > 4 ? host.slice(4) : host;
   shown.web.push({ host: bare, named });
-  for (const name of namesInFront(bare)) shown.web.push({ host: name, named: false });
+  for (const name of frontsOf(shown, bare)) shown.web.push({ host: name, named: false });
 }
 
 /** Where the word that holds `from` ends: the next whitespace, quote or angle bracket. */
@@ -294,7 +309,7 @@ function readInto(shown: Shown, text: string) {
         const local = localPartBefore(text, start - 1);
         if (local && TOP_LEVEL_DOMAINS.has(top)) {
           shown.email.push(`${local.toLowerCase()}@${host}`);
-          for (const inFront of namesInFront(host)) shown.web.push({ host: inFront, named: false });
+          for (const inFront of frontsOf(shown, host)) shown.web.push({ host: inFront, named: false });
         }
         continue;
       }
@@ -314,9 +329,10 @@ function readInto(shown: Shown, text: string) {
 
 /** The addresses `text` shows (see the module's note), read once; null when it shows none. */
 export function addressesShown(text: string): ShownAddresses | null {
-  const shown: Shown = { web: [], email: [], elsewhere: false };
+  const shown: Shown = { web: [], email: [], elsewhere: false, fronts: new Map() };
   for (const reading of readingsOf(text)) readInto(shown, reading);
-  return shown.web.length || shown.email.length || shown.elsewhere ? shown : null;
+  const { web, email, elsewhere } = shown;
+  return web.length || email.length || elsewhere ? { web, email, elsewhere } : null;
 }
 
 /** Is `host` a public suffix ("gov.gr", "co.uk")? */
@@ -326,45 +342,109 @@ function isPublicSuffix(host: string): boolean {
 }
 
 /**
- * Does a host shown go to the site of the link's host (both as the URL
- * parser writes them, one leading "www." removed)? The same host; a host
- * under the one shown ("zoom.us" over us02web.zoom.us); the same registrable
- * domain. A public suffix named by itself goes to every host under it, and
- * shown with a scheme, "www.", a path or a port to itself only.
+ * Does every host shown go to the site of every link's host (all as the URL
+ * parser writes them, one leading "www." removed)? A host shown goes to a
+ * link's host that is it, or is under it ("zoom.us" over us02web.zoom.us),
+ * or has its registrable domain. A public suffix named by itself goes to
+ * every host under it, and shown with a scheme, "www.", a path or a port to
+ * itself only.
+ *
+ * Each host's site is looked up once (`siteOfLink` holds the links'), and
+ * each host shown is compared with all the links' hosts at once: those of
+ * its site are counted together, and each link's host adds the hosts shown
+ * it is or ends in after a dot. So the cost follows the number of hosts
+ * shown and links, never their product.
  */
-function sameSite(shownHost: string, linkHost: string, named: boolean): boolean {
-  if (shownHost === linkHost) return true;
-  if (isPublicSuffix(shownHost)) return named && linkHost.endsWith(`.${shownHost}`);
-  if (linkHost.endsWith(`.${shownHost}`)) return true;
-  const shownSite = registrableDomain(shownHost);
-  return shownSite !== null && shownSite === registrableDomain(linkHost);
+function allSameSite(shown: readonly ShownHost[], linkHosts: ReadonlySet<string>, siteOfLink: ReadonlyMap<string, string | null>): boolean {
+  if (!shown.length || !linkHosts.size) return true;
+  const linksOfSite = new Map<string, number>();
+  for (const host of linkHosts) {
+    const site = siteOfLink.get(host) ?? null;
+    if (site !== null) linksOfSite.set(site, (linksOfSite.get(site) ?? 0) + 1);
+  }
+  // Each host shown once with each way it was shown, and how many links' hosts it goes to.
+  type Compared = { named: boolean; suffix: boolean; site: string | null; goesTo: number };
+  const byHost = new Map<string, Compared[]>();
+  const lengths = new Set<number>();
+  for (const { host, named } of shown) {
+    const same = byHost.get(host);
+    if (same?.some((compared) => compared.named === named)) continue;
+    const suffix = isPublicSuffix(host);
+    const site = suffix ? null : registrableDomain(host);
+    const compared = { named, suffix, site, goesTo: site === null ? 0 : (linksOfSite.get(site) ?? 0) };
+    if (same) same.push(compared);
+    else byHost.set(host, [compared]);
+    lengths.add(host.length);
+  }
+  for (const host of linkHosts) {
+    const linkSite = siteOfLink.get(host) ?? null;
+    // The host itself, then what follows each of its dots.
+    for (let from = 0; ; ) {
+      if (lengths.has(host.length - from)) {
+        for (const compared of byHost.get(from ? host.slice(from) : host) ?? []) {
+          // A link's host of the site shown is counted above.
+          const goes = compared.suffix ? compared.named || from === 0 : compared.site === null || compared.site !== linkSite;
+          if (goes) compared.goesTo++;
+        }
+      }
+      const dot = host.indexOf(".", from);
+      if (dot < 0) break;
+      from = dot + 1;
+    }
+  }
+  for (const all of byHost.values()) {
+    if (all.some((compared) => compared.goesTo !== linkHosts.size)) return false;
+  }
+  return true;
 }
 
 /**
  * Do the addresses shown (addressesShown) point somewhere else than `href`?
  * Over an email link, an email address shown of another mailbox, or a host
  * shown of another site than its domain's; over a web link, a host or an
- * email domain shown of another site (sameSite). A user name or a mixed
+ * email domain shown of another site (allSameSite). A user name or a mixed
  * label shown (`elsewhere`), and an `href` the address check refuses,
  * count every address shown as somewhere else.
  */
 export function showsAnotherAddress(shown: ShownAddresses | null, href: string): boolean {
-  if (!shown) return false;
+  return showsAnotherAddressOverAny(shown, [href]);
+}
+
+/**
+ * Do the addresses shown point somewhere else than any of `hrefs`
+ * (showsAnotherAddress of each, for a text read over several links: links
+ * that touch)? Each address is checked once however often it is given, and
+ * each host's site is looked up once, so the cost follows the number of
+ * addresses shown and of links, never their product. False for no link.
+ */
+export function showsAnotherAddressOverAny(shown: ShownAddresses | null, hrefs: Iterable<string>): boolean {
+  const links = new Set(hrefs);
+  if (!shown || !links.size) return false;
   if (shown.elsewhere) return true;
-  const check = checkLinkHref(href);
-  if (!check.ok) return true;
-  const mailbox = emailAddressOf(check.href)?.toLowerCase() ?? null;
-  const at = mailbox?.lastIndexOf("@") ?? -1;
-  const linkDomain = mailbox ? asciiDomain(mailbox.slice(at + 1)) : new URL(check.href).hostname;
-  const linkHost = linkDomain.startsWith("www.") && linkDomain.indexOf(".", 4) > 4 ? linkDomain.slice(4) : linkDomain;
-  const domainOf = (address: string) => address.slice(address.lastIndexOf("@") + 1);
-  if (mailbox) {
-    const own = `${mailbox.slice(0, at)}@${linkDomain}`;
-    if (shown.email.some((address) => address !== own)) return true;
-  } else if (shown.email.some((address) => !sameSite(domainOf(address), linkHost, true))) {
+  // Every link's host (a web link's, or an email link's domain), the web links' hosts, and the email links' mailboxes as compared.
+  const linkHosts = new Set<string>();
+  const webHosts = new Set<string>();
+  const mailboxes = new Set<string>();
+  for (const href of links) {
+    const check = checkLinkHref(href);
+    if (!check.ok) return true;
+    const mailbox = emailAddressOf(check.href)?.toLowerCase() ?? null;
+    const at = mailbox?.lastIndexOf("@") ?? -1;
+    const linkDomain = mailbox ? asciiDomain(mailbox.slice(at + 1)) : new URL(check.href).hostname;
+    const linkHost = linkDomain.startsWith("www.") && linkDomain.indexOf(".", 4) > 4 ? linkDomain.slice(4) : linkDomain;
+    linkHosts.add(linkHost);
+    if (mailbox) mailboxes.add(`${mailbox.slice(0, at)}@${linkDomain}`);
+    else webHosts.add(linkHost);
+  }
+  // Over an email link, only its own mailbox.
+  if (mailboxes.size && shown.email.length && (mailboxes.size > 1 || shown.email.some((address) => !mailboxes.has(address)))) {
     return true;
   }
-  return shown.web.some(({ host, named }) => !sameSite(host, linkHost, named));
+  const siteOfLink = new Map<string, string | null>();
+  for (const host of linkHosts) siteOfLink.set(host, registrableDomain(host));
+  const emailDomains = shown.email.map((address) => ({ host: address.slice(address.lastIndexOf("@") + 1), named: true }));
+  if (webHosts.size && !allSameSite(emailDomains, webHosts, siteOfLink)) return true;
+  return !allSameSite(shown.web, linkHosts, siteOfLink);
 }
 
 /**
