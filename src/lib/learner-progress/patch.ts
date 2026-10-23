@@ -9,7 +9,10 @@
  * confirmed, applyPatch moves `acked` on by what was sent (less what the
  * server refused, withoutRefused). A value changed back while a save was on
  * its way then differs from `acked` again and is sent again; so is the
- * newer value when confirmations come back out of order.
+ * newer value when confirmations come back out of order. An answer the
+ * server may hold otherwise than `acked` says — sent by a save not answered
+ * yet, or by one whose answer was lost — is sent as the page has it
+ * whatever `acked` says (`unsure`, course-save.ts).
  *
  * A reflection or rating is sent question by question, so two tabs
  * answering different questions keep both (the server merges per field).
@@ -101,8 +104,34 @@ function changedFields<V>(now: Record<string, V>, before: Record<string, V> | un
   return out;
 }
 
-/** What `latest` holds that the server (`acked`) doesn't: null when nothing. */
-export function patchSince(acked: ProgressState, latest: ProgressState): ProgressPatch | null {
+/**
+ * Answers the server may hold otherwise than it is known to (`acked`): by
+ * key, the questions of a reflection or rating, or null for a whole answer.
+ */
+export type UnsureAnswers = ReadonlyMap<string, ReadonlySet<string> | null>;
+
+/** The answers `patch` carries, as UnsureAnswers: a reflection's or rating's by their questions. */
+export function answersIn(patch: ProgressPatch): Map<string, Set<string> | null> {
+  const out = new Map<string, Set<string> | null>();
+  for (const [key, answer] of Object.entries(patch.answers ?? {})) {
+    if (answer.type === "reflection") out.set(key, new Set(Object.keys(answer.text)));
+    else if (answer.type === "rating") out.set(key, new Set(Object.keys(answer.values)));
+    else out.set(key, null);
+  }
+  return out;
+}
+
+/**
+ * What `latest` holds that the server (`acked`) doesn't: null when nothing.
+ * Each answer in `unsure` (and only the questions named there) is sent as
+ * `latest` has it, though `acked` holds the same: the server may hold
+ * another value. An answer `latest` doesn't hold isn't sent.
+ */
+export function patchSince(
+  acked: ProgressState,
+  latest: ProgressState,
+  unsure?: UnsureAnswers
+): ProgressPatch | null {
   const had = new Set([...acked.stagesCompleted, ...acked.sectionsCompleted]);
   const completed = [...latest.stagesCompleted, ...latest.sectionsCompleted].filter(
     (id, i, all) => !had.has(id) && all.indexOf(id) === i
@@ -112,13 +141,18 @@ export function patchSince(acked: ProgressState, latest: ProgressState): Progres
   const answers: Record<string, PatchAnswer> = {};
   for (const [key, now] of sendable(latest)) {
     const old = before.get(key);
+    const doubted = unsure?.has(key) ?? false;
+    // The questions in doubt: those named, or all of them.
+    const doubts = (all: Record<string, unknown>) => (doubted ? (unsure?.get(key) ?? Object.keys(all)) : []);
     if (now.type === "reflection") {
       const text = changedFields(now.text, old?.type === "reflection" ? old.text : undefined);
+      for (const q of doubts(now.text)) if (q in now.text) text[q] = now.text[q];
       if (Object.keys(text).length) answers[key] = { type: "reflection", text };
     } else if (now.type === "rating") {
       const values = changedFields(now.values, old?.type === "rating" ? old.values : undefined);
+      for (const q of doubts(now.values)) if (q in now.values) values[q] = now.values[q];
       if (Object.keys(values).length) answers[key] = { type: "rating", values };
-    } else if (!same(now, old)) {
+    } else if (doubted || !same(now, old)) {
       answers[key] = now;
     }
   }
@@ -177,15 +211,18 @@ export function baseOf(patch: ProgressPatch, acked: ProgressState): Record<strin
  * holds now (`server`): finished lessons and the completion always (they
  * only grow); an answer only where the server still holds what it held
  * when the patch was kept (`base`, from baseOf) — a reflection or rating
- * question by question. Anything else was saved elsewhere since (another
- * device, a tab of an older build) and is newer than the kept answer.
- * An answer with no base comes back only where the server has none. Null
- * when nothing is left.
+ * question by question — or what it holds if a save of that answer whose
+ * answer was lost was written (`ifWritten`, from baseOf too: this tab sent
+ * it). Anything else was saved elsewhere since (another device, a tab of
+ * an older build) and is newer than the kept answer. An answer with no
+ * base comes back only where the server has none. Null when nothing is
+ * left.
  */
 export function restorablePatch(
   patch: ProgressPatch,
   base: Readonly<Record<string, StoredAnswer | null | undefined>>,
-  server: ProgressState
+  server: ProgressState,
+  ifWritten: Readonly<Record<string, StoredAnswer | null | undefined>> = {}
 ): ProgressPatch | null {
   const now = sendable(server);
   const textOf = (a: StoredAnswer | null | undefined, field: string) =>
@@ -195,18 +232,24 @@ export function restorablePatch(
   const answers: Record<string, PatchAnswer> = {};
   for (const [key, answer] of Object.entries(patch.answers ?? {})) {
     const was = base[key] ?? undefined;
+    // Without a lost save of it, only `was`.
+    const orWas = key in ifWritten ? (ifWritten[key] ?? undefined) : was;
     const is = now.get(key as PartKey);
     if (answer.type === "reflection") {
       const text = Object.fromEntries(
-        Object.entries(answer.text).filter(([field]) => textOf(is, field) === textOf(was, field))
+        Object.entries(answer.text).filter(
+          ([field]) => textOf(is, field) === textOf(was, field) || textOf(is, field) === textOf(orWas, field)
+        )
       );
       if (Object.keys(text).length) answers[key] = { type: "reflection", text };
     } else if (answer.type === "rating") {
       const values = Object.fromEntries(
-        Object.entries(answer.values).filter(([field]) => valueOf(is, field) === valueOf(was, field))
+        Object.entries(answer.values).filter(
+          ([field]) => valueOf(is, field) === valueOf(was, field) || valueOf(is, field) === valueOf(orWas, field)
+        )
       ) as Record<string, 1 | 2 | 3 | 4 | 5>;
       if (Object.keys(values).length) answers[key] = { type: "rating", values };
-    } else if (same(is, was)) {
+    } else if (same(is, was) || same(is, orWas)) {
       answers[key] = answer;
     }
   }

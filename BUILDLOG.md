@@ -1064,3 +1064,21 @@ On `r3` after the claim's verification above. Nothing pushed (D100).
   - `db-backed-progress` on one worker: **57/57**;
   - `linkify-cost.ts`: every block within the budget (the hosts behind "x[:]" 1.42 and 1.36 ms per 10,000 characters);
   - the server logged only the known kinds: 22 "No signed-in learner", 5 "No signed-in user", 3 `transformAlgorithm`, 2 `AccessDenied`, and the `BLOB_PUBLIC_HOST` notice.
+
+### Release 2 — a course answer changed back while its save is on its way is saved (2026-10-23)
+On `r2` after `983be2d`. Nothing pushed (D100).
+- `[FIX]` `da3472b` (D62 as built) **What a course save sends isn't known on the server until that save is confirmed** (`src/store/course-save.ts`; `patchSince`'s `unsure` in `src/lib/learner-progress/patch.ts`): it may still be written while it is on its way, and one that fails (a dropped connection) may have been. An answer a save on its way carries that the page has changed since, and an answer whose save failed until a save of it is confirmed or the course loads again (`courseLoaded`), is sent as the page has it. An answer changed back to what the server was known to hold gets a save of its own: the reflection, the practice, the quick check and the self-assessment alike. A save that fails once the page has changed since it was worked out is followed by another if something is left; failing with the page unchanged, it is tried again (1 s, 2 s, 4 s, 8 s) and then left until the next change, never sent every 700 ms. Once a save is confirmed, another follows only for what no save on its way carries. A save that finds a newer build wrote nothing.
+- `[FIX]` `da3472b` (D68 as built) **The outbox keeps, beside an answer whose save failed, what the server holds if it was written** (`alt` in `src/store/outbox.ts`; `restorablePatch`'s `ifWritten`), and brings the answer back over either, never over an answer saved elsewhere.
+- `[FIX]` `da3472b` (D62) **A refused answer that comes back unchanged isn't sent again, and the learner is told again**, on every save that leaves it out.
+- `[DOCS]` D62's 23 October line.
+- `[TEST]` Each change's tests ran red first, on 983be2d:
+  - `course-save.test.ts` (the committed file against 983be2d's code, the course load as `demo-state.tsx` did it there): 19 of the 26 new tests red — the account ending with the change while the page shows the answer before it (reflection, practice, self-assessment, quick check; a newer save after the change back; the connection gone for every try), the reloaded or reopened page showing the change, the outbox not bringing the answer back, the learner not told again. Green there, their 7 guards: a slow answer (twice), a lesson finished, a newer build, data let go of, the course loaded again, saves slower than the pause. `patch.test.ts` 2 of 2 and `outbox.test.ts` 1 of 1 new tests red;
+  - `e2e/r2-course-save.spec.ts` on the 983be2d build: CS-E1, CS-E3 and CS-E4 red (the account held "changed …" while the page showed "before …"; the practice `shrink` while the page showed `iStatement`; the reloaded page showed "changed …"); CS-E2, a slow answer, green.
+- `[VERIFY]` On the local Postgres `seq_r2i_v3`:
+  - tsc ✓ eslint ✓ **3,744 unit** ✓ (156 files);
+  - production build ✓ (through the build lock), no warnings;
+  - **full E2E 272/272** in 5.6 min on two workers, exit 0 (chromium 269, cutoff 3);
+  - `r2-course-save` three times: **12/12**;
+  - `db-backed-progress` on one worker: **57/57**;
+  - Release 2's recorded walk on one worker: **7/7**;
+  - the server logged only the known kinds: 13 "No signed-in learner", 3 "No signed-in user", 2 refused sign-ins (`AccessDenied`), and the `output: standalone` warning.
