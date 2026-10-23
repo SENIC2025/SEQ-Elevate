@@ -165,6 +165,96 @@ describe("linkSite: the site a web link opens, as learners see it", () => {
   });
 });
 
+/*
+ * The box is the same in the learner's browser as on the server (verdict
+ * §7: Node and Chrome answer alike for every character Node assigns).
+ * Chrome's URL parser writes "^" and "|" in a path as "%5E" and "%7C"; the
+ * URL standard, and Node, keep them as typed. ChromeURL parses as Chrome
+ * does, so the check, the site and the box are asked here as the learner's
+ * browser asks them.
+ */
+describe("an address with ^ or | in its path, read as Chrome reads it", () => {
+  const chromePath = (path: string) => path.replace(/\^/g, "%5E").replace(/\|/g, "%7C");
+  class ChromeURL extends URL {
+    get pathname() {
+      return chromePath(super.pathname);
+    }
+    get href() {
+      const href = super.href;
+      const before = `${this.protocol}//${this.host}`;
+      const path = super.pathname;
+      return `${before}${chromePath(path)}${href.slice(before.length + path.length)}`;
+    }
+    toString() {
+      return this.href;
+    }
+  }
+  /** `ask` as Chrome answers it. */
+  const inChrome = <T,>(ask: () => T): T => {
+    const NodeURL = globalThis.URL;
+    globalThis.URL = ChromeURL;
+    try {
+      return ask();
+    } finally {
+      globalThis.URL = NodeURL;
+    }
+  };
+
+  const ADDRESSES_WITH_SIGNS = [
+    "https://example.org/^",
+    "https://example.org/a|b",
+    "https://example.org/x^y?q=^|#^|",
+    "https://example.org/%5E%7c",
+    `https://example.org/${"|".repeat(1_000)}`,
+    // 2,041 characters as Node writes it; 2,081 as Chrome does.
+    `https://evil.example/${"a".repeat(2_000)}${"^".repeat(20)}`,
+    `https://evil.example/${"a".repeat(2_026)}^`,
+  ];
+
+  it("ChromeURL writes a path as Chrome does", () => {
+    expect(new ChromeURL("https://example.org/a^b|c?q=^|#^|").href).toBe("https://example.org/a%5Eb%7Cc?q=^|#^|");
+    expect(new ChromeURL("https://example.org/a^b").pathname).toBe("/a%5Eb");
+  });
+
+  it("has its site in the box in Chrome too, 2,041 characters long as the URL standard writes it", () => {
+    const address = `https://evil.example/${"a".repeat(2_000)}${"^".repeat(20)}`;
+    expect(checkLinkHref(address)).toMatchObject({ ok: true });
+    expect(inChrome(() => checkLinkHref(address))).toMatchObject({ ok: true });
+    expect(inChrome(() => linkSite(address))).toBe("evil.example");
+    expect(inChrome(() => textIsSite("PayPal – sign in", address))).toBe(false);
+  });
+
+  it("is accepted alike, with the same address, site and box, and Chrome's own form of it too", () => {
+    for (const address of ADDRESSES_WITH_SIGNS) {
+      const check = checkLinkHref(address);
+      expect(check.ok, address.slice(0, 40)).toBe(true);
+      if (!check.ok) continue;
+      expect(inChrome(() => checkLinkHref(address)), address.slice(0, 40)).toEqual(check);
+      expect(inChrome(() => checkLinkHref(check.href)), address.slice(0, 40)).toEqual(check);
+      expect(inChrome(() => linkSite(check.href)), address.slice(0, 40)).toBe(linkSite(check.href));
+      for (const words of ["PayPal – sign in", address, check.href, check.href.slice("https://".length)]) {
+        expect(inChrome(() => textIsSite(words, check.href)), words.slice(0, 40)).toBe(textIsSite(words, check.href));
+      }
+      // The address as Chrome writes it, read again where it is short enough to be read.
+      const chrome = new ChromeURL(address).href;
+      if (chrome.length <= MAX_HREF_CHARS) {
+        expect(checkLinkHref(chrome), chrome.slice(0, 40)).toEqual(check);
+        expect(linkSite(chrome)).toBe(linkSite(check.href));
+      }
+    }
+    expect(linkSite(`https://evil.example/${"a".repeat(2_000)}${"^".repeat(20)}`)).toBe("evil.example");
+    expect(textIsSite("example.org/^", "https://example.org/^")).toBe(true);
+  });
+
+  it("is refused alike over 2,048 characters as the URL standard writes it", () => {
+    // 2,043 characters as typed; "é" is written "%C3%A9".
+    for (const address of [`https://evil.example/${"a".repeat(2_020)}éé`, `https://evil.example/${"a".repeat(2_015)}éé${"^".repeat(5)}`]) {
+      expect(checkLinkHref(address), address.slice(-10)).toEqual({ ok: false, reason: "too-long" });
+      expect(inChrome(() => checkLinkHref(address)), address.slice(-10)).toEqual({ ok: false, reason: "too-long" });
+    }
+  });
+});
+
 describe("textIsSite: the link's words are its address, so the box is left out", () => {
   const GUIDE = "https://example.org/guide";
 
