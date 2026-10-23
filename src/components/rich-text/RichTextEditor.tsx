@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { legacyTextToDoc } from "@/lib/rich-text/from-legacy";
+import { edgeBlanks } from "@/lib/rich-text/link-blanks";
 import {
   linkProblemMessage,
   richTextProblem,
@@ -357,17 +358,26 @@ export function RichTextEditor({
   /**
    * Apply the form: unchanged words keep their formatting and get the link
    * (any links they had give way); new words take the formatting the
-   * selection started with, plus the link. The cursor goes right after it.
+   * selection started with, plus the link. Blanks at either end of the
+   * words stay in the text, outside the link (link-blanks.ts: a word
+   * selected with the space after it). The cursor goes right after them.
+   * (The words lie in one paragraph or list point, so each character of
+   * them, a line break's too, is one position.)
    */
   const applyLink = (shown: string, href: string) => {
     const range = linkAt.current;
     if (!editor || !range) return;
     const { from, to } = range;
     const before = editor.state.doc.textBetween(from, to, " ", " ");
+    const { lead, trail } = edgeBlanks(shown);
     const chain = editor.chain().focus();
     let end: number;
     if (from < to && shown === before) {
-      chain.setTextSelection({ from, to }).unsetMark("link").setLessonLink({ href });
+      chain
+        .setTextSelection({ from, to })
+        .unsetMark("link")
+        .setTextSelection({ from: from + lead, to: to - trail })
+        .setLessonLink({ href });
       end = to;
     } else {
       const marks = (editor.state.doc.nodeAt(from)?.marks ?? editor.state.selection.$from.marks())
@@ -375,7 +385,7 @@ export function RichTextEditor({
         .map((mark) => mark.toJSON());
       chain
         .insertContentAt({ from, to }, { type: "text", text: shown, marks })
-        .setTextSelection({ from, to: from + shown.length })
+        .setTextSelection({ from: from + lead, to: from + shown.length - trail })
         .setLessonLink({ href });
       end = from + shown.length;
     }

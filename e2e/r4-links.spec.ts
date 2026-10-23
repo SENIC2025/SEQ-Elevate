@@ -27,7 +27,11 @@ import { addressProblem } from "@/lib/rich-text/sanitize";
  *   R4-E1  keyboard only: select words, Ctrl+K, an address, Enter, Save; the
  *          learner gets a link that opens in a new tab; stored as version 2,
  *          the mark holding its address only, the text naming it.
- *   R4-E2  an http address: the warning is announced once, "Will open: …"
+ *   R4-E1b a word selected with the space after it, and new words with
+ *          blanks around them: the blanks stay in the text, outside the
+ *          link, in the editor and stored; the learner's box after the
+ *          words is parted from the next word.
+ *   R4-E2 an http address: the warning is announced once, "Will open: …"
  *          describes the field (not a live region); the learner's link opens
  *          http under Release 3's headers.
  *   R4-E3  the form refuses what can't be a link, by name, announced each
@@ -418,6 +422,100 @@ describe("Release 4 — links in lesson text", () => {
     await tab.waitForLoadState();
     expect(tab.url()).toBe(GUIDE);
     await tab.close();
+  });
+
+  test("R4-E1b: a word linked with the space after it, or new words with blanks around them: the blanks stay in the text, outside the link; the learner's box isn't against the next word", async ({
+    page,
+    context,
+  }) => {
+    const FORM = "https://example.org/feedback";
+    const GUIDE_TEXT = "Leitfaden";
+    await setNarrative(EDITED, narrative("R4 links lesson", [plain("Füllen Sie den Feedbackbogen nach der Sitzung aus. Lesen Sie den")]));
+    await signIn(context, editor.sessionToken);
+    const region = await openLesson(page, EDITED);
+    const block = region.getByRole("group", { name: /^block 1 of 1/i });
+    const textbox = await openParagraph(page, block);
+    const form = linkForm(block);
+
+    // "Feedbackbogen " with the space after it, as Word and a browser on
+    // Windows select a word: 14 characters, before "nach der Sitzung aus.
+    // Lesen Sie den" (35).
+    await selectBeforeEnd(page, 35, 14);
+    await page.keyboard.press("ControlOrMeta+k");
+    await expect(form.getByLabel("Text to show")).toHaveValue("Feedbackbogen ");
+    await page.keyboard.type(FORM);
+    await page.keyboard.press("Enter");
+    await expect(form).toHaveCount(0);
+    await expect(textbox.locator("a")).toHaveJSProperty("textContent", "Feedbackbogen");
+
+    // New words with blanks around them, at the end of the text (the key
+    // again until the editor has read where the cursor is).
+    await expect(textbox).toBeFocused();
+    const atEnd = () =>
+      page.evaluate(() => {
+        const selection = window.getSelection();
+        const box = selection?.focusNode?.parentElement?.closest("[contenteditable]");
+        if (!selection?.focusNode || !box) return false;
+        const after = document.createRange();
+        after.selectNodeContents(box);
+        after.setStart(selection.focusNode, selection.focusOffset);
+        return after.toString() === "";
+      });
+    await expect
+      .poll(async () => {
+        await page.keyboard.press(TEXT_END);
+        await page.waitForTimeout(40);
+        return atEnd();
+      })
+      .toBe(true);
+    await page.keyboard.press("ControlOrMeta+k");
+    await expect(form.getByLabel("Text to show")).toBeFocused();
+    await page.keyboard.type(`  ${GUIDE_TEXT} `);
+    await form.getByLabel("Address").fill(GUIDE);
+    await page.keyboard.press("Enter");
+    await expect(form).toHaveCount(0);
+    await expect(textbox.locator("a")).toHaveCount(2);
+    await expect(textbox.locator("a").nth(1)).toHaveJSProperty("textContent", GUIDE_TEXT);
+    await expect(textbox).toHaveJSProperty("textContent", `Füllen Sie den Feedbackbogen nach der Sitzung aus. Lesen Sie den  ${GUIDE_TEXT} `);
+
+    await saveByKeyboard(page, region);
+    await expect(region.getByText(/^saved$/i)).toBeVisible({ timeout: 15_000 });
+    const [saved] = await storedBlocks(EDITED);
+    expect((saved.rich as { doc: unknown }).doc).toEqual({
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          content: [
+            { type: "text", text: "Füllen Sie den " },
+            { type: "text", text: "Feedbackbogen", marks: [{ type: "link", attrs: { href: FORM } }] },
+            { type: "text", text: " nach der Sitzung aus. Lesen Sie den  " },
+            { type: "text", text: GUIDE_TEXT, marks: [{ type: "link", attrs: { href: GUIDE } }] },
+            { type: "text", text: " " },
+          ],
+        },
+      ],
+    });
+
+    // The learner: the box follows the words, and a space parts it from the next word.
+    await signIn(context, learner.sessionToken);
+    await page.goto(`/en/learner/course/${SLUG}`);
+    const link = main(page).getByRole("link", { name: `Feedbackbogen, example.org ${NEW_TAB}`, exact: true });
+    await expect(link).toBeVisible({ timeout: 20_000 });
+    const gap = await link.evaluate((a) => {
+      const walker = document.createTreeWalker(a.closest("p") ?? document.body, NodeFilter.SHOW_TEXT);
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        if (a.contains(node) || !(a.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING)) continue;
+        const at = (node.textContent ?? "").search(/\S/);
+        if (at < 0) continue;
+        const range = document.createRange();
+        range.setStart(node, at);
+        range.setEnd(node, at + 1);
+        return range.getBoundingClientRect().left - a.getBoundingClientRect().right;
+      }
+      return null;
+    });
+    expect(gap, "from the box to the next word, px").toBeGreaterThan(1);
   });
 
   test("R4-E2: an http address — warned once, described not announced; the learner's link opens http under Release 3's headers", async ({

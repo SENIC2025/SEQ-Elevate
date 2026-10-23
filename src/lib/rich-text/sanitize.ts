@@ -1,5 +1,6 @@
 import { MAX_HREF_CHARS, checkLinkHref, emailAddressOf, type LinkCheck, type LinkRefusal } from "./link-url";
 import { addressesShown, showsAnotherAddressOverAny, visibleLinkText } from "./link-text";
+import { edgeBlanks } from "./link-blanks";
 import { ownFileHost } from "./own-file-host";
 import {
   RT_LIMITS,
@@ -36,7 +37,9 @@ import {
  * and, silently, when its text shows nothing. Its text is always kept. A doc
  * that still holds a link comes back as version 2, any other as version 1,
  * whatever the input claimed. A save refuses what was dropped (narrative.ts,
- * richTextForSave); a render shows the text without the link.
+ * richTextForSave); a render shows the text without the link. Blanks at
+ * either end of a kept link's words move out of the link, kept as text
+ * (link-blanks.ts), after the link is read.
  *
  * Pure, so it runs the same on the server and in the browser.
  */
@@ -229,6 +232,57 @@ function marksOf(node: WalkText): RtMark[] {
   if (node.italic) marks.push({ type: "italic" });
   if (node.link?.ok) marks.push({ type: "link", attrs: { href: node.link.href } });
   return marks;
+}
+
+/**
+ * The blanks at either end of each kept link's words, moved out of it
+ * (link-blanks.ts): as text with the same bold and italic beside the link,
+ * never deleted. Run once a paragraph's links are read (finishLinks), so
+ * the reading is the one the words had; read again, the text keeps every
+ * link it kept (each reading is then of fewer words, against no more
+ * links). A kept link has a character that isn't a blank, so it keeps its
+ * words.
+ */
+function blanksOutOfLinks(nodes: WalkInline[]): WalkInline[] {
+  const out: WalkInline[] = [];
+  for (let i = 0; i < nodes.length; ) {
+    const node = nodes[i];
+    if (node.type !== "text" || !node.link?.ok) {
+      out.push(node);
+      i++;
+      continue;
+    }
+    let end = i + 1;
+    while (end < nodes.length) {
+      const next = nodes[end];
+      if (next.type !== "text" || !sameLink(next.link, node.link)) break;
+      end++;
+    }
+    const run = nodes.slice(i, end) as WalkText[];
+    const before: WalkText[] = [];
+    const after: WalkText[] = [];
+    while (run.length) {
+      const first = run[0];
+      const { lead } = edgeBlanks(first.text);
+      if (!lead) break;
+      before.push({ ...first, text: first.text.slice(0, lead), link: null });
+      if (lead === first.text.length) run.shift();
+      else run[0] = { ...first, text: first.text.slice(lead) };
+      if (lead < first.text.length) break;
+    }
+    while (run.length) {
+      const last = run[run.length - 1];
+      const { trail } = edgeBlanks(last.text);
+      if (!trail) break;
+      after.unshift({ ...last, text: last.text.slice(last.text.length - trail), link: null });
+      if (trail === last.text.length) run.pop();
+      else run[run.length - 1] = { ...last, text: last.text.slice(0, last.text.length - trail) };
+      if (trail < last.text.length) break;
+    }
+    out.push(...before, ...run, ...after);
+    i = end;
+  }
+  return out;
 }
 
 /**
@@ -592,7 +646,7 @@ class Walker {
     closeTouching();
     closeWords();
     flush();
-    return this.rebuild(nodes);
+    return this.rebuild(blanksOutOfLinks(nodes));
   }
 
   /** The text nodes, rebuilt: neighbours with the same marks joined. */

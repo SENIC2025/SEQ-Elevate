@@ -65,3 +65,28 @@ export const DOCS_LINKS =
   "</b>";
 
 export const DOCS_LINKS_TEXT = "Read the Docs page or a direct link.\na listed link";
+
+/**
+ * Links whose words carry a blank at either end, as Word and Google Docs
+ * copy a word selected with the space after it: Google Docs' "Feedbackbogen "
+ * (a space inside its styled run), and Word's " den Leitfaden&nbsp;" (a space
+ * before, a no-break space after, inside the link's colour span).
+ */
+export const EDGE_BLANKS = {
+  docs:
+    '<meta charset="utf-8"><b style="font-weight:normal;" id="docs-internal-guid-3c4d5e6f-7fff-4a1b-8c2d-1e2f3a4b5c6d">' +
+    `<p dir="ltr" style="line-height:1.38;margin-top:0pt;margin-bottom:0pt;"><span ${SPAN}>Bitte den </span>` +
+    `<a href="https://example.org/feedback" style="text-decoration:none;"><span ${LINK_SPAN}>Feedbackbogen </span></a>` +
+    `<span ${SPAN}>nach der Sitzung ausfüllen.</span></p></b>`,
+  docsText: "Bitte den Feedbackbogen nach der Sitzung ausfüllen.",
+  word: `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
+<body lang=DE-AT link="#0563C1" vlink="#954F72" style='tab-interval:35.4pt'>
+<!--StartFragment-->
+<p class=MsoNormal><span lang=DE-AT>Lesen Sie<a href="https://example.org/guide"><span style='color:#0563C1'> den Leitfaden&nbsp;</span></a>vor dem Kurs.<o:p></o:p></span></p>
+<!--EndFragment-->
+</body></html>`,
+  wordText: "Lesen Sie den Leitfaden vor dem Kurs.",
+  /** Each link's words, as the editor and the stored text keep them; and each paragraph's text. */
+  links: ["Feedbackbogen", "den Leitfaden"],
+  reads: ["Bitte den Feedbackbogen nach der Sitzung ausfüllen.", "Lesen Sie den Leitfaden\u00a0vor dem Kurs."],
+} as const;

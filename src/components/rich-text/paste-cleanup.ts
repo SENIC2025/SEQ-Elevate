@@ -1,5 +1,6 @@
 import { classifyPastedLink, NO_LINKS_DROPPED, type PasteReport } from "./paste-links";
 import { removeReviewMarks } from "./paste-review";
+import { edgeBlanks } from "@/lib/rich-text/link-blanks";
 import {
   listTreeToHtml,
   nestListItems,
@@ -26,8 +27,9 @@ import {
  *   normalised address, or unwrapped to its text — and counted, so the
  *   editor can say how many links weren't kept and why, and how many use
  *   http. An Outlook safe link in an anchor's text shows the original
- *   address instead (counted too). Done before the lists, so a link
- *   inside a Word list point is rebuilt with it.
+ *   address instead (counted too). Blanks at either end of a kept link's
+ *   words go just outside it, as text (link-blanks.ts). Done before the
+ *   lists, so a link inside a Word list point is rebuilt with it.
  * - Word: each list point is a paragraph styled `mso-list:l0 level2 …`, its
  *   bullet or number drawn by a marker span Word asks others to ignore. They
  *   become real <ul>/<ol> (word-list.ts), and Word's empty <o:p> fillers go.
@@ -89,6 +91,7 @@ function cleanLinks(root: HTMLElement): PasteReport {
     if (result.keep) {
       for (const attribute of Array.from(anchor.attributes)) anchor.removeAttribute(attribute.name);
       anchor.setAttribute("href", result.href);
+      moveBlanksOut(anchor);
       if (result.http) report.http++;
       continue;
     }
@@ -98,6 +101,35 @@ function cleanLinks(root: HTMLElement): PasteReport {
     anchor.replaceWith(...Array.from(anchor.childNodes));
   }
   return report;
+}
+
+/**
+ * The blanks a kept link's words start and end with, moved just before and
+ * after it as text (link-blanks.ts), out of whatever formatting holds them
+ * inside the link. A kept link shows a character that isn't a blank.
+ */
+function moveBlanksOut(anchor: Element) {
+  const texts: Text[] = [];
+  const walker = anchor.ownerDocument.createTreeWalker(anchor, NodeFilter.SHOW_TEXT);
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) texts.push(node as Text);
+  let lead = "";
+  for (const text of texts) {
+    if (!text.data) continue;
+    const blanks = edgeBlanks(text.data).lead;
+    lead += text.data.slice(0, blanks);
+    text.data = text.data.slice(blanks);
+    if (text.data) break;
+  }
+  let trail = "";
+  for (const text of texts.reverse()) {
+    if (!text.data) continue;
+    const blanks = edgeBlanks(text.data).trail;
+    trail = text.data.slice(text.data.length - blanks) + trail;
+    text.data = text.data.slice(0, text.data.length - blanks);
+    if (text.data) break;
+  }
+  if (lead) anchor.before(lead);
+  if (trail) anchor.after(trail);
 }
 
 const WORD_HTML = /class=["']?Mso|urn:schemas-microsoft-com:office|mso-list/i;

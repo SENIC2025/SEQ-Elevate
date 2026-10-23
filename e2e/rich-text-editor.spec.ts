@@ -19,6 +19,7 @@ import { createPerson } from "./fixtures/people";
 import {
   DOCS_LINKS,
   DOCS_LINKS_TEXT,
+  EDGE_BLANKS,
   SAFE_LINK_TARGET,
   WORD_LINKS,
   WORD_LINKS_TEXT,
@@ -666,6 +667,40 @@ describe("Rich text — the lesson text editor", () => {
     await expect(box.locator("a")).toHaveCount(0);
     await expect(box).not.toContainText("The report");
     await expect(status).toBeEmpty();
+  });
+
+  test("R4-E4c: a pasted link's words with a blank at either end (Word, Google Docs): the blank stays in the text, outside the link, and is saved so", async ({
+    page,
+    context,
+  }) => {
+    await seedConcept([{ kind: "paragraph", text: "Intro." }]);
+    await useSession(context, editorSession);
+    const { region, blocks } = await openLesson(page);
+
+    const boxes: Locator[] = [];
+    for (const [n, html, text] of [
+      [1, EDGE_BLANKS.docs, EDGE_BLANKS.docsText],
+      [2, EDGE_BLANKS.word, EDGE_BLANKS.wordText],
+    ] as const) {
+      await addBlock(region, /^paragraph$/i);
+      const box = blocks.nth(n).getByRole("textbox", { name: /^paragraph text$/i });
+      await expect(box).toBeFocused({ timeout: 15000 });
+      await paste(box, { "text/html": html, "text/plain": text });
+      boxes.push(box);
+    }
+    for (const [i, box] of boxes.entries()) {
+      await expect(box.locator("a")).toHaveJSProperty("textContent", EDGE_BLANKS.links[i]);
+      await expect(box.locator(":scope > p")).toHaveJSProperty("textContent", EDGE_BLANKS.reads[i]);
+    }
+
+    await save(region);
+    const saved = await savedBlocks();
+    const linked = saved
+      .slice(1)
+      .flatMap((block) => block.rich?.doc.content?.flatMap((p) => p.content ?? []) ?? [])
+      .filter((node) => node.marks?.some((mark) => mark.type === "link"))
+      .map((node) => node.text);
+    expect(linked).toEqual([...EDGE_BLANKS.links]);
   });
 
   test("a list block shows bullets or numbers; a bulleted list comes from the templates", async ({

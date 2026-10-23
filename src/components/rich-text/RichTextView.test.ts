@@ -752,17 +752,26 @@ describe("RichTextView shows the site each named link opens (the site label)", (
   it("draws a run of blank characters in a link's words as one space, across its parts, so no blank pushes the box away", () => {
     const EVIL = "https://evil.example/login";
     const rows: [string, Json[]][] = [
-      ["spaces", [named(`Sign in to PayPal${" ".repeat(1_500)}`, EVIL)]],
-      ["em spaces", [named(`Sign in to PayPal${"\u2003".repeat(1_500)}`, EVIL)]],
       ["braille blanks", [named(`Sign in to PayPal ${"\u2800".repeat(1_500)}`, EVIL)]],
       ["Hangul fillers", [named(`Sign in to PayPal${"\u3164".repeat(1_500)}`, EVIL)]],
       ["spaces and zero-width spaces", [named(`Sign in to PayPal${" \u200B".repeat(800)}`, EVIL)]],
-      ["em spaces in bold and italic parts", [named("Sign in to PayPal", EVIL), ...Array.from({ length: 300 }, (_, i) => named("\u2003", EVIL, i % 2 ? "bold" : "italic"))]],
+      ["em spaces and braille blanks in bold and italic parts", [named("Sign in to PayPal", EVIL), ...Array.from({ length: 300 }, (_, i) => named(i % 2 ? "\u2003" : "\u2800", EVIL, i % 2 ? "bold" : "italic"))]],
     ];
     for (const [name, content] of rows) {
       const html = renderIn("en", { rich: v2(p(...content, text(" and read on."))) });
       expect(linkNames(html), name).toEqual(["Sign in to PayPal , evil.example (opens in a new tab)"]);
       expect(html, name).toMatch(/Sign in to PayPal(?:<em>)? (?:<\/em>)?<span class="seq-link-sep">/);
+    }
+    // Spaces and other whitespace at the end of the words are text after
+    // the link (link-blanks.ts): the box follows the words themselves.
+    for (const [name, content] of [
+      ["spaces", [named(`Sign in to PayPal${" ".repeat(1_500)}`, EVIL)]],
+      ["em spaces", [named(`Sign in to PayPal${"\u2003".repeat(1_500)}`, EVIL)]],
+      ["em spaces in bold and italic parts", [named("Sign in to PayPal", EVIL), ...Array.from({ length: 300 }, (_, i) => named("\u2003", EVIL, i % 2 ? "bold" : "italic"))]],
+    ] as [string, Json[]][]) {
+      const html = renderIn("en", { rich: v2(p(...content, text(" and read on."))) });
+      expect(linkNames(html), name).toEqual(["Sign in to PayPal, evil.example (opens in a new tab)"]);
+      expect(html, name).toMatch(/Sign in to PayPal<span class="seq-link-sep">[\s\S]*?<\/a>(?:<(?:em|strong)>)?[ \u2003]/);
     }
     // Words between blanks, and the text around the link, stay as typed.
     const html = renderIn("en", {

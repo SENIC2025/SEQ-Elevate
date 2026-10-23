@@ -664,13 +664,67 @@ describe("sanitizeRichText: links (D104)", () => {
   });
 
   it("never merges neighbouring links to different addresses", () => {
-    const input = envelope(p(link("one", "https://example.org/a"), link(" two", "https://example.org/b")));
+    const input = envelope(p(link("one", "https://example.org/a"), link("two", "https://example.org/b")));
     expect(docOf(input)?.content).toEqual([
       p(
         { type: "text", text: "one", marks: linkTo("https://example.org/a") },
-        { type: "text", text: " two", marks: linkTo("https://example.org/b") }
+        { type: "text", text: "two", marks: linkTo("https://example.org/b") }
       ),
     ]);
+  });
+
+  it("keeps a blank at either end of a link's words outside the link, as text: the site box follows the words, not the blank", () => {
+    const FORM = "https://forms.example.org/f";
+    // Word, and a browser on Windows, select a word with the space after it.
+    const after = sanitizeRichText(envelope(p(t("Füllen Sie den "), link("Feedbackbogen ", FORM), t("nach der Sitzung aus."))));
+    expect(after.value).toEqual(
+      v2(p(t("Füllen Sie den "), { type: "text", text: "Feedbackbogen", marks: linkTo(FORM) }, t(" nach der Sitzung aus.")))
+    );
+    expect(after.issues).toEqual([]);
+    expect(docToPlainText(after.value!.doc)).toBe(`Füllen Sie den Feedbackbogen (${FORM}) nach der Sitzung aus.`);
+    // Before the words, several blanks, a no-break space and a tab (a space once stored); at the end of a paragraph too.
+    expect(docOf(envelope(p(t("Den"), link(" Leitfaden", FORM), t(" lesen")), p(link("\u00a0 the guide \t ", FORM))))?.content).toEqual([
+      p(t("Den "), { type: "text", text: "Leitfaden", marks: linkTo(FORM) }, t(" lesen")),
+      p(t("\u00a0 "), { type: "text", text: "the guide", marks: linkTo(FORM) }, t("   ")),
+    ]);
+    // Across a link's formatting: the blank keeps its own bold and italic, outside the link.
+    expect(docOf(envelope(p(link("Feedback", FORM, "bold"), link("bogen", FORM), link(" ", FORM, "italic"), t("nach"))))?.content).toEqual([
+      p(
+        { type: "text", text: "Feedback", marks: linkTo(FORM, "bold") },
+        { type: "text", text: "bogen", marks: linkTo(FORM) },
+        t(" ", "italic"),
+        t("nach")
+      ),
+    ]);
+    // Two links joined by a blank inside the first: two links and the blank between them.
+    expect(docOf(envelope(p(link("one ", "https://example.org/a"), link("two", "https://example.org/b"))))?.content).toEqual([
+      p(
+        { type: "text", text: "one", marks: linkTo("https://example.org/a") },
+        t(" "),
+        { type: "text", text: "two", marks: linkTo("https://example.org/b") }
+      ),
+    ]);
+    // A link it leaves out keeps its words as they are, blanks and all.
+    expect(docOf(envelope(p(link("https://bank.example/login ", "https://evil.example/login"), t("now"))))?.content).toEqual([
+      p(t("https://bank.example/login now")),
+    ]);
+    // Blanks inside the words stay in the link.
+    expect(docOf(envelope(p(link("the  guide", FORM))))?.content).toEqual([p({ type: "text", text: "the  guide", marks: linkTo(FORM) })]);
+  });
+
+  it("reads a link's words as they came before its blanks move out: what it refuses or keeps is the same", () => {
+    for (const [text, href] of [
+      ["https://bank.example ", "https://evil.example/login"],
+      [" www.bank.example", "https://evil.example/login"],
+      ["paypal.com\u00a0", "https://evil.example/login"],
+      ["Feedbackbogen ", "https://forms.example.org/f"],
+      [" example.org ", "https://www.example.org/"],
+    ]) {
+      const blank = sanitizeRichText(envelope(p(link(text, href), t("next"))));
+      const trimmed = sanitizeRichText(envelope(p(link(text.trim(), href), t("next"))));
+      expect(blank.issues, JSON.stringify(text)).toEqual(trimmed.issues);
+      expect(blank.linkProblems, JSON.stringify(text)).toEqual(trimmed.linkProblems);
+    }
   });
 
   it("drops a link on spaces only, silently", () => {
@@ -914,6 +968,8 @@ describe("sanitizeRichText: links (D104)", () => {
     const inputs = [
       envelope(
         p(link("a", "HTTPS://Example.org/x", "italic"), link("b", "https://example.org/x"), t(" "), link(" ", "https://e.example/")),
+        p(link(" one ", "https://example.org/a", "bold"), link("two\u00a0", "https://example.org/b"), t("three"), link("\tfour", "https://example.org/a")),
+        p(link("https://bank. ", "https://evil.example/a"), link("example", "https://evil.example/b")),
         p(link("https://bank.", "https://evil.example/a"), link("example", "https://evil.example/b")),
         ul(li(p(link("one", "mailto:HELP@example.org?subject=Hi"), link("two", "javascript:x"))))
       ),

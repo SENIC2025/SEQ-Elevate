@@ -77,11 +77,13 @@ const ownHost = (i: number): [string, string] => [`b${i}.a.de,`.repeat(3), `http
 
 describe("sanitizeRichText reads touching links in time proportional to the text", () => {
   const cases: [string, number, (i: number) => [string, string], string[]][] = [
-    // One site, shown and opened: every link kept.
-    ["520 touching links to two addresses of one site, each text an email address of it", 520, (i) => ["a@x.de ", `https://x.de/${i % 2}`], []],
+    // One site, shown and opened: every link kept. Each link's space is
+    // stored after it, outside it (link-blanks.ts): two nodes a link, so
+    // 400 is about as many as the size limit holds.
+    ["400 touching links to two addresses of one site, each text an email address of it", 400, (i) => ["a@x.de ", `https://x.de/${i % 2}`], []],
     // Read as one word, "x.dex.dex.de…" shows dex.de, another site: none kept.
     ["520 touching links with no space between them", 520, (i) => ["x.de", `https://x.de/${i % 2}`], ["dropped-link"]],
-    ["480 touching links, each to its own address on one site", 480, (i) => ["a@x.de ", `https://x.de/${i}`], []],
+    ["400 touching links, each to its own address on one site", 400, (i) => ["a@x.de ", `https://x.de/${i}`], []],
     ["740 touching links, over the size limit", 740, (i) => ["a@x.de ", `https://x.de/${i % 2}`], ["too-large"]],
     // Names of one site over links to it, all read together: every link kept.
     ["440 touching links to two addresses of one site, each text three names of another host of it", 440, sameHost, []],
