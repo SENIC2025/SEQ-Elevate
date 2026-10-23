@@ -778,3 +778,21 @@ On `r2` after `491e5a5`. Nothing pushed (D100).
   - Release 2's recorded walk on one worker: **7/7**;
   - the server logged the known kinds: 10 "No signed-in learner", 3 "No signed-in user", 2 refused sign-ins (`AccessDenied`), one audit write for a staff account another test had removed (`AuditLog_actorId_fkey`, as in earlier runs), and the `output: standalone` warning.
 - `[NOTE]` Known limits (course saves): the page loaded again brings an answer back over what the server held when it loaded the course, so a save the page before sent as it went, written only after that load, stays on the server; more than eight saves of one answer that aren't confirmed before the page goes or finds a newer build leave the answer coming back over the first seven and the newest only; a browser that blocks `sessionStorage`, or a page that goes without `pagehide` or a hidden `visibilitychange` (a crash), keeps nothing.
+
+### Release 2 — signing out sends the course and Comp Card saves waiting first (2026-10-24)
+On `r2` after `828e647`. Nothing pushed (D100).
+- `[FIX]` `ae36776` (D68 as built) **Signing out from the header first sends every course and Comp Card save still waiting, and waits for them and for the save on its way (with any handed over behind it) up to 3 s**; then it signs out (`signOutAfterSaves` in `src/store/sign-out.ts`; `settleAll` and `settleWithin` in `src/store/pending-save.ts`; the store's `signOut` in `src/store/demo-state.tsx`, used by `AppHeaderClient.tsx`). A save a confirmed one schedules, and a failed one waiting to be tried again, are sent at once meanwhile. The button is marked busy, and a second press does nothing.
+- `[FIX]` `ae36776` (D68 as built) **Once the sign-out goes ahead, every outbox entry of the tab is cleared before the session ends**; the page's `pagehide` keeps nothing more in the tab, and a late answer moves nothing on. **A save's answer from a newer build once the store has let go of the learner** — signed out here or in another tab, another account signed in — **keeps nothing of theirs in the tab** (`course-save.ts`).
+- `[DOCS]` D68's 24 October line.
+- `[TEST]` Red first, on 828e647:
+  - `e2e/r2-course-save.spec.ts` on the 828e647 build: CS-E8 to CS-E11 all red. CS-E8 and CS-E11: the account held the answer from before the change ("before …"; the Comp Card's "Saved: before …"), because its save left the page after the session had ended and was refused. CS-E9 and CS-E10: the tab kept the learner's entry after the sign-out, and after the late answer;
+  - the new unit tests against 828e647's code, with its header's sign-out (next-auth's at once): `course-save.test.ts` 5 of 6 red (the session ended before the save was answered: twice; it didn't wait for the save on its way; the late answer kept an entry, in the page harness and in `saveCourse`). Green there: the guard with nothing waiting. The 7 new `pending-save.test.ts` tests are red because `settleAll` and `settleWithin` don't exist on 828e647;
+  - the verifier's A9 and A7 (red on 828e647 and b97963c in the verifier's runs) are green on this build. A9: the account, a new tab and the same tab all hold the change. A7: nothing is left in the tab.
+- `[VERIFY]` On the local Postgres `seq_r2i_v3`:
+  - tsc ✓ eslint ✓ **3,776 unit** ✓ (157 files);
+  - production build ✓ (through the build lock), no warnings;
+  - `r2-course-save` **11/11**; `a11y-prefs` and `r2-progress-safety` (the sign-out tests in other tabs, and the D68 guard) **16/16**;
+  - **full E2E 279/279** in 6.1 min on two workers, exit 0 (chromium 276, cutoff 3). In an earlier full run of the same build, one test failed: C-E1 in `r2-consumers`, where the statistics page's note on a course's own lessons was found twice (a strict-mode violation). That spec then passed 4/4 alone;
+  - `db-backed-progress` on one worker: **57/57**;
+  - Release 2's recorded walk on one worker: **7/7**;
+  - the server logged only the known kinds: 12 "No signed-in learner", 2 "No signed-in user", 2 refused sign-ins (`AccessDenied`), and the `output: standalone` warning.
