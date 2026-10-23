@@ -1,3 +1,4 @@
+import { removeReviewMarks } from "./paste-review";
 import {
   listTreeToHtml,
   nestListItems,
@@ -15,6 +16,9 @@ import {
  * sanitized again. What the schema can't do is recognise lists that aren't
  * written as lists, so this does, in the pasted HTML:
  *
+ * - A reviewer's marks (paste-review.ts): tracked deletions go with their
+ *   text, tracked insertions stay as text, and comments go, references and
+ *   all. Done first.
  * - Word: each list point is a paragraph styled `mso-list:l0 level2 …`, its
  *   bullet or number drawn by a marker span Word asks others to ignore. They
  *   become real <ul>/<ol> (word-list.ts), and Word's empty <o:p> fillers go.
@@ -35,6 +39,7 @@ export function cleanPastedHtml(html: string): string {
   try {
     const doc = new DOMParser().parseFromString(html, "text/html");
     const body = doc.body;
+    removeReviewMarks(body);
     if (WORD_HTML.test(html)) {
       removeOfficeFillers(body);
       rebuildWordLists(body);
