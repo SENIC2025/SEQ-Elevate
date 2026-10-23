@@ -83,6 +83,12 @@ describe("findLinks — web addresses", () => {
     expect(linked("https://example.org/a[1]")).toEqual([
       "https://example.org/a[1]",
     ]);
+    // In a path, query or fragment, a "[" isn't in the host.
+    expect(linked("https://example.org/?a[]=1&b[x]=2 and https://example.org/#[x] and https://example.org\\a[1]")).toEqual([
+      "https://example.org/?a[]=1&b[x]=2",
+      "https://example.org/#[x]",
+      "https://example.org\\a[1]",
+    ]);
   });
 
   it("ends an address at a space, line break, quote or angle bracket", () => {
@@ -373,6 +379,17 @@ describe("findLinks — performance", () => {
       `http://a.b[1:2]${letters(0xac00, 9_960)}/`,
     ];
     for (const text of hostile) expect(findLinks(text)).toEqual([]);
+    costsAsOrdinary(hostile);
+  });
+
+  it("a '[' in a host anywhere but at its start: not an address, whatever follows the '[', so a long one behind it costs no more", () => {
+    // For the URL parser a "[" opens "[…]" up to the next "]" (or the end),
+    // a "/", "?" or "\\" inside included, and it refuses every host with a
+    // "[" anywhere but at its start: a host behind one is never parsed.
+    const at = (head: string) => `https://${head}${letters(0x4e00, 10_000 - 12 - [...head].length)}.com`;
+    const forms = ["x[?", "x[/", "x[\\", "x[?:]", "x[\\:]", "x[?]", "a[?@", "u]@x[?", "a@x[/", "[/", "[?", "[\\"];
+    const hostile = forms.map(at);
+    for (const text of hostile) expect(findLinks(text), text.slice(0, 16)).toEqual([]);
     costsAsOrdinary(hostile);
   });
 
