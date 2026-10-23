@@ -44,7 +44,7 @@ import {
   storedGuestState,
 } from "./progress-merge";
 import { migrateGuest } from "./guest-migration";
-import { courseChanged, courseSaveRefs, saveCourse } from "./course-save";
+import { courseChanged, courseLoaded, courseSaveRefs, saveCourse } from "./course-save";
 import { clearEveryOutbox, restoreOutbox } from "./outbox";
 import { pendingSave } from "./pending-save";
 import { RETRY_DELAYS_MS, wait, withRetry } from "./retry";
@@ -882,15 +882,12 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
       // Loaded BEFORE the dispatch, so the save effect that runs on the
       // resulting render saves the merge. What the server holds is what
       // patches are worked out against from now on; what the learner has
-      // is set by that effect, once merged.
+      // is set by that effect, once merged (courseLoaded).
       loadedCourseRef.current = slug;
       setLoadedCourse(slug);
       const saved = prog as CourseProgress | null;
-      const refs = progressRefs.current;
       const server = savedProgress(saved);
-      refs.acked.set(slug, server);
-      refs.latest.delete(slug);
-      refs.refused.delete(slug);
+      courseLoaded(progressRefs.current, slug, server);
       const migrated = migratedRef.current?.courseSlug === slug ? migratedRef.current : null;
       if (migrated) migratedRef.current = null;
       dispatch({ type: "courseProgressLoaded", slug, saved, migrated });

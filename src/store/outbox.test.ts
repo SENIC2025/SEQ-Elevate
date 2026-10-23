@@ -263,6 +263,41 @@ describe("restoreOutbox: what the outbox brings back over what the server holds 
     });
   });
 
+  it("brings an answer back over what the server held, or what it holds if a save of it whose answer was lost was written; never over anything else", () => {
+    const answer: ProgressPatch = {
+      v: 2,
+      answers: {
+        "simulation/main": { type: "practice", optionId: "x", correct: false },
+        [`${OWN}/${PART}`]: { type: "reflection", text: { q1: "Tab", q2: "Tab two" } },
+      },
+    };
+    // The lost save sent practice "w" and both questions.
+    const written = server({
+      simulation: practiceOf("w"),
+      responses: { [`${OWN}/${PART}`]: { type: "reflection", text: { q1: "Lost", q2: "Lost two" } } },
+    });
+    for (const now of [base, written]) {
+      const s = storage();
+      putInOutbox(s, ANA, SLUG, answer, base, written);
+      expect(restoreOutbox(s, ANA, SLUG, now)).toEqual(answer);
+    }
+    const s = storage();
+    putInOutbox(s, ANA, SLUG, answer, base, written);
+    const elsewhere = server({
+      simulation: practiceOf("z"),
+      responses: { [`${OWN}/${PART}`]: { type: "reflection", text: { q1: "Phone", q2: "Lost two" } } },
+    });
+    expect(restoreOutbox(s, ANA, SLUG, elsewhere)).toEqual({
+      v: 2,
+      answers: { [`${OWN}/${PART}`]: { type: "reflection", text: { q2: "Tab two" } } },
+    });
+    // What's left keeps both of its values.
+    expect(restoreOutbox(s, ANA, SLUG, written)).toEqual({
+      v: 2,
+      answers: { [`${OWN}/${PART}`]: { type: "reflection", text: { q2: "Tab two" } } },
+    });
+  });
+
   it("is null for another learner, or with no storage", () => {
     const s = storage();
     putInOutbox(s, ANA, SLUG, kept, base);

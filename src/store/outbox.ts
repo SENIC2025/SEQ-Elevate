@@ -20,7 +20,9 @@
  * when it was kept (its base), and only what the server still holds as it
  * was comes back (restoreOutbox): an answer saved since on another device
  * — or by a page of an older build after a rollback, which never reads
- * the outbox — is newer, and stays. Nothing of a learner stays in the tab
+ * the outbox — is newer, and stays. An answer whose save's answer was
+ * lost may have been written, so beside its base the entry keeps what the
+ * server holds if it was (`alt`): either comes back. Nothing of a learner stays in the tab
  * once the store lets go of them (signed out, another account, erased):
  * every entry is cleared then (clearEveryOutbox), at the cost of what a
  * page from a build that was gone hadn't sent yet.
@@ -83,9 +85,21 @@ function readBase(raw: unknown, patch: ProgressPatch): Record<string, StoredAnsw
   );
 }
 
+/** What the server holds of an answer of the patch if a save of it whose answer was lost was written: only those kept. */
+function readAlt(raw: unknown, patch: ProgressPatch): Record<string, StoredAnswer | null> {
+  const alt = isRecord(raw) && isRecord(raw.alt) ? raw.alt : {};
+  return Object.fromEntries(
+    Object.keys(patch.answers ?? {})
+      .filter((key) => key in alt)
+      .map((key) => [key, (readAnswer(key, alt[key]) as StoredAnswer | null) ?? null])
+  );
+}
+
 interface Entry {
   patch: ProgressPatch;
   base: Record<string, StoredAnswer | null>;
+  /** For an answer whose save's answer was lost: what the server holds if it was written. */
+  alt: Record<string, StoredAnswer | null>;
 }
 
 function readEntry(storage: OutboxStorage | null, forUser: string, slug: string): Entry | null {
@@ -94,7 +108,7 @@ function readEntry(storage: OutboxStorage | null, forUser: string, slug: string)
     if (!raw) return null;
     const parsed: unknown = JSON.parse(raw);
     const patch = readPatch(parsed);
-    return patch ? { patch, base: readBase(parsed, patch) } : null;
+    return patch ? { patch, base: readBase(parsed, patch), alt: readAlt(parsed, patch) } : null;
   } catch {
     return null;
   }
@@ -102,7 +116,8 @@ function readEntry(storage: OutboxStorage | null, forUser: string, slug: string)
 
 function writeEntry(storage: OutboxStorage, forUser: string, slug: string, entry: Entry): boolean {
   try {
-    storage.setItem(outboxKey(forUser, slug), JSON.stringify({ ...entry.patch, base: entry.base }));
+    const alt = Object.keys(entry.alt).length ? { alt: entry.alt } : {};
+    storage.setItem(outboxKey(forUser, slug), JSON.stringify({ ...entry.patch, base: entry.base, ...alt }));
     return true;
   } catch {
     return false;
@@ -122,10 +137,10 @@ export function readOutbox(
  * What the outbox brings back for `forUser` in `slug` over what the server
  * holds now (`server`, the progress just loaded): its finished lessons and
  * completion, and each answer the server still holds as it was when the
- * entry was kept (restorablePatch) — never one over an answer saved
- * elsewhere since. What can't come back is dropped from the entry for
- * good, and an entry with nothing left is cleared. Null when nothing
- * comes back.
+ * entry was kept, or as a lost save of it would have left it
+ * (restorablePatch) — never one over an answer saved elsewhere since.
+ * What can't come back is dropped from the entry for good, and an entry
+ * with nothing left is cleared. Null when nothing comes back.
  */
 export function restoreOutbox(
   storage: OutboxStorage | null,
@@ -135,7 +150,7 @@ export function restoreOutbox(
 ): ProgressPatch | null {
   const entry = readEntry(storage, forUser, slug);
   if (!entry || !storage) return null;
-  const patch = restorablePatch(entry.patch, entry.base, server);
+  const patch = restorablePatch(entry.patch, entry.base, server, entry.alt);
   if (!patch) {
     clearOutbox(storage, forUser, slug);
     return null;
@@ -145,6 +160,7 @@ export function restoreOutbox(
     writeEntry(storage, forUser, slug, {
       patch,
       base: Object.fromEntries(keys.map((key) => [key, entry.base[key] ?? null])),
+      alt: Object.fromEntries(keys.filter((key) => key in entry.alt).map((key) => [key, entry.alt[key] ?? null])),
     });
   }
   return patch;
@@ -154,8 +170,10 @@ export function restoreOutbox(
  * Keeps `patch` as what waits for `forUser` in `slug`: all the page sending
  * it has that the server hasn't confirmed, worked out against `acked`
  * (what the server is known to hold), which is kept beside it as each
- * answer's base (baseOf). It takes the place of what waited, which that
- * page took in when it loaded the course, or which it changed since —
+ * answer's base (baseOf). `ifWritten` is what the server holds if every
+ * save whose answer was lost was written: kept beside an answer where it
+ * differs from the base (`alt`). It takes the place of what waited, which
+ * that page took in when it loaded the course, or which it changed since —
  * merged in, an answer changed since would come back after the reload.
  * Fill mode is never kept: only the move of a guest's progress sends it.
  * False when it couldn't be kept (no storage, or the browser refused it):
@@ -166,12 +184,18 @@ export function putInOutbox(
   forUser: string,
   slug: string,
   patch: ProgressPatch,
-  acked?: ProgressState
+  acked?: ProgressState,
+  ifWritten?: ProgressState
 ): boolean {
   if (!storage) return false;
   const { fill: _fill, ...own } = patch;
   void _fill;
-  return writeEntry(storage, forUser, slug, { patch: own, base: acked ? baseOf(own, acked) : {} });
+  const base = acked ? baseOf(own, acked) : {};
+  const written = ifWritten ? baseOf(own, ifWritten) : {};
+  const alt = Object.fromEntries(
+    Object.entries(written).filter(([key, answer]) => JSON.stringify(answer) !== JSON.stringify(base[key] ?? null))
+  );
+  return writeEntry(storage, forUser, slug, { patch: own, base, alt });
 }
 
 /** Forgets what waits for `forUser` in `slug`: the server has it, or the learner changed it since. */

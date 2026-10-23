@@ -9,10 +9,23 @@
  * after the learner changed something again, carries everything not yet
  * confirmed. What the server would refuse is held back (fitPatch) and what
  * it did refuse is never sent again unchanged — either would otherwise be
- * sent on every save, for ever — and the learner is told about both
- * (progressRefused). When something is still left once a save is
- * confirmed (a value changed back while it was on its way, a patch too big
- * for one save), another is scheduled.
+ * sent on every save, for ever — and the learner is told about both, on
+ * every save that leaves them out (progressRefused). When something is
+ * still left once a save is confirmed (a value changed back while it was
+ * on its way, a patch too big for one save), another is scheduled.
+ *
+ * What a save sends isn't known on the server until it is confirmed: the
+ * save may still be written, and one that fails (a dropped connection) may
+ * have been. So an answer a save on its way carries that the page has
+ * changed since, and an answer whose save failed until a save of it is
+ * confirmed (`unsure`), is sent as the page has it whatever `acked` says:
+ * a change back to what the server was known to hold is a change, and gets
+ * a save of its own. A save that fails once the page has changed since it
+ * was worked out is followed by another if something is left, as a newer
+ * save may have been worked out without what it sent; failing with the
+ * page unchanged, it is tried again (pending-save.ts) and then left until
+ * the next change. A save that finds a newer build wrote nothing. The
+ * course loading again says what the server holds, and ends the doubt.
  *
  * A save is answered, not thrown, when no try can succeed: another
  * account's (dropped, D37), or one the server can't take at all (logged).
@@ -22,8 +35,9 @@
  * confirmed when it fails goes to the tab's outbox instead (outbox.ts).
  *
  * The outbox only ever holds what a page of this tab had that the server
- * hadn't confirmed, and the page that loads the course next takes it in
- * (outboxRestored). So as soon as nothing this page holds is left to send
+ * hadn't confirmed — beside an answer whose save failed, what the server
+ * holds if it was written — and the page that loads the course next takes
+ * it in (outboxRestored). So as soon as nothing this page holds is left to send
  * — a save confirmed with nothing left, a change that leaves nothing new
  * (courseChanged) — what it kept is on the server or was changed since,
  * and it is cleared: applied again on a later load, it would come back
@@ -34,14 +48,29 @@
 
 import { unstable_isUnrecognizedActionError } from "next/navigation";
 import type {
+  KeyRefusal,
   PatchAnswer,
   ProgressPatch,
   ProgressState,
   RefusedKey,
   SaveProgressResult,
 } from "@/lib/learner-progress/contract";
-import { applyPatch, fitPatch, patchSince, withoutRefused, type FittedPatch } from "@/lib/learner-progress/patch";
+import {
+  answersIn,
+  applyPatch,
+  fitPatch,
+  patchSince,
+  withoutRefused,
+  type FittedPatch,
+  type UnsureAnswers,
+} from "@/lib/learner-progress/patch";
 import { clearOutbox, putInOutbox, type OutboxStorage } from "./outbox";
+
+/** Answers whose save failed (it may have been written): which, and what the server holds if they were. */
+interface LostSaves {
+  answers: Map<string, Set<string> | null>;
+  ifWritten: ProgressState;
+}
 
 /** What the store keeps for its saves. Replaced whole when it lets go of a learner's data. */
 export interface CourseSaveRefs {
@@ -49,12 +78,29 @@ export interface CourseSaveRefs {
   acked: Map<string, ProgressState>;
   /** By course: what the learner has now, once it has loaded. */
   latest: Map<string, ProgressState>;
-  /** By course, then key: what the server refused, as it was sent ("" for a lesson). */
-  refused: Map<string, Map<string, string>>;
+  /** By course, then key: what the server refused, as it was sent ("" for a lesson), and why. */
+  refused: Map<string, Map<string, { sent: string; reason: KeyRefusal }>>;
+  /** By course: the saves sent and not answered yet, as sent. */
+  sending: Map<string, ProgressPatch[]>;
+  /** By course: the answers whose save failed, until a save of them is confirmed or the course loads again. */
+  unsure: Map<string, LostSaves>;
 }
 
 export function courseSaveRefs(): CourseSaveRefs {
-  return { acked: new Map(), latest: new Map(), refused: new Map() };
+  return { acked: new Map(), latest: new Map(), refused: new Map(), sending: new Map(), unsure: new Map() };
+}
+
+/**
+ * `slug`'s progress has loaded (or loaded again): the server holds
+ * `server`. What the learner has is set once it is merged (courseChanged);
+ * refusals and answers whose save failed are forgotten: the load says what
+ * the server holds.
+ */
+export function courseLoaded(refs: CourseSaveRefs, slug: string, server: ProgressState): void {
+  refs.acked.set(slug, server);
+  refs.latest.delete(slug);
+  refs.refused.delete(slug);
+  refs.unsure.delete(slug);
 }
 
 export interface CourseSaveDeps {
@@ -85,12 +131,25 @@ function canonical(v: unknown): string {
   return JSON.stringify(v) ?? "null";
 }
 
-/** `patch` without what the server refused before, unchanged since. Null when nothing is left. */
-function withoutRepeats(patch: ProgressPatch, refused: Map<string, string> | undefined): ProgressPatch | null {
+/**
+ * `patch` without what the server refused before, unchanged since; each
+ * answer left out is added to `repeats`, so the learner is told again.
+ * Null when nothing is left.
+ */
+function withoutRepeats(
+  patch: ProgressPatch,
+  refused: Map<string, { sent: string; reason: KeyRefusal }> | undefined,
+  repeats: RefusedKey[]
+): ProgressPatch | null {
   if (!refused?.size) return patch;
   const completed = (patch.completed ?? []).filter((id) => !refused.has(id));
   const answers = Object.fromEntries(
-    Object.entries(patch.answers ?? {}).filter(([key, answer]) => refused.get(key) !== canonical(answer))
+    Object.entries(patch.answers ?? {}).filter(([key, answer]) => {
+      const before = refused.get(key);
+      if (before?.sent !== canonical(answer)) return true;
+      repeats.push({ key, reason: before.reason });
+      return false;
+    })
   ) as Record<string, PatchAnswer>;
   if (!completed.length && !Object.keys(answers).length && !patch.completedAt) return null;
   return {
@@ -101,14 +160,81 @@ function withoutRepeats(patch: ProgressPatch, refused: Map<string, string> | und
   };
 }
 
-/** What the server doesn't have yet for `slug`, and the part of it a save can send now. */
-function outstanding(refs: CourseSaveRefs, slug: string): FittedPatch | null {
+/** `from`'s answers added to `into`: a reflection's or rating's questions joined, a whole answer whole. */
+function addAnswers(into: Map<string, Set<string> | null>, from: UnsureAnswers): void {
+  for (const [key, questions] of from) {
+    const had = into.get(key);
+    if (questions === null || (into.has(key) && had === null)) into.set(key, null);
+    else into.set(key, new Set([...(had ?? []), ...questions]));
+  }
+}
+
+/**
+ * The answers of `slug` the server may hold otherwise than `acked` says:
+ * those whose save failed, and — with `onTheirWay` — those the page has
+ * changed since a save on its way carried them.
+ */
+function unsureOf(refs: CourseSaveRefs, slug: string, onTheirWay: boolean): UnsureAnswers | undefined {
+  const out = new Map<string, Set<string> | null>();
+  const lost = refs.unsure.get(slug);
+  if (lost) addAnswers(out, lost.answers);
+  const sending = onTheirWay ? refs.sending.get(slug) : undefined;
+  const acked = refs.acked.get(slug);
+  const latest = refs.latest.get(slug);
+  if (sending?.length && acked && latest) {
+    // What the server holds once they are written, against the page.
+    const written = sending.reduce<ProgressState>((held, patch) => applyPatch(held, patch), acked);
+    const changed = patchSince(written, latest);
+    if (changed) addAnswers(out, answersIn(changed));
+  }
+  return out.size ? out : undefined;
+}
+
+/**
+ * What the server doesn't have yet for `slug`, and the part of it a save
+ * can send now; a refused answer left out unchanged is added to `repeats`.
+ * Without `onTheirWay`, what a save on its way carries counts as written:
+ * once a save is confirmed, another follows only for what no save carries.
+ */
+function outstanding(
+  refs: CourseSaveRefs,
+  slug: string,
+  { onTheirWay = true, repeats = [] }: { onTheirWay?: boolean; repeats?: RefusedKey[] } = {}
+): FittedPatch | null {
   const acked = refs.acked.get(slug);
   const latest = refs.latest.get(slug);
   if (!acked || !latest) return null;
-  const all = patchSince(acked, latest);
-  const pending = all && withoutRepeats(all, refs.refused.get(slug));
+  const all = patchSince(acked, latest, unsureOf(refs, slug, onTheirWay));
+  const pending = all && withoutRepeats(all, refs.refused.get(slug), repeats);
   return pending ? fitPatch(pending) : null;
+}
+
+/** A save of `patch` failed: what it carried may have been written, and isn't known until a save of it is confirmed. */
+function sentAndLost(refs: CourseSaveRefs, slug: string, patch: ProgressPatch): void {
+  const acked = refs.acked.get(slug);
+  const answers = answersIn(patch);
+  if (!acked || !answers.size) return;
+  const lost = refs.unsure.get(slug) ?? { answers: new Map(), ifWritten: acked };
+  addAnswers(lost.answers, answers);
+  lost.ifWritten = applyPatch(lost.ifWritten, patch);
+  refs.unsure.set(slug, lost);
+}
+
+/** A save of `confirmed` was confirmed: what it carried is known again, as the server writes saves in order. */
+function sentAndConfirmed(refs: CourseSaveRefs, slug: string, confirmed: ProgressPatch): void {
+  const lost = refs.unsure.get(slug);
+  if (!lost) return;
+  for (const [key, questions] of answersIn(confirmed)) {
+    if (!lost.answers.has(key)) continue;
+    const had = lost.answers.get(key) ?? null;
+    if (questions === null) lost.answers.delete(key);
+    else if (had !== null) {
+      for (const q of questions) had.delete(q);
+      if (!had.size) lost.answers.delete(key);
+    }
+  }
+  if (lost.answers.size) lost.ifWritten = applyPatch(lost.ifWritten, confirmed);
+  else refs.unsure.delete(slug);
 }
 
 /** What the next save of `slug` would send; null when nothing. */
@@ -127,19 +253,23 @@ const loaded = (refs: CourseSaveRefs, slug: string) => refs.acked.has(slug) && r
 function keepUnconfirmed(refs: CourseSaveRefs, slug: string, forUser: string, outbox: OutboxStorage | null) {
   const acked = refs.acked.get(slug);
   const latest = refs.latest.get(slug);
-  const unconfirmed = acked && latest ? patchSince(acked, latest) : null;
+  // A save that finds a newer build wrote nothing; one whose answer was
+  // lost may have written what it sent.
+  const unconfirmed = acked && latest ? patchSince(acked, latest, unsureOf(refs, slug, false)) : null;
   // With what the server holds, so the patch never comes back over an
   // answer saved elsewhere meanwhile (outbox.ts restoreOutbox).
-  if (unconfirmed) putInOutbox(outbox, forUser, slug, unconfirmed, acked);
+  if (unconfirmed) putInOutbox(outbox, forUser, slug, unconfirmed, acked, refs.unsure.get(slug)?.ifWritten);
   else clearOutbox(outbox, forUser, slug);
 }
 
 /**
  * `slug`'s progress as the learner has it now (`latest`), once it has
- * loaded: kept for the next save. True when there is something to send.
- * When there's nothing — the learner went back to what the server has, or
- * what the outbox brought back is on the server already — the tab's
- * outbox for the course is cleared: it holds nothing the server needs.
+ * loaded: kept for the next save. True when there is something to send —
+ * an answer whose save is on its way or failed, changed back to what the
+ * server was known to hold, included. When there's nothing — the learner
+ * went back to what the server has, or what the outbox brought back is on
+ * the server already — the tab's outbox for the course is cleared: it
+ * holds nothing the server needs.
  */
 export function courseChanged(
   refs: CourseSaveRefs,
@@ -151,7 +281,7 @@ export function courseChanged(
   refs.latest.set(slug, latest);
   const acked = refs.acked.get(slug);
   if (!acked) return false;
-  if (patchSince(acked, latest)) return true;
+  if (patchSince(acked, latest, unsureOf(refs, slug, true))) return true;
   clearOutbox(outbox, forUser, slug);
   return false;
 }
@@ -163,8 +293,10 @@ export async function saveCourse(
   refs: CourseSaveRefs,
   deps: CourseSaveDeps
 ): Promise<void> {
-  const fitted = outstanding(refs, slug);
-  if (fitted?.held.length) deps.refusedKeys(slug, fitted.held);
+  const repeats: RefusedKey[] = [];
+  const fitted = outstanding(refs, slug, { repeats });
+  const told = [...(fitted?.held ?? []), ...repeats];
+  if (told.length) deps.refusedKeys(slug, told);
   const patch = fitted?.patch;
   if (!patch) {
     // Nothing a save could send: the server has all it can take.
@@ -172,10 +304,21 @@ export async function saveCourse(
     return;
   }
 
+  // The page this save was worked out from, and the saves on their way.
+  const basis = refs.latest.get(slug);
+  const sending = refs.sending.get(slug) ?? [];
+  refs.sending.set(slug, sending);
+  sending.push(patch);
+  const answered = () => {
+    const at = sending.indexOf(patch);
+    if (at >= 0) sending.splice(at, 1);
+    if (!sending.length && refs.sending.get(slug) === sending) refs.sending.delete(slug);
+  };
   let result: SaveProgressResult;
   try {
     result = await deps.send(slug, patch, forUser);
   } catch (err) {
+    answered();
     if (unstable_isUnrecognizedActionError(err)) {
       // What isn't confirmed now, not when it was sent: an answer changed
       // back meanwhile mustn't come back after the reload.
@@ -183,8 +326,15 @@ export async function saveCourse(
       deps.staleBuild(slug);
       return;
     }
+    if (deps.current()) {
+      sentAndLost(refs, slug, patch);
+      // A newer save may have been worked out without what this one sent
+      // (pending-save.ts then doesn't try this one again).
+      if (refs.latest.get(slug) !== basis && outstanding(refs, slug)?.patch) deps.again();
+    }
     throw err;
   }
+  answered();
   if (!deps.current()) return;
   if (!result.ok) {
     if (result.error !== "other-account") {
@@ -195,16 +345,18 @@ export async function saveCourse(
 
   const acked = refs.acked.get(slug);
   if (!acked) return;
-  refs.acked.set(slug, applyPatch(acked, withoutRefused(patch, result.refused)));
+  const confirmed = withoutRefused(patch, result.refused);
+  refs.acked.set(slug, applyPatch(acked, confirmed));
+  sentAndConfirmed(refs, slug, confirmed);
   if (result.refused.length) {
-    const repeat = refs.refused.get(slug) ?? new Map<string, string>();
+    const repeat = refs.refused.get(slug) ?? new Map<string, { sent: string; reason: KeyRefusal }>();
     refs.refused.set(slug, repeat);
-    for (const { key } of result.refused) {
+    for (const { key, reason } of result.refused) {
       const answer = patch.answers?.[key];
-      repeat.set(key, answer ? canonical(answer) : "");
+      repeat.set(key, { sent: answer ? canonical(answer) : "", reason });
     }
     deps.refusedKeys(slug, result.refused);
   }
-  if (outstanding(refs, slug)?.patch) deps.again();
+  if (outstanding(refs, slug, { onTheirWay: false })?.patch) deps.again();
   else clearOutbox(deps.outbox, forUser, slug);
 }
