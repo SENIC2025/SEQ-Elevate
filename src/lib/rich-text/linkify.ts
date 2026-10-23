@@ -20,7 +20,10 @@ import type { RtInline, RtText } from "./types";
  * character counted as typed, letters or not, before anything parses it:
  * a run past them isn't an address, and the URL parser never sees it (it
  * converts an international label at a cost that grows with the square
- * of its length).
+ * of its length). Nor is a web address whose host holds a "[" anywhere but
+ * at its start: the URL parser refuses every such host, and reads on from
+ * the "[" past where the host would otherwise end. A host that starts
+ * with "[" is measured as the URL parser reads it, up to the next "]".
  *
  * Trailing punctuation (". , ; : ! ?" and closing quotes, Greek and German
  * ones included) and unbalanced closing brackets stay outside the link, so
@@ -140,8 +143,8 @@ function scheme(
 
 /** An https or http href for a typed address, or null if it isn't one. */
 function webHref(typed: string): string | null {
-  const [from, to] = webHost(typed);
-  if (!hostFits(typed, from, to)) return null;
+  const host = webHost(typed);
+  if (!host || !hostFits(typed, host[0], host[1])) return null;
   let url: URL;
   try {
     url = new URL(typed);
@@ -160,10 +163,14 @@ function webHref(typed: string): string | null {
 /**
  * Where the host of a typed "https://…" or "http://…" is in it, [from, to),
  * as the URL parser finds it: past the scheme and its slashes (backslashes
- * too), up to the path, query or fragment, after a user name, before a
- * port. One pass.
+ * too), after a user name, up to the path, query or fragment, before a
+ * port. Null when it can't be one: a "[" anywhere in it (or its port) but
+ * its first character, which the URL parser refuses in every host. A host
+ * that starts with "[" (an IPv6 address) runs, as for the URL parser, up
+ * to the next "]" — or the end, or a fragment — whatever "/", "?" or "\"
+ * it holds; its port starts at the first colon after that "]". Linear.
  */
-function webHost(typed: string): [number, number] {
+function webHost(typed: string): [number, number] | null {
   let from = typed.indexOf(":") + 1;
   while (from < typed.length && (typed[from] === "/" || typed[from] === "\\")) from++;
   let to = from;
@@ -172,12 +179,26 @@ function webHost(typed: string): [number, number] {
     if (char === "/" || char === "\\" || char === "?" || char === "#") break;
     if (char === "@") from = to + 1;
   }
-  // "[…]" holds an IPv6 address's colons; otherwise a colon starts the port.
-  const bracketed = typed[from] === "[";
-  for (let i = from; i < to; i++) {
-    if (bracketed ? typed[i] === "]" : typed[i] === ":") return [from, bracketed ? i + 1 : i];
+  // Where a port may start: past "[…]", which holds an IPv6 address's colons.
+  let after = from;
+  if (typed[from] === "[") {
+    let close = from + 1;
+    while (close < typed.length && typed[close] !== "]" && typed[close] !== "#") close++;
+    if (typed[close] !== "]") return [from, close];
+    after = close + 1;
+    if (to < after) {
+      for (to = after; to < typed.length; to++) {
+        const char = typed[to];
+        if (char === "/" || char === "\\" || char === "?" || char === "#") break;
+      }
+    }
   }
-  return [from, to];
+  let port = to;
+  for (let i = after; i < to; i++) {
+    if (typed[i] === "[") return null;
+    if (typed[i] === ":" && port === to) port = i;
+  }
+  return [from, port];
 }
 
 /**

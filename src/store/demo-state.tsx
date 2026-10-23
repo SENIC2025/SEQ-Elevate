@@ -49,7 +49,7 @@ import {
 } from "./progress-merge";
 import { guestClaimOf, guestWorkOf, storeAfterClaim, withText, type GuestWork } from "./guest-migration";
 import { cardAfterReread, guestCardOrBadgesChanged, saveCard, savedCardOf, type SavedCard } from "./card-save";
-import { courseChanged, courseSaveRefs, saveCourse } from "./course-save";
+import { courseChanged, courseLoaded, courseSaveRefs, pageHidden, saveCourse } from "./course-save";
 import { clearEveryOutbox, restoreOutbox } from "./outbox";
 import { pendingSave } from "./pending-save";
 import { RETRY_DELAYS_MS, wait, withRetry } from "./retry";
@@ -1242,7 +1242,7 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
       // Loaded BEFORE the dispatch, so the save effect that runs on the
       // resulting render saves the merge. What the server holds is what
       // patches are worked out against from now on; what the learner has
-      // is set by that effect, once merged.
+      // is set by that effect, once merged (courseLoaded).
       loadedCourseRef.current = slug;
       setLoadedCourse(slug);
       const saved = prog as CourseProgress | null;
@@ -1252,9 +1252,7 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
       // before, so only what this page did since goes on top (courseReread).
       const base = rereadRef.current === slug ? refs.acked.get(slug) : undefined;
       if (rereadRef.current === slug) rereadRef.current = null;
-      refs.acked.set(slug, server);
-      refs.latest.delete(slug);
-      refs.refused.delete(slug);
+      courseLoaded(refs, slug, server);
       if (base) {
         dispatch({ type: "courseReread", slug, saved, base });
         return;
@@ -1263,11 +1261,13 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
       if (migrated) migratedRef.current = null;
       dispatch({ type: "courseProgressLoaded", slug, saved, migrated });
       // What this tab kept for this learner when a save of the course found
-      // a newer build (D68): applied as changes made here, so it's saved
-      // like any, in the same render as the merge — and the outbox cleared
-      // once nothing is left to send (course-save.ts). Only what the server
-      // still holds as it was when it was kept: an answer saved elsewhere
-      // since is newer (outbox.ts restoreOutbox).
+      // a newer build (D68), or when a page was hidden or left with a save
+      // of it on its way or failed (course-save.ts pageHidden): applied as
+      // changes made here, so it's saved like any, in the same render as
+      // the merge — and the outbox cleared once nothing is left to send
+      // (course-save.ts). Only what the server still holds as it was when it
+      // was kept, or as a save not confirmed may have left it: an answer
+      // saved elsewhere since is newer (outbox.ts restoreOutbox).
       const kept = forUser ? restoreOutbox(tabStorage(), forUser, slug, server) : null;
       if (kept) dispatch({ type: "outboxRestored", slug, patch: kept });
     })();
@@ -1334,7 +1334,10 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
   // sees it alone (updatedAt and the texts as they were) isn't an edit, and
   // sends nothing. A save confirmed while the card still differs from what
   // the server is then known to hold — an answer changed back while it was
-  // on its way — is followed by another, of the card as it is then.
+  // on its way — is followed by another, of the card as it is then; so is a
+  // save that fails once the card has changed since it was sent (its own
+  // retry would be skipped for the newer save, which may have found nothing
+  // to send), tried again as any save is.
   const saveCardFor = React.useCallback(
     (card: CompCardData, forUser: string) => {
       const save = (c: CompCardData): Promise<void> =>
@@ -1401,13 +1404,20 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
   // ---- Unmounting: send what's still waiting now ----
   // A tab that's hidden (another app, another tab) or closed sends what's
   // waiting now: the pause before a save would otherwise outlive the page.
-  // Only what was already scheduled, under the rules above, is sent. A
-  // closing page can still drop it if another server action is ahead of it
-  // in Next's queue: this narrows the gap, it doesn't close it.
+  // Only what was already scheduled, under the rules above, is sent. Next
+  // sends server actions one at a time, so a course save may wait behind
+  // another, never to leave a page that goes, and one on its way may be
+  // written with its answer reaching no page; a phone may discard a hidden
+  // tab and load it again. So what the page has of a course that the
+  // server hasn't confirmed, while a save of it is on its way or failed,
+  // goes to the tab's outbox, and the page that loads the course next
+  // brings it back (course-save.ts pageHidden).
   React.useEffect(() => {
     const sendWaiting = () => {
       courseSave.flush();
       cardSave.flush();
+      const forUser = dbOwnerRef.current;
+      if (forUser) pageHidden(progressRefs.current, forUser, tabStorage());
     };
     const onVisibility = () => {
       if (document.visibilityState === "hidden") sendWaiting();

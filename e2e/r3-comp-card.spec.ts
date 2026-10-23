@@ -92,16 +92,26 @@ async function typeInto(page: Page, placeholder: string, text: string) {
   await field(page, placeholder).fill(text);
 }
 
-/** Holds the first server action whose body contains `marker`, as on a slow connection, until released. */
-async function holdAction(page: Page, marker: string) {
+/**
+ * Holds the first server action whose body contains `marker`, as on a slow
+ * connection, until released. Then it goes on to the server and its answer
+ * to the page; `lost`: the server gets it (and writes it), and the page gets
+ * a dropped connection instead of the answer (`serverStatus`: the server's).
+ */
+async function holdAction(page: Page, marker: string, answer: "slow" | "lost" = "slow") {
   let release!: () => void;
   const held = new Promise<void>((resolve) => (release = resolve));
-  const state: { request: Request | null } = { request: null };
+  const state: { request: Request | null; serverStatus: number | null } = { request: null, serverStatus: null };
   await page.route("**/*", async (route) => {
     const request = route.request();
     if (!state.request && request.method() === "POST" && (await request.headerValue("next-action")) && (request.postData() ?? "").includes(marker)) {
       state.request = request;
       await held;
+      if (answer === "lost") {
+        state.serverStatus = (await route.fetch()).status();
+        await route.abort("failed").catch(() => undefined);
+        return;
+      }
     }
     await route.continue().catch(() => undefined);
   });
@@ -448,6 +458,40 @@ describe("Release 3 Comp Card, learner side", () => {
     await expect(box).toHaveValue(before);
     await expect
       .poll(async () => (await cardOf(learner.userId))?.wentWell, { timeout: 15_000, message: "the account holds what the page shows" })
+      .toBe(before);
+    await page.waitForTimeout(1500);
+    expect((await cardOf(learner.userId))?.wentWell).toBe(before);
+    await expect(box).toHaveValue(before);
+  });
+
+  test("B-E8 (saves): the same, with the change's save written by the server and its answer lost to a dropped connection, ends in the account as the page shows it", async ({
+    page,
+    context,
+  }) => {
+    const learner = await learnerOfA("lost");
+    const before = `went well, lost ${RUN}`;
+    const changed = `changed, lost ${RUN}`;
+    await prisma.compCard.create({ data: { userId: learner.userId, projectId: PROJECT, wentWell: before }, select: { id: true } });
+    await signIn(context, learner.sessionToken);
+    // The save of the change is held until the change back is past the page's save pause; then the server writes
+    // it, and the page gets a dropped connection instead of the answer.
+    const held = await holdAction(page, changed, "lost");
+    await page.goto(CARD_PAGE);
+    const box = field(page, "Even small wins count.");
+    await expect(box).toHaveValue(before);
+    try {
+      await typeInto(page, "Even small wins count.", changed);
+      await expect.poll(() => held.state.request !== null, { timeout: 15_000 }).toBe(true);
+      await box.fill(before);
+      // Past the save pause (700 ms): the change back is worked out while the server is still known to hold `before`.
+      await page.waitForTimeout(2000);
+    } finally {
+      held.release();
+    }
+    await expect.poll(() => held.state.serverStatus, { timeout: 15_000, message: "the server got the change" }).toBe(200);
+    await expect(box).toHaveValue(before);
+    await expect
+      .poll(async () => (await cardOf(learner.userId))?.wentWell, { timeout: 20_000, message: "the account holds what the page shows" })
       .toBe(before);
     await page.waitForTimeout(1500);
     expect((await cardOf(learner.userId))?.wentWell).toBe(before);

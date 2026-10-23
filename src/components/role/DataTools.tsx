@@ -36,7 +36,8 @@ import { AlertTriangle, CheckCircle2, Download, Loader2, Search, Trash2 } from "
  * Focus never falls to the page's start: a control that is busy says so
  * with aria-disabled (it stays focusable), and once something closes or is
  * gone, focus goes to what is nearby (the person's actions, the search
- * field, the list's heading).
+ * field, the list's heading). What the clean-up's dry run or run shows
+ * takes it once it is on the screen, however slow the device.
  */
 
 const inputCls = "rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm";
@@ -837,6 +838,17 @@ function Cleanup({ say, refresh }: { say: (n: Notice | null) => void; refresh: (
   const [error, setError] = React.useState<string | null>(null);
   const resultRef = React.useRef<HTMLHeadingElement>(null);
   const planRef = React.useRef<HTMLHeadingElement>(null);
+  // What a dry run or a run shows takes the focus once it is on the screen:
+  // after the render that shows it, never from a frame scheduled before that
+  // render (a frame drawn between the answer and that render, as on a slow
+  // device, would find nothing to focus).
+  const focusNext = React.useRef<"plan" | "result" | null>(null);
+  React.useEffect(() => {
+    const next = focusNext.current;
+    if (!next) return;
+    focusNext.current = null;
+    (next === "plan" ? planRef : resultRef).current?.focus();
+  }, [plan, result]);
 
   async function onPlan() {
     if (busy) return;
@@ -845,9 +857,10 @@ function Cleanup({ say, refresh }: { say: (n: Notice | null) => void; refresh: (
     const res = await attempt(() => previewCleanup());
     setBusy(null);
     if (!res.ok) return setError(errorText(res.error));
+    // Its counts take the focus once they show (above).
+    focusNext.current = "plan";
     setPlan(res.plan);
     setResult(null);
-    requestAnimationFrame(() => planRef.current?.focus());
   }
 
   async function onRun(e: React.FormEvent) {
@@ -858,12 +871,13 @@ function Cleanup({ say, refresh }: { say: (n: Notice | null) => void; refresh: (
     const res = await attempt(() => runCleanup({ confirm }));
     setBusy(null);
     if (!res.ok) return setError(errorText(res.error, "expected" in res ? res.expected : undefined));
+    // Its result takes the focus once it shows (above).
+    focusNext.current = "result";
     setResult({ result: res.result, kept: res.kept });
     setPlan(null);
     setConfirm("");
     say({ kind: "ok", text: `The clean-up ran (run ${res.result.runId}) and is in the log.` });
     void refresh();
-    requestAnimationFrame(() => resultRef.current?.focus());
   }
 
   const n = plan?.accounts.length ?? 0;
