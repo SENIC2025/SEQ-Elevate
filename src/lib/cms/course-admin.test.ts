@@ -756,4 +756,37 @@ describe("further reading and languages on the course page (Release 4)", () => {
     const [card] = await getCourseGrid("en");
     expect(card.lastEdited).toBe(later.toISOString());
   });
+
+  // Release 4, R2 on r4r (D109, spec 9.3): the references list is a row of
+  // its own; its last save is an edit of the course.
+  it("takes the references list's last save as the course's last edit, on the page and on the grid", async () => {
+    const later = new Date("2026-10-21T08:00:00.000Z");
+    const original = courseFindFirst.getMockImplementation()!;
+    courseFindFirst.mockImplementation(async (...args: unknown[]) => ({
+      ...(await original(...(args as []))),
+      bibliography: { updatedAt: later },
+    }));
+    try {
+      expect((await getCourseOutline("asking-for-help"))?.lastEdited).toBe(later.toISOString());
+      const asked = (courseFindFirst.mock.calls.at(-1) as unknown as [{ select: Record<string, unknown> }])[0].select;
+      expect(asked.bibliography).toEqual({ select: { updatedAt: true } });
+    } finally {
+      courseFindFirst.mockImplementation(original);
+    }
+    listCourses.mockResolvedValueOnce([
+      { slug: "asking-for-help", title: "Asking for help", tagline: "t", clusterLabel: "c", status: "draft", durationMinutes: 15 },
+    ]);
+    courseFindMany.mockClear();
+    courseFindMany.mockResolvedValueOnce([
+      { slug: "asking-for-help", meta, outline, updatedAt: at, bibliography: { updatedAt: later }, _count: { enrollments: 0 } },
+    ] as never);
+    const [card] = await getCourseGrid("en");
+    expect(card.lastEdited).toBe(later.toISOString());
+    const grid = (courseFindMany.mock.calls[0] as unknown as [{ select: Record<string, unknown> }])[0].select;
+    expect(grid.bibliography).toEqual({ select: { updatedAt: true } });
+  });
+
+  it("keeps the course's last edit where it was without a references list", async () => {
+    expect((await getCourseOutline("asking-for-help"))?.lastEdited).toBe(at.toISOString());
+  });
 });

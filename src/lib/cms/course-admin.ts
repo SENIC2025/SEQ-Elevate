@@ -152,6 +152,8 @@ export async function getCourseGrid(locale: Locale): Promise<CourseGridEntry[]> 
         outline: true,
         updatedAt: true,
         readyLocales: true,
+        // Its references list's last save is an edit of the course (Release 4, D109).
+        bibliography: { select: { updatedAt: true } },
         ...enrolledLearners,
       },
     }),
@@ -230,7 +232,7 @@ export async function getCourseGrid(locale: Locale): Promise<CourseGridEntry[]> 
         lessonKeys
       ),
       ready: readyByLocale(kind, row?.readyLocales),
-      lastEdited: lastEdited(row?.updatedAt ?? null, courseLessons),
+      lastEdited: lastEdited(row?.updatedAt ?? null, courseLessons, row?.bibliography),
     };
   });
 }
@@ -277,6 +279,8 @@ export async function getCourseOutline(
         publishedAt: true,
         updatedAt: true,
         readyLocales: true,
+        // Its references list's last save is an edit of the course (Release 4, D109).
+        bibliography: { select: { updatedAt: true } },
         ...enrolledLearners,
       },
     }),
@@ -340,7 +344,7 @@ export async function getCourseOutline(
       publishedAt: row?.publishedAt?.toISOString() ?? null,
       durationMinutes: en.durationMinutes,
       enrolled: row?._count.enrollments ?? 0,
-      lastEdited: lastEdited(row?.updatedAt ?? null, lessons),
+      lastEdited: lastEdited(row?.updatedAt ?? null, lessons, row?.bibliography),
       copy,
       languages: created.languages,
       lessons: created.lessons,
@@ -412,7 +416,7 @@ export async function getCourseOutline(
     publishedAt: row?.publishedAt?.toISOString() ?? null,
     durationMinutes: en.durationMinutes,
     enrolled: row?._count.enrollments ?? 0,
-    lastEdited: lastEdited(row?.updatedAt ?? null, lessons),
+    lastEdited: lastEdited(row?.updatedAt ?? null, lessons, row?.bibliography),
     copy,
     languages: languageCoverage(kind, meta, lessons, presentKeys),
     lessons: outlineLessons,

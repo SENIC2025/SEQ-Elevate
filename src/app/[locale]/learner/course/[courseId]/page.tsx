@@ -10,6 +10,8 @@ import { getCurrentUser } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
 import type { Locale } from "@/lib/cms/types";
 import { getLearnerCourse } from "@/lib/cms/learner-course";
+import { hasCourseReferences } from "@/lib/cms/course-references";
+import { furtherReadingOn } from "@/lib/r4-switches";
 import { learnerContentLocale } from "@/lib/cms/language-ready";
 import { nextLesson } from "@/lib/cms/sections/learner-nav";
 import { isSectionId, type SectionId } from "@/lib/cms/sections/contract";
@@ -132,6 +134,9 @@ export async function generateMetadata({
  * whole in English until that language is switched on for it; the player
  * then says so. An editor's preview shows the requested language, with a
  * banner saying learners get English until it is switched on.
+ *
+ * Release 4 (D109): a created course with a references list links to it
+ * from the player (`hasReferences`).
  */
 export default async function Page({
   params,
@@ -178,6 +183,11 @@ export default async function Page({
   const lesson = one(sp.lesson);
   const initialLesson = preview && isSectionId(lesson) && ids.includes(lesson) ? lesson : undefined;
   const serverResume = preview ? null : await resumeFor(courseId, ids);
+  // Release 4 (D109, spec 5.4): whether the course has a references list to
+  // link to, from the top bar and the completion screen. A yes or no only:
+  // the list itself is the references page's to read. None with
+  // R4_FURTHER_READING off, where that page answers "not found".
+  const hasReferences = furtherReadingOn() && (await hasCourseReferences(PROJECT, courseId));
 
   const player = (
     <CoursePlayer
@@ -188,6 +198,7 @@ export default async function Page({
       initialLesson={initialLesson}
       editLocale={editLocale}
       serverResume={serverResume}
+      hasReferences={hasReferences}
       // A preview in a language learners don't get yet says so (D90).
       languageNotLive={preview && learnerLocale !== requested ? requested : undefined}
     />

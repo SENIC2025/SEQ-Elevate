@@ -202,17 +202,20 @@ const time = (d: Date | string) => new Date(d).getTime();
 
 /**
  * When the course was last edited: the latest of the course row, its lesson
- * rows, its documents' upload times (documents have no updatedAt) and its
+ * rows, its documents' upload times (documents have no updatedAt), its
  * further-reading links' last changes (Release 4, spec 4.7: added, changed,
- * shown or hidden). Null when there is nothing to go on. Returned as an ISO
- * string.
+ * shown or hidden) and its references list's last save (Release 4, D109:
+ * a row of its own, so saving it leaves the course row's time alone).
+ * Null when there is nothing to go on. Returned as an ISO string.
  */
 export function lastEdited(
   courseUpdatedAt: Date | string | null | undefined,
-  lessons: LessonFacts[]
+  lessons: LessonFacts[],
+  bibliography?: { updatedAt: Date | string } | null
 ): string | null {
   const stamps: number[] = [];
   if (courseUpdatedAt) stamps.push(time(courseUpdatedAt));
+  if (bibliography?.updatedAt) stamps.push(time(bibliography.updatedAt));
   for (const l of lessons) {
     if (l.updatedAt) stamps.push(time(l.updatedAt));
     for (const d of l.documents ?? []) stamps.push(time(d.createdAt));
