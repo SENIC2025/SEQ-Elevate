@@ -13,6 +13,7 @@ import {
   courseLoaded,
   courseSaveRefs,
   outstandingPatch,
+  pageHidden,
   saveCourse,
   type CourseSaveDeps,
 } from "./course-save";
@@ -147,7 +148,8 @@ describe("saveCourse", () => {
     });
     await t.save();
     expect(t.calls).toMatchObject({ again: 1 });
-    expect(t.outbox()).toEqual(KEPT);
+    // What the outbox keeps follows what is confirmed: what the page has that isn't.
+    expect(t.outbox()).toEqual({ v: 2, answers: { "simulation/main": { type: "practice", optionId: "b", correct: true } } });
     t.answerWith(async () => ({ ok: true, refused: [] }));
     await t.save();
     expect(t.sent[1]).toEqual({
@@ -224,7 +226,8 @@ describe("saveCourse", () => {
     await t.save();
     expect(Object.keys(t.sent[0].answers ?? {})).toHaveLength(RESPONSE_LIMITS.keysPerPatch);
     expect(t.calls).toMatchObject({ again: 1 });
-    expect(t.outbox()).toEqual(KEPT);
+    // What the outbox keeps follows what is confirmed.
+    expect(Object.keys(t.outbox()?.answers ?? {})).toHaveLength(5);
     await t.save();
     expect(Object.keys(t.sent[1].answers ?? {})).toHaveLength(5);
     expect(t.calls).toMatchObject({ again: 1 });
@@ -384,6 +387,53 @@ describe("courseChanged", () => {
   });
 });
 
+describe("pageHidden: the page hidden, or left", () => {
+  it("keeps, for a course with saves on their way, what the page has that isn't confirmed — every answer they carry included — beside what the server holds if they are written in turn", async () => {
+    const t = setup(state({ reflection: reflection("X") }), state({ reflection: reflection("Y") }));
+    const held: (() => void)[] = [];
+    t.answerWith(() => new Promise((resolve) => held.push(() => resolve({ ok: true, refused: [] }))));
+    const first = t.save();
+    expect(courseChanged(t.refs, SLUG, ANA, state({ reflection: reflection("X") }), t.deps.outbox)).toBe(true);
+    const second = t.save();
+    pageHidden(t.refs, ANA, t.deps.outbox);
+    const kept = { v: 2, answers: { "reflection/main": { type: "reflection", text: { p1: "X" } } } };
+    expect(t.outbox()).toEqual(kept);
+    const raw = JSON.parse((t.deps.outbox as OutboxStorage).getItem(outboxKey(ANA, SLUG))!);
+    expect(raw.base).toEqual({ "reflection/main": { type: "reflection", text: reflection("X") } });
+    expect(raw.alt).toEqual({ "reflection/main": [{ type: "reflection", text: reflection("Y") }] });
+    // The saves go through: kept while one is on its way, cleared once nothing is left.
+    held[0]();
+    await first;
+    expect(t.outbox()).toEqual(kept);
+    held[1]();
+    await second;
+    expect(t.outbox()).toBeNull();
+  });
+
+  it("keeps an answer whose save failed (it may have been written), brought back over either value", async () => {
+    const t = setup(state({ reflection: reflection("X") }), state({ reflection: reflection("Y") }));
+    t.answerWith(async () => {
+      throw lostAnswer();
+    });
+    await expect(t.save()).rejects.toThrow();
+    pageHidden(t.refs, ANA, t.deps.outbox);
+    const kept = { v: 2, answers: { "reflection/main": { type: "reflection", text: { p1: "Y" } } } };
+    expect(t.outbox()).toEqual(kept);
+    const tab = t.deps.outbox as OutboxStorage;
+    const entry = tab.getItem(outboxKey(ANA, SLUG))!;
+    for (const p1 of ["X", "Y"]) {
+      tab.setItem(outboxKey(ANA, SLUG), entry);
+      expect(restoreOutbox(tab, ANA, SLUG, state({ reflection: reflection(p1) }))).toEqual(kept);
+    }
+  });
+
+  it("keeps nothing for a course with no save on its way and none failed, and leaves what the outbox holds for it", () => {
+    const t = setup(state({ reflection: reflection("X") }), state({ reflection: reflection("Y") }));
+    pageHidden(t.refs, ANA, t.deps.outbox);
+    expect(t.outbox()).toEqual(KEPT);
+  });
+});
+
 describe("outstandingPatch", () => {
   it("is what the next save would send: null when nothing", () => {
     const t = setup(EMPTY_PROGRESS, state({ stagesCompleted: ["context"] }));
@@ -523,6 +573,63 @@ describe("a save whose answer is lost: what it sent isn't known on the server un
     });
   });
 
+  it("after two lost saves of one answer (the first written, the second not) and a newer build, the outbox brings the learner's answer back over the value either may have left", async () => {
+    const t = setup(state({ reflection: reflection("X") }), state({ reflection: reflection("Y") }));
+    let server = state({ reflection: reflection("X") });
+    t.answerWith(async (patch) => {
+      server = applyPatch(server, patch);
+      throw lostAnswer();
+    });
+    await expect(t.save()).rejects.toThrow();
+    courseChanged(t.refs, SLUG, ANA, state({ reflection: reflection("Z") }), t.deps.outbox);
+    t.answerWith(async () => {
+      throw lostAnswer();
+    });
+    await expect(t.save()).rejects.toThrow();
+    courseChanged(t.refs, SLUG, ANA, state({ reflection: reflection("W") }), t.deps.outbox);
+    t.answerWith(async () => {
+      throw unknownAction();
+    });
+    await t.save();
+    expect(server.reflection.p1, "the server holds Y").toBe("Y");
+    const kept = { v: 2, answers: { "reflection/main": { type: "reflection", text: { p1: "W" } } } };
+    const tab = t.deps.outbox as OutboxStorage;
+    const entry = tab.getItem(outboxKey(ANA, SLUG))!;
+    for (const p1 of ["X", "Y", "Z"]) {
+      tab.setItem(outboxKey(ANA, SLUG), entry);
+      expect(restoreOutbox(tab, ANA, SLUG, state({ reflection: reflection(p1) })), `over ${p1}`).toEqual(kept);
+    }
+    tab.setItem(outboxKey(ANA, SLUG), entry);
+    expect(restoreOutbox(tab, ANA, SLUG, state({ reflection: reflection("V") })), "never over an answer saved elsewhere").toBeNull();
+  });
+
+  it("keeps a bounded set of what lost saves of an answer may have left: the first ones lost, and the newest", async () => {
+    const t = setup(state({ reflection: reflection("X") }), state({ reflection: reflection("v1") }));
+    t.answerWith(async () => {
+      throw lostAnswer();
+    });
+    for (let n = 1; n <= 20; n++) {
+      courseChanged(t.refs, SLUG, ANA, state({ reflection: reflection(`v${n}`) }), t.deps.outbox);
+      await expect(t.save()).rejects.toThrow();
+    }
+    courseChanged(t.refs, SLUG, ANA, state({ reflection: reflection("W") }), t.deps.outbox);
+    t.answerWith(async () => {
+      throw unknownAction();
+    });
+    await t.save();
+    const tab = t.deps.outbox as OutboxStorage;
+    const entry = tab.getItem(outboxKey(ANA, SLUG))!;
+    const alt = (JSON.parse(entry) as { alt: Record<string, { text: { p1: string } }[]> }).alt["reflection/main"];
+    expect(alt.map((a) => a.text.p1)).toEqual(["v1", "v2", "v3", "v4", "v5", "v6", "v7", "v20"]);
+    const back = (p1: string) => {
+      tab.setItem(outboxKey(ANA, SLUG), entry);
+      return restoreOutbox(tab, ANA, SLUG, state({ reflection: reflection(p1) }))?.answers?.["reflection/main"] ?? null;
+    };
+    expect(back("v1")).toEqual({ type: "reflection", text: { p1: "W" } });
+    expect(back("v20")).toEqual({ type: "reflection", text: { p1: "W" } });
+    expect(back("v10")).toBeNull();
+  });
+
   it("the course loaded again says what the server holds: nothing is left unsure", async () => {
     const t = setup(state({ reflection: reflection("X") }), state({ reflection: reflection("Y") }));
     t.answerWith(async () => {
@@ -568,15 +675,32 @@ describe("a course's saves with the page's pending saves (pending-save.ts), as D
   const RATING = `${OWN}/${PART}`;
   const rating = (s1: 1 | 2 | 3 | 4 | 5) => ({ [RATING]: { type: "rating" as const, values: { s1 } } });
 
+  /** The answer the test gives a save that left the page. */
+  interface Answer {
+    ok(): void;
+    /** The server writes it, and the page gets a dropped connection. */
+    lost(): void;
+    refuse(keys: RefusedKey[]): void;
+  }
+
   /**
    * A page signed in as Ana whose course loaded as `loaded`, and the server
-   * holding it. Each save's answer is held until the test gives it: `ok`,
-   * `lost` (the server writes it, and the page gets a dropped connection) or
-   * `refuse` (the server refuses some keys). Offline, every save fails at
-   * once and nothing is written; `stale`, every save finds a newer build.
-   * `change` is the course write-through effect; `reload` and
-   * `navigateAwayAndBack` do what the store does then (close(), or flush()
-   * and settle(), then the course's load with the outbox restored).
+   * holding it. Saves leave the page one at a time, as Next sends server
+   * actions: a save handed over while another is on its way waits behind it
+   * (`handed`: every save handed over; `sent`: those that left the page).
+   * Each save's answer is held until the test gives it (`answers`, one per
+   * save sent): `ok`, `lost` or `refuse` (the server refuses some keys).
+   * Offline, a save fails as it leaves and nothing is written; `stale`, it
+   * finds a newer build. `change` is the course write-through effect, `hide`
+   * what the page does when it is hidden or left (demo-state.tsx: pagehide
+   * and visibilitychange). `reload` is a pagehide, the page gone and a new
+   * one loading the course; `discarded` the page gone with no event, after
+   * it was hidden (a phone discarding a tab), and loaded again. A page gone
+   * runs nothing more: the save on its way is written (unless
+   * `{ written: false }`) and its answer reaches no page; those waiting
+   * behind it never leave. `navigateAwayAndBack` is what the store does
+   * then (flush() and settle(), then the course's load with the outbox
+   * restored).
    */
   function wired(loaded: ProgressState) {
     vi.useFakeTimers();
@@ -584,41 +708,62 @@ describe("a course's saves with the page's pending saves (pending-save.ts), as D
     courseLoaded(refs, SLUG, loaded);
     let page = loaded;
     const srv = { now: loaded };
+    const handed: ProgressPatch[] = [];
     const sent: ProgressPatch[] = [];
-    const answers: { ok: () => void; lost: () => void; refuse: (keys: RefusedKey[]) => void }[] = [];
+    const answers: Answer[] = [];
     const net = { offline: false, stale: false };
     const told: RefusedKey[][] = [];
     const tab = storage();
     let courseSave = pendingSave(700);
-
-    const send = (_slug: string, patch: ProgressPatch): Promise<SaveProgressResult> => {
-      sent.push(patch);
-      if (net.offline) return Promise.reject(lostAnswer());
-      if (net.stale) return Promise.reject(unknownAction());
-      return new Promise((resolve, reject) => {
-        let given = false;
-        const once = (fn: () => void) => () => {
-          if (given) return;
-          given = true;
-          fn();
-        };
-        answers.push({
-          ok: once(() => {
-            srv.now = applyPatch(srv.now, patch);
-            resolve({ ok: true, refused: [] });
-          }),
-          lost: once(() => {
-            srv.now = applyPatch(srv.now, patch);
-            reject(lostAnswer());
-          }),
-          refuse: (keys) =>
-            once(() => {
-              srv.now = applyPatch(srv.now, withoutRefused(patch, keys));
-              resolve({ ok: true, refused: keys });
-            })(),
-        });
-      });
+    // Next's queue of server actions: the one on its way, and those waiting behind it.
+    let onItsWay: { patch: ProgressPatch; gone: (written: boolean) => void } | null = null;
+    let waiting: (() => void)[] = [];
+    const next = () => {
+      if (!onItsWay) waiting.shift()?.();
     };
+
+    const send = (_slug: string, patch: ProgressPatch): Promise<SaveProgressResult> =>
+      new Promise((resolve, reject) => {
+        handed.push(patch);
+        waiting.push(() => {
+          sent.push(patch);
+          if (net.offline || net.stale) {
+            reject(net.offline ? lostAnswer() : unknownAction());
+            return next();
+          }
+          let given = false;
+          const once = (fn: () => void) => () => {
+            if (given) return;
+            given = true;
+            onItsWay = null;
+            fn();
+            next();
+          };
+          onItsWay = {
+            patch,
+            gone: (written) => {
+              given = true;
+              if (written) srv.now = applyPatch(srv.now, patch);
+            },
+          };
+          answers.push({
+            ok: once(() => {
+              srv.now = applyPatch(srv.now, patch);
+              resolve({ ok: true, refused: [] });
+            }),
+            lost: once(() => {
+              srv.now = applyPatch(srv.now, patch);
+              reject(lostAnswer());
+            }),
+            refuse: (keys) =>
+              once(() => {
+                srv.now = applyPatch(srv.now, withoutRefused(patch, keys));
+                resolve({ ok: true, refused: keys });
+              })(),
+          });
+        });
+        next();
+      });
     // demo-state.tsx: saveFor.
     const saveFor = () => {
       const r = refs;
@@ -645,24 +790,46 @@ describe("a course's saves with the page's pending saves (pending-save.ts), as D
       const kept = restoreOutbox(tab, ANA, SLUG, srv.now);
       change(kept ? applyPatch(srv.now, kept) : srv.now);
     };
+    // demo-state.tsx: pagehide, and visibilitychange to hidden.
+    const hide = () => {
+      courseSave.flush();
+      pageHidden(refs, ANA, tab);
+    };
+    // The page is gone: none of its timers or retries runs again.
+    const gone = (written: boolean) => {
+      courseSave.drop();
+      onItsWay?.gone(written);
+      onItsWay = null;
+      waiting = [];
+    };
+    // A new page in the same tab loads the course.
+    const newPage = () => {
+      courseSave = pendingSave(700);
+      refs = courseSaveRefs();
+      loadAgain();
+    };
     return {
       srv,
+      handed,
       sent,
       answers,
       net,
       told,
+      tab,
       change,
+      hide,
       shown: () => page,
-      /** The page reloaded: the store goes (close), a new one loads the course. */
-      reload: async () => {
-        courseSave.close();
+      /** The page reloaded: its pagehide, then it is gone and a new one loads the course. */
+      reload: async ({ written = true } = {}) => {
+        hide();
         await vi.advanceTimersByTimeAsync(0);
-        // What the closing page sent reaches the server before the reloaded page's load does.
-        for (const a of answers) a.ok();
-        await vi.advanceTimersByTimeAsync(0);
-        courseSave = pendingSave(700);
-        refs = courseSaveRefs();
-        loadAgain();
+        gone(written);
+        newPage();
+      },
+      /** Hidden before, the page is gone with no event, and the tab loaded again. */
+      discarded: async ({ written = true } = {}) => {
+        gone(written);
+        newPage();
       },
       /** Another course opened and this one opened again: flush, then settle before the load. */
       navigateAwayAndBack: async () => {
@@ -679,10 +846,10 @@ describe("a course's saves with the page's pending saves (pending-save.ts), as D
     };
   }
 
-  /** Every save still waiting for its answer is answered `ok`, twice over a minute. */
+  /** Every save still waiting for its answer is answered `ok` (and each sent meanwhile), twice over a minute. */
   async function allConfirmed(p: ReturnType<typeof wired>, from = 0) {
     for (let i = 0; i < 2; i++) {
-      for (const a of p.answers.slice(from)) a.ok();
+      for (let n = from; n < p.answers.length; n++) p.answers[n].ok();
       await vi.advanceTimersByTimeAsync(60_000);
     }
   }
@@ -732,7 +899,8 @@ describe("a course's saves with the page's pending saves (pending-save.ts), as D
     p.change(state({ reflection: reflection("X") }));
     p.change(state({ reflection: reflection("X", "W") }));
     await vi.advanceTimersByTimeAsync(700);
-    expect(p.sent).toHaveLength(2);
+    expect(p.handed).toHaveLength(2);
+    expect(p.sent, "the second waits behind the first").toHaveLength(1);
     p.answers[0].lost();
     await vi.advanceTimersByTimeAsync(10);
     p.answers[1].ok();
@@ -818,7 +986,7 @@ describe("a course's saves with the page's pending saves (pending-save.ts), as D
     await vi.advanceTimersByTimeAsync(700);
     p.change(state({ reflection: reflection("X") }));
     p.answers[0].lost();
-    await vi.advanceTimersByTimeAsync(300); // before the retry 1 s after: close() sends it at once
+    await vi.advanceTimersByTimeAsync(300); // before the retry 1 s after: the pagehide sends the change back
     await p.reload();
     await vi.advanceTimersByTimeAsync(60_000);
     await allConfirmed(p, 1);
@@ -826,17 +994,155 @@ describe("a course's saves with the page's pending saves (pending-save.ts), as D
     expect(p.srv.now.reflection.p1).toBe("X");
   });
 
-  it("reload while the change's save is on its way (its answer reaches no page), changed back just before", async () => {
+  it("reload while the change's save is on its way (written by the server, its answer reaching no page), changed back just before: the change back's save, sent by the pagehide, waits behind it and never leaves", async () => {
     const p = wired(state({ reflection: reflection("X") }));
     p.change(state({ reflection: reflection("Y") }));
     await vi.advanceTimersByTimeAsync(700);
     p.change(state({ reflection: reflection("X") }));
     await vi.advanceTimersByTimeAsync(300);
     await p.reload();
+    expect(p.handed.map((patch) => patch.answers?.["reflection/main"]), "the pagehide handed the change back over").toEqual([
+      { type: "reflection", text: { p1: "Y" } },
+      { type: "reflection", text: { p1: "X" } },
+    ]);
     await vi.advanceTimersByTimeAsync(60_000);
     await allConfirmed(p);
     expect(p.shown().reflection.p1, "the page after the reload shows what the learner left").toBe("X");
     expect(p.srv.now.reflection.p1).toBe("X");
+  });
+
+  it("reload while the change's save is on its way (written by the server, its answer reaching no page) and the change back's save waits behind it", async () => {
+    const p = wired(state({ reflection: reflection("X") }));
+    p.change(state({ reflection: reflection("Y") }));
+    await vi.advanceTimersByTimeAsync(700);
+    expect(p.sent).toHaveLength(1);
+    p.change(state({ reflection: reflection("X") }));
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(p.handed, "the change back's save is handed over").toHaveLength(2);
+    expect(p.sent, "and waits behind the change's: Next sends server actions one at a time").toHaveLength(1);
+    await p.reload();
+    expect(p.srv.now.reflection.p1, "the server wrote the change").toBe("Y");
+    await vi.advanceTimersByTimeAsync(60_000);
+    await allConfirmed(p);
+    expect(p.shown().reflection.p1, "the page after the reload shows what the learner left").toBe("X");
+    expect(p.srv.now.reflection.p1, "the account holds it").toBe("X");
+  });
+
+  it("the same with the change's save not written (the connection dropped before the server got it)", async () => {
+    const p = wired(state({ reflection: reflection("X") }));
+    p.change(state({ reflection: reflection("Y") }));
+    await vi.advanceTimersByTimeAsync(700);
+    p.change(state({ reflection: reflection("X") }));
+    await vi.advanceTimersByTimeAsync(2_000);
+    await p.reload({ written: false });
+    await vi.advanceTimersByTimeAsync(60_000);
+    await allConfirmed(p);
+    expect(p.shown().reflection.p1).toBe("X");
+    expect(p.srv.now.reflection.p1).toBe("X");
+    expect(readOutbox(p.tab, ANA, SLUG), "nothing left kept").toBeNull();
+  });
+
+  it("guard: the change's save answered (lost) before the reload: the change back is saved, and the reloaded page shows it", async () => {
+    const p = wired(state({ reflection: reflection("X") }));
+    p.change(state({ reflection: reflection("Y") }));
+    await vi.advanceTimersByTimeAsync(700);
+    p.change(state({ reflection: reflection("X") }));
+    await vi.advanceTimersByTimeAsync(2_000);
+    p.answers[0].lost();
+    await allConfirmed(p, 1);
+    expect(p.srv.now.reflection.p1).toBe("X");
+    await p.reload();
+    await allConfirmed(p);
+    expect(p.shown().reflection.p1).toBe("X");
+    expect(p.srv.now.reflection.p1).toBe("X");
+  });
+
+  it("a phone: the tab hidden while the change's save is on its way and the change back's waits behind it, then discarded by the system and loaded again", async () => {
+    const p = wired(state({ reflection: reflection("X") }));
+    p.change(state({ reflection: reflection("Y") }));
+    await vi.advanceTimersByTimeAsync(700);
+    p.change(state({ reflection: reflection("X") }));
+    await vi.advanceTimersByTimeAsync(2_000);
+    p.hide();
+    await vi.advanceTimersByTimeAsync(5_000);
+    await p.discarded();
+    expect(p.srv.now.reflection.p1, "the server wrote the change").toBe("Y");
+    await allConfirmed(p);
+    expect(p.shown().reflection.p1, "the page loaded again shows what the learner left").toBe("X");
+    expect(p.srv.now.reflection.p1, "the account holds it").toBe("X");
+  });
+
+  it("a phone: hidden the same way; while hidden the change's save is confirmed and the change back's goes; discarded with it on its way, written or not", async () => {
+    for (const written of [true, false]) {
+      const p = wired(state({ reflection: reflection("X") }));
+      p.change(state({ reflection: reflection("Y") }));
+      await vi.advanceTimersByTimeAsync(700);
+      p.change(state({ reflection: reflection("X") }));
+      await vi.advanceTimersByTimeAsync(2_000);
+      p.hide();
+      p.answers[0].ok();
+      await vi.advanceTimersByTimeAsync(10);
+      expect(p.sent, "the change back's save left").toHaveLength(2);
+      await p.discarded({ written });
+      await allConfirmed(p);
+      expect(p.shown().reflection.p1, `the page loaded again shows what the learner left (${written ? "written" : "not written"})`).toBe("X");
+      expect(p.srv.now.reflection.p1).toBe("X");
+      vi.useRealTimers();
+    }
+  });
+
+  it("guard, a phone: hidden the same way, every save confirmed while hidden: nothing is left in the outbox, and the page loaded again shows the answer", async () => {
+    const p = wired(state({ reflection: reflection("X") }));
+    p.change(state({ reflection: reflection("Y") }));
+    await vi.advanceTimersByTimeAsync(700);
+    p.change(state({ reflection: reflection("X") }));
+    await vi.advanceTimersByTimeAsync(2_000);
+    p.hide();
+    expect(readOutbox(p.tab, ANA, SLUG), "kept while the saves are on their way").not.toBeNull();
+    await allConfirmed(p);
+    expect(readOutbox(p.tab, ANA, SLUG), "cleared once nothing is left").toBeNull();
+    await p.discarded();
+    expect(p.shown().reflection.p1).toBe("X");
+    expect(p.srv.now.reflection.p1).toBe("X");
+  });
+
+  it("what the outbox keeps follows what is confirmed: an answer given again and confirmed after the page was hidden never comes back from it over the answer before", async () => {
+    const p = wired(state({ reflection: reflection("X") }));
+    p.change(state({ reflection: reflection("Y") }));
+    await vi.advanceTimersByTimeAsync(700);
+    p.change(state({ reflection: reflection("X") }));
+    await vi.advanceTimersByTimeAsync(2_000);
+    p.hide();
+    // Shown again: another question answered; both saves confirmed.
+    p.change(state({ reflection: reflection("X", "W") }));
+    p.answers[0].ok();
+    await vi.advanceTimersByTimeAsync(10);
+    p.answers[1].ok();
+    await vi.advanceTimersByTimeAsync(10);
+    // The change's text again, saved; the other question changed while that save is on its way.
+    p.change(state({ reflection: reflection("Y", "W") }));
+    await vi.advanceTimersByTimeAsync(700);
+    p.change(state({ reflection: reflection("Y", "W2") }));
+    for (let n = 2; n < p.answers.length; n++) p.answers[n].ok();
+    await vi.advanceTimersByTimeAsync(10);
+    expect(p.srv.now.reflection).toEqual(reflection("Y", "W"));
+    // The connection gone for the next save and every try of it.
+    p.net.offline = true;
+    await vi.advanceTimersByTimeAsync(60_000);
+    p.net.offline = false;
+    await p.navigateAwayAndBack();
+    await allConfirmed(p);
+    expect(p.shown().reflection, "the course opened again shows what the learner left").toEqual(reflection("Y", "W2"));
+    expect(p.srv.now.reflection).toEqual(reflection("Y", "W2"));
+  });
+
+  it("guard: a page hidden with no save on its way keeps nothing in the outbox", async () => {
+    const p = wired(state({ reflection: reflection("X") }));
+    p.change(state({ reflection: reflection("Y") }));
+    await vi.advanceTimersByTimeAsync(700);
+    await allConfirmed(p);
+    p.hide();
+    expect(readOutbox(p.tab, ANA, SLUG)).toBeNull();
   });
 
   it("another course opened and this one again in between (settle sends the failed save at once): lost, changed back", async () => {
@@ -858,11 +1164,12 @@ describe("a course's saves with the page's pending saves (pending-save.ts), as D
     p.change(state({ reflection: reflection("Y") }));
     await vi.advanceTimersByTimeAsync(700);
     p.change(state({ reflection: reflection("X") }));
+    p.net.stale = true;
     p.answers[0].lost();
     await vi.advanceTimersByTimeAsync(5_000);
-    p.net.stale = true;
     p.change(state({ reflection: reflection("X", "W") }));
     await vi.advanceTimersByTimeAsync(5_000);
+    expect(p.sent, "the change back's save and the next found the newer build").toHaveLength(3);
     p.net.stale = false;
     await p.reload();
     await vi.advanceTimersByTimeAsync(60_000);

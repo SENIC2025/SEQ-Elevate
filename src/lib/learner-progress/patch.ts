@@ -65,6 +65,10 @@ function canonical(v: unknown): string {
 }
 const same = (a: unknown, b: unknown) => canonical(a) === canonical(b);
 
+/** Are two answers the same, keys in any order? Null and undefined (no answer) are the same. */
+export const sameAnswer = (a: StoredAnswer | null | undefined, b: StoredAnswer | null | undefined) =>
+  same(a ?? null, b ?? null);
+
 /**
  * Every answer the progress holds, by key, as it would be sent. Unlike the
  * players' answersOf, the standard reflection and quick check are always
@@ -211,18 +215,18 @@ export function baseOf(patch: ProgressPatch, acked: ProgressState): Record<strin
  * holds now (`server`): finished lessons and the completion always (they
  * only grow); an answer only where the server still holds what it held
  * when the patch was kept (`base`, from baseOf) — a reflection or rating
- * question by question — or what it holds if a save of that answer whose
- * answer was lost was written (`ifWritten`, from baseOf too: this tab sent
- * it). Anything else was saved elsewhere since (another device, a tab of
- * an older build) and is newer than the kept answer. An answer with no
- * base comes back only where the server has none. Null when nothing is
- * left.
+ * question by question — or any value a save of it not confirmed may have
+ * left there (`ifWritten`, from baseOf too: this tab sent them — a save
+ * whose answer was lost, or one on its way when the page went). Anything
+ * else was saved elsewhere since (another device, a tab of an older build)
+ * and is newer than the kept answer. An answer with no base comes back
+ * only where the server has none. Null when nothing is left.
  */
 export function restorablePatch(
   patch: ProgressPatch,
   base: Readonly<Record<string, StoredAnswer | null | undefined>>,
   server: ProgressState,
-  ifWritten: Readonly<Record<string, StoredAnswer | null | undefined>> = {}
+  ifWritten: Readonly<Record<string, readonly (StoredAnswer | null | undefined)[]>> = {}
 ): ProgressPatch | null {
   const now = sendable(server);
   const textOf = (a: StoredAnswer | null | undefined, field: string) =>
@@ -231,25 +235,20 @@ export function restorablePatch(
     a?.type === "rating" ? a.values[field] : undefined;
   const answers: Record<string, PatchAnswer> = {};
   for (const [key, answer] of Object.entries(patch.answers ?? {})) {
-    const was = base[key] ?? undefined;
-    // Without a lost save of it, only `was`.
-    const orWas = key in ifWritten ? (ifWritten[key] ?? undefined) : was;
+    // What the server may hold of it as this tab knows: what it held, or what a save of it not confirmed left.
+    const could = [base[key] ?? undefined, ...(ifWritten[key] ?? [])];
     const is = now.get(key as PartKey);
     if (answer.type === "reflection") {
       const text = Object.fromEntries(
-        Object.entries(answer.text).filter(
-          ([field]) => textOf(is, field) === textOf(was, field) || textOf(is, field) === textOf(orWas, field)
-        )
+        Object.entries(answer.text).filter(([field]) => could.some((c) => textOf(is, field) === textOf(c, field)))
       );
       if (Object.keys(text).length) answers[key] = { type: "reflection", text };
     } else if (answer.type === "rating") {
       const values = Object.fromEntries(
-        Object.entries(answer.values).filter(
-          ([field]) => valueOf(is, field) === valueOf(was, field) || valueOf(is, field) === valueOf(orWas, field)
-        )
+        Object.entries(answer.values).filter(([field]) => could.some((c) => valueOf(is, field) === valueOf(c, field)))
       ) as Record<string, 1 | 2 | 3 | 4 | 5>;
       if (Object.keys(values).length) answers[key] = { type: "rating", values };
-    } else if (same(is, was) || same(is, orWas)) {
+    } else if (could.some((c) => sameAnswer(is, c))) {
       answers[key] = answer;
     }
   }

@@ -34,14 +34,26 @@
  * build the server no longer has (D68): only a reload helps, so what isn't
  * confirmed when it fails goes to the tab's outbox instead (outbox.ts).
  *
+ * Next sends a page's server actions one at a time: a save handed over
+ * while another is on its way waits behind it, and one waiting never
+ * leaves a page that goes. So when the page is hidden or left (pageHidden:
+ * pagehide, and visibilitychange to hidden, after which a phone may
+ * discard the tab and load it again), what the page has of a course that
+ * the server hasn't confirmed goes to the tab's outbox while a save of it
+ * is on its way or failed — every answer a save on its way carries
+ * counted as not confirmed — and the page that loads the course next
+ * brings it back over what the server held or any value those saves may
+ * have left.
+ *
  * The outbox only ever holds what a page of this tab had that the server
- * hadn't confirmed — beside an answer whose save failed, what the server
- * holds if it was written — and the page that loads the course next takes
- * it in (outboxRestored). So as soon as nothing this page holds is left to send
- * — a save confirmed with nothing left, a change that leaves nothing new
- * (courseChanged) — what it kept is on the server or was changed since,
- * and it is cleared: applied again on a later load, it would come back
- * over newer progress (spec 5.4).
+ * hadn't confirmed — beside an answer a save not confirmed carried, each
+ * value that save may have left — and the page that loads the course next
+ * takes it in (outboxRestored). While it holds an entry for the course,
+ * the entry follows what is confirmed: after every save confirmed, every
+ * save that finds nothing to send and every change that leaves nothing
+ * new (courseChanged), it holds what the page has that the server hasn't
+ * confirmed, or is cleared once there is none — kept as it was, it would
+ * bring back over newer progress what the page had before (spec 5.4).
  *
  * No React: DemoStateProvider in demo-state.tsx applies it.
  */
@@ -64,12 +76,20 @@ import {
   type FittedPatch,
   type UnsureAnswers,
 } from "@/lib/learner-progress/patch";
-import { clearOutbox, putInOutbox, type OutboxStorage } from "./outbox";
+import { clearOutbox, inOutbox, putInOutbox, type OutboxStorage } from "./outbox";
 
-/** Answers whose save failed (it may have been written): which, and what the server holds if they were. */
+/** At most this many failed saves' outcomes kept for a course: the first ones, and the newest. */
+const LOST_KEPT = 8;
+
+/** Answers whose save failed (it may have been written): which, and what the server may hold of them. */
 interface LostSaves {
   answers: Map<string, Set<string> | null>;
-  ifWritten: ProgressState;
+  /**
+   * For each failed save, what the server holds if it was written last,
+   * moved on by every save confirmed since: at most LOST_KEPT, the first
+   * ones and the newest.
+   */
+  ifWritten: ProgressState[];
 }
 
 /** What the store keeps for its saves. Replaced whole when it lets go of a learner's data. */
@@ -209,14 +229,24 @@ function outstanding(
   return pending ? fitPatch(pending) : null;
 }
 
+/** Are `a` and `b` the same as far as a save goes: the same lessons finished, the same answers? */
+const sameProgress = (a: ProgressState, b: ProgressState) => !patchSince(a, b) && !patchSince(b, a);
+
 /** A save of `patch` failed: what it carried may have been written, and isn't known until a save of it is confirmed. */
 function sentAndLost(refs: CourseSaveRefs, slug: string, patch: ProgressPatch): void {
   const acked = refs.acked.get(slug);
   const answers = answersIn(patch);
   if (!acked || !answers.size) return;
-  const lost = refs.unsure.get(slug) ?? { answers: new Map(), ifWritten: acked };
+  const lost: LostSaves = refs.unsure.get(slug) ?? { answers: new Map(), ifWritten: [] };
   addAnswers(lost.answers, answers);
-  lost.ifWritten = applyPatch(lost.ifWritten, patch);
+  // The saves before it that failed may have been written or not: the
+  // values each leaves are kept apart, and an answer comes back from the
+  // outbox over any of them (outbox.ts).
+  const outcome = applyPatch(acked, patch);
+  if (!lost.ifWritten.some((other) => sameProgress(other, outcome))) {
+    if (lost.ifWritten.length < LOST_KEPT) lost.ifWritten.push(outcome);
+    else lost.ifWritten[LOST_KEPT - 1] = outcome;
+  }
   refs.unsure.set(slug, lost);
 }
 
@@ -233,7 +263,7 @@ function sentAndConfirmed(refs: CourseSaveRefs, slug: string, confirmed: Progres
       if (!had.size) lost.answers.delete(key);
     }
   }
-  if (lost.answers.size) lost.ifWritten = applyPatch(lost.ifWritten, confirmed);
+  if (lost.answers.size) lost.ifWritten = lost.ifWritten.map((held) => applyPatch(held, confirmed));
   else refs.unsure.delete(slug);
 }
 
@@ -248,18 +278,79 @@ const loaded = (refs: CourseSaveRefs, slug: string) => refs.acked.has(slug) && r
 /**
  * What this page has of `slug` that the server hasn't confirmed, kept in
  * the tab's outbox in place of what it held — this page took that in when
- * the course loaded — or nothing kept when there is none.
+ * the course loaded — or nothing kept when there is none. A save whose
+ * answer was lost may have written what it sent. With `onTheirWay`, so may
+ * the saves on their way, one by one: every answer they carry counts as
+ * not confirmed. Without, they wrote nothing (a newer build).
  */
-function keepUnconfirmed(refs: CourseSaveRefs, slug: string, forUser: string, outbox: OutboxStorage | null) {
+function keepUnconfirmed(
+  refs: CourseSaveRefs,
+  slug: string,
+  forUser: string,
+  outbox: OutboxStorage | null,
+  onTheirWay: boolean
+) {
   const acked = refs.acked.get(slug);
   const latest = refs.latest.get(slug);
-  // A save that finds a newer build wrote nothing; one whose answer was
-  // lost may have written what it sent.
-  const unconfirmed = acked && latest ? patchSince(acked, latest, unsureOf(refs, slug, false)) : null;
+  const lost = refs.unsure.get(slug);
+  const sending = onTheirWay ? (refs.sending.get(slug) ?? []) : [];
+  const unsure = new Map(lost?.answers);
+  for (const patch of sending) addAnswers(unsure, answersIn(patch));
+  const unconfirmed = acked && latest ? patchSince(acked, latest, unsure) : null;
+  if (!acked || !unconfirmed) {
+    clearOutbox(outbox, forUser, slug);
+    return;
+  }
+  // What the server may hold besides `acked`: what the saves on their way
+  // leave as they are written in turn (the first is the one on the wire),
+  // then what each failed save leaves.
+  const mayHold: ProgressState[] = [];
+  let held = acked;
+  for (const patch of sending) mayHold.push((held = applyPatch(held, patch)));
+  mayHold.push(...(lost?.ifWritten ?? []));
   // With what the server holds, so the patch never comes back over an
   // answer saved elsewhere meanwhile (outbox.ts restoreOutbox).
-  if (unconfirmed) putInOutbox(outbox, forUser, slug, unconfirmed, acked, refs.unsure.get(slug)?.ifWritten);
-  else clearOutbox(outbox, forUser, slug);
+  putInOutbox(outbox, forUser, slug, unconfirmed, acked, mayHold);
+}
+
+/**
+ * What the tab's outbox holds for `slug` follows what the server has
+ * confirmed. Nothing `left` — nothing to send that the server would take,
+ * no save on its way — and it is cleared: what it kept is on the server or
+ * was changed since. Else an entry, if there is one, holds what the page
+ * has that the server hasn't confirmed, every answer a save on its way
+ * carries included.
+ */
+function followOutbox(
+  refs: CourseSaveRefs,
+  slug: string,
+  forUser: string,
+  outbox: OutboxStorage | null,
+  left: boolean
+) {
+  if (!loaded(refs, slug)) return;
+  if (!left) clearOutbox(outbox, forUser, slug);
+  else if (inOutbox(outbox, forUser, slug)) keepUnconfirmed(refs, slug, forUser, outbox, true);
+}
+
+/** Is a save of `slug` on its way? */
+const onItsWay = (refs: CourseSaveRefs, slug: string) => !!refs.sending.get(slug)?.length;
+
+/**
+ * The page is being hidden or left (pagehide; visibilitychange to hidden,
+ * after which a phone may discard the tab and load it again), its waiting
+ * saves just sent (pending-save.ts flush). For each course with a save on
+ * its way — on the wire, or waiting behind another in Next's queue, never
+ * to leave a page that goes — or one that failed, what the page has that
+ * the server hasn't confirmed goes to the tab's outbox, beside what the
+ * server held and each value those saves may have left: the page that
+ * loads the course next brings it back over any of them (outbox.ts).
+ * Cheap, and synchronous: sessionStorage only.
+ */
+export function pageHidden(refs: CourseSaveRefs, forUser: string, outbox: OutboxStorage | null): void {
+  for (const slug of new Set([...refs.sending.keys(), ...refs.unsure.keys()])) {
+    if (loaded(refs, slug)) keepUnconfirmed(refs, slug, forUser, outbox, true);
+  }
 }
 
 /**
@@ -282,7 +373,7 @@ export function courseChanged(
   const acked = refs.acked.get(slug);
   if (!acked) return false;
   if (patchSince(acked, latest, unsureOf(refs, slug, true))) return true;
-  clearOutbox(outbox, forUser, slug);
+  followOutbox(refs, slug, forUser, outbox, onItsWay(refs, slug));
   return false;
 }
 
@@ -299,8 +390,9 @@ export async function saveCourse(
   if (told.length) deps.refusedKeys(slug, told);
   const patch = fitted?.patch;
   if (!patch) {
-    // Nothing a save could send: the server has all it can take.
-    if (loaded(refs, slug)) clearOutbox(deps.outbox, forUser, slug);
+    // Nothing a save could send: the server has all it can take, but for
+    // what a save on its way may still leave there.
+    followOutbox(refs, slug, forUser, deps.outbox, onItsWay(refs, slug));
     return;
   }
 
@@ -322,7 +414,7 @@ export async function saveCourse(
     if (unstable_isUnrecognizedActionError(err)) {
       // What isn't confirmed now, not when it was sent: an answer changed
       // back meanwhile mustn't come back after the reload.
-      keepUnconfirmed(refs, slug, forUser, deps.outbox);
+      keepUnconfirmed(refs, slug, forUser, deps.outbox, false);
       deps.staleBuild(slug);
       return;
     }
@@ -357,6 +449,7 @@ export async function saveCourse(
     }
     deps.refusedKeys(slug, result.refused);
   }
-  if (outstanding(refs, slug, { onTheirWay: false })?.patch) deps.again();
-  else clearOutbox(deps.outbox, forUser, slug);
+  const more = !!outstanding(refs, slug, { onTheirWay: false })?.patch;
+  if (more) deps.again();
+  followOutbox(refs, slug, forUser, deps.outbox, more || onItsWay(refs, slug));
 }
