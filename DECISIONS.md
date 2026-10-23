@@ -394,6 +394,7 @@ Single source of truth for decisions made, decisions still open, and the rationa
 - Migrations are additive and named `20261120…`.
 - *As built:* four migrations, not two. `20261120090000_r3_role_partner_admin` (the new role); `20261120090100_r3_people_privacy_content` (one explicit transaction, `lock_timeout` 5 s, so a failure leaves nothing of it); `20261120090200_r3_course_project_columns` (`Course.readyLocales`, `Project.safeguarding`, one statement each, split out so no migration locks the Project or Course table together with User); `20261120090300_r3_sharing_and_guardian_triggers` (two triggers, D80 and D101, added at integration). `migrate-deploy.mjs` names a failed migration and says whether it applied nothing or may be partly applied (GO-LIVE §1a).
 - *As built:* `r2` was merged into `r3` at `983be2d` on 22 Oct (Release 2 verified, with `main`'s session rule, the same as D97). The merge of `main` on 11 Nov and the last merge point on 19 Nov are still to come.
+- *As built:* `r2` was merged into `r3` again at `491e5a5` on 23 Oct (`152e7bb`): Release 2's course save rule (D62's 23 October line), with Release 3's read again after guest work moved into a course kept as it was.
 - *Changed by the owner (21 Oct):* Release 4 started on 21 Oct on branches of its own, not after 13 Nov. It asks nothing of Release 3 and rebases on `r3`; it follows D100 too.
 
 ### D72 · One profile row per person per project

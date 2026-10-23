@@ -1082,3 +1082,26 @@ On `r2` after `983be2d`. Nothing pushed (D100).
   - `db-backed-progress` on one worker: **57/57**;
   - Release 2's recorded walk on one worker: **7/7**;
   - the server logged only the known kinds: 13 "No signed-in learner", 3 "No signed-in user", 2 refused sign-ins (`AccessDenied`), and the `output: standalone` warning.
+
+### Release 3 — Release 2's course save rule merged; a "[" in a quick link's host but at its start isn't an address (2026-10-23)
+On `r3` after the verification's follow-ups above. Nothing pushed (D100).
+- `[MERGE]` `152e7bb` `r2` at `491e5a5` (Release 2's entry above, `da3472b`: what a course save sends isn't known on the server until that save is confirmed; the outbox keeps what the server holds if a failed save was written; a refused answer coming back unchanged is told again). Conflicts in `src/store/demo-state.tsx`, where the course's load calls `courseLoaded` and keeps Release 3's read again after guest work moved into the course (`courseReread`, its base taken before the load) and Release 3's imports; and in `BUILDLOG.md`, Release 2's entry after Release 3's of the same day. `card-save.ts` and the claim are unchanged.
+- `[FIX]` `ac2656a` (D55) **Quick links: a "[" anywhere in a web address's host but at its first character means the text isn't a web address** (`webHost` in `src/lib/rich-text/linkify.ts`), its port included. The URL parser refuses every such host, and reads on from a "[" to the next "]" (or the end) past a "/", "?" or "\" that would otherwise end the host, so such a host is never parsed. A host that starts with "[" is measured as the URL parser reads it, up to the next "]" (or the end, or a fragment) whatever "/", "?" or "\" it holds, with its port after that "]" (`hostFits`). One rule for every place a "[" can stand in a host. `scripts/linkify-cost.ts` measures hosts behind "x[?", "x[/", "x[\", "x[?:]", "x[\:]", "x[?]", "a[?@", "u]@x[?", "a@x[/", "[/", "[?" and "[\" against the budget too.
+- `[DOCS]` D71: `r2` merged into `r3` again at `491e5a5`.
+- `[TEST]` Each change's tests ran red first:
+  - the merge: Release 2's entry above, red on 983be2d; `course-save.ts`, `patch.ts`, `outbox.ts` and `pending-save.ts` are the same at 5b4dfdd as at 983be2d, and on r3 all of Release 2's new tests pass (`r2-course-save` 4/4 on the r3 build);
+  - quick links, on 152e7bb: the new `linkify.test.ts` ratio test red (text 0: 135.39 ms against 0.41 ms, 328 times); `linkify-cost.ts` 9 blocks over the budget, the nine forms behind "x[" or "a[" (135.6–141.0 ms per 10,000 characters), the three behind "[" within it.
+- `[VERIFY]` What is linked, 152e7bb and after, all alike:
+  - c611bd1's 31 linkify tests pass on both, and their 109 `findLinks` and 6 `linkifyInline` inputs give the same links;
+  - 153,684 texts of ordinary writing (every line and every file of the repository at c611bd1, the en/de/el messages, Release 4's link corpora) show no difference;
+  - so do the 19 texts of real addresses near the limits and of brackets in a path, query, fragment, user name, IPv6 address or host;
+  - 43 bracket, at-sign, backslash and percent forms: all within the budget (2 over on 152e7bb).
+- `[VERIFY]` On the local Postgres `seq_r3`:
+  - tsc ✓ eslint ✓ **5,003 unit** ✓ (216 files, one skipped; 4 tests skipped: the `r3-check` database tests). Each commit on its own, with tsc, eslint and unit ✓: `152e7bb` 5,002, `ac2656a` 5,003;
+  - production build ✓ (through the build lock), no warnings;
+  - **full E2E 932 passed, 2 skipped** (F-E1a and F-E1b, by design) in 8.9 min on two workers, exit 0. By project: chromium 919, cutoff 3, switches 5, last 5;
+  - affected specs `r2-course-save`, `r2-progress-safety`, `r2-player`, `r3-comp-card`, `r3-guest-claim`, `r3-guest-tab`, `r0-links` and `rich-text-learner`: **71/71**;
+  - `db-backed-progress` on one worker: **57/57**;
+  - Release 2's recorded walk with R3-D1 and R3-D2: **7/7**; `r3-scoping` **9/9**; `r3-actions` **497/497**;
+  - `linkify-cost.ts`: every block within the budget (the hosts behind "x[" and "[" 1.27–1.38 ms per 10,000 characters);
+  - the server logged only the known kinds: 20 "No signed-in learner", 6 "No signed-in user", 2 `transformAlgorithm`, 2 `AccessDenied`, the `BLOB_PUBLIC_HOST` notice and the `output: standalone` warning.
