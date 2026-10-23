@@ -1,15 +1,19 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { test, expect, type Browser, type BrowserContext, type Page } from "@playwright/test";
+import { test, expect, type APIRequestContext, type Browser, type BrowserContext, type Locator, type Page } from "@playwright/test";
+import AxeBuilder from "@axe-core/playwright";
 import { PrismaClient } from "@prisma/client";
 import ts from "typescript";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { createPerson, removePeople, runId, signIn, type Person } from "./fixtures/people";
+import { createPerson, createWorld, removePeople, removeWorld, runId, signIn, type Person, type World } from "./fixtures/people";
 import { PROJECT, narrative, ownLessonId, type R2LessonSeed } from "./fixtures/r2-course";
 import { removeECourse, seedECourse } from "./fixtures/r3-e-course";
-import { STORED_LINK_URLS } from "./fixtures/r4-hostile-links";
+import { HOSTILE_ADDRESSES, MISLEADING_TITLES, MISLEADING_TITLE_URL, STORED_LINK_URLS } from "./fixtures/r4-hostile-links";
+import { removeOtherCourse, seedOtherProject, type OtherProject } from "./fixtures/other-project";
+import { rows as readingRows } from "./fixtures/r3-action-table/r4";
+import { guardLabel, matches, otherOrganisationOf, snapshot, targetOf, type CallRow, type Ctx, type Persona } from "./fixtures/r3-action-table/kit";
 import { r4Tables, removeR4Course, seedDocuments, seedR4Course, type R4Course, type R4Tables } from "./fixtures/r4-course";
-import { builtActionsOf } from "./fixtures/server-action";
+import { builtActionsOf, callAction, type ActionAnswer } from "./fixtures/server-action";
 import { LINK_LIMITS, cleanLinkLine, titleMisleads, titleShowsNothing } from "../src/lib/cms/lesson-links";
 import { checkLinkHref } from "../src/lib/rich-text/link-url";
 import de from "../src/messages/de.json";
@@ -47,11 +51,34 @@ import en from "../src/messages/en.json";
  * (no LessonLink table) and no languages on documents: it shows every
  * published document in every language, unmarked. The guards say so.
  *
- * The parts that come with the screens that place them (spec 9.3, R2): the
- * list drawn after the lesson's text and in the standard lessons' slot,
- * the link manager in the document card and its direct calls, a /de
- * learner's German-only items on a course still shown in English, and the
- * delete confirmation's count.
+ * Stream R part 2 (spec 9.3, R2), with the screens that place them:
+ *
+ *   R4-E9   (its part 2) an editor adds a link in the lesson's document
+ *           card ("Documents and further reading"): a draft, in neither
+ *           the learner's page nor its data; "Show to learners", and it is
+ *           there after the lesson's text and before Continue (a lesson
+ *           drawn piece by piece) or after the stage (a standard lesson),
+ *           opening in a new tab with its site; hidden again, it's gone
+ *   R4-E11  (its part 2) a /de learner on a course still shown in English:
+ *           the course text in English with the English-only items, and
+ *           the German-only items marked "In German" (lang="de"); a
+ *           document's languages set on its row
+ *   R4-E13  (its part 2) the delete confirmation lists the links, and the
+ *           log counts them; a page opened before a link was added can't
+ *           delete the lesson unseen (changed-elsewhere)
+ *   R4-E14  axe and a 320 px sweep (no sideways scroll), and Release 3's
+ *           policy-violation collector, over a lesson with named links and
+ *           further reading and the document card with the link form, in
+ *           en, de and el; the link list by keyboard keeps its focus
+ *   R4-E6   (guard) the hostile addresses and misleading titles sent
+ *           through addLessonLink and updateLessonLink are refused by name,
+ *           and nothing changes
+ *   R4-E6b  a reflection lesson's introduction over the limit is refused
+ *           by its name: "Shorten it."
+ *   10.5    every export of lesson-reading.ts refuses the non-editors and
+ *           changes nothing; bad arguments are refused for editors and
+ *           partner admins; editors, partner admins and ADMINs can do each
+ *           (positive controls)
  *
  * Requires a real database — gated on E2E_DB=1. Everything the run makes
  * is unique to it and removed afterwards.
@@ -540,19 +567,592 @@ describe("Release 4: further reading and a language per document or link (Stream
       }).toPass({ timeout: 15_000 });
       await list.getByRole("group", { name: /^Actions for (\d+\. )?Remove me$/ }).getByRole("button", { name: /^delete$/i }).click();
       const confirm = list.getByRole("group", { name: "Delete “Remove me” in all languages?" });
+      // R2: the confirmation lists the further reading that goes with it, drafts included.
+      await expect(confirm).toContainText("2 further-reading links");
       await confirm.getByRole("button", { name: /^delete lesson$/i }).click();
       await expect(page.locator("#workspace-announcements").filter({ visible: true })).toHaveText(/^“Remove me” deleted\./, {
         timeout: 15_000,
       });
       await expect.poll(() => linkCount(SLUG.del, DEL.remove.id)).toBe(0);
       expect(await linkCount(SLUG.del, DEL.keep.id)).toBe(1);
+      // R2: the log counts them, and names no address.
+      const logged = await prisma.auditLog.findFirst({
+        where: { action: "section.deleted", entityId: SLUG.del, actorId: editor.userId },
+        select: { metadata: true },
+      });
+      expect(logged?.metadata).toMatchObject({ sectionId: DEL.remove.id, links: 2 });
+      expect(JSON.stringify(logged?.metadata)).not.toContain("example.org");
     } finally {
       await context.close();
     }
   });
 
-  test("(guard) no request reaches the further-reading writes before their action-table rows exist (D102)", () => {
-    // They become server actions with their rows and the screen that calls them.
-    expect(builtActionsOf(READING)).toEqual([]);
+  test("every further-reading write is a server action the build has, each with its action-table row (spec 10.5)", () => {
+    // They became server actions with their rows and the document card that calls them (R2).
+    const exported = readingRows.map((r) => (r.kind === "route" ? "" : r.name)).sort();
+    expect(exported).toHaveLength(7);
+    expect(builtActionsOf(READING)).toEqual(exported);
+  });
+});
+
+/* ===================================================== Stream R part 2 === */
+
+const TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
+
+/** Is `later` after `earlier` in the document? */
+async function follows(earlier: Locator, later: Locator): Promise<boolean> {
+  const handle = await later.elementHandle();
+  return earlier.evaluate((a, b) => !!(b && a.compareDocumentPosition(b as Node) & Node.DOCUMENT_POSITION_FOLLOWING), handle);
+}
+
+/** Every policy violation the browser reports in `context` (Release 3's collector, F-E3). */
+async function collectViolations(context: BrowserContext) {
+  const reports: { directive: string; blocked: string; page: string }[] = [];
+  await context.exposeBinding("__e2eR4CspViolation", (_source, v: { directive: string; blocked: string; page: string }) => {
+    reports.push(v);
+  });
+  await context.addInitScript(() => {
+    document.addEventListener("securitypolicyviolation", (e) => {
+      (window as unknown as { __e2eR4CspViolation: (v: unknown) => void }).__e2eR4CspViolation({
+        directive: e.effectiveDirective,
+        blocked: e.blockedURI,
+        page: location.pathname,
+      });
+    });
+  });
+  return reports;
+}
+
+/** Nothing scrolls sideways on the page as it is now. */
+async function expectNoSidewaysScroll(page: Page, where: string) {
+  const sideways = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  expect(sideways, `${where}: no sideways scroll`).toBeLessThanOrEqual(0);
+}
+
+/** axe's WCAG 2.2 AA rules: none broken in `scope`, and nothing serious or critical anywhere on the page. */
+async function expectAxeClean(page: Page, scope: string, where: string) {
+  const inScope = await new AxeBuilder({ page }).include(scope).withTags(TAGS).analyze();
+  expect(inScope.violations.map((v) => [v.id, v.nodes.map((n) => n.target)]), `${where}: ${scope}`).toEqual([]);
+  const all = await new AxeBuilder({ page }).withTags(TAGS).analyze();
+  const serious = all.violations.filter((v) => v.impact === "serious" || v.impact === "critical");
+  expect(serious.map((v) => [v.id, v.nodes.map((n) => n.target)]), `${where}: the whole page`).toEqual([]);
+}
+
+describe("Release 4: further reading on the screens that place it (Stream R, part 2)", () => {
+  const R2 = {
+    sectioned: `e2e-r4-fr2-${RUN}`,
+    standard: `e2e-r4-std-${RUN}`,
+    stale: `e2e-r4-stale-${RUN}`,
+    reflection: `e2e-r4-refl-${RUN}`,
+  };
+  const STALE = { stay: { id: ownLessonId(), label: { en: "Stay" } }, go: { id: ownLessonId(), label: { en: "Go" } } };
+  let sectioned: R4Course;
+  let staffer: Person;
+  let reader: Person;
+  let deReader: Person;
+  let r2Tables: R4Tables;
+  const people = {
+    staffer: `e2e-r4-fr2-editor-${RUN}@example.com`,
+    reader: `e2e-r4-fr2-learner-${RUN}@example.com`,
+    deReader: `e2e-r4-fr2-german-${RUN}@example.com`,
+  };
+  /** Release 4's database: the test can't add further reading without its table. */
+  const needsTables = () => {
+    expect(r2Tables.links, "the database has further-reading links (LessonLink)").toBe(true);
+    expect(r2Tables.documentLanguages, "documents have languages (LessonDocument.languages)").toBe(true);
+  };
+
+  test.beforeAll(async () => {
+    await removePeople(prisma, Object.values(people));
+    r2Tables = await r4Tables(prisma);
+    staffer = await createPerson(prisma, { email: people.staffer, roles: ["CONTENT_EDITOR"], organisation: "A" });
+    reader = await createPerson(prisma, { email: people.reader, roles: ["LEARNER"] });
+    deReader = await createPerson(prisma, { email: people.deReader, roles: ["LEARNER"] });
+    // German not switched on: a /de learner gets the course text in English.
+    sectioned = await seedR4Course(prisma, { slug: R2.sectioned });
+    const text = (title: string) => narrative({ en: { title, text: `E2E: ${title}.` } });
+    await seedECourse(prisma, {
+      slug: R2.standard,
+      title: { en: `E2E R4 standard ${RUN}` },
+      lessons: [{ id: "context", narrative: text("The standard lesson") }],
+    });
+    await seedECourse(prisma, {
+      slug: R2.stale,
+      title: { en: `E2E R4 stale ${RUN}` },
+      status: "draft",
+      lessons: [
+        { ...STALE.stay, narrative: text("Staying") },
+        { ...STALE.go, narrative: text("Going") },
+      ],
+    });
+    await seedECourse(prisma, {
+      slug: R2.reflection,
+      title: { en: `E2E R4 reflection ${RUN}` },
+      status: "draft",
+      lessons: [{ id: "context", narrative: text("Context") }, { id: "reflection" }],
+    });
+    if (r2Tables.links) {
+      await addLink(R2.standard, "context", "std", { title: `E2E R4 standard reading ${RUN}`, url: `https://example.org/${RUN}/std` });
+    }
+  });
+
+  test.afterAll(async () => {
+    const ids = [staffer, reader, deReader].filter(Boolean).map((p) => p.userId);
+    await prisma.auditLog.deleteMany({ where: { actorId: { in: ids } } });
+    await removeR4Course(prisma, R2.sectioned);
+    for (const slug of [R2.standard, R2.stale, R2.reflection]) await removeECourse(prisma, slug);
+    await removePeople(prisma, Object.values(people));
+  });
+
+  /** The lesson's section on the course page, opened. */
+  async function openLesson(page: Page, slug: string, key: string, locale = "en") {
+    await page.goto(`/${locale}/content/courses/${slug}?lesson=${key}`);
+    const lesson = page.locator(`#lesson-${key}`).filter({ visible: true });
+    await expect(lesson.getByRole("heading", { name: "Documents and further reading" })).toBeVisible({ timeout: 20_000 });
+    return lesson;
+  }
+
+  /** Presses "Add a link" once the page has taken over (the form appears). */
+  async function openLinkForm(lesson: Locator) {
+    const form = lesson.getByRole("group", { name: "Add a link", exact: true });
+    await expect(async () => {
+      if (!(await form.isVisible())) await lesson.getByRole("button", { name: "Add a link", exact: true }).click();
+      await expect(form).toBeVisible({ timeout: 2000 });
+    }).toPass({ timeout: 20_000 });
+    return form;
+  }
+
+  test("R4-E9 (R2): an editor adds a link in the document card; a draft is in neither the learner's page nor its data; shown, it follows the lesson's text, before Continue; hidden again, it's gone", async ({
+    browser,
+  }) => {
+    needsTables();
+    const title = `E2E R4 added ${RUN}`;
+    const url = `https://example.org/${RUN}/added`;
+    const staff = await as(browser, staffer);
+    const learnerSide = await as(browser, reader);
+    try {
+      const lesson = await openLesson(staff.page, R2.sectioned, sectioned.lessons.one);
+      // "Add a link" sits next to "Upload document", and the links follow the documents.
+      expect(await follows(lesson.getByText("Upload document", { exact: true }), lesson.getByRole("button", { name: "Add a link", exact: true }))).toBe(true);
+      expect(await follows(lesson.getByText(sectioned.documents.all.name).first(), lesson.getByRole("heading", { name: "Further reading", level: 4 }))).toBe(true);
+
+      const form = await openLinkForm(lesson);
+      await form.getByLabel("Title").fill(title);
+      await form.getByLabel("Web address").fill(url);
+      await form.getByRole("button", { name: "Save", exact: true }).click();
+      await expect(lesson.getByText("Added as a draft — learners can't see it until you choose “Show to learners”.")).toBeVisible();
+      const row = lesson.getByRole("listitem").filter({ has: staff.page.getByRole("link", { name: new RegExp(`^${title}`) }) });
+      await expect(row).toContainText("Draft — hidden from learners");
+
+      const path = `/en/learner/course/${R2.sectioned}`;
+      let html = await served(learnerSide.page, path);
+      expect(html).not.toContain(title);
+      expect(html).not.toContain(url);
+
+      await lesson.getByRole("button", { name: `Show to learners: ${title}` }).click();
+      await expect(lesson.getByText(`“${title}” is shown to learners.`)).toBeVisible();
+      html = await served(learnerSide.page, path);
+      expect(html).toContain(url);
+      // In the lesson's card: after its text, before Continue, a link that opens a new tab, with its site.
+      const page = learnerSide.page;
+      const list = page.getByRole("region", { name: en.furtherReading.title, exact: true }).filter({ visible: true });
+      const link = list.getByRole("link", { name: `${title}, example.org (opens in a new tab)` });
+      await expect(link).toBeVisible({ timeout: 15_000 });
+      await expect(link).toHaveAttribute("target", "_blank");
+      await expect(link).toHaveAttribute("href", url);
+      const continueButton = page.getByRole("main").getByRole("button", { name: en.common.continue, exact: true }).filter({ visible: true });
+      expect(await follows(page.getByText("before the next lesson.").first(), list), "after the lesson's text").toBe(true);
+      expect(await follows(list, continueButton), "before Continue").toBe(true);
+
+      await lesson.getByRole("button", { name: `Hide from learners: ${title}` }).click();
+      await expect(lesson.getByText(`“${title}” is hidden from learners.`)).toBeVisible();
+      html = await served(page, path);
+      expect(html).not.toContain(title);
+      expect(html).not.toContain(url);
+    } finally {
+      await staff.context.close();
+      await learnerSide.context.close();
+    }
+  });
+
+  test("R4-E9 (R2): a standard lesson's further reading follows the stage, its Continue included", async ({ browser }) => {
+    needsTables();
+    const { context, page } = await as(browser, reader);
+    try {
+      await page.goto(`/en/learner/course/${R2.standard}`);
+      const list = page.getByRole("region", { name: en.furtherReading.title, exact: true }).filter({ visible: true });
+      await expect(list.getByRole("link", { name: `E2E R4 standard reading ${RUN}, example.org (opens in a new tab)` })).toBeVisible({
+        timeout: 15_000,
+      });
+      const continueButton = page.getByRole("main").getByRole("button", { name: en.common.continue, exact: true }).filter({ visible: true });
+      expect(await follows(page.getByText("E2E: The standard lesson.").first(), list)).toBe(true);
+      expect(await follows(continueButton, list), "the list is the last thing in the lesson").toBe(true);
+    } finally {
+      await context.close();
+    }
+  });
+
+  test("R4-E11 (R2): a /de learner on a course still shown in English gets the English text, the English-only items, and the German-only items marked \"In German\"", async ({
+    browser,
+  }) => {
+    needsTables();
+    const { context, page } = await as(browser, deReader);
+    try {
+      const html = await served(page, `/de/learner/course/${R2.sectioned}`);
+      const links = sectioned.links!;
+      // The course text is English: its own language's items, and every language's, and the page's language's.
+      expect(html).toContain(links.en.url);
+      expect(html).toContain(links.shown.url);
+      expect(html).toContain(links.de.url);
+      expect(html).not.toContain(links.hidden.url);
+      const docs = resources(page, de.lesson.resourcesTitle);
+      await expect(docs).toContainText(sectioned.documents.en.name, { timeout: 15_000 });
+      await expect(docs).toContainText(sectioned.documents.all.name);
+      await expect(docs.getByText(sectioned.documents.de.name, { exact: true })).toHaveAttribute("lang", "de");
+      await expect(docs).toContainText(de.furtherReading.language.de);
+      const list = page.getByRole("region", { name: de.furtherReading.title, exact: true }).filter({ visible: true });
+      const german = list.getByRole("listitem").filter({ hasText: "R4 Lektüre auf Deutsch" });
+      await expect(german.locator('[lang="de"]').first()).toHaveText("R4 Lektüre auf Deutsch");
+      await expect(german).toContainText(de.furtherReading.language.de);
+      // The English-only link reads in the course text's language, unmarked.
+      const english = list.getByRole("listitem").filter({ hasText: "R4 English reading" });
+      await expect(english).not.toContainText(de.furtherReading.language.en);
+    } finally {
+      await context.close();
+    }
+  });
+
+  test("R4-E11 (R2): a document's languages are set on its row in the card, and learners follow them", async ({ browser }) => {
+    needsTables();
+    const staff = await as(browser, staffer);
+    const learnerSide = await as(browser, reader);
+    const document = sectioned.documents.all;
+    try {
+      const lesson = await openLesson(staff.page, R2.sectioned, sectioned.lessons.one);
+      const control = lesson.getByRole("button", { name: `Languages: ${document.name}` });
+      const boxes = lesson.getByRole("group", { name: `Languages of “${document.name}”` });
+      await expect(async () => {
+        if (!(await boxes.isVisible())) await control.click();
+        await expect(boxes).toBeVisible({ timeout: 2000 });
+      }).toPass({ timeout: 20_000 });
+      await boxes.getByLabel("English").uncheck();
+      await boxes.getByLabel("Greek").uncheck();
+      await boxes.getByRole("button", { name: "Save", exact: true }).click();
+      await expect(lesson.getByText(`“${document.name}” is for German learners.`)).toBeVisible();
+      const row = lesson.getByRole("listitem").filter({ hasText: document.name });
+      await expect(row).toContainText("German");
+      await expect(control).toBeFocused();
+      await expect
+        .poll(async () => (await prisma.lessonDocument.findUnique({ where: { id: document.id }, select: { languages: true } }))?.languages)
+        .toEqual(["de"]);
+      const html = await served(learnerSide.page, `/en/learner/course/${R2.sectioned}`);
+      expect(html).not.toContain(document.name);
+    } finally {
+      await prisma.$executeRaw`UPDATE "LessonDocument" SET "languages" = ARRAY[]::text[] WHERE "id" = ${document.id}`;
+      await staff.context.close();
+      await learnerSide.context.close();
+    }
+  });
+
+  test("R4-E13 (R2): a page opened before a further-reading link was added can't delete the lesson unseen", async ({ browser }) => {
+    needsTables();
+    const { context, page } = await as(browser, staffer);
+    try {
+      await page.goto(`/en/content/courses/${R2.stale}`);
+      const list = page.getByRole("navigation", { name: /^lessons$/i }).filter({ visible: true });
+      await expect(list.getByRole("link").first()).toBeVisible({ timeout: 15_000 });
+      // A colleague adds a link to "Go" meanwhile.
+      await addLink(R2.stale, STALE.go.id, "stale");
+      const toggle = list.getByRole("button", { name: /^Actions for (\d+\. )?Go$/ });
+      await expect(async () => {
+        if ((await toggle.getAttribute("aria-expanded")) !== "true") await toggle.click();
+        await expect(toggle).toHaveAttribute("aria-expanded", "true", { timeout: 2000 });
+      }).toPass({ timeout: 15_000 });
+      await list.getByRole("group", { name: /^Actions for (\d+\. )?Go$/ }).getByRole("button", { name: /^delete$/i }).click();
+      const confirm = list.getByRole("group", { name: "Delete “Go” in all languages?" });
+      await confirm.getByRole("button", { name: /^delete lesson$/i }).click();
+      await expect(page.getByText(en.lessonList.delete.changed).filter({ visible: true }).first()).toBeVisible({ timeout: 15_000 });
+      expect(await linkCount(R2.stale, STALE.go.id)).toBe(1);
+      expect(await prisma.lesson.count({ where: { projectId: PROJECT, courseSlug: R2.stale, stageKey: STALE.go.id } })).toBe(1);
+    } finally {
+      await context.close();
+    }
+  });
+
+  test("R4-E6b: a reflection lesson's introduction over the limit is refused by its name: \"Shorten it.\"", async ({ request }) => {
+    const answer = await callAction(request, {
+      as: staffer,
+      page: `/en/content/courses/${R2.reflection}`,
+      file: "src/app/actions/lesson.ts",
+      name: "saveLessonNarrative",
+      args: [R2.reflection, "reflection", "en", { title: "R4 reflection", blocks: [{ kind: "paragraph", text: "x".repeat(10_001) }] }, null],
+    });
+    expect(answer.result, answer.raw.slice(0, 300)).toEqual({
+      ok: false,
+      error: "invalid",
+      issues: ["The introduction is too long — at most 10,000 characters. Shorten it."],
+    });
+  });
+
+  for (const [locale, messages] of [
+    ["en", en],
+    ["de", de],
+    ["el", el],
+  ] as const) {
+    test(`R4-E14 (${locale}): a lesson with named links and further reading, at 320 px: axe clean, no sideways scroll, no policy violation`, async ({
+      browser,
+    }) => {
+      needsTables();
+      const context = await browser.newContext();
+      const violations = await collectViolations(context);
+      await signIn(context, reader.sessionToken);
+      const page = await context.newPage();
+      try {
+        await page.setViewportSize({ width: 320, height: 640 });
+        const response = await page.goto(`/${locale}/learner/course/${R2.sectioned}`);
+        expect(response?.headers()["content-security-policy"], "an enforced policy").toBeTruthy();
+        const list = page.getByRole("region", { name: messages.furtherReading.title, exact: true }).filter({ visible: true });
+        await expect(list).toBeVisible({ timeout: 15_000 });
+        await expect(list.locator(".seq-link-site").first()).toBeVisible();
+        await expectNoSidewaysScroll(page, `${locale} learner`);
+        // Every title link and its site stay on the screen.
+        for (const link of await list.getByRole("link").all()) {
+          const box = await link.boundingBox();
+          expect(box!.x).toBeGreaterThanOrEqual(0);
+          expect(box!.x + box!.width).toBeLessThanOrEqual(320);
+        }
+        await expectAxeClean(page, "main", `${locale} learner`);
+        expect(violations, "no policy violation").toEqual([]);
+      } finally {
+        await context.close();
+      }
+    });
+
+    test(`R4-E14 (${locale}): the document card with its link form, at 320 px and on a desktop: axe clean, no sideways scroll, no policy violation`, async ({
+      browser,
+    }) => {
+      needsTables();
+      const context = await browser.newContext();
+      const violations = await collectViolations(context);
+      await signIn(context, staffer.sessionToken);
+      const page = await context.newPage();
+      try {
+        for (const width of [1280, 320]) {
+          await page.setViewportSize({ width, height: 800 });
+          const lesson = await openLesson(page, R2.sectioned, sectioned.lessons.one, locale);
+          await openLinkForm(lesson);
+          await expectNoSidewaysScroll(page, `${locale} card at ${width}`);
+          await expectAxeClean(page, `#lesson-${sectioned.lessons.one}`, `${locale} card at ${width}`);
+        }
+        expect(violations, "no policy violation").toEqual([]);
+      } finally {
+        await context.close();
+      }
+    });
+  }
+
+  test("R4-E14: the link list by keyboard: a move and a publish toggle keep the focus on the row, and the status line says where the link went", async ({
+    browser,
+  }) => {
+    needsTables();
+    const staff = await as(browser, staffer);
+    const ids = [await addLink(R2.sectioned, sectioned.lessons.one, "key-1", { title: `E2E R4 keyboard one ${RUN}`, published: false })];
+    try {
+      const lesson = await openLesson(staff.page, R2.sectioned, sectioned.lessons.one);
+      const down = lesson.getByRole("button", { name: `Move “${sectioned.links!.shown.title}” down` });
+      await expect(async () => {
+        await down.focus();
+        await staff.page.keyboard.press("Enter");
+        await expect(lesson.getByText(/^Moved “R4 shown reading” to position 2 of \d+\.$/)).toBeVisible({ timeout: 3000 });
+      }).toPass({ timeout: 20_000 });
+      await expect(lesson.getByRole("button", { name: `Move “${sectioned.links!.shown.title}” down` })).toBeFocused();
+      const show = lesson.getByRole("button", { name: `Show to learners: E2E R4 keyboard one ${RUN}` });
+      await show.focus();
+      await staff.page.keyboard.press("Enter");
+      await expect(lesson.getByText(`“E2E R4 keyboard one ${RUN}” is shown to learners.`)).toBeVisible();
+      await expect(lesson.getByRole("button", { name: `Hide from learners: E2E R4 keyboard one ${RUN}` })).toBeFocused();
+      // Each arrow is a 24 × 24 target (WCAG 2.5.8).
+      const box = await down.boundingBox();
+      expect(box!.width).toBeGreaterThanOrEqual(24);
+      expect(box!.height).toBeGreaterThanOrEqual(24);
+    } finally {
+      await prisma.$executeRaw`DELETE FROM "LessonLink" WHERE "id" = ANY(${ids}::text[])`;
+      await staff.context.close();
+    }
+  });
+});
+
+/* -------------------------------------------- the action table's rows --- */
+
+describe("Release 4: the further-reading actions refuse who they must, and change nothing (spec 10.5, R4-E6)", () => {
+  let world: World;
+  let r4: R4Course;
+  let other: OtherProject;
+  const R4_SLUG = `e2e-r4b-table-${RUN}`;
+  const OTHER_SLUG = `e2e-r4b-other-${RUN}`;
+  const FULL = { id: ownLessonId(), label: { en: "Thirty links" } };
+
+  test.beforeAll(async () => {
+    world = await createWorld(prisma);
+    r4 = await seedR4Course(prisma, { slug: R4_SLUG });
+    other = await seedOtherProject(prisma, { slug: OTHER_SLUG });
+  });
+
+  test.afterAll(async () => {
+    if (world) await removeWorld(prisma, world);
+    await removeR4Course(prisma, R4_SLUG);
+    await removeOtherCourse(prisma, OTHER_SLUG);
+  });
+
+  const ctx = (who: Persona): Ctx => ({
+    world,
+    as: who,
+    target: world.people[targetOf(who)],
+    other: world.organisations[otherOrganisationOf(who)],
+    run: world.run,
+  });
+  const caller = (who: Persona) => (who === "anonymous" ? null : world.people[who]);
+  const page = `/en/content/courses/${R4_SLUG}`;
+
+  /** A checksum of every Lesson, LessonLink and LessonDocument row of the R4 course and the other project's course. */
+  async function rowsSum(): Promise<string> {
+    const [row] = await prisma.$queryRaw<{ sum: string }[]>`
+      SELECT coalesce(md5(string_agg(x, ',' ORDER BY x)), '') AS sum FROM (
+        SELECT md5(l::text) AS x FROM "Lesson" l WHERE l."courseSlug" IN (${R4_SLUG}, ${OTHER_SLUG})
+        UNION ALL SELECT md5(k::text) FROM "LessonLink" k JOIN "Lesson" l ON l."id" = k."lessonId" WHERE l."courseSlug" IN (${R4_SLUG}, ${OTHER_SLUG})
+        UNION ALL SELECT md5(d::text) FROM "LessonDocument" d JOIN "Lesson" l ON l."id" = d."lessonId" WHERE l."courseSlug" IN (${R4_SLUG}, ${OTHER_SLUG})
+      ) s`;
+    return row.sum;
+  }
+
+  const call = (request: APIRequestContext, who: Person, name: string, args: unknown[]): Promise<ActionAnswer> =>
+    callAction(request, { as: who, page, file: READING, name, args });
+
+  for (const row of readingRows.filter((r): r is CallRow => r.kind === "call")) {
+    for (const who of row.refuse) {
+      test(`${row.name} refuses ${who}${guardLabel(row, who)}`, async ({ request }) => {
+        const c = ctx(who);
+        const before = await snapshot(prisma, world, row.tables);
+        const answer = await callAction(request, {
+          as: caller(who),
+          page: typeof row.page === "string" ? row.page : row.page(c),
+          file: row.file,
+          name: row.name,
+          args: row.args(c),
+        });
+        const outcome = row.outcome(who);
+        const { ok, got } = matches(answer, outcome);
+        expect.soft(ok, `${row.name} as ${who}: answered ${JSON.stringify(got)}, wanted ${JSON.stringify(outcome)}`).toBe(true);
+        expect(await snapshot(prisma, world, row.tables), `${row.name} as ${who} changed nothing`).toEqual(before);
+      });
+    }
+  }
+
+  test("R4-E6 (guard): every hostile address sent through addLessonLink and updateLessonLink is refused by name, and nothing changes", async ({
+    request,
+  }) => {
+    expect((await r4Tables(prisma)).links, "the database has further-reading links (LessonLink)").toBe(true);
+    const EA = world.people.EA;
+    const linkId = r4.links!.shown.id;
+    for (const h of HOSTILE_ADDRESSES) {
+      const wanted =
+        typeof h.href === "string" ? { ok: false, error: "invalid", field: "url", reason: h.reason } : { ok: false, error: "bad-input" };
+      const before = await rowsSum();
+      const started = Date.now();
+      const added = await call(request, EA, "addLessonLink", [R4_SLUG, r4.lessons.one, { title: "The guide", url: h.href }]);
+      expect(added.result, `addLessonLink: ${h.name}`).toEqual(wanted);
+      const updated = await call(request, EA, "updateLessonLink", [
+        linkId,
+        { title: "The guide", url: h.href, description: "", languages: [] },
+      ]);
+      expect(updated.result, `updateLessonLink: ${h.name}`).toEqual(wanted);
+      expect(Date.now() - started, `${h.name}: answered in the actions' normal time`).toBeLessThan(10_000);
+      expect(await rowsSum(), `${h.name}: nothing changed`).toBe(before);
+    }
+    for (const title of MISLEADING_TITLES) {
+      const before = await rowsSum();
+      const wanted = { ok: false, error: "invalid", field: "title", reason: "misleading" };
+      expect((await call(request, EA, "addLessonLink", [R4_SLUG, r4.lessons.one, { title, url: MISLEADING_TITLE_URL }])).result, title).toEqual(wanted);
+      expect(
+        (await call(request, EA, "updateLessonLink", [linkId, { title, url: MISLEADING_TITLE_URL, description: "", languages: [] }])).result,
+        title
+      ).toEqual(wanted);
+      expect(await rowsSum(), `${title}: nothing changed`).toBe(before);
+    }
+  });
+
+  test("an editor's and a partner admin's bad arguments are refused, and change nothing", async ({ request }) => {
+    expect((await r4Tables(prisma)).links, "the database has further-reading links (LessonLink)").toBe(true);
+    // A lesson of the course's own with 30 links already: the 31st is refused.
+    await prisma.$executeRaw`
+      UPDATE "Course" SET "outline" = jsonb_set("outline", '{sections}', "outline"->'sections' || ${JSON.stringify([{ id: FULL.id, template: "text" }])}::jsonb)
+       WHERE "projectId" = ${PROJECT} AND "slug" = ${R4_SLUG}`;
+    await prisma.lesson.create({ data: { projectId: PROJECT, courseSlug: R4_SLUG, stageKey: FULL.id }, select: { id: true } });
+    for (let i = 0; i < LINK_LIMITS.perLesson; i++) await addLink(R4_SLUG, FULL.id, `full-${i}`, { published: false });
+    const links = r4.links!;
+    for (const who of ["EA", "PAA"] as const) {
+      const person = world.people[who];
+      const cases: [string, string, unknown[], unknown][] = [
+        ["a 201-character title", "addLessonLink", [R4_SLUG, r4.lessons.one, { title: "t".repeat(201), url: "https://example.org/x" }], { ok: false, error: "invalid", field: "title", reason: "too-long" }],
+        ["a 301-character description", "addLessonLink", [R4_SLUG, r4.lessons.one, { title: "T", url: "https://example.org/x", description: "d".repeat(301) }], { ok: false, error: "invalid", field: "description", reason: "too-long" }],
+        ["the 31st link", "addLessonLink", [R4_SLUG, FULL.id, { title: "T", url: "https://example.org/x" }], { ok: false, error: "too-many" }],
+        ["a lesson not in the list", "addLessonLink", [R4_SLUG, "s-zzzzzzzz", { title: "T", url: "https://example.org/x" }], { ok: false, error: "not-a-section" }],
+        ["a lesson of another project", "addLessonLink", [OTHER_SLUG, other.stageKey, { title: "T", url: "https://example.org/x" }], { ok: false, error: "not-found" }],
+        ["a link of another project", "updateLessonLink", [other.linkId, { title: "T", url: "https://example.org/x", description: "", languages: [] }], { ok: false, error: "not-found" }],
+        ["a link of another project", "removeLessonLink", [other.linkId], { ok: false, error: "not-found" }],
+        ["a link of another project", "setLessonLinkPublished", [other.linkId, false], { ok: false, error: "not-found" }],
+        ["an id of another lesson", "setLessonLinkOrder", [R4_SLUG, r4.lessons.two, [links.shown.id]], { ok: false, error: "not-found" }],
+        ["a missing id", "setLessonLinkOrder", [R4_SLUG, r4.lessons.one, [links.shown.id, links.hidden.id, links.de.id]], { ok: false, error: "not-found" }],
+        ["ids of another project", "setLessonLinkOrder", [OTHER_SLUG, other.stageKey, [other.linkId]], { ok: false, error: "not-found" }],
+        ["a language that isn't one", "setLessonDocumentLanguages", [r4.documents.all.id, ["fr"]], { ok: false, error: "bad-input" }],
+        ["languages that aren't a list", "setLessonDocumentLanguages", [r4.documents.all.id, "de"], { ok: false, error: "bad-input" }],
+        ["a document of another project", "setLessonDocumentLanguages", [other.documentId, ["de"]], { ok: false, error: "not-found" }],
+      ];
+      for (const [what, name, args, wanted] of cases) {
+        const before = await rowsSum();
+        const answer = await call(request, person, name, args);
+        expect(answer.error, `${who}, ${name}, ${what}: ${answer.raw.slice(0, 200)}`).toBeUndefined();
+        expect(answer.result, `${who}, ${name}, ${what}`).toEqual(wanted);
+        expect(await rowsSum(), `${who}, ${name}, ${what}: nothing changed`).toBe(before);
+      }
+      // Reading another project's lesson gives nothing.
+      expect((await call(request, person, "getLessonLinks", [OTHER_SLUG, other.stageKey])).result).toEqual({ links: [] });
+    }
+  });
+
+  test("editors, partner admins and ADMINs add, change, order, show, hide and remove a link, and set a document's languages (positive controls), each audited", async ({
+    request,
+  }) => {
+    expect((await r4Tables(prisma)).links, "the database has further-reading links (LessonLink)").toBe(true);
+    for (const who of ["EA", "PAA", "AD", "AS"] as const) {
+      const person = world.people[who];
+      const added = await call(request, person, "addLessonLink", [R4_SLUG, r4.lessons.two, { title: `${who} reading`, url: `https://example.org/${who}`, languages: ["de"] }]);
+      expect(added.result, who).toMatchObject({ ok: true, id: expect.any(String) });
+      const id = (added.result as { id: string }).id;
+      const row = await prisma.lessonLink.findUniqueOrThrow({ where: { id }, select: { published: true, languages: true } });
+      expect(row, `${who}: a draft, for German`).toEqual({ published: false, languages: ["de"] });
+      expect((await call(request, person, "updateLessonLink", [id, { title: `${who} reading 2`, url: `https://example.org/${who}/2`, description: "", languages: [] }])).result).toEqual({ ok: true });
+      expect((await call(request, person, "setLessonLinkOrder", [R4_SLUG, r4.lessons.two, [id]])).result).toEqual({ ok: true });
+      expect((await call(request, person, "setLessonLinkPublished", [id, true])).result).toEqual({ ok: true });
+      expect((await call(request, person, "setLessonLinkPublished", [id, false])).result).toEqual({ ok: true });
+      const read = (await call(request, person, "getLessonLinks", [R4_SLUG, r4.lessons.two])).result as { links: { id: string; title: string }[] };
+      expect(read.links.map((l) => [l.id, l.title])).toEqual([[id, `${who} reading 2`]]);
+      expect((await call(request, person, "removeLessonLink", [id])).result).toEqual({ ok: true });
+      expect((await call(request, person, "setLessonDocumentLanguages", [r4.documents.all.id, ["el"]])).result).toEqual({ ok: true });
+      expect((await call(request, person, "setLessonDocumentLanguages", [r4.documents.all.id, []])).result).toEqual({ ok: true });
+      const audit = await prisma.auditLog.findMany({ where: { actorId: person.userId }, orderBy: { createdAt: "asc" }, select: { action: true, metadata: true } });
+      expect(audit.map((a) => a.action)).toEqual([
+        "link.added",
+        "link.updated",
+        "link.reordered",
+        "link.published",
+        "link.unpublished",
+        "link.removed",
+        "document.languages_changed",
+        "document.languages_changed",
+      ]);
+      // Never a title or an address.
+      expect(JSON.stringify(audit)).not.toMatch(/reading|example\.org/);
+    }
   });
 });
