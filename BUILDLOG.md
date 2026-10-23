@@ -796,3 +796,9 @@ On `r2` after `828e647`. Nothing pushed (D100).
   - `db-backed-progress` on one worker: **57/57**;
   - Release 2's recorded walk on one worker: **7/7**;
   - the server logged only the known kinds: 12 "No signed-in learner", 2 "No signed-in user", 2 refused sign-ins (`AccessDenied`), and the `output: standalone` warning.
+
+### Release 2 — known limits of course and Comp Card saves: a page that goes with a save on its way (2026-10-24)
+On `r2` after `919063a`. Nothing pushed (D100). Documentation only.
+- `[DECISION]` The integrator's decision (a), 24 October: Release 2 keeps D37's 13 October acceptance for course and Comp Card saves alike — server actions run one at a time, and nothing sends a save outside that queue — as a known limit. Release 2 is live from 10 to 20 November for staff and test accounts only, and Release 3 closes the gap for both before the pilot (D37 as built, 24 October).
+- `[NOTE]` Known limit (course saves): a course save handed over while another is on its way waits behind it in Next's queue, and doesn't leave a page that goes before that one is answered; the tab's outbox brings it back when that tab is reloaded or opens the course again (D68), and nothing does once the tab is closed.
+- `[NOTE]` Known limit (Comp Card saves): a Comp Card save handed over while another is on its way waits behind it in Next's queue, and doesn't leave a page that goes before that one is answered, closed or reloaded; nothing keeps it, and the account holds what the save on its way carried.
