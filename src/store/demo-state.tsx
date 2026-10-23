@@ -16,7 +16,7 @@ import {
   claimGuestWork as claimGuestWorkAction,
 } from "@/app/actions/learner";
 import { COMP_CARD_FIELDS, type Sharing } from "@/lib/comp-card-visibility";
-import type { ClaimCardOutcome, ClaimCourseOutcome, GuestClaimResult, GuestText } from "@/lib/guest-claim";
+import { claimTooLarge, type ClaimCardOutcome, type ClaimCourseOutcome, type GuestClaimResult, type GuestText } from "@/lib/guest-claim";
 import type { Locale } from "@/lib/cms/types";
 import {
   answerQuestion,
@@ -1488,6 +1488,12 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
       if (unreadable && read !== null) removeGuestStoreIf(read);
       setGuestWork(null);
       setGuestWorkDone({ kind: "nothing" });
+      return;
+    }
+    // Too big for the server to take: said here, as the server would.
+    if (claimTooLarge(claim)) {
+      setGuestWork(readGuestWork());
+      setGuestWorkDone({ kind: "tooLarge" });
       return;
     }
     let answer: GuestClaimResult;

@@ -1410,7 +1410,7 @@
     "badgesIn": "{count, plural, one {Dein Abzeichen ist} other {Deine # Abzeichen sind}} in deinem Konto.",
     "badgesRefused": "{count, plural, one {Ein Abzeichen konnte} other {# Abzeichen konnten}} nicht zu deinem Konto hinzugefügt werden.",
     "keptStays": "Was nicht hinzugefügt wurde, bleibt in diesem Browser, bis du es entfernst.",
-    "changedMeanwhile": "In diesem Browser wurde inzwischen mehr gespeichert: Das bleibt in diesem Browser und wird dir wieder angeboten.",
+    "changedMeanwhile": "In diesem Browser wurde inzwischen mehr gespeichert: Das wurde nicht hinzugefügt und bleibt in diesem Browser.",
     "tooLong": "Nichts wurde hinzugefügt: {count, plural, one {Eine Antwort ist} other {# Antworten sind}} zu lang. Kürze sie oben und füge deine Arbeit dann noch einmal hinzu, oder entferne sie aus diesem Browser.",
     "tooLarge": "Nichts wurde hinzugefügt: Diese Arbeit ist zu groß zum Hinzufügen. Kürze oben deine längsten Antworten und füge sie dann noch einmal hinzu, oder entferne sie aus diesem Browser.",
     "otherAccount": "Nichts wurde hinzugefügt: In diesem Browser ist jetzt ein anderes Konto angemeldet.",

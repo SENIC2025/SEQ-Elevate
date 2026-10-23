@@ -445,6 +445,28 @@ describe("Release 3: guest work added to an account, part by part", () => {
     expect(await guestStore(page)).toBeNull();
   });
 
+  test("work too big for one request (past 1 MB) is said to be too big, before anything is sent", async ({ page, context }) => {
+    const person = await createPerson(prisma, { email: address("too-big") });
+    // 360,000 three-byte characters: over 1 MB as sent.
+    const HUGE = `huge-${RUN} ${"€".repeat(360_000)}`;
+    await guestCard(page, { wentWell: HUGE, difficult: "", confidence: 3 }, [BADGE]);
+    await signIn(context, person.sessionToken);
+    let sent = 0;
+    page.on("request", (r) => {
+      if (r.method() === "POST" && (r.postData() ?? "").includes(`huge-${RUN}`)) sent++;
+    });
+    await page.goto("/en/learner");
+    await addButton(page).click({ timeout: 20_000 });
+    expect(await outcome(page)).toBe(
+      "Nothing was added: this work is too big to add. Shorten your longest answers above, then add it again, or remove it from this browser."
+    );
+    await expect(region(page).getByRole("textbox", { name: "What went well" })).toHaveValue(HUGE);
+    expect(sent, "never sent").toBe(0);
+    expect(await cardOf(person.userId)).toBeNull();
+    expect((await account(person.userId)).badges).toEqual([]);
+    expect(await guestStore(page)).toMatchObject({ wentWell: HUGE, badges: [BADGE] });
+  });
+
   test("another device's first save of the course and of the Comp Card, still on its way when the work is added, stays the account's", async ({
     page,
     context,

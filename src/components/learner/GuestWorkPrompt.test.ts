@@ -168,7 +168,7 @@ describe("GuestWorkPrompt: what became of the work", () => {
     expect(said(claimed({ course: course("moved"), compCard: "already", badgesAlready: 1 })).text).toBe("Added to your account.");
     expect(said(claimed({ course: course("already"), compCard: "already", badgesAlready: 1 })).text).toBe("It's already in your account.");
     expect(said(claimed({ course: course("moved"), more: true })).text).toBe(
-      "Added to your account. More was saved on this browser while this was being added: it stays on this browser, and is offered again."
+      "Added to your account. More was saved on this browser while this was being added: that wasn't added, and stays on this browser."
     );
   });
 

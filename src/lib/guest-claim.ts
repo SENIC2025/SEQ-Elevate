@@ -195,6 +195,13 @@ function parseCoursePatch(raw: unknown, now: Date): { patch: ParsedPatch; unread
   return { patch: { completed: done, answers: taken, completedAt: at, fill: false, refused: [] }, unreadable };
 }
 
+/**
+ * Too big to add (the server answers "too-large", parseGuestClaim): the
+ * browser says so before sending it, so a claim past a server action's
+ * 1 MB body is never sent to be turned away unanswered.
+ */
+export const claimTooLarge = (claim: unknown): boolean => (jsonLength(claim) ?? Infinity) > CLAIM_LIMITS.jsonChars;
+
 /** A claim from the browser, checked (`now` is the server's time). */
 export function parseGuestClaim(raw: unknown, now: Date): ParseClaimResult {
   const bad = { ok: false as const, error: "bad-input" as const };

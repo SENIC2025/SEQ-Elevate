@@ -377,7 +377,7 @@ describe("Release 3: a guest's page kept the guest's while the work is added in 
       release();
       await expect(prompt.getByRole("status")).not.toHaveText(/^(|Saving…)$/, { timeout: 45_000 });
       expect.soft((await prompt.getByRole("status").textContent())?.trim()).toBe(
-        "Added to your account. More was saved on this browser while this was being added: it stays on this browser, and is offered again."
+        "Added to your account. More was saved on this browser while this was being added: that wasn't added, and stays on this browser."
       );
       // In the account as it was read; the course finished since stays in the browser.
       expect(await enrolment(person.userId)).toEqual({ completed: false, stages: 6 });

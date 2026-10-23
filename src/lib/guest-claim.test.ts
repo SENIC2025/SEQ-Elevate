@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { maxOf, parseGuestClaim, sameText, tooLongIn } from "./guest-claim";
+import { claimTooLarge, maxOf, parseGuestClaim, sameText, tooLongIn } from "./guest-claim";
 
 /*
  * Release 3 (D79, D80, D62.d): what "Add it to my account" sends is checked
@@ -93,6 +93,9 @@ describe("parseGuestClaim", () => {
       Array.from({ length: 70 }, (_, i) => [`s-abcde${String(i).padStart(3, "0")}/main`, { type: "reflection", text: { q: "z".repeat(4500) } }])
     );
     expect(parseGuestClaim({ claim: 1, course: { slug: "c", patch: { v: 2, answers } } }, NOW)).toEqual({ ok: false, error: "too-large" });
+    // The browser says so before sending it (a claim past 1 MB never reaches the action).
+    expect(claimTooLarge({ claim: 1, course: { slug: "c", patch: { v: 2, answers } } })).toBe(true);
+    expect(claimTooLarge({ claim: 1, course: { slug: "c", patch } })).toBe(false);
     for (const bad of [
       null,
       [],
