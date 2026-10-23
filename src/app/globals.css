@@ -275,6 +275,20 @@ a.seq-link:focus-visible {
   html[data-contrast="true"] .seq-link {
     text-decoration-thickness: 2px;
   }
+  /* Every link in lesson text stands where it is in the sentence, whatever
+     the direction of the text around it: an invisible left-to-right mark
+     just inside each end, outside the editor (where the caret goes). So no
+     right-to-left character around or in a link, visible or not, moves the
+     link, its words or its site's box among the other links of a line, or
+     splits a link across lines around another; inside it, right-to-left
+     words still read right to left, and its box comes after them. The
+     marks are drawn, never copied or stored, and no screen reader hears
+     them (the empty alternative text after "/"). */
+  .seq-prose:not(.rt-editor) .seq-link::before,
+  .seq-prose:not(.rt-editor) .seq-link::after {
+    content: "\200E";
+    content: "\200E" / "";
+  }
 
   /* The site a named link opens (RichTextView, link-site.ts; the owner's
      decision of 22 October 2026): after the link's words, inside the link,

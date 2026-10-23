@@ -1,12 +1,13 @@
 import { describe, it, expect } from "vitest";
-import { linkSite, textIsSite } from "./link-site";
+import { linkSite, linkWords, textIsSite } from "./link-site";
 import { checkLinkHref, MAX_HREF_CHARS } from "./link-url";
 
 /*
  * The site label (the owner's decision of 22 October 2026: learners see the
  * site each named link opens, in a small box after the link's words; D104,
- * D105): what the box says (linkSite), and when the link's words already
- * are its address, so the box is left out (textIsSite).
+ * D105): what the box says (linkSite), when the link's words already are
+ * its address, so the box is left out (textIsSite), and the words as drawn
+ * before it (linkWords).
  */
 
 /** Addresses of every kind the address check has a rule for, accepted and refused. */
@@ -95,9 +96,25 @@ describe("linkSite: the site a web link opens, as learners see it", () => {
     expect(linkSite("https://abc123.public.blob.vercel-storage.com/handout.pdf")).toBe("vercel-storage.com");
   });
 
-  it("is none for an email link, and for anything the address check refuses", () => {
-    expect(linkSite("mailto:help@example.org")).toBeNull();
-    expect(linkSite("mailto:help@example.org?subject=Hi")).toBeNull();
+  it("is the site of an email link's domain, told the same way: its registrable domain, without www., in punycode", () => {
+    expect(linkSite("mailto:help@example.org")).toBe("example.org");
+    expect(linkSite("mailto:help@example.org?subject=Hi")).toBe("example.org");
+    expect(linkSite("MAILTO:Help@Example.ORG")).toBe("example.org");
+    expect(linkSite("mailto:info@evil.example")).toBe("evil.example");
+    expect(linkSite("mailto:press@www.bbc.co.uk")).toBe("bbc.co.uk");
+    expect(linkSite("mailto:info@minedu.gov.gr")).toBe("minedu.gov.gr");
+    expect(linkSite("mailto:info@gov.gr")).toBe("gov.gr");
+    // Another site's name in front of the address's: the box names the address's.
+    expect(linkSite("mailto:support@paypal.com.evil.example")).toBe("evil.example");
+    expect(linkSite("mailto:info@bücher.example")).toBe("xn--bcher-kva.example");
+    expect(linkSite("mailto:Info@Bücher.Example")).toBe("xn--bcher-kva.example");
+    // A look-alike: Cyrillic "а" in a Latin name.
+    expect(linkSite("mailto:service@pаypal.com")).toBe("xn--pypal-4ve.com");
+  });
+
+  it("is none for anything the address check refuses", () => {
+    expect(linkSite(`mailto:help@${"a".repeat(64)}.example`)).toBeNull();
+    expect(linkSite("mailto:help@localhost")).toBeNull();
     expect(linkSite("javascript:alert(1)")).toBeNull();
     expect(linkSite("https://user:pw@example.org/")).toBeNull();
     expect(linkSite("https://intranet/x")).toBeNull();
@@ -109,8 +126,16 @@ describe("linkSite: the site a web link opens, as learners see it", () => {
     let web = 0;
     for (const input of ADDRESSES) {
       const check = checkLinkHref(input);
-      if (!check.ok || check.kind !== "web") {
+      if (!check.ok) {
         expect(linkSite(input), input.slice(0, 60)).toBeNull();
+        continue;
+      }
+      if (check.kind === "email") {
+        // The domain after the address's "@", in punycode: the box ends it, at a dot.
+        const domain = new URL(`https://${check.href.slice(check.href.indexOf("@") + 1).split("?")[0]}`).hostname;
+        const site = linkSite(check.href);
+        expect(site, check.href).toMatch(/^[a-z0-9.-]+$/);
+        expect(domain === site || domain.endsWith(`.${site}`), `${domain} / ${site}`).toBe(true);
         continue;
       }
       web++;
@@ -127,10 +152,16 @@ describe("linkSite: the site a web link opens, as learners see it", () => {
 
   it("takes time in proportion to the address: the longest address in well under a millisecond", () => {
     const longest = `https://${"a".repeat(63)}.example/${"b".repeat(1_900)}`;
-    linkSite(longest);
-    const started = performance.now();
-    for (let i = 0; i < 100; i++) linkSite(longest);
-    expect((performance.now() - started) / 100).toBeLessThan(1);
+    // The longest email addresses: a local part of 1,950 characters; a domain of 253 distinct letters, the longest the check takes.
+    const label = (from: number) => Array.from({ length: 63 }, (_, i) => String.fromCodePoint(from + i)).join("");
+    const mailbox = `mailto:${"a".repeat(1_950)}@example.org`;
+    const domain = `mailto:help@${label(0x4e00)}.${label(0x4f00)}.${label(0x5000)}.${label(0x5100).slice(0, 53)}.example`;
+    for (const href of [longest, mailbox, domain]) {
+      expect(linkSite(href), href.slice(0, 40)).not.toBeNull();
+      const started = performance.now();
+      for (let i = 0; i < 100; i++) linkSite(href);
+      expect((performance.now() - started) / 100, href.slice(0, 40)).toBeLessThan(1);
+    }
   });
 });
 
@@ -218,10 +249,40 @@ describe("textIsSite: the link's words are its address, so the box is left out",
     expect(textIsSite("אתר example.org/guide", GUIDE)).toBe(false);
   });
 
-  it("is false for an email link and for any address the check refuses (they show no box)", () => {
-    expect(textIsSite("help@example.org", "mailto:help@example.org")).toBe(false);
-    expect(textIsSite("mailto:help@example.org", "mailto:help@example.org")).toBe(false);
+  it("is true for an email link whose words, as a whole, are its address, and false for any other words", () => {
+    const HELP = "mailto:help@example.org";
+    for (const [text, href] of [
+      ["help@example.org", HELP],
+      [" HELP@Example.ORG ", HELP],
+      ["mailto:help@example.org", HELP],
+      ["MAILTO:help@example.org", HELP],
+      ["help@example.org", "mailto:help@example.org?subject=Course"],
+      ["Help@Example.org", "mailto:help@EXAMPLE.org"],
+    ]) {
+      expect(textIsSite(text, href), `${text} over ${href}`).toBe(true);
+    }
+    for (const [text, href] of [
+      ["our team", HELP],
+      ["GOV.UK", "mailto:info@evil.example"],
+      ["help@example.org today", HELP],
+      ["Write to help@example.org", HELP],
+      ["help@example.org.", HELP],
+      ["other@example.org", HELP],
+      ["help@example.org", "mailto:help@sub.example.org"],
+      ["example.org", HELP],
+      ["mailto:help@example.org?subject=Course", "mailto:help@example.org?subject=Course"],
+      // Anything but printable ASCII keeps the box: it shows the domain in punycode.
+      ["info@bücher.example", "mailto:info@bücher.example"],
+      ["help@exam​ple.org", HELP],
+      ["help@ｅxample.org", HELP],
+    ]) {
+      expect(textIsSite(text, href), `${text} over ${href}`).toBe(false);
+    }
+  });
+
+  it("is false for any address the check refuses (it shows no box)", () => {
     expect(textIsSite("javascript:alert(1)", "javascript:alert(1)")).toBe(false);
+    expect(textIsSite("help@localhost", "mailto:help@localhost")).toBe(false);
     expect(textIsSite("", GUIDE)).toBe(false);
     expect(textIsSite("   ", GUIDE)).toBe(false);
   });
@@ -234,6 +295,58 @@ describe("textIsSite: the link's words are its address, so the box is left out",
       const started = performance.now();
       for (let i = 0; i < 10; i++) expect(textIsSite(text, href)).toBe(false);
       expect((performance.now() - started) / 10, text.slice(0, 20)).toBeLessThan(10);
+    }
+  });
+});
+
+describe("linkWords: a named link's words as drawn before its box, no blank pushing the box away", () => {
+  it("draws each run of blank characters as one space: whitespace, the braille blank, the Hangul fillers, the interlinear annotation marks", () => {
+    for (const blank of [" ", "\u00A0", "\u2003", "\u3000", "\u202F", "\u2800", "\u3164", "\uFFA0", "\u115F", "\u1160", "\uFFF9", "\uFFFB"]) {
+      const name = `U+${blank.codePointAt(0)!.toString(16).toUpperCase()}`;
+      expect(linkWords([`Sign in to PayPal${blank.repeat(1_500)}`]), name).toEqual(["Sign in to PayPal "]);
+      expect(linkWords([`Sign in${blank.repeat(3)}to PayPal`]), name).toEqual(["Sign in to PayPal"]);
+      expect(linkWords([`${blank.repeat(1_500)}Sign in`]), name).toEqual([" Sign in"]);
+    }
+    expect(linkWords(["Sign in to PayPal \u2003\u2800\u3164\u00A0 ."])).toEqual(["Sign in to PayPal ."]);
+  });
+
+  it("counts what shows nothing among the blanks as part of their run", () => {
+    expect(linkWords([`Sign in to PayPal${" \u200B".repeat(800)}`])).toEqual(["Sign in to PayPal "]);
+    expect(linkWords([`Sign in to PayPal${"\u2003\u2060\uFE0F\u00AD".repeat(500)}x`])).toEqual(["Sign in to PayPal x"]);
+  });
+
+  it("draws one run across the link's parts (bold, italic) as one space", () => {
+    expect(linkWords(["Sign in to PayPal", ...Array.from({ length: 300 }, () => "\u2003"), "."])).toEqual([
+      "Sign in to PayPal",
+      " ",
+      ...Array.from({ length: 299 }, () => ""),
+      ".",
+    ]);
+    expect(linkWords(["the ", "\u200B", " guide"])).toEqual(["the ", "", "guide"]);
+    expect(linkWords(["the", " ", "guide"])).toEqual(["the", " ", "guide"]);
+  });
+
+  it("keeps one space, one no-break space and one narrow no-break space as typed, and every other character", () => {
+    for (const words of [
+      "the guide",
+      "10\u00A0km on foot",
+      "Rapport d\u2019activit\u00E9\u202F: 2025",
+      "\u{1F469}\u200D\u{1F4BB} the coder's guide \u2764\uFE0F",
+      "\u05D4\u05DE\u05D3\u05E8\u05D9\u05DA",
+      "a\u200Bb",
+      "",
+    ]) {
+      expect(linkWords([words]), JSON.stringify(words)).toEqual([words]);
+    }
+  });
+
+  it("takes time in proportion to the words: 10,000 characters in well under 10 ms", () => {
+    for (const words of [" ".repeat(10_000), " \u200B".repeat(5_000), "a ".repeat(5_000), "\u2003\u00AD".repeat(5_000)]) {
+      const parts = [words.slice(0, 5_000), words.slice(5_000)];
+      linkWords(parts);
+      const started = performance.now();
+      for (let i = 0; i < 10; i++) linkWords(parts);
+      expect((performance.now() - started) / 10, JSON.stringify(words.slice(0, 4))).toBeLessThan(10);
     }
   });
 });
