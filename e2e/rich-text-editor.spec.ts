@@ -2,6 +2,18 @@ import { test, expect, type Locator, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { Prisma, PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
+import {
+  LIBREOFFICE_REVIEW,
+  LIBREOFFICE_REVIEW_READS,
+  LIBREOFFICE_REVIEW_TEXT,
+  REVIEW_LEFT_OUT,
+  WORD_ONLINE_REVIEW,
+  WORD_ONLINE_REVIEW_READS,
+  WORD_ONLINE_REVIEW_TEXT,
+  WORD_REVIEW,
+  WORD_REVIEW_READS,
+  WORD_REVIEW_TEXT,
+} from "./fixtures/paste/review-marks";
 import { createPerson } from "./fixtures/people";
 
 /**
@@ -873,5 +885,46 @@ describe("Rich text — the lesson text editor", () => {
       "What went well?",
       "What would you change?",
     ]);
+  });
+
+  test("pasting a reviewed text: tracked deletions and comments never arrive, tracked insertions do (Word, Word for the web, LibreOffice)", async ({
+    page,
+    context,
+  }) => {
+    await seedConcept([{ kind: "paragraph", text: "Intro." }]);
+    await useSession(context, editorSession);
+    const { region, blocks } = await openLesson(page);
+
+    const pasteInto = async (n: number, data: Record<string, string>) => {
+      await addBlock(region, /^paragraph$/i);
+      await expect(blocks).toHaveCount(n + 1);
+      const box = blocks.nth(n).getByRole("textbox", { name: /^paragraph text$/i });
+      await expect(box).toBeFocused({ timeout: 15000 });
+      await paste(box, data);
+      return box;
+    };
+    // Each line as a learner reads it: the changes accepted, the list
+    // point a reviewer deleted gone, the comment and its "[MT1]" gone.
+    const lines = (box: Locator) => box.locator(":scope > p, :scope > ul > li");
+    const word = await pasteInto(1, { "text/html": WORD_REVIEW, "text/plain": WORD_REVIEW_TEXT });
+    await expect(lines(word)).toHaveText([...WORD_REVIEW_READS]);
+    const online = await pasteInto(2, { "text/html": WORD_ONLINE_REVIEW, "text/plain": WORD_ONLINE_REVIEW_TEXT });
+    await expect(lines(online)).toHaveText([WORD_ONLINE_REVIEW_READS]);
+    const office = await pasteInto(3, { "text/html": LIBREOFFICE_REVIEW, "text/plain": LIBREOFFICE_REVIEW_TEXT });
+    await expect(lines(office)).toHaveText([LIBREOFFICE_REVIEW_READS]);
+    for (const box of [word, online, office]) {
+      for (const gone of REVIEW_LEFT_OUT) await expect(box).not.toContainText(gone);
+    }
+
+    await save(region);
+    const saved = await savedBlocks();
+    expect(saved).toHaveLength(4);
+    for (const block of saved.slice(1)) {
+      for (const gone of REVIEW_LEFT_OUT) expect(plainSpaces(block.text)).not.toContain(gone);
+    }
+    expect(plainSpaces(saved[1].text)).toContain("Der Kurs dauert vier Wochen.");
+    expect(plainSpaces(saved[1].text)).toContain("• Anmeldung bis Freitag\n• Unterlagen mitbringen");
+    expect(plainSpaces(saved[2].text).trim()).toBe(WORD_ONLINE_REVIEW_READS);
+    expect(plainSpaces(saved[3].text).trim()).toBe(LIBREOFFICE_REVIEW_READS);
   });
 });
