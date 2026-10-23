@@ -127,6 +127,17 @@ describe("LessonFurtherReading", () => {
     expect(linkNames(render([link("a", { title: "example.org/a and more" })]))).toEqual(["example.org/a and more, example.org (opens in a new tab)"]);
   });
 
+  it("draws each run of blank characters in a title as one space, so no blank pushes the box away from its words", () => {
+    for (const blank of [" ", " ", "　", "⠀", "ㅤ", " ​"]) {
+      const title = `Sign in to PayPal${blank.repeat(180)}`.slice(0, 200);
+      const html = render([link("x", { url: "https://evil.example/login", title })]);
+      expect(linkNames(html), JSON.stringify(blank)).toEqual(["Sign in to PayPal , evil.example (opens in a new tab)"]);
+    }
+    // Words between blanks stay; one no-break space stays as typed.
+    const html = render([link("x", { title: `the${" ".repeat(40)}guide to it` })]);
+    expect(html).toContain(`<span class="font-medium">the guide to it</span>${siteBox("example.org")}`);
+  });
+
   it("shows an international site in punycode, as the address check normalised it", () => {
     const html = render([link("idn", { url: "https://xn--mnchen-3ya.example/kurs", title: "München" })]);
     expect(html).toContain(siteBox("xn--mnchen-3ya.example"));
