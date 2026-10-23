@@ -1,5 +1,8 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { test, expect, type Browser, type BrowserContext, type Page } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
+import ts from "typescript";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { createPerson, removePeople, runId, signIn, type Person } from "./fixtures/people";
 import { PROJECT, narrative, ownLessonId, type R2LessonSeed } from "./fixtures/r2-course";
@@ -7,6 +10,8 @@ import { removeECourse, seedECourse } from "./fixtures/r3-e-course";
 import { STORED_LINK_URLS } from "./fixtures/r4-hostile-links";
 import { r4Tables, removeR4Course, seedDocuments, seedR4Course, type R4Course, type R4Tables } from "./fixtures/r4-course";
 import { builtActionsOf } from "./fixtures/server-action";
+import { LINK_LIMITS, cleanLinkLine, titleMisleads, titleShowsNothing } from "../src/lib/cms/lesson-links";
+import { checkLinkHref } from "../src/lib/rich-text/link-url";
 import de from "../src/messages/de.json";
 import el from "../src/messages/el.json";
 import en from "../src/messages/en.json";
@@ -19,6 +24,11 @@ import en from "../src/messages/en.json";
  *           learner's page, neither its HTML nor the data the player gets;
  *           shown, it does; hidden again, it's gone. Stored addresses the
  *           address check refuses never reach the page (guard).
+ *   R4-E9b  a link whose path holds "^", 2,041 characters as the URL
+ *           standard writes it (2,081 as Chrome's parser does), stored as
+ *           the add action stores it and served to the learner, has its
+ *           site in the box in the learner's browser (the owner's decision
+ *           of 22 October 2026).
  *   R4-E10  a lesson of the course's own whose only material is further
  *           reading isn't one learners get; a learner's place, progress
  *           and completion are the same before and after links are added
@@ -122,6 +132,43 @@ async function linkCount(slug: string, stageKey: string) {
 function needsReading() {
   expect(tables.links, "the database has further-reading links (LessonLink)").toBe(true);
   expect(tables.documentLanguages, "documents have languages (LessonDocument.languages)").toBe(true);
+}
+
+/* -------------------------------------------- the box in the browser --- */
+
+/** The site box's functions, as LessonFurtherReading asks them in the learner's browser. */
+type LinkModules = {
+  linkSite(href: string): string | null;
+  textIsSite(text: string, href: string): boolean;
+  checkLinkHref(href: string): { ok: boolean };
+};
+/** link-site.ts and the modules it imports, from this branch's source. */
+const LINK_MODULES = ["link-site", "link-url", "link-text", "link-host", "top-level-domains"];
+
+/**
+ * Opens, in `page`, a page of the e2e server's origin that holds this
+ * branch's link-site.ts and link-url.ts as Chrome runs them: each module
+ * transpiled from its source (types removed) and served under
+ * /__link-modules/ to this page only, never by the server. Further reading
+ * is drawn by LessonFurtherReading, which asks linkSite and textIsSite in
+ * the browser; the list's place on the learner's screens comes with R2
+ * (spec 4.5, 9.3).
+ */
+async function openLinkModules(page: Page) {
+  await page.route("**/__link-modules/**", async (route) => {
+    const name = new URL(route.request().url()).pathname.slice("/__link-modules/".length);
+    if (name === "index.html") {
+      const load = `import * as site from "./link-site.js"; import * as url from "./link-url.js"; window.linkModules = { ...site, ...url };`;
+      return route.fulfill({ contentType: "text/html", body: `<!doctype html><meta charset="utf-8"><title>Links</title><script type="module">${load}</script>` });
+    }
+    const file = name.replace(/\.js$/, "");
+    if (!LINK_MODULES.includes(file)) return route.fulfill({ status: 404, body: "" });
+    const source = readFileSync(path.join(__dirname, "../src/lib/rich-text", `${file}.ts`), "utf8");
+    const { outputText } = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 } });
+    return route.fulfill({ contentType: "text/javascript", body: outputText.replace(/ from "\.\/([\w-]+)";/g, ' from "./$1.js";') });
+  });
+  await page.goto("/__link-modules/index.html");
+  await page.waitForFunction(() => "linkModules" in window);
 }
 
 /* ------------------------------------------------------- the screens --- */
@@ -263,6 +310,58 @@ describe("Release 4: further reading and a language per document or link (Stream
       await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
     } finally {
       await prisma.$executeRaw`DELETE FROM "LessonLink" WHERE "id" = ANY(${hostile.map((h) => h.id)}::text[])`;
+      await context.close();
+    }
+  });
+
+  test("R4-E9b: a link whose path holds ^ near 2,048 characters has its site in the box in the learner's browser, as on the server", async ({
+    browser,
+  }) => {
+    needsReading();
+    const title = "PayPal – sign in";
+    const address = `https://evil.example/${"a".repeat(2_000)}${"^".repeat(20)}`;
+    // As the add action stores it (lesson-reading.ts, readLinkFields): the title cleaned and showing something, the
+    // address as the check normalises it, the title no other address than the link opens.
+    const cleanTitle = cleanLinkLine(title, LINK_LIMITS.title) ?? "";
+    expect(titleShowsNothing(cleanTitle)).toBe(false);
+    const check = checkLinkHref(address);
+    expect(check).toMatchObject({ ok: true, href: address, ownFile: false });
+    expect(titleMisleads(cleanTitle, address)).toBe(false);
+    const id = await addLink(SLUG.mixed, mixed.lessons.one, "signs", { title: cleanTitle, url: address });
+    const { context, page } = await as(browser, learner);
+    try {
+      // The learner's page gets it, its address as the check normalised it.
+      const html = await served(page, `/en/learner/course/${SLUG.mixed}`);
+      expect(html).toContain(address);
+
+      // In the learner's browser: its title link drawn as LessonFurtherReading draws a web link's, its words, then the
+      // site's box, left out only when the words are its address.
+      await openLinkModules(page);
+      const chrome = await page.evaluate(({ url, words }) => {
+        const { linkSite, textIsSite, checkLinkHref } = (window as unknown as { linkModules: LinkModules }).linkModules;
+        const link = document.createElement("a");
+        link.href = url;
+        const span = document.createElement("span");
+        span.textContent = words;
+        link.append(span);
+        const site = linkSite(url);
+        if (site !== null && !textIsSite(words, url)) {
+          const sep = document.createElement("span");
+          sep.className = "seq-link-sep";
+          sep.textContent = ", ";
+          const box = document.createElement("span");
+          box.className = "seq-link-site";
+          box.textContent = site;
+          link.append(sep, box);
+        }
+        document.body.append(link);
+        return { written: new URL(url).href.length, accepted: checkLinkHref(url).ok };
+      }, { url: address, words: cleanTitle });
+      // Chrome's parser writes the twenty "^" as "%5E": 2,081 characters.
+      expect(chrome).toEqual({ written: 2_081, accepted: true });
+      await expect(page.getByRole("link", { name: `${title}, evil.example` }).locator(".seq-link-site")).toHaveText("evil.example");
+    } finally {
+      await prisma.$executeRaw`DELETE FROM "LessonLink" WHERE "id" = ${id}`;
       await context.close();
     }
   });
