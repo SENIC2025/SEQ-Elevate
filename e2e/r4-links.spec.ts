@@ -66,11 +66,18 @@ import { addressProblem } from "@/lib/rich-text/sanitize";
  *          the server.
  *   R4-E15 the site each named link opens, in a box after its words and
  *          inside the link: heard as "words, site (opens in a new tab)",
- *          left out only when the words are the link's address, none for
- *          email links; on one line beside right-to-left words and after
- *          long ones, never past the edge at 320 px (zoomed 200 %), in
- *          forced colours, with the platform's high contrast and large
- *          text, and with text zoomed 200 %; axe-clean.
+ *          left out only when the words are the link's address, an email
+ *          link's its address's domain; on one line beside right-to-left
+ *          words and after long ones, never past the edge at 320 px
+ *          (zoomed 200 %), in forced colours, with the platform's high
+ *          contrast and large text, and with text zoomed 200 %; axe-clean.
+ *   R4-E15b (guard) no character in or around a named link moves its box
+ *          away from its words: right-to-left marks and letters around
+ *          links, one of them wrapping, and runs of blank characters in a
+ *          link's words; at 320, 640 and 1,280 px, each link's own box is
+ *          the first box after its words begin, beside their last visible
+ *          character or on the next line, and no blank opens a gap of more
+ *          than a line between its words.
  * R4-E4 (pasting) is in rich-text-editor.spec.ts.
  *
  * Requires a real database (E2E_DB=1). Seeds a course of its own, removed
@@ -1100,7 +1107,7 @@ describe("Release 4 — links in lesson text", () => {
         [RTL, "example.org"],
         [LONG_WORDS, "evil.example"],
         ["this one", LONG_SITE],
-        ["our team", null], // an email link
+        ["our team", "example.org"], // an email link: its address's domain
       ];
       for (const [words, site] of named) {
         const name = site ? `${words}, ${site} ${NEW_TAB}` : `${words} ${NEW_TAB}`;
@@ -1166,7 +1173,7 @@ describe("Release 4 — links in lesson text", () => {
         const { view, scroll, proseFits, boxes } = await layout();
         if (wholePage) expect(scroll, `${mode}: no sideways scroll`).toBeLessThanOrEqual(view);
         expect(proseFits, `${mode}: the lesson's text fits its column`).toBe(true);
-        expect(boxes.map((box) => box.site).sort(), mode).toEqual(["evil.example", "example.org", "example.org", LONG_SITE, "minedu.gov.gr"].sort());
+        expect(boxes.map((box) => box.site).sort(), mode).toEqual(["evil.example", "example.org", "example.org", "example.org", LONG_SITE, "minedu.gov.gr"].sort());
         for (const box of boxes) {
           const what = `${mode}: ${box.site.slice(0, 20)}`;
           expect(box.insideLink, what).toBe(true);
@@ -1215,6 +1222,113 @@ describe("Release 4 — links in lesson text", () => {
       // Text zoomed 200 % as well.
       await page.evaluate(() => (document.documentElement.style.fontSize = "200%"));
       await check("text 200 %", { page: false });
+    } finally {
+      await context.close();
+    }
+  });
+
+  test("R4-E15b: no character in or around a named link moves its box away from its words: right-to-left marks and letters, blank characters, at 320, 640 and 1,280 px", async ({
+    browser,
+    baseURL,
+  }) => {
+    const EVIL = "https://evil.example/login";
+    const PAYPAL = "https://www.paypal.com/signin";
+    const RLM = "\u200F"; // right-to-left mark
+    const ALM = "\u061C"; // Arabic letter mark
+    const SOF_PASUQ = "\u05C3"; // Hebrew punctuation, right to left, drawn like a colon
+    const GERESH = "\u05F3"; // Hebrew punctuation, right to left, drawn like an apostrophe
+    const LOCK = "\u{1F512}";
+    const LONG = "Sign in to your PayPal account to confirm the payment";
+    type Run = { type: "text"; text: string; marks?: Record<string, unknown>[] };
+    const t = (text: string, href?: string, ...marks: string[]): Run =>
+      href ? { type: "text", text, marks: [...marks.map((type) => ({ type })), { type: "link", attrs: { href } }] } : { type: "text", text };
+    const scenarios: [string, Run[]][] = [
+      ["right-to-left marks", [t("Please "), t(`Sign in to PayPal${RLM}`, EVIL), t(`${RLM}${LOCK}${RLM}`, PAYPAL), t(`${RLM} today.`)]],
+      ["Arabic letter marks", [t("Please "), t(`Sign in to PayPal${ALM}`, EVIL), t(`${ALM}\u2192${ALM}`, PAYPAL), t(`${ALM} today.`)]],
+      ["right-to-left marks around a wrapping link", [t(`Please read this before you go on${RLM} `), t(`${LONG}${RLM}`, EVIL), t(`${RLM}${LOCK}${RLM}`, PAYPAL), t(`${RLM} today.`)]],
+      ["right-to-left punctuation around a wrapping link", [t(`Please read this before you go on${SOF_PASUQ} `), t(LONG, EVIL), t(LOCK, PAYPAL), t(`${GERESH} today.`)]],
+      ["Hebrew words", [t("\u05D4\u05EA\u05D7\u05D1\u05E8", EVIL), t(" \u05D5\u05D2\u05DD "), t("\u05E4\u05D9\u05D9\u05E4\u05DC", PAYPAL), t(" \u05D4\u05D9\u05D5\u05DD")]],
+      ["spaces", [t(`Sign in to PayPal${" ".repeat(1_500)}`, EVIL), t(" and read on.")]],
+      ["em spaces", [t(`Sign in to PayPal${"\u2003".repeat(1_500)}`, EVIL), t(" and read on.")]],
+      ["braille blanks", [t(`Sign in to PayPal ${"\u2800".repeat(1_500)}`, EVIL), t(" and read on.")]],
+      ["Hangul fillers", [t(`Sign in to PayPal${"\u3164".repeat(1_500)}`, EVIL), t(" and read on.")]],
+      ["spaces and zero-width spaces", [t(`Sign in to PayPal${" \u200B".repeat(800)}`, EVIL), t(" and read on.")]],
+      ["a box drawn in letters, then em spaces", [t(`Sign in to PayPal \u2595\u1D18\u1D00\u028F\u1D18\u1D00\u029F.\u1D04\u1D0F\u1D0D\u258F${"\u2003".repeat(1_500)}.`, EVIL), t(" and read on.")]],
+      ["em spaces in bold and italic parts", [t("Sign in to PayPal", EVIL), ...Array.from({ length: 300 }, (_, i) => t("\u2003", EVIL, i % 2 ? "bold" : "italic")), t(" and read on.")]],
+    ];
+    await setNarrative(
+      EDITED,
+      narrative(
+        "R4 links lesson",
+        scenarios.map(([, content]) => richBlock(paragraphDoc(content), content.map((part) => part.text).join("")))
+      )
+    );
+    const context = await browser.newContext({ baseURL, viewport: { width: 1280, height: 900 }, reducedMotion: "reduce" });
+    try {
+      await signIn(context, learner.sessionToken);
+      const page = await context.newPage();
+      await page.goto(`/en/learner/course/${SLUG}`);
+      await expect(main(page).getByRole("heading", { level: 2, name: "R4 links lesson" })).toBeVisible({ timeout: 20_000 });
+      await expect(main(page).locator(".seq-link-site")).toHaveCount(17);
+
+      for (const width of [320, 640, 1280]) {
+        await page.setViewportSize({ width, height: 900 });
+        const failures = await page.evaluate(() => {
+          // What draws nothing: blanks and invisible marks.
+          const BLANK = /[\s\u200B-\u200F\u061C\u2060\u2800\u3164\u115F\u1160\uFFA0\u00AD\uFE00-\uFE0F]/u;
+          const out: string[] = [];
+          for (const paragraph of document.querySelectorAll("main .seq-prose p")) {
+            if (!paragraph.getClientRects().length) continue;
+            const boxes = [...paragraph.querySelectorAll(".seq-link-site")].map((el) => ({ el, r: el.getBoundingClientRect() }));
+            for (const a of paragraph.querySelectorAll("a.seq-link")) {
+              const own = a.querySelector(".seq-link-site");
+              if (!own) continue;
+              const line = parseFloat(getComputedStyle(a).lineHeight);
+              const mid = (r: DOMRect) => (r.top + r.bottom) / 2;
+              // Reading order on screen: lines top to bottom, each left to right.
+              const sameLine = (x: DOMRect, y: DOMRect) => Math.abs(mid(x) - mid(y)) <= line / 2;
+              const order = (x: DOMRect, y: DOMRect) => (sameLine(x, y) ? x.left - y.left : mid(x) - mid(y));
+              const chars: DOMRect[] = [];
+              const walker = document.createTreeWalker(a, NodeFilter.SHOW_TEXT, {
+                acceptNode: (n) => (n.parentElement!.closest(".seq-link-sep, .seq-link-site, .sr-only") ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT),
+              });
+              for (let n = walker.nextNode() as Text | null; n; n = walker.nextNode() as Text | null) {
+                let at = 0;
+                for (const char of n.data) {
+                  if (!BLANK.test(char)) {
+                    const range = document.createRange();
+                    range.setStart(n, at);
+                    range.setEnd(n, at + char.length);
+                    chars.push([...range.getClientRects()].find((r) => r.width > 0) ?? range.getBoundingClientRect());
+                  }
+                  at += char.length;
+                }
+              }
+              const onScreen = chars.sort(order);
+              const first = onScreen[0];
+              const last = onScreen[onScreen.length - 1];
+              const box = own.getBoundingClientRect();
+              const name = `${a.getAttribute("href")} (${own.textContent}) in "${paragraph.textContent!.slice(0, 30)}"`;
+              // A: the first box at or after the words' first visible character is the link's own.
+              const after = boxes.filter((b) => order(b.r, first) >= -1).sort((x, y) => order(x.r, y.r));
+              if (after[0]?.el !== own) out.push(`${name}: the first box after its words begin is ${after[0]?.el.textContent ?? "none"}`);
+              // B: the box beside the last visible character, or on the next line.
+              const beside = sameLine(box, last) && box.left >= last.right - 2;
+              const below = mid(box) - mid(last) > line / 2 && mid(box) - mid(last) <= line * 1.5;
+              if (!beside && !below) out.push(`${name}: its box is ${Math.round(mid(box) - mid(last))}px from its last visible character`);
+              // C: no gap of more than a line between its visible characters.
+              for (let i = 1; i < onScreen.length; i++) {
+                if (mid(onScreen[i]) - mid(onScreen[i - 1]) > line * 1.5) {
+                  out.push(`${name}: its words jump ${Math.round(mid(onScreen[i]) - mid(onScreen[i - 1]))}px`);
+                  break;
+                }
+              }
+            }
+          }
+          return out;
+        });
+        expect(failures, `${width} px`).toEqual([]);
+      }
     } finally {
       await context.close();
     }
