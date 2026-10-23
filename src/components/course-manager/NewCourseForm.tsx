@@ -24,6 +24,12 @@ const labelCls = "block text-xs text-[var(--muted-foreground)]";
  * the four text lessons, as before.
  *
  * Used on "Create courses" and behind "New course" on the course grid.
+ *
+ * What an editor types before the page's scripts have run (a slow device
+ * or connection: the form is on screen first) is the form's from the
+ * start: the fields are read once as the page takes over, so a title
+ * typed then enables "Create draft" and stays when the next field is
+ * typed in.
  */
 export function NewCourseForm({
   locale,
@@ -41,6 +47,26 @@ export function NewCourseForm({
   const [full, setFull] = React.useState(false);
   const [pending, setPending] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const titleRef = React.useRef<HTMLInputElement>(null);
+  const taglineRef = React.useRef<HTMLInputElement>(null);
+  const clusterRef = React.useRef<HTMLInputElement>(null);
+  const durationRef = React.useRef<HTMLInputElement>(null);
+  const fullRef = React.useRef<HTMLInputElement>(null);
+
+  // Once, as the page takes over (before anything else can render): React
+  // leaves what was typed into the server's form on screen without telling
+  // the form, and the next render would put the form's empty values back.
+  React.useLayoutEffect(() => {
+    const typed = (ref: React.RefObject<HTMLInputElement | null>, set: (value: string) => void, initial: string) => {
+      const value = ref.current?.value;
+      if (value !== undefined && value !== initial) set(value);
+    };
+    typed(titleRef, setTitle, "");
+    typed(taglineRef, setTagline, "");
+    typed(clusterRef, setCluster, "");
+    typed(durationRef, setDuration, "20");
+    if (fullRef.current?.checked) setFull(true);
+  }, []);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -89,6 +115,7 @@ export function NewCourseForm({
         <label className={labelCls}>
           <span className="mb-1 block">Title</span>
           <input
+            ref={titleRef}
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             maxLength={120}
@@ -100,6 +127,7 @@ export function NewCourseForm({
         <label className={labelCls}>
           <span className="mb-1 block">Tagline</span>
           <input
+            ref={taglineRef}
             value={tagline}
             onChange={(e) => setTagline(e.target.value)}
             maxLength={200}
@@ -110,6 +138,7 @@ export function NewCourseForm({
         <label className={labelCls}>
           <span className="mb-1 block">Skill area</span>
           <input
+            ref={clusterRef}
             value={cluster}
             onChange={(e) => setCluster(e.target.value)}
             maxLength={60}
@@ -123,6 +152,7 @@ export function NewCourseForm({
             type="number"
             min={1}
             max={240}
+            ref={durationRef}
             value={duration}
             onChange={(e) => setDuration(e.target.value)}
             className={inputCls}
@@ -133,6 +163,7 @@ export function NewCourseForm({
       <label className="mt-3 flex min-h-6 items-start gap-2 text-sm">
         <input
           type="checkbox"
+          ref={fullRef}
           checked={full}
           onChange={(e) => setFull(e.target.checked)}
           className="mt-0.5 h-4 w-4 flex-shrink-0 accent-[var(--accent)]"
