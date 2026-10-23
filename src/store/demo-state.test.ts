@@ -215,4 +215,15 @@ describe("after guest work is added to the account (D79, Release 3 polish)", () 
     const s = reducer({ ...playing, compCard: edited }, { type: "cardAfterClaim", card: cardNow, before: cardBefore });
     expect(s.compCard).toEqual({ ...cardNow, improve: "Typed meanwhile", updatedAt: edited.updatedAt });
   });
+
+  it("another tab added the guest's card: this page reads the account's again, keeps what it changed and hasn't saved, and unions badges", () => {
+    const saved = { wentWell: "", difficult: "", improve: "", behaviour: "", confidence: 3 };
+    const here = { ...DEFAULT_STATE.compCard, improve: "Typed here", updatedAt: "2026-11-21T09:00:02.000Z" };
+    const s = reducer(
+      { ...playing, compCard: here, badges: ["earned-here"] },
+      { type: "accountReread", compCard: cardNow, saved, badges: ["moved-badge"] }
+    );
+    expect(s.compCard).toEqual({ ...cardNow, improve: "Typed here", updatedAt: here.updatedAt });
+    expect(s.badges).toEqual(["moved-badge", "earned-here"]);
+  });
 });

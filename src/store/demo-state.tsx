@@ -47,7 +47,15 @@ import {
   mergeCompCardOnHydrate,
   storedGuestState,
 } from "./progress-merge";
-import { cardToSave, guestClaimOf, guestWorkOf, storeAfterClaim, withText, type GuestWork } from "./guest-migration";
+import { guestClaimOf, guestWorkOf, storeAfterClaim, withText, type GuestWork } from "./guest-migration";
+import {
+  afterCardSave,
+  cardAfterReread,
+  cardChanges,
+  guestCardOrBadgesChanged,
+  savedCardOf,
+  type SavedCard,
+} from "./card-save";
 import { courseChanged, courseSaveRefs, saveCourse } from "./course-save";
 import { clearEveryOutbox, restoreOutbox } from "./outbox";
 import { pendingSave } from "./pending-save";
@@ -350,6 +358,7 @@ type Action =
    * move began (`before`: the card then).
    */
   | { type: "cardAfterClaim"; card: CompCardData; before: CompCardData }
+  | { type: "accountReread"; compCard: CompCardData | null; saved: SavedCard; badges: string[] }
   /**
    * `migrated`: the guest's course, when it moved into the account on
    * sign-in and this is its first load — the account's answers come first
@@ -610,6 +619,15 @@ export function reducer(state: DemoState, action: Action): DemoState {
       if (local.answers?.["assessment/main"]) course.assessment = state.course.assessment;
       return { ...state, course };
     }
+    case "accountReread":
+      // The account's card and badges read again (another tab changed
+      // them): the server's, but what was changed here and isn't saved yet
+      // stays (see card-save.ts); badges are a union.
+      return {
+        ...state,
+        badges: mergeBadges(action.badges, state.badges),
+        compCard: cardAfterReread(state.compCard, action.saved, action.compCard, DEFAULT_STATE.compCard),
+      };
     case "cardAfterClaim": {
       const now = state.compCard;
       const card: CompCardData = { ...action.card };
@@ -800,6 +818,9 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
   // copy may be older than what the learner has saved since, elsewhere.
   const courseScheduled = React.useRef<CourseProgress | null>(null);
   const cardScheduled = React.useRef<CompCardData | null>(null);
+  // What the server is known to hold of the Comp Card, and for whom: a
+  // save sends only what was changed here from it (card-save.ts).
+  const cardSaved = React.useRef<{ forUser: string; card: SavedCard } | null>(null);
   // The debounced saves, one waiting at a time each (see pending-save.ts).
   const [courseSave] = React.useState(() => pendingSave(700));
   const [cardSave] = React.useState(() => pendingSave(700));
@@ -879,6 +900,7 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
     badgeTries.current = new Map();
     courseScheduled.current = null;
     cardScheduled.current = null;
+    cardSaved.current = null;
     setDbOwner(null);
     setProfileIncomplete(false);
     setGuestWork(null);
@@ -1031,6 +1053,7 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
           compCard: global.compCard as CompCardData | null,
           badges: global.badges,
         });
+        cardSaved.current = { forUser, card: savedCardOf(global.compCard, DEFAULT_STATE.compCard) };
         // Only what the server holds. A badge earned while this loaded stays
         // in state (hydrateGlobal unions) but not here, so the badge
         // write-through below awards it.
@@ -1095,13 +1118,42 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
   // guest's stops writing at any change; a guest's page at its removal (two
   // guest tabs still write in turn, as they always have). A signed-in page
   // offers the work as the browser holds it now (none: no offer), unless
-  // its own "Add" is on its way.
+  // its own "Add" is on its way. Its Comp Card or badges having changed
+  // there — added to the account in another tab, perhaps — it reads the
+  // account's card and badges again (rereadAccount): it shows what the
+  // account holds, and a save or a sharing choice made on it is about that.
   const authedRef = React.useRef(authed);
   const hydratedRef = React.useRef(hydrated);
   React.useEffect(() => {
     authedRef.current = authed;
     hydratedRef.current = hydrated;
   }, [authed, hydrated]);
+  // Once the guest store has settled for a moment; one read at a time.
+  const rereadTimer = React.useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const rereadAccount = React.useCallback(() => {
+    clearTimeout(rereadTimer.current);
+    rereadTimer.current = setTimeout(async () => {
+      const forUser = dbOwnerRef.current;
+      if (!forUser) return;
+      let global: Awaited<ReturnType<typeof loadLearnerGlobal>>;
+      try {
+        global = await withRetry(() => loadLearnerGlobal());
+      } catch {
+        return; // the page goes on as it was: its saves send only what changed here
+      }
+      const saved = cardSaved.current;
+      if (dbOwnerRef.current !== forUser || saved?.forUser !== forUser) return;
+      dispatch({
+        type: "accountReread",
+        compCard: global.compCard as CompCardData | null,
+        saved: saved.card,
+        badges: global.badges,
+      });
+      cardSaved.current = { forUser, card: savedCardOf(global.compCard, DEFAULT_STATE.compCard) };
+      for (const slug of global.badges) persistedBadges.current.add(slug);
+    }, 250);
+  }, []);
+  React.useEffect(() => () => clearTimeout(rereadTimer.current), []);
   React.useEffect(() => {
     const onStorage = (e: StorageEvent) => {
       if (e.key !== STORAGE_KEY && e.key !== null) return;
@@ -1109,11 +1161,13 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
         if (guestPinnedRef.current || e.newValue === null) stopGuest();
         return;
       }
-      if (dbOwnerRef.current && !claimingRef.current) setGuestWork(readGuestWork());
+      if (!dbOwnerRef.current || claimingRef.current) return;
+      setGuestWork(readGuestWork());
+      if (e.key === null || guestCardOrBadgesChanged(e.oldValue, e.newValue)) rereadAccount();
     };
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
-  }, [stopGuest]);
+  }, [stopGuest, rereadAccount]);
 
   // ---- A guest's page kept the guest's: any other page is a full load ----
   // Every page after the sign-in is rendered for the account, so a page
@@ -1277,11 +1331,33 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
   }, [authed, dbOwner, state.course, courseSave, saveFor]);
 
   // ---- DB write-through: Comp Card (debounced) ----
-  // What is sent leaves out who sees the card (its own action, setSharing)
-  // and any text over the limit, which keeps its stored text while the
-  // learner is told it is too long; the other fields save (cardToSave).
-  // A change of who sees it alone (updatedAt and the texts as they were)
-  // isn't an edit, and sends nothing.
+  // What is sent is only what was changed here from what the server is
+  // known to hold (cardSaved), worked out when it is sent (card-save.ts):
+  // a card loaded, or read again, is not saved back, and a field another
+  // tab or device changed since is never written over with this page's
+  // older copy. It leaves out who sees the card (its own action,
+  // setSharing) and any text over the limit, which keeps its stored text
+  // while the learner is told it is too long (cardToSave). A change of who
+  // sees it alone (updatedAt and the texts as they were) isn't an edit, and
+  // sends nothing.
+  const saveCard = React.useCallback(async (card: CompCardData, forUser: string): Promise<void> => {
+    const saved = cardSaved.current;
+    if (saved?.forUser !== forUser) return;
+    const input = cardChanges(card, saved.card);
+    if (Object.keys(input).length === 0) return;
+    const answered = (answer: "ok" | "refused" | "failed") => {
+      const now = cardSaved.current;
+      if (now?.forUser === forUser) cardSaved.current = { forUser, card: afterCardSave(now.card, input, answer) };
+    };
+    let result: Awaited<ReturnType<typeof saveCompCard>>;
+    try {
+      result = await saveCompCard(input, forUser);
+    } catch (err) {
+      answered("failed");
+      throw err;
+    }
+    answered(result.ok ? "ok" : "refused");
+  }, []);
   React.useEffect(() => {
     if (!authed || !dbOwner || !state.compCard.updatedAt) return;
     const snap = state.compCard;
@@ -1290,8 +1366,8 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
     cardScheduled.current = snap;
     if (prev && prev.updatedAt === snap.updatedAt && sameCardText(prev, snap)) return;
     const forUser = dbOwner;
-    cardSave.schedule(() => saveCompCard(cardToSave(snap), forUser));
-  }, [authed, dbOwner, state.compCard, cardSave]);
+    cardSave.schedule(() => saveCard(snap, forUser));
+  }, [authed, dbOwner, state.compCard, cardSave, saveCard]);
 
   // ---- DB write-through: badges (append-only) ----
   // An award that doesn't get through (a dropped connection, a session
@@ -1470,6 +1546,7 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
     if (answer.card && inAccount(answer.compCard)) {
       // Not saved again: it is what the server holds (the write-through
       // sends only a field changed here meanwhile). Moved, it is Only me.
+      cardSaved.current = { forUser, card: savedCardOf(answer.card, DEFAULT_STATE.compCard) };
       const card: CompCardData =
         answer.compCard === "moved"
           ? { ...cardBefore, ...answer.card, sharing: "onlyMe", sharedAt: null, organisationName: null }

@@ -158,8 +158,14 @@ async function account(userId: string, slug = BUILT_IN) {
 const cardOf = (userId: string) =>
   prisma.compCard.findFirst({
     where: { userId },
-    select: { wentWell: true, difficult: true, confidence: true, privacy: true, sharedAt: true },
+    select: { wentWell: true, difficult: true, improve: true, confidence: true, privacy: true, sharedAt: true },
   });
+
+/** The Comp Card page's own text boxes (not the offer's). */
+const cardBox = (page: Page, placeholder: string) => page.getByRole("main").getByPlaceholder(placeholder, { exact: true });
+const WENT_WELL_BOX = "Even small wins count.";
+const DIFFICULT_BOX = "What was hard, and why?";
+const IMPROVE_BOX = "One thing.";
 
 /** A guest store holding a Comp Card (and these badges) and no course, put in once the page has written its own. */
 async function guestCard(page: Page, card: { wentWell: string; difficult: string; confidence: number }, badges: string[]) {
@@ -636,6 +642,98 @@ describe("Release 3: guest work added to an account, part by part", () => {
     await page.waitForTimeout(4000);
     expect(await account(person.userId)).toMatchObject({ completed: false, lessons: 1, p1: ACCOUNT_P1, p2: PHONE_P2, badges: [BADGE] });
     expect(said).toBe(`${COURSE_KEPT} ${BADGE_IN} ${STAYS}`);
+  });
+
+  for (const way of ["page", "link"] as const) {
+    test(`a second signed-in tab open before Add (${way === "page" ? "the Comp Card page" : "a dashboard that opens it"}): it shows the card that moved, and an edit there keeps it`, async ({
+      page,
+      context,
+    }) => {
+      const person = await createPerson(prisma, { email: address(`stale-${way}`) });
+      const MINE = `tab-b-improve-${RUN}`;
+      await guestCard(page, { wentWell: GUEST_W, difficult: GUEST_D, confidence: 4 }, []);
+      await signIn(context, person.sessionToken);
+      const other = await context.newPage();
+      await other.goto(way === "page" ? "/en/learner/comp-card" : "/en/learner");
+      if (way === "page") {
+        const onlyMe = other.getByRole("main").getByRole("button", { name: "Only me" });
+        await expect(onlyMe).not.toHaveAttribute("aria-disabled", "true", { timeout: 20_000 });
+      } else {
+        await expect(addButton(other)).toBeVisible({ timeout: 20_000 });
+      }
+      await page.goto("/en/learner");
+      await addButton(page).click({ timeout: 20_000 });
+      expect(await outcome(page)).toBe(ADDED);
+      expect(await guestStore(page)).toBeNull();
+      // Back in the other tab, which loaded before the card moved.
+      await other.bringToFront();
+      if (way === "link") {
+        await other.locator('a[href*="/learner/comp-card"]').first().click();
+        await other.waitForURL("**/learner/comp-card**", { timeout: 20_000 });
+      }
+      await expect(cardBox(other, WENT_WELL_BOX), "it shows the card the account holds now").toHaveValue(GUEST_W, { timeout: 15_000 });
+      await expect(cardBox(other, DIFFICULT_BOX)).toHaveValue(GUEST_D);
+      await cardBox(other, IMPROVE_BOX).fill(MINE);
+      await expect.poll(async () => (await cardOf(person.userId))?.improve, { timeout: 15_000 }).toBe(MINE);
+      await other.waitForTimeout(2000);
+      expect(await cardOf(person.userId)).toMatchObject({ wentWell: GUEST_W, difficult: GUEST_D, improve: MINE, confidence: 4, privacy: "SELF" });
+    });
+  }
+
+  test("another tab's Comp Card edit, on its way while Add moves the guest's card into a blank one, writes only what was edited", async ({
+    page,
+    context,
+  }) => {
+    const person = await createPerson(prisma, { email: address("edit-on-way") });
+    const MINE = `tab-b-improve-${RUN}`;
+    // A blank card, as choosing who sees it leaves one.
+    await prisma.compCard.create({ data: { userId: person.userId, projectId: "seq-elevate" } });
+    await guestCard(page, { wentWell: GUEST_W, difficult: GUEST_D, confidence: 4 }, []);
+    await signIn(context, person.sessionToken);
+    const other = await context.newPage();
+    await other.goto("/en/learner/comp-card");
+    await expect(other.getByRole("main").getByRole("button", { name: "Only me" })).not.toHaveAttribute("aria-disabled", "true", {
+      timeout: 20_000,
+    });
+    await other.waitForTimeout(2000);
+    // The other tab's edit is on its way (held) while this tab adds the guest's work.
+    const held = await holdAction(other, MINE);
+    try {
+      await cardBox(other, IMPROVE_BOX).fill(MINE);
+      await expect.poll(() => held.state.heldOnce, { timeout: 20_000 }).toBe(true);
+      await page.goto("/en/learner");
+      await addButton(page).click({ timeout: 20_000 });
+      expect(await outcome(page)).toBe(ADDED);
+    } finally {
+      held.release();
+    }
+    await expect.poll(async () => (await cardOf(person.userId))?.improve, { timeout: 15_000 }).toBe(MINE);
+    await other.waitForTimeout(2000);
+    expect(await cardOf(person.userId)).toMatchObject({ wentWell: GUEST_W, difficult: GUEST_D, improve: MINE, confidence: 4 });
+  });
+
+  test("a tab that loads the account's Comp Card sends nothing back: the guest's card added meanwhile stays", async ({ page, context }) => {
+    const person = await createPerson(prisma, { email: address("loaded-card") });
+    await prisma.compCard.create({ data: { userId: person.userId, projectId: "seq-elevate" } });
+    await guestCard(page, { wentWell: GUEST_W, difficult: GUEST_D, confidence: 4 }, []);
+    await signIn(context, person.sessionToken);
+    await page.goto("/en/learner");
+    await expect(addButton(page)).toBeVisible({ timeout: 20_000 });
+    // Another tab opens; any Comp Card save it makes of the card it loaded is held until the work is added.
+    const other = await context.newPage();
+    const held = await holdAction(other, '"wentWell":""');
+    try {
+      await other.goto("/en/learner");
+      await expect(addButton(other)).toBeVisible({ timeout: 20_000 });
+      await other.waitForTimeout(3000);
+      await addButton(page).click();
+      expect(await outcome(page)).toBe(ADDED);
+    } finally {
+      held.release();
+    }
+    await page.waitForTimeout(3000);
+    expect.soft(held.state.heldOnce, "the card it loaded isn't saved back").toBe(false);
+    expect(await cardOf(person.userId)).toMatchObject({ wentWell: GUEST_W, difficult: GUEST_D, confidence: 4 });
   });
 
   test("a course that can't be opened any more isn't added, and stays in this browser; the rest moves", async ({ page, context }) => {
