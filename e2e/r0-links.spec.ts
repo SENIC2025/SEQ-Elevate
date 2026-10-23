@@ -515,8 +515,12 @@ describe("Quick links in lesson text", () => {
       if (await preview.isVisible()) await preview.click({ timeout: 2000 });
       await expect(textbox).toBeVisible({ timeout: 5000 });
     }).toPass({ timeout: 30000 });
+    // The editor puts the cursor in the text a frame after it opens (Tiptap's
+    // focus); a key sent before then reaches no text box.
+    await expect(textbox).toBeFocused();
     await page.keyboard.press("ControlOrMeta+End");
     await page.keyboard.type(" Visit https://example.org/typed, or mail typed@example.org.");
+    await expect(textbox).toHaveText("Start here. Visit https://example.org/typed, or mail typed@example.org.");
     // The editor keeps plain text: no link while editing.
     await expect(textbox.locator("a")).toHaveCount(0);
 
