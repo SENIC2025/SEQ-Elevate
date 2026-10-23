@@ -7,6 +7,7 @@ import {
   LIBREOFFICE_REVIEW_READS,
   LIBREOFFICE_REVIEW_TEXT,
   REVIEW_LEFT_OUT,
+  REVIEW_LINKS,
   WORD_ONLINE_REVIEW,
   WORD_ONLINE_REVIEW_READS,
   WORD_ONLINE_REVIEW_TEXT,
@@ -1032,6 +1033,12 @@ describe("Rich text — the lesson text editor", () => {
     const lines = (box: Locator) => box.locator(":scope > p, :scope > ul > li");
     const word = await pasteInto(1, { "text/html": WORD_REVIEW, "text/plain": WORD_REVIEW_TEXT });
     await expect(lines(word)).toHaveText([...WORD_REVIEW_READS]);
+    // Part A: the links whose words a reviewer updated are kept, with the
+    // new words; no note says a link wasn't kept.
+    await expect(word.locator("a")).toHaveText([REVIEW_LINKS.jobs.text, REVIEW_LINKS.site.text]);
+    await expect(word.locator("a").nth(0)).toHaveAttribute("href", REVIEW_LINKS.jobs.href);
+    await expect(word.locator("a").nth(1)).toHaveAttribute("href", REVIEW_LINKS.site.href);
+    await expect(blocks.nth(1).getByRole("status").last()).not.toContainText("wasn't kept");
     const online = await pasteInto(2, { "text/html": WORD_ONLINE_REVIEW, "text/plain": WORD_ONLINE_REVIEW_TEXT });
     await expect(lines(online)).toHaveText([WORD_ONLINE_REVIEW_READS]);
     const office = await pasteInto(3, { "text/html": LIBREOFFICE_REVIEW, "text/plain": LIBREOFFICE_REVIEW_TEXT });
