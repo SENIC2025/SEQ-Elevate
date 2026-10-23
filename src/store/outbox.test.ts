@@ -263,6 +263,98 @@ describe("restoreOutbox: what the outbox brings back over what the server holds 
     });
   });
 
+  it("brings an answer back over what the server held, or what it holds if a save of it whose answer was lost was written; never over anything else", () => {
+    const answer: ProgressPatch = {
+      v: 2,
+      answers: {
+        "simulation/main": { type: "practice", optionId: "x", correct: false },
+        [`${OWN}/${PART}`]: { type: "reflection", text: { q1: "Tab", q2: "Tab two" } },
+      },
+    };
+    // The lost save sent practice "w" and both questions.
+    const written = server({
+      simulation: practiceOf("w"),
+      responses: { [`${OWN}/${PART}`]: { type: "reflection", text: { q1: "Lost", q2: "Lost two" } } },
+    });
+    for (const now of [base, written]) {
+      const s = storage();
+      putInOutbox(s, ANA, SLUG, answer, base, [written]);
+      expect(restoreOutbox(s, ANA, SLUG, now)).toEqual(answer);
+    }
+    const s = storage();
+    putInOutbox(s, ANA, SLUG, answer, base, [written]);
+    const elsewhere = server({
+      simulation: practiceOf("z"),
+      responses: { [`${OWN}/${PART}`]: { type: "reflection", text: { q1: "Phone", q2: "Lost two" } } },
+    });
+    expect(restoreOutbox(s, ANA, SLUG, elsewhere)).toEqual({
+      v: 2,
+      answers: { [`${OWN}/${PART}`]: { type: "reflection", text: { q2: "Tab two" } } },
+    });
+    // What's left keeps both of its values.
+    expect(restoreOutbox(s, ANA, SLUG, written)).toEqual({
+      v: 2,
+      answers: { [`${OWN}/${PART}`]: { type: "reflection", text: { q2: "Tab two" } } },
+    });
+  });
+
+  it("brings an answer back over any value a save not confirmed may have left: each lost save's, each save on its way's", () => {
+    const answer: ProgressPatch = {
+      v: 2,
+      answers: {
+        "simulation/main": { type: "practice", optionId: "x", correct: false },
+        [`${OWN}/${PART}`]: { type: "reflection", text: { q1: "Tab", q2: "Tab two" } },
+      },
+    };
+    const mayHold = [
+      server({ simulation: practiceOf("w1"), responses: { [`${OWN}/${PART}`]: { type: "reflection", text: { q1: "One", q2: "Before two" } } } }),
+      server({ simulation: practiceOf("w2"), responses: { [`${OWN}/${PART}`]: { type: "reflection", text: { q1: "Before", q2: "Two" } } } }),
+    ];
+    const s = storage();
+    putInOutbox(s, ANA, SLUG, answer, base, mayHold);
+    const entry = s.getItem(outboxKey(ANA, SLUG))!;
+    const again = (now: ProgressState) => {
+      s.setItem(outboxKey(ANA, SLUG), entry);
+      return restoreOutbox(s, ANA, SLUG, now);
+    };
+    for (const now of [base, ...mayHold]) expect(again(now)).toEqual(answer);
+    // Question by question: one save's first question with the other's second.
+    expect(again(server({ simulation: practiceOf("w2"), responses: { [`${OWN}/${PART}`]: { type: "reflection", text: { q1: "One", q2: "Two" } } } }))).toEqual(answer);
+    // Never over anything else.
+    expect(again(server({ simulation: practiceOf("z"), responses: { [`${OWN}/${PART}`]: { type: "reflection", text: { q1: "Phone", q2: "Two" } } } }))).toEqual({
+      v: 2,
+      answers: { [`${OWN}/${PART}`]: { type: "reflection", text: { q2: "Tab two" } } },
+    });
+  });
+
+  it("keeps at most 8 values beside an answer, each once, none the same as what the server held", () => {
+    const answer: ProgressPatch = { v: 2, answers: { "simulation/main": { type: "practice", optionId: "x", correct: false } } };
+    const mayHold = ["y0", "w1", "w1", ...Array.from({ length: 10 }, (_, i) => `w${i + 2}`)].map((id) => server({ simulation: practiceOf(id) }));
+    const s = storage();
+    putInOutbox(s, ANA, SLUG, answer, base, mayHold);
+    const raw = JSON.parse(s.getItem(outboxKey(ANA, SLUG))!) as { alt: Record<string, { optionId: string }[]> };
+    expect(raw.alt["simulation/main"].map((a) => a.optionId)).toEqual(["w1", "w2", "w3", "w4", "w5", "w6", "w7", "w8"]);
+  });
+
+  it("reads an entry kept with one value beside an answer, as a page of the build before keeps it", () => {
+    const s = storage();
+    s.setItem(
+      outboxKey(ANA, SLUG),
+      JSON.stringify({
+        v: 2,
+        answers: { "simulation/main": { type: "practice", optionId: "x", correct: false } },
+        base: { "simulation/main": { type: "practice", optionId: "y0", correct: false } },
+        alt: { "simulation/main": { type: "practice", optionId: "w", correct: false } },
+      })
+    );
+    const entry = s.getItem(outboxKey(ANA, SLUG))!;
+    expect(restoreOutbox(s, ANA, SLUG, server({ simulation: practiceOf("w") }))?.answers).toEqual({
+      "simulation/main": { type: "practice", optionId: "x", correct: false },
+    });
+    s.setItem(outboxKey(ANA, SLUG), entry);
+    expect(restoreOutbox(s, ANA, SLUG, server({ simulation: practiceOf("z") }))).toBeNull();
+  });
+
   it("is null for another learner, or with no storage", () => {
     const s = storage();
     putInOutbox(s, ANA, SLUG, kept, base);

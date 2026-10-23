@@ -8,8 +8,10 @@
  * Measures, on this machine, the best of 15 runs of findLinks on blocks of
  * ordinary lesson text and on blocks built to be expensive: hosts of
  * thousands of different letters (which the URL parser would convert to
- * their ASCII form at a cost growing with the square of their length), and
- * the worst cases the unit tests time. Prints each, per 10,000 characters.
+ * their ASCII form at a cost growing with the square of their length), also
+ * behind a "[" that keeps the URL parser from reading a ":" as the port, or
+ * a "/", "?" or "\" as the end of the host, and the worst cases the unit
+ * tests time. Prints each, per 10,000 characters.
  * Exit code 0 when every one is within the budget, 1 otherwise. Run it on
  * a quiet machine: the unit test (linkify.test.ts) checks the same
  * hostile blocks against ordinary text by ratio, which holds under load;
@@ -38,6 +40,14 @@ const BLOCKS: [string, string][] = [
   ["38 hosts at the limit: 253 characters, labels of 63 different letters", Array.from({ length: 38 }, (_, k) => `https://${[0, 1, 2, 3].map((j) => letters(0x4e00 + (k * 4 + j) * 63, j === 3 ? 61 : 63)).join(".")}/`).join(" ")],
   ["a mailto: address of 9,970 different letters", `mailto:help@${letters(0x4e00, 9_970)}.com`],
   ["an email address of 9,980 different letters", `help@${letters(0x4e00, 9_980)}.com`],
+  ["a host of 9,970 different letters behind \"x[:]\"", `https://x[:]${letters(0x4e00, 9_970)}.com`],
+  ["four hosts of 2,480 different letters behind \"x[:]\"", Array.from({ length: 4 }, (_, k) => `https://x[:]${letters(0x4e00 + k * 2_480, 2_480)}.com`).join(" ")],
+  ...["x[?", "x[/", "x[\\", "x[?:]", "x[\\:]", "x[?]", "a[?@", "u]@x[?", "a@x[/", "[/", "[?", "[\\"].map(
+    (head): [string, string] => [
+      `a host of ${(9_988 - head.length).toLocaleString("en")} different letters behind "${head}"`,
+      `https://${head}${letters(0x4e00, 9_988 - head.length)}.com`,
+    ]
+  ),
   ["10,000 letters", "a".repeat(10_000)],
   ["10,000 @", "@".repeat(10_000)],
   ["a@ 5,000 times", "a@".repeat(5_000)],
