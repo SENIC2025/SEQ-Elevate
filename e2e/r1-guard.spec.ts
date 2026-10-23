@@ -469,13 +469,21 @@ describe("Release 1 — the publish guard", () => {
       timeout: 15000,
     });
 
+    // A name is never a reason, and nothing waits for a later date. Checked
+    // on the page as the server draws it once the name is saved, and again
+    // once published: Release 1 said "Learners see your lesson names from
+    // Release 2." in both places, but only after the rename had come back,
+    // so a check straight after the rename passed there too.
+    await openCourse(page, NAMED);
+    await expect(lessonList(page).getByRole("link", { name: "1. Where we start" })).toBeVisible();
     const region = publishing(page);
-    // A name is never a reason, and nothing waits for a later date.
     await expect(page.getByText(/lesson names from/i)).toHaveCount(0);
     const publish = region.getByRole("button", { name: /^publish$/i });
     await expect(publish).not.toHaveAttribute("aria-disabled", "true");
+    await openActions(page, "1. Where we start"); // hydrated
     await publish.click();
     await expect(region.getByText(/^published$/i)).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText(/lesson names from/i)).toHaveCount(0);
     expect(await statusOf(NAMED)).toBe("published");
   });
 

@@ -143,6 +143,26 @@ export const rows: Row[] = [
   {
     kind: "call",
     file: LEARNER,
+    name: "claimGuestWork",
+    page: PAGE,
+    args: (c) => [
+      {
+        claim: 1,
+        course: { slug: c.world.course.slug, patch: { v: 2, completed: ["context"] } },
+        compCard: { wentWell: `Overwritten ${c.run}`, difficult: "", improve: "", behaviour: "", confidence: 1 },
+        badges: [],
+      },
+      c.target.userId,
+    ],
+    refuse: PERSONAS,
+    partnerAdmin: "anyone",
+    outcome: otherAccount({ ok: false, error: "other-account" }),
+    tables: ["CourseEnrollment", "CompCard", "UserBadge"],
+    why: "a browser's guest work is added only to the account it was loaded for (D79)",
+  },
+  {
+    kind: "call",
+    file: LEARNER,
     name: "awardBadgeAction",
     page: PAGE,
     args: (c) => [c.world.course.slug, c.target.userId],

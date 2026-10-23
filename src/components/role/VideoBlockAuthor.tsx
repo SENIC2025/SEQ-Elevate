@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { flushSync } from "react-dom";
+import { useLocale } from "next-intl";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -233,7 +234,7 @@ function StoredVideoLoader(props: VideoBlockAuthorProps) {
 
   if (loaded?.key !== key || loaded.failed) {
     return (
-      <Card className={props.embedded ? "shadow-none" : undefined}>
+      <Card lang="en" className={props.embedded ? "shadow-none" : undefined}>
         <CardContent
           className="p-5 text-sm text-[var(--muted-foreground)]"
           role={loaded?.failed ? "alert" : undefined}
@@ -262,6 +263,12 @@ function VideoEditor({
   const [seed] = React.useState(() =>
     fieldsFrom(initialVideo ?? null, locale)
   );
+  // The editor's own words are English on every locale's page: marked
+  // lang="en" (WCAG 3.1.2). The video's own text is in a language no one
+  // has recorded (one text for every language), so its fields keep the
+  // page's, as the lesson's read view shows it; so does the preview, a
+  // learner's view in the page's language.
+  const pageLang = useLocale();
   const [tab, setTab] = React.useState<"upload" | "url">(
     seed.src ? "url" : "upload"
   );
@@ -604,6 +611,7 @@ function VideoEditor({
 
   return (
     <Card
+      lang="en"
       className={cn("border-[var(--accent)]/30", embedded && "shadow-none")}
     >
       <CardContent className="p-5">
@@ -783,6 +791,7 @@ function VideoEditor({
             <input
               id={titleId}
               value={title}
+              lang={pageLang}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="e.g. Speaking up without blame"
               className={inputCls}
@@ -798,6 +807,7 @@ function VideoEditor({
             <input
               id={captionId}
               value={caption}
+              lang={pageLang}
               onChange={(e) => setCaption(e.target.value)}
               placeholder="A short line under the player"
               className={inputCls}
@@ -842,6 +852,7 @@ function VideoEditor({
             />
             <input
               value={captionLabel}
+              lang={captionLang}
               onChange={(e) => setCaptionLabel(e.target.value)}
               placeholder="Label"
               aria-label="Caption language label"
@@ -857,7 +868,7 @@ function VideoEditor({
               className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-2 text-sm"
             >
               {CONTENT_LOCALES.map((code) => (
-                <option key={code} value={code}>
+                <option key={code} value={code} lang={code}>
                   {LANGUAGE_NAMES[code]}
                 </option>
               ))}
@@ -958,6 +969,7 @@ function VideoEditor({
                   key={cue.key}
                   index={ci}
                   cue={cue}
+                  textLang={pageLang}
                   onChange={(next) =>
                     setCues((all) =>
                       all.map((c) => (c.key === cue.key ? next : c))
@@ -988,7 +1000,9 @@ function VideoEditor({
             </p>
           ) : null}
           {draft ? (
-            <InteractiveVideoPlayer video={otherHost ? { ...draft, external: true } : draft} />
+            <div lang={pageLang}>
+              <InteractiveVideoPlayer video={otherHost ? { ...draft, external: true } : draft} />
+            </div>
           ) : (
             <div className="rounded-xl border border-dashed border-[var(--border)] bg-[var(--surface-muted)] px-4 py-10 text-center text-sm text-[var(--muted-foreground)]">
               Add a video above to preview it here.
@@ -1056,11 +1070,14 @@ function VideoEditor({
 function CueEditor({
   index,
   cue,
+  textLang,
   onChange,
   onRemove,
 }: {
   index: number;
   cue: EditableCue;
+  /** The language of the question's own text (VideoEditor's pageLang). */
+  textLang: string;
   onChange: (c: EditableCue) => void;
   onRemove: () => void;
 }) {
@@ -1097,6 +1114,7 @@ function CueEditor({
 
       <input
         value={cue.question}
+        lang={textLang}
         onChange={(e) => set({ question: e.target.value })}
         placeholder="Question shown when the video pauses"
         className={`${inputCls} mt-2`}
@@ -1115,6 +1133,7 @@ function CueEditor({
             />
             <input
               value={o.text}
+              lang={textLang}
               onChange={(e) =>
                 set({
                   options: cue.options.map((x) =>
@@ -1171,6 +1190,7 @@ function CueEditor({
 
       <input
         value={cue.explanation}
+        lang={textLang}
         onChange={(e) => set({ explanation: e.target.value })}
         placeholder="Explanation shown after answering (optional)"
         className={`${inputCls} mt-2`}

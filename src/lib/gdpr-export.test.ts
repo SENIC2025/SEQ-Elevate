@@ -135,9 +135,11 @@ const ABOUT = [
   { action: "account.test_marked", createdAt: day(4) },
 ];
 
+/** Organisation changes of note authors' profiles (person.organisation_changed), by profile id. */
+let MOVES: { entityId: string; createdAt: Date }[] = [];
 const auditLog = {
-  findMany: vi.fn(async (args: { where: { actorId?: string; entityId?: unknown } }) =>
-    args.where.actorId ? ACTIVITY : ABOUT
+  findMany: vi.fn(async (args: { where: { actorId?: string; entityId?: unknown; action?: unknown } }) =>
+    args.where.actorId ? ACTIVITY : args.where.action === "person.organisation_changed" ? MOVES : ABOUT
   ),
 };
 const verificationToken = {
@@ -255,7 +257,7 @@ describe("collectUserData: what Release 3 adds (UD2)", () => {
   it("holds the log entries about the person: action and date, not who", async () => {
     reset({ compCards: [card()] });
     const data = await collectUserData("u1");
-    const about = auditLog.findMany.mock.calls.filter(([a]) => !a.where.actorId).at(-1)?.[0] as {
+    const about = auditLog.findMany.mock.calls.filter(([a]) => !a.where.actorId && !a.where.action).at(-1)?.[0] as {
       where: { entityId: { in: string[] } };
       select: Record<string, boolean>;
     };
@@ -306,5 +308,71 @@ describe("collectUserData: what Release 3 adds (UD2)", () => {
     expect((await collectUserData("u1"))?.notesYouWrote).toBeNull();
     reset({ _count: { observations: 3, validations: 1 } });
     expect((await collectUserData("u1"))?.notesYouWrote).toEqual({ notes: 3, validations: 1 });
+  });
+});
+
+/*
+ * The file says what each value is (Art. 15): an organisation recorded on
+ * a membership before 20 November 2026 is labelled as such, not given as
+ * the person's organisation; a note is signed with its author's
+ * organisation only while the author hasn't moved since writing it; a
+ * shared card carries the version of the wording the learner shared under.
+ */
+describe("collectUserData: what each value is", () => {
+  it("labels an organisation recorded on a membership before Release 3: no longer used, the profile's is the person's", async () => {
+    reset({
+      memberships: [
+        {
+          project: { name: "SEQ Elevate" },
+          role: "LEARNER",
+          organisation: { name: "Synthesis" },
+          cohort: null,
+          createdAt: day(1),
+        },
+        { project: { name: "SEQ Elevate" }, role: "FACILITATOR", organisation: null, cohort: null, createdAt: day(2) },
+      ],
+    });
+    const data = await collectUserData("u1");
+    expect(data?.profile?.organisation).toBe("Pro Arbeit");
+    expect(data?.memberships[0]).not.toHaveProperty("organisation");
+    expect(data?.memberships[0]).toMatchObject({
+      role: "LEARNER",
+      earlierOrganisation: {
+        name: "Synthesis",
+        note: expect.stringMatching(/before 20 November 2026.*no longer used.*profile/),
+      },
+    });
+    expect(data?.memberships[1]).toMatchObject({ role: "FACILITATOR", earlierOrganisation: null });
+  });
+
+  it("signs a note with its author's organisation only while the author hasn't moved since writing it", async () => {
+    const author = (profileId: string) => ({
+      name: "Fritz",
+      email: "fritz@x.de",
+      profiles: [{ id: profileId, organisation: { name: "Synthesis" } }],
+    });
+    MOVES = [{ entityId: "pp-moved", createdAt: day(12) }, { entityId: "pp-stayed", createdAt: day(5) }];
+    reset({
+      observedNotes: [
+        { note: "Before the move", createdAt: day(8), observer: author("pp-moved") },
+        { note: "After an earlier move", createdAt: day(8), observer: author("pp-stayed") },
+      ],
+      validatedNotes: [{ cluster: "communication", evidence: "Spoke up", createdAt: day(13), validator: author("pp-moved") }],
+    });
+    const data = await collectUserData("u1");
+    expect(data?.facilitatorObservationsAboutYou.map((n) => n.by)).toEqual(["a member of staff", "a facilitator at Synthesis"]);
+    expect(data?.skillValidationsAboutYou.map((n) => n.by)).toEqual(["a facilitator at Synthesis"]);
+    const moves = auditLog.findMany.mock.calls.find(([a]) => a.where.action === "person.organisation_changed")?.[0] as {
+      where: { entityId: { in: string[] } };
+    };
+    expect([...moves.where.entityId.in].sort()).toEqual(["pp-moved", "pp-stayed"]);
+    MOVES = [];
+  });
+
+  it("gives a shared card's wording version: what the learner shared under", async () => {
+    reset({ compCards: [card()] });
+    expect((await collectUserData("u1"))?.compCards[0]).toMatchObject({ sharing: "facilitators", sharingVersion: "2026-11-20" });
+    reset({ compCards: [card({ sharedAt: null })] });
+    expect((await collectUserData("u1"))?.compCards[0]).toMatchObject({ sharing: "onlyMe", sharingVersion: null });
   });
 });

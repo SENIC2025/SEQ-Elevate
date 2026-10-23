@@ -1,7 +1,9 @@
 import { test, expect, type BrowserContext } from "@playwright/test";
+import AxeBuilder from "@axe-core/playwright";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { createPerson } from "./fixtures/people";
+import { narrative, removeR2Course, seedR2Course } from "./fixtures/r2-course";
 
 /**
  * Pages fit a 320px phone (WCAG 1.4.10 Reflow) in every language: the home
@@ -30,7 +32,10 @@ const RUN = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}
 // Long on purpose: the account control must not grow with the address.
 const LEARNER = `e2e-header-reflow-learner-${RUN}@example.com`;
 const STAFF = `e2e-header-reflow-staff-${RUN}@example.com`;
-const EMAILS = [LEARNER, STAFF];
+const BIG = `e2e-header-reflow-big-${RUN}@example.com`;
+const EMAILS = [LEARNER, STAFF, BIG];
+// A created course without guided practice: its editor offers "Add guided practice".
+const COURSE = `e2e-header-reflow-${RUN}`;
 
 async function signedInUser(
   email: string,
@@ -79,9 +84,25 @@ describe("pages on a 320px phone", () => {
       "CONTENT_EDITOR",
       "FACILITATOR",
     ]);
+    await seedR2Course(prisma, {
+      slug: COURSE,
+      status: "draft",
+      title: { en: `E2E reflow ${RUN}`, de: `E2E Umbruch ${RUN}`, el: `E2E αναδίπλωση ${RUN}` },
+      lessons: [
+        {
+          id: "context",
+          narrative: narrative({
+            en: { title: "Context", text: "E2E context." },
+            de: { title: "Kontext", text: "E2E Kontext." },
+            el: { title: "Πλαίσιο", text: "E2E πλαίσιο." },
+          }),
+        },
+      ],
+    });
   });
 
   test.afterAll(async () => {
+    await removeR2Course(prisma, COURSE);
     await prisma.auditLog.deleteMany({
       where: { actor: { is: { email: { in: EMAILS } } } },
     });
@@ -98,6 +119,8 @@ describe("pages on a 320px phone", () => {
     ["staff", "/admin/people"],
     ["staff", "/analytics"],
     ["staff", "/content/courses"],
+    // A created course's own page: its widest labels are the "Add …" buttons.
+    ["staff", "/content/courses/<created course>"],
   ] as const) {
     test(`${path} (${who}) doesn't scroll sideways, in English, German and Greek`, async ({
       page,
@@ -105,7 +128,7 @@ describe("pages on a 320px phone", () => {
     }) => {
       await signIn(context, who === "learner" ? learnerSession : staffSession);
       for (const locale of ["en", "de", "el"]) {
-        await page.goto(`/${locale}${path}`);
+        await page.goto(`/${locale}${path.replace("<created course>", COURSE)}`);
         // Signed in: the account control is there.
         await expect(page.locator('header a[href$="/account"]')).toBeVisible({
           timeout: 15000,
@@ -178,5 +201,34 @@ describe("pages on a 320px phone", () => {
       );
       expect(overflow, `${locale}: no horizontal scrolling`).toBeLessThanOrEqual(0);
     }
+  });
+
+  test("with the largest text, the skip link stays off the screen until it is focused, in English, German and Greek (WCAG 2.5.8)", async ({
+    page,
+    context,
+  }) => {
+    // The profile step: a short page whose header is the first thing on it.
+    const big = await createPerson(prisma, { email: BIG, profile: "none", organisation: null, user: { fontSize: "xl" } });
+    await signIn(context, big.sessionToken);
+    for (const locale of ["en", "de", "el"]) {
+      await page.goto(`/${locale}/welcome`);
+      await expect(page.locator("html")).toHaveAttribute("data-font-size", "xl", { timeout: 15000 });
+      const skip = page.locator("a.skip-link");
+      const unfocused = await skip.evaluate((a) => a.getBoundingClientRect().bottom);
+      expect(unfocused, `${locale}: the unfocused skip link is above the page`).toBeLessThanOrEqual(0);
+      const results = await new AxeBuilder({ page }).withRules(["target-size"]).analyze();
+      expect(
+        results.violations.flatMap((v) => v.nodes.map((n) => n.target.join(" "))),
+        `${locale}: header controls keep their size`
+      ).toEqual([]);
+      // Focused, it is on the screen, all of it.
+      await page.locator("body").focus();
+      await page.keyboard.press("Tab");
+      await expect(skip).toBeFocused();
+      await expect
+        .poll(() => skip.evaluate((a) => { const r = a.getBoundingClientRect(); return r.top >= 0 && r.left >= 0 && r.right <= 320; }))
+        .toBe(true);
+    }
+    await page.goto("about:blank");
   });
 });

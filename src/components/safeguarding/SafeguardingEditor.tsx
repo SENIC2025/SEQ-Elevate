@@ -32,7 +32,8 @@ import { AlertTriangle, CheckCircle2, Loader2, Plus, Trash2 } from "lucide-react
  * it in its first field; once one is removed, the contact after it does,
  * else its country's Add button; Save says it is busy with aria-disabled
  * and keeps it, and a save keeps every field on the screen, so a field
- * Enter was pressed in keeps it too.
+ * Enter was pressed in keeps it too. A refused save's list of problems
+ * takes it once the list is on the screen, however slow the device.
  */
 
 export const COUNTRY_NAMES: Record<Country, string> = {
@@ -171,6 +172,16 @@ export function SafeguardingEditor({ initial }: { initial: SafeguardingSetting }
     focusNext.current = null;
     if (id) document.getElementById(id)?.focus();
   }, [drafts]);
+  // A refused save's list of problems takes the focus once it is on the
+  // screen, so it is read out first: after the render that shows it, never
+  // from a frame scheduled before it (a frame drawn between the save's
+  // answer and that render, as on a slow device, would find no list).
+  const focusSummary = React.useRef(false);
+  React.useEffect(() => {
+    if (!focusSummary.current) return;
+    focusSummary.current = false;
+    summaryRef.current?.focus();
+  }, [errors]);
 
   const idOf = (country: Country, key: number, field: string) => `${uid}-${country}-${key}-${field}`;
   const addId = (country: Country) => `${uid}-${country}-add`;
@@ -228,9 +239,9 @@ export function SafeguardingEditor({ initial }: { initial: SafeguardingSetting }
       return;
     }
     if (res.error === "invalid") {
+      // The list of problems takes the focus once it shows (above).
+      focusSummary.current = true;
       setErrors(res.errors);
-      // The list of problems takes the focus, so it is read out first.
-      requestAnimationFrame(() => summaryRef.current?.focus());
       return;
     }
     setErrors([]);

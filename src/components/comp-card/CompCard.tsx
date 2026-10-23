@@ -263,12 +263,18 @@ function CompCardBody({ template, sharing }: { template?: CompCardTemplate; shar
               })}
               <SafeguardingHint />
 
-              {/* Confidence */}
+              {/* Confidence: a group of five buttons, named by its question
+                  (a <label> would be tied to no control). */}
               <div hidden={!shown("confidence")}>
-                <label className="block text-sm font-medium mb-2">
+                <p id="comp-card-confidence" className="block text-sm font-medium mb-2">
                   {labelFor("confidence", t("fieldConfidence"))}
-                </label>
-                <div className="flex flex-wrap gap-1.5">
+                </p>
+                <div
+                  role="group"
+                  aria-labelledby="comp-card-confidence"
+                  aria-describedby="comp-card-confidence-scale"
+                  className="flex flex-wrap gap-1.5"
+                >
                   {[1, 2, 3, 4, 5].map((n) => (
                     <button
                       key={n}
@@ -286,7 +292,7 @@ function CompCardBody({ template, sharing }: { template?: CompCardTemplate; shar
                     </button>
                   ))}
                 </div>
-                <p className="text-xs text-[var(--muted-foreground)] mt-1">
+                <p id="comp-card-confidence-scale" className="text-xs text-[var(--muted-foreground)] mt-1">
                   {t(`confidenceLabels.${c.confidence}`)}
                 </p>
               </div>

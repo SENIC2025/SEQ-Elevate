@@ -12,6 +12,7 @@ import { describe, it, expect, vi, beforeAll } from "vitest";
  */
 
 type Config = {
+  adapter: { getSessionAndUser: (sessionToken: string) => Promise<unknown> };
   callbacks: {
     session: (params: Record<string, unknown>) => Promise<unknown> | unknown;
   };
@@ -27,7 +28,12 @@ vi.mock("next-auth", () => ({
 }));
 vi.mock("next-auth/providers/resend", () => ({ default: (options: unknown) => options }));
 vi.mock("server-only", () => ({}));
-vi.mock("@auth/prisma-adapter", () => ({ PrismaAdapter: () => ({}) }));
+// The database's adapter finds every session it is asked for.
+const findSession = vi.fn(async (sessionToken: string) => ({
+  session: { sessionToken, userId: "user-1", expires: new Date(Date.now() + 86_400_000) },
+  user: { id: "user-1", email: "learner@example.com", emailVerified: null, name: "Lea" },
+}));
+vi.mock("@auth/prisma-adapter", () => ({ PrismaAdapter: () => ({ getSessionAndUser: findSession }) }));
 vi.mock("@/lib/prisma", () => ({ prisma: {} }));
 const ensureProjectRoles = vi.fn();
 vi.mock("@/lib/role-grants", () => ({ ensureProjectRoles: (...a: unknown[]) => ensureProjectRoles(...a) }));
@@ -105,5 +111,33 @@ describe("the role grant at sign-in", () => {
     ).toEqual([]);
     // Release 2's switch alone no longer turns it on.
     expect(await grant({ DEMO_LOGIN_DISABLED: "false" })).toEqual([]);
+  });
+});
+
+describe("the session lookup (SS6)", () => {
+  // Release 3 hardening: a demo sign-in's session ("demo-…") resolves to no
+  // one wherever demo sign-in isn't allowed, so one left in a database can
+  // never act there; every other session is looked up as before.
+  const lookUp = async (sessionToken: string, env: Record<string, string>) => {
+    findSession.mockClear();
+    for (const [k, v] of Object.entries(env)) vi.stubEnv(k, v);
+    try {
+      return await captured.config!.adapter.getSessionAndUser(sessionToken);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  };
+  const ON = { DEMO_LOGIN_ENABLED: "true", DEMO_ACCESS_CODE: "a-private-code-1" };
+
+  it("finds no one for a demo session where demo sign-in is off, or on production", async () => {
+    expect(await lookUp("demo-abc", { DEMO_LOGIN_ENABLED: "", DEMO_ACCESS_CODE: "a-private-code-1" })).toBeNull();
+    expect(await lookUp("demo-abc", { ...ON, VERCEL_ENV: "production" })).toBeNull();
+    expect(findSession).not.toHaveBeenCalled();
+  });
+
+  it("finds the person for a demo session where demo sign-in is allowed, and for any other session", async () => {
+    expect(await lookUp("demo-abc", ON)).toMatchObject({ user: { id: "user-1" } });
+    expect(await lookUp("8c2f5d1e3b4a", { DEMO_LOGIN_ENABLED: "" })).toMatchObject({ user: { id: "user-1" } });
+    expect(findSession).toHaveBeenCalledWith("8c2f5d1e3b4a");
   });
 });

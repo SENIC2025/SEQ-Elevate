@@ -28,7 +28,7 @@ third parties (Annex III), those act as **sub-processors**.
 ## 1. Subject matter, duration, nature and purpose
 
 - **Subject matter:** processing of personal data necessary to provide and operate the SEQ Elevate digital learning platform.
-- **Nature & purpose:** hosting a gamified, accessible, trilingual (EN/DE/EL) micro-learning platform for young people (NEET) to develop life/work skills; storing their learning progress, reflections and Comp Card (today facilitators and admins see some Comp Card answers whatever the learner chooses; planned from 20 November 2026: the card is private unless the learner shares it with the facilitators of their organisation); enabling authorised staff of DIESIS and the partner organisations to support learners (planned from 20 November 2026: each partner sees only its own organisation's learners); providing per-learner progress views and statistics to those staff; and enabling data-subject rights (export/erasure).
+- **Nature & purpose:** hosting a gamified, accessible, trilingual (EN/DE/EL) micro-learning platform for young people (NEET) to develop life/work skills; storing their learning progress, reflections and Comp Card (from 20 November 2026 the card is private unless the learner shares it with the facilitators of their organisation); enabling authorised staff of DIESIS and the partner organisations to support learners (each partner sees only its own organisation's learners, from the production security review on 23 November 2026); providing per-learner progress views and statistics to those staff; and enabling data-subject rights (export/erasure).
 - **Duration:** for the term of the Controller↔Processor engagement (the programme period and any agreed maintenance term), after which data is returned or deleted per §3(g) and the retention schedule in Annex I.
 - **Processing operations:** collection, storage, retention, retrieval, organisation, structuring, use, disclosure by transmission to authorised users, restriction, erasure/destruction. See Annex I.
 
@@ -131,24 +131,24 @@ governing law and courts. The Controller is established in Belgium.]`
 # Annex I — Description of the processing
 
 **Categories of data subjects**
-- Programme participants / **learners** (young people, including under-18s). `[For DIESIS / its adviser: minimum age. SENIC's suggested default (Q18): 16 for self-registration; younger learners only when invited by a partner that holds guardian consent offline.]` Today the platform has no age check. An age confirmation on the sign-up screen is planned from 20 November 2026.
-- **Staff of DIESIS and the partner organisations** (facilitators, content editors, admins, and partner admins, a role planned from 20 November 2026), and **SENIC staff** with support access.
+- Programme participants / **learners** (young people, including under-18s). `[For DIESIS / its adviser: minimum age. SENIC's suggested default (Q18): 16 for self-registration; younger learners only when invited by a partner that holds guardian consent offline.]` From 20 November 2026 every account confirms on a one-time sign-up screen that the person has the minimum age (16 unless the Controller sets another), or that a partner organisation invited them after recording a parent's or guardian's permission.
+- **Staff of DIESIS and the partner organisations** (facilitators, content editors, admins, and, from 20 November 2026, partner admins), and **SENIC staff** with support access.
 
 **Types of personal data**
 - Identity & contact: **email address**, used for sign-in and invitations. It is also shown to facilitators and admins, and used as the display name in statistics where no name is given.
-- A **name**, if an admin enters one. Planned from 20 November 2026: a name on the sign-up screen (a first name or nickname is SENIC's suggested default, Q17), country, Terms acceptance and age confirmation.
+- From the sign-up screen: a **first name or nickname** (SENIC's suggested default, Q17), the **country**, acceptance of the Terms of use (version and time) and the age statement; for a learner invited under the guardian rule, the date the inviting organisation recorded the guardian's permission. An admin may also enter a name when adding someone.
 - Learning data: course progress, stages completed, choices made in exercises and in the branching scenario, simulation results, assessment answers, and **free-text course reflections**.
-- **Self-reflection ("Comp Card")**: free-text the learner writes, a 1–5 confidence rating, and **one privacy choice per card**. Today the default is sharing with facilitators. Planned from 20 November 2026: the default is "Only me".
+- **Self-reflection ("Comp Card")**: free-text the learner writes, a 1–5 confidence rating, and **one sharing choice per card**: "Only me" (the default) or "Me and the facilitators at ‹organisation›", with the date, organisation and wording version of a share.
 - Accessibility preferences (text size, easy-read font, contrast).
 - **Activity events** linked to the user: course opened, seconds per stage, in-video answers right or wrong.
 - **Staff notes** about a learner (free text, up to 2000 characters) and **competence validations** with free-text evidence.
 - Session, sign-in token and rate-limit records; an **audit log** of staff actions.
-- Role and organisation/cohort membership.
-- Guest progress is kept only in the learner's own browser until someone signs in on that browser; it is then merged into that account.
+- Role, country, organisation and cohort; the test-account mark; whether and since when the person held a staff role.
+- Guest progress is kept only in the learner's own browser. It moves into an account only when the person who signed in on that browser chooses "Add it to my account".
 
 **Not collected by the platform (by design), and its limits:**
 - Not collected by the platform: passwords (sign-in is a one-time email link), geolocation, biometric data.
-- IP addresses are not stored in the platform database. They do appear in hosting-provider request logs. They also reach YouTube where a lesson embeds it; click-to-load is planned from 20 November 2026.
+- IP addresses are not stored in the platform database. They do appear in hosting-provider request logs. They also reach YouTube once a learner presses play on a YouTube video (nothing from YouTube loads before).
 - **Special categories of data (Art. 9)** are not asked for, but the free-text fields (learner reflections and Comp Card, staff notes and evidence) cannot technically exclude them. The DPIA addresses this.
 - Learners write their own reflections; staff write the notes and evidence.
 
@@ -177,19 +177,21 @@ they are 7 days old and unused.
 
 # Annex II — Technical and organisational measures (Art. 32)
 
-*As implemented by the Processor on the SEQ Elevate platform. Measures not yet
-in place are listed separately under "Measures planned"; each moves into the
-lists above it only once it is live.*
+*As implemented by the Processor on the SEQ Elevate platform as Release 3
+deploys it on 20 November 2026. A measure not yet in place is marked as
+planned.*
 
 **Access control & authentication**
 - Passwordless sign-in via one-time email link; **no passwords stored**.
 - Rate limits on sign-in, invitations, adding people and file uploads (abuse mitigation). Every key is stored as a keyed hash (HMAC with a server secret) of the email address or the internal user id.
-- Project-scoped **role-based access control** (Learner / Facilitator / Content-Editor / Admin), checked **server-side**, scoped to the project, on every data operation and file-upload authorisation. Organisation scoping and server-side Comp Card filtering are planned from 20 November 2026 (see "Measures planned"); until then Comp Card field visibility is applied on the staff screen.
+- Project-scoped **role-based access control** (Learner / Facilitator / Content-Editor / Partner admin / Admin), checked **server-side**, scoped to the project, on every data operation and file-upload authorisation.
+- **Organisation scoping:** partner admins and facilitators see only their own organisation's learners, decided on the server by one module that refuses when in doubt (partner staff from the production security review, 23 November 2026). The Comp Card's text is filtered on the server by the learner's sharing choice.
 
 **Data minimisation & privacy by design**
-- Minimal identity data: the email address, and a name only if an admin enters one. No passwords, IP addresses, geolocation or biometric data in the platform database; see Annex I on provider logs, YouTube and free text.
+- Minimal identity data: the email address, and from the sign-up screen a first name or nickname, the country, the Terms acceptance and the age statement. No passwords, IP addresses, geolocation or biometric data in the platform database; see Annex I on provider logs, YouTube and free text.
 - **Cookieless** web analytics (Plausible) is built in but **not active**. `[For DIESIS / its adviser: whether to activate it, and whether any cookie consent is needed, in particular for YouTube.]`
-- Comp Card: one privacy choice per card; today shared with facilitators by default. Course reflection answers are not shown to staff.
+- Comp Card: "Only me" by default; shared only by the learner's own choice, with their organisation's facilitators. Course reflection answers are not shown to staff.
+- **Security headers** on every response: a content security policy, `X-Frame-Options`, `nosniff`, `strict-origin-when-cross-origin` and a Permissions-Policy. Lesson media come only from the platform's own file store or, behind a click, from YouTube.
 - Error monitoring (Sentry) is built in but **not active**. If activated, it is configured not to send default personal data, without performance tracing, and without session replay.
 - Storage limitation: an admin clean-up run (a dry run first; every run logged) purges expired sessions and sign-in links, ends every demo session, erases accounts marked as test accounts, and deletes course files removed from lessons once they are 7 days old and nothing uses them.
 
@@ -205,7 +207,7 @@ lists above it only once it is live.*
 - Version-controlled code; automated CI (type-check, lint, unit + end-to-end tests, automated accessibility checks) gating every change; reviewed, versioned database migrations.
 
 **Accountability & monitoring**
-- An **audit log** of staff actions. It does not record sign-ins, staff viewing learner data, or document changes. On erasure, rows about the person lose the person's user id; one record that an account was deleted keeps it, without name or address, so that the erasure can be applied again after a restore (see DATA-PROTECTION.md §2b). Admins read its data and account records (exports, erasures, resets, clean-up runs) in the platform.
+- An **audit log** of staff actions, lesson document changes included. It does not record sign-ins or staff viewing learner data. On erasure, rows about the person lose the person's user id; one record that an account was deleted keeps it, without name or address, so that the erasure can be applied again after a restore (see DATA-PROTECTION.md §2b). Admins read its data and account records (exports, erasures, resets, clean-up runs) in the platform.
 - **WCAG 2.2 AA** accessibility (equitable access), internally tested.
 
 **Data-subject rights (built in)**
@@ -219,16 +221,16 @@ lists above it only once it is live.*
   - Before restored data is used, the restore procedure applies again every erasure recorded after the backup's date (each leaves a record in the database, carried by every daily backup) and the corrections in the Controller's register (see DATA-PROTECTION.md §5).
 - The measures above are reviewed as the platform evolves. `[External penetration test: planned / on request.]`
 
-**Measures planned before the pilot (Release 3, 20 November 2026)** — *planned, not yet in place*
+**In place from 20 November 2026 (Release 3), before the pilot**
 - Comp Card "Only me" by default, filtered on the server;
-- a sign-up screen (name or nickname, country, Terms, age confirmation);
-- partner admins and facilitators limited to their own organisation, enforced on the server;
-- statistics without staff and test accounts;
-- YouTube only after a click;
-- a safeguarding contact shown to learners;
-- a legal notice.
+- a sign-up screen (name or nickname, country, Terms, age statement);
+- partner admins and facilitators limited to their own organisation, enforced on the server, from the production security review (23 November 2026);
+- statistics without staff, former staff and test accounts, counting from 1 December 2026;
+- YouTube only after a click; lesson media only from the platform's own store;
+- safeguarding contacts shown to learners, with 112 always;
+- the app's own security headers.
 
-Also planned, date `[SENIC to confirm]`: the app's own security headers.
+The legal notice page is built; it is listed once the Controller's details and counsel's text are in.
 
 ---
 

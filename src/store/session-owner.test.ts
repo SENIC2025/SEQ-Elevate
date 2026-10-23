@@ -63,11 +63,15 @@ describe("sessionChange", () => {
     expect(sessionChange("u1", undefined)).toBe("keep");
   });
 
-  it("keeps a guest's progress when they sign in (it moves to the account)", () => {
-    expect(sessionChange(null, "u1")).toBe("keep");
+  it("keeps a page that loads signed in, or stays a guest's", () => {
     expect(sessionChange(undefined, "u1")).toBe("keep");
     expect(sessionChange(undefined, null)).toBe("keep");
     expect(sessionChange(null, null)).toBe("keep");
+    expect(sessionChange(null, undefined)).toBe("keep");
+  });
+
+  it("tells a guest's page that someone signed in in another tab (IL-2b): the page stays the guest's until it is reloaded", () => {
+    expect(sessionChange(null, "u1")).toBe("signedInElsewhere");
   });
 });
 

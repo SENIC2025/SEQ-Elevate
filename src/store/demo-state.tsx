@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { getSession, useSession } from "next-auth/react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useLocale } from "next-intl";
 import {
   ensureLearnerMembership,
@@ -13,8 +13,10 @@ import {
   saveCompCard,
   setCompCardSharing,
   awardBadgeAction,
+  claimGuestWork as claimGuestWorkAction,
 } from "@/app/actions/learner";
-import type { Sharing } from "@/lib/comp-card-visibility";
+import { COMP_CARD_FIELDS, type Sharing } from "@/lib/comp-card-visibility";
+import { claimTooLarge, type ClaimCardOutcome, type ClaimCourseOutcome, type GuestClaimResult, type GuestText } from "@/lib/guest-claim";
 import type { Locale } from "@/lib/cms/types";
 import {
   answerQuestion,
@@ -36,7 +38,7 @@ import type {
   StoredAnswer,
 } from "@/lib/learner-progress/contract";
 import { completeLesson, withAnswer } from "@/lib/learner-progress/answers";
-import { EMPTY_PROGRESS, applyPatch } from "@/lib/learner-progress/patch";
+import { EMPTY_PROGRESS, applyPatch, patchSince } from "@/lib/learner-progress/patch";
 import {
   courseAfterLoad,
   courseAfterMigration,
@@ -45,7 +47,8 @@ import {
   mergeCompCardOnHydrate,
   storedGuestState,
 } from "./progress-merge";
-import { cardToSave, guestWorkOf, migrateGuest, type GuestWork } from "./guest-migration";
+import { guestClaimOf, guestWorkOf, storeAfterClaim, withText, type GuestWork } from "./guest-migration";
+import { cardAfterReread, guestCardOrBadgesChanged, saveCard, savedCardOf, type SavedCard } from "./card-save";
 import { courseChanged, courseSaveRefs, saveCourse } from "./course-save";
 import { clearEveryOutbox, restoreOutbox } from "./outbox";
 import { pendingSave } from "./pending-save";
@@ -262,6 +265,57 @@ function readGuestWork(): GuestWork | null {
   return guest ? guestWorkOf(guest) : null;
 }
 
+/**
+ * What became of the guest store's work on this page (GuestWorkPrompt):
+ *   claimed      the server answered "Add it to my account" part by part
+ *                (src/lib/guest-claim.ts): each part the claim had, and how
+ *                many of its badges are in the account (moved there, or
+ *                there already) or can't be given there; `more`: the
+ *                browser holds work now that the claim didn't read (a tab
+ *                still a guest saved more meanwhile);
+ *   tooLong      nothing was written: `count` texts are too long to add,
+ *                and are offered to be shortened;
+ *   tooLarge     nothing was written: the work is too big to add;
+ *   otherAccount nothing was written: another account is signed in on this
+ *                browser now;
+ *   unconfirmed  no answer came back, after every try: the work stays here,
+ *                and adding it again changes nothing twice;
+ *   failed       the server refused it as no claim at all;
+ *   nothing      the browser held no work any more (added or removed in
+ *                another tab meanwhile, or not readable);
+ *   removed      removed from this browser, nothing sent.
+ */
+export type GuestWorkDone =
+  | { kind: "nothing" | "removed" | "failed" | "unconfirmed" | "otherAccount" | "tooLarge" }
+  | { kind: "tooLong"; count: number }
+  | {
+      kind: "claimed";
+      course?: { outcome: ClaimCourseOutcome; title: string; locale: Locale | null };
+      compCard?: ClaimCardOutcome;
+      badgesMoved: number;
+      badgesAlready: number;
+      badgesRefused: number;
+      more: boolean;
+    };
+
+/**
+ * Removes the guest store if it still holds `read`, the text the move read
+ * (compare and remove): a tab still a guest may have saved more since, and
+ * that stays. "removed", "gone" (another tab removed it meanwhile) or
+ * "changed".
+ */
+function removeGuestStoreIf(read: string): "removed" | "gone" | "changed" {
+  try {
+    const now = window.localStorage.getItem(STORAGE_KEY);
+    if (now === null) return "gone";
+    if (now !== read) return "changed";
+    window.localStorage.removeItem(STORAGE_KEY);
+    return "removed";
+  } catch {
+    return "gone"; // the browser's storage can't be reached: nothing to remove or offer
+  }
+}
+
 type Action =
   | { type: "setProject"; projectId: string }
   | { type: "setRole"; role: Role | null }
@@ -284,6 +338,20 @@ type Action =
   | { type: "hydrate"; state: DemoState }
   | { type: "hydrateGlobal"; compCard: CompCardData | null; badges: string[] }
   | { type: "guestCourseMigrated"; course: CourseProgress }
+  /**
+   * The course being played, read again after guest work moved into it
+   * ("Add it to my account"): what the server holds now (`saved`), with
+   * what this page did that the server didn't have yet (since `base`, what
+   * it held before) on top — never this page's older copy over the server's.
+   */
+  | { type: "courseReread"; slug: string; saved: CourseProgress | null; base: ProgressState }
+  /**
+   * The Comp Card as the server holds it after guest work moved into it
+   * (`card`), but for the fields the learner changed on this page since the
+   * move began (`before`: the card then).
+   */
+  | { type: "cardAfterClaim"; card: CompCardData; before: CompCardData }
+  | { type: "accountReread"; compCard: CompCardData | null; saved: SavedCard; badges: string[] }
   /**
    * `migrated`: the guest's course, when it moved into the account on
    * sign-in and this is its first load — the account's answers come first
@@ -519,6 +587,51 @@ export function reducer(state: DemoState, action: Action): DemoState {
       const course = courseAfterLoad(state.course, action.slug, action.saved, action.migrated);
       return course ? { ...state, course } : state;
     }
+    case "courseReread": {
+      if (state.course.courseSlug !== action.slug) return state;
+      const local = patchSince(action.base, state.course);
+      const server = savedProgress(action.saved);
+      const fresh: CourseProgress = {
+        ...DEFAULT_STATE.course,
+        ...server,
+        courseSlug: action.slug,
+        courseTitle: state.course.courseTitle ?? action.saved?.courseTitle ?? null,
+        courseLocale: state.course.courseTitle ? state.course.courseLocale : action.saved?.courseLocale,
+        scenario: {
+          root: server.scenario.root,
+          followup: server.scenario.followup,
+          rootLabel: server.scenario.rootLabel ?? null,
+          followupLabel: server.scenario.followupLabel ?? null,
+        },
+      };
+      if (!local) return { ...state, course: fresh };
+      const course = applyPatch(fresh, local);
+      // The page's own answers as it holds them: a scenario with its
+      // choices' texts, a quick check tried again on this page.
+      if (local.answers?.["scenario/main"]) course.scenario = state.course.scenario;
+      if (local.answers?.["assessment/main"]) course.assessment = state.course.assessment;
+      return { ...state, course };
+    }
+    case "accountReread":
+      // The account's card and badges read again (another tab changed
+      // them): the server's, but what was changed here and isn't saved yet
+      // stays (see card-save.ts); badges are a union.
+      return {
+        ...state,
+        badges: mergeBadges(action.badges, state.badges),
+        compCard: cardAfterReread(state.compCard, action.saved, action.compCard, DEFAULT_STATE.compCard),
+      };
+    case "cardAfterClaim": {
+      const now = state.compCard;
+      const card: CompCardData = { ...action.card };
+      let edited = false;
+      for (const field of [...COMP_CARD_FIELDS, "confidence"] as const) {
+        if (now[field] === action.before[field]) continue;
+        (card as unknown as Record<string, unknown>)[field] = now[field];
+        edited = true;
+      }
+      return { ...state, compCard: edited ? { ...card, updatedAt: now.updatedAt } : card };
+    }
     case "completeLesson":
       if (!isSectionId(action.id)) return state;
       return withCourse(state, completeLesson(state.course, action.id));
@@ -574,9 +687,17 @@ interface ContextValue {
    * Null when there is none, for guests, and until their data has loaded.
    */
   guestWork: GuestWork | null;
-  /** What became of it on this page: added to the account, removed from this browser, or a move that didn't start. */
-  guestWorkDone: "added" | "removed" | "failed" | null;
-  /** "Add it to my account": the guest store moves into the account (guest-migration.ts), then is removed. */
+  /** What became of it on this page (GuestWorkDone). */
+  guestWorkDone: GuestWorkDone | null;
+  /**
+   * A text of the guest store's work (a Comp Card answer, a reflection
+   * answer), too long to add, as the learner shortens it in the offer
+   * (GuestWorkPrompt): written into the guest store at once, that text
+   * only, so it outlives a reload and the next "Add" sends it. False when
+   * the guest store doesn't hold it.
+   */
+  shortenGuestText: (ref: GuestText, text: string) => boolean;
+  /** "Add it to my account": the guest store's work goes to the server once, and what is in the account leaves the browser. */
   claimGuestWork: () => Promise<void>;
   /** "Remove it from this browser": the guest store is removed; nothing is sent. */
   discardGuestWork: () => void;
@@ -589,11 +710,27 @@ interface ContextValue {
   setSharing: (choice: Sharing) => Promise<boolean>;
   /** The signed-in person's saved data has loaded: their choices can be saved. */
   accountLoaded: boolean;
+  /**
+   * A guest's page on which someone signed in in another tab (IL-2b): it
+   * stays the guest's until it is reloaded — what is done here is saved on
+   * this browser only, nothing of the account loads — and says so
+   * (GuestWorkPrompt).
+   */
+  signedInElsewhere: boolean;
+  /**
+   * A guest's page whose guest store another tab added to an account,
+   * removed or changed: it writes no more to it, and says so, with a way
+   * to reload (GuestWorkPrompt).
+   */
+  guestStoreChanged: boolean;
 }
 
 const DemoStateContext = React.createContext<ContextValue | null>(null);
 // How many times the store has let go of a learner's data (LearnerView).
 const GenerationContext = React.createContext(0);
+// A guest's page kept the guest's (signedInElsewhere): LearnerView takes
+// nothing rendered for the account into it.
+const PinnedContext = React.createContext(false);
 
 export function DemoStateProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = React.useReducer(reducer, DEFAULT_STATE);
@@ -628,6 +765,44 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
   // The course whose saved progress has loaded and been merged into state;
   // null while one loads. Only this course is ever saved (see below).
   const loadedCourseRef = React.useRef<string | null>(null);
+  // The course being played, read again once guest work moved into it
+  // ("Add it to my account", courseReread): set with the course, and the
+  // load below runs again (courseReload).
+  const rereadRef = React.useRef<string | null>(null);
+  const [courseReload, setCourseReload] = React.useState(0);
+  // The store as last rendered, for what runs outside a render.
+  const stateRef = React.useRef(state);
+  React.useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
+  // A guest's page on which someone signed in in another tab, kept the
+  // guest's (IL-2b, the identity effect below); the ref for the effects
+  // that must see it in the same commit.
+  const [guestPinned, setGuestPinned] = React.useState(false);
+  const guestPinnedRef = React.useRef(false);
+  // The page a guest's page was kept the guest's on: going to any other is
+  // a full load, the account's page (below).
+  const [pinnedAt, setPinnedAt] = React.useState<string | null>(null);
+  const pinGuest = React.useCallback((on: boolean) => {
+    guestPinnedRef.current = on;
+    setPinnedAt(on ? window.location.pathname : null);
+    setGuestPinned(on);
+  }, []);
+  // A guest's page (kept the guest's, or not signed in) whose guest store
+  // another tab changed under it: what it holds is no longer what the
+  // browser holds, so it writes no more, and says so (guestStoreChanged).
+  const [guestStopped, setGuestStopped] = React.useState(false);
+  const guestStoppedRef = React.useRef(false);
+  const stopGuest = React.useCallback(() => {
+    guestStoppedRef.current = true;
+    setGuestStopped(true);
+  }, []);
+  // The guest store's text as this page last wrote or read it: a page kept
+  // the guest's writes only over that (the guest write-through).
+  const lastGuestText = React.useRef<string | null>(null);
+  // "Add it to my account" is on its way from this page: the offer follows
+  // the browser's copy again once it is answered.
+  const claimingRef = React.useRef(false);
   const persistedBadges = React.useRef<Set<string>>(new Set());
   const badgeTries = React.useRef<Map<string, number>>(new Map());
   // The course and Comp Card last handed to the saves below. A write-through
@@ -636,6 +811,9 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
   // copy may be older than what the learner has saved since, elsewhere.
   const courseScheduled = React.useRef<CourseProgress | null>(null);
   const cardScheduled = React.useRef<CompCardData | null>(null);
+  // What the server is known to hold of the Comp Card, and for whom: a
+  // save sends only what was changed here from it (card-save.ts).
+  const cardSaved = React.useRef<{ forUser: string; card: SavedCard } | null>(null);
   // The debounced saves, one waiting at a time each (see pending-save.ts).
   const [courseSave] = React.useState(() => pendingSave(700));
   const [cardSave] = React.useState(() => pendingSave(700));
@@ -644,9 +822,10 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
   // the store lets go of the learner's data, so an answer to a save sent
   // before can't move them on.
   const progressRefs = React.useRef(courseSaveRefs());
-  // The guest's course moved into the account on sign-in, until it loads:
-  // it was sent in fill mode, and the account's answers come first then
-  // too (courseAfterLoad).
+  // The guest's course moved into the account ("Add it to my account"),
+  // not the course being played, until it loads: what the server holds
+  // then is what the page shows, the guest's copy on the page left out
+  // (courseAfterLoad).
   const migratedRef = React.useRef<CourseProgress | null>(null);
   // The course whose saved progress has loaded and been merged in, for
   // readyCourse (a signed-in learner's; loadedCourseRef, as state).
@@ -656,7 +835,7 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
   // work on offer, and what became of it.
   const [profileIncomplete, setProfileIncomplete] = React.useState(false);
   const [guestWork, setGuestWork] = React.useState<GuestWork | null>(null);
-  const [guestWorkDone, setGuestWorkDone] = React.useState<"added" | "removed" | "failed" | null>(null);
+  const [guestWorkDone, setGuestWorkDone] = React.useState<GuestWorkDone | null>(null);
   // A guest's work just cleared: the guest write-through doesn't write the
   // empty store back.
   const clearedGuest = React.useRef(false);
@@ -672,10 +851,14 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
     updateSession.current = update;
   }, [update]);
 
-  // A guest's progress, from this browser's guest store.
+  // A guest's progress, from this browser's guest store: what the page
+  // holds is the browser's again, and is written again.
   const hydrateGuest = React.useCallback(() => {
+    guestStoppedRef.current = false;
+    setGuestStopped(false);
     try {
       const raw = window.localStorage.getItem(STORAGE_KEY);
+      lastGuestText.current = raw;
       if (raw) {
         // Possibly written by an older page (see storedGuestState).
         const stored = storedGuestState(JSON.parse(raw), DEFAULT_STATE);
@@ -703,12 +886,14 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
     clearEveryOutbox(tabStorage());
     loadedCourseRef.current = null;
     setLoadedCourse(null);
+    rereadRef.current = null;
     progressRefs.current = courseSaveRefs();
     migratedRef.current = null;
     persistedBadges.current = new Set();
     badgeTries.current = new Map();
     courseScheduled.current = null;
     cardScheduled.current = null;
+    cardSaved.current = null;
     setDbOwner(null);
     setProfileIncomplete(false);
     setGuestWork(null);
@@ -767,18 +952,34 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
       })();
       return () => abort.abort();
     }
-    heldBy.current = owner;
-    if (change === "forget") letGo();
-    else if (held === null && typeof owner === "string") {
-      // A guest tab signed in in place (the sign-in link opened in another
-      // tab): the guest's copy in memory isn't newer than what the account
-      // has saved, and would win over it as if entered while it loaded. It's
-      // still in the guest store, and is offered from there, as on a fresh
-      // page: it moves, under the account-wins rules (guest-migration.ts),
-      // only if the person says it is theirs.
+    if (change === "signedInElsewhere") {
+      // A guest's page, and someone signed in in another tab (where the
+      // sign-in link opened). What the guest did here is the guest's until
+      // they say it is theirs (D79), and it isn't newer than what the
+      // account has saved: taken up into the account in place, it would
+      // win over the saved data as if entered while it loaded, and taking
+      // it off the screen would leave the learner mid-course with nothing
+      // (IL-2b). So the page stays the guest's until it is reloaded: the
+      // account doesn't load into it, what is done here goes on being
+      // written to this browser's guest store only, and the page says so
+      // (signedInElsewhere). Reloaded, the account's page offers the work
+      // (GuestWorkPrompt). A page with no guest work on it takes the
+      // account up at once, and starts over for it.
+      if (guestWorkOf(stateRef.current)) {
+        pinGuest(true);
+        return;
+      }
+      heldBy.current = owner;
+      pinGuest(false);
       dispatch({ type: "forgetLearner" });
+      setGeneration((g) => g + 1);
+      return;
     }
-  }, [owner, courseSave, cardSave, letGo, hydrateGuest]);
+    heldBy.current = owner;
+    // The session finds no one again: the page is a guest's, as it was.
+    if (owner === null && guestPinnedRef.current) pinGuest(false);
+    if (change === "forget") letGo();
+  }, [owner, courseSave, cardSave, letGo, hydrateGuest, pinGuest]);
 
   // ---- Hydration: DB for authed users, localStorage for guests ----
   React.useEffect(() => {
@@ -788,6 +989,9 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
     const cancelled = () => abort.signal.aborted;
     (async () => {
       if (authed && typeof owner === "string") {
+        // A guest's page kept the guest's (signedInElsewhere): the account
+        // doesn't load into it.
+        if (guestPinnedRef.current) return;
         const forUser = owner;
         // This learner's data has loaded already: the session was read
         // again (and the learner found again, the identity effect above).
@@ -842,6 +1046,7 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
           compCard: global.compCard as CompCardData | null,
           badges: global.badges,
         });
+        cardSaved.current = { forUser, card: savedCardOf(global.compCard, DEFAULT_STATE.compCard) };
         // Only what the server holds. A badge earned while this loaded stays
         // in state (hydrateGlobal unions) but not here, so the badge
         // write-through below awards it.
@@ -867,10 +1072,17 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
   // is let go of (above) before a guest's state is written. Nor a learner's
   // data held while their session can't be read (heldBy, above): it would
   // go from there into the next account that signs in on this browser.
+  // A guest's page kept the guest's after a sign-in in another tab
+  // (guestPinned) goes on writing it, but only over what it last wrote: the
+  // work may have been added to the account, removed or changed in another
+  // tab meanwhile, and what this page holds would then come back over it.
+  // It stops instead, and says so (guestStoreChanged). So does any guest's
+  // page once another tab changed the store under it (the listener below).
   React.useEffect(() => {
-    if (!hydrated || authed || dbReady || typeof heldBy.current === "string") {
+    if (!hydrated || (authed && !guestPinned) || dbReady || typeof heldBy.current === "string") {
       return;
     }
+    if (guestStoppedRef.current) return;
     // Just cleared (clearGuestWork): the store stays removed until the
     // guest does something again.
     if (clearedGuest.current) {
@@ -878,11 +1090,105 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     try {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      if (guestPinnedRef.current && window.localStorage.getItem(STORAGE_KEY) !== lastGuestText.current) {
+        // What the browser holds (an external store) changed under this
+        // page: it is told so, once.
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        stopGuest();
+        return;
+      }
+      const text = JSON.stringify(state);
+      window.localStorage.setItem(STORAGE_KEY, text);
+      lastGuestText.current = text;
     } catch {
       /* ignore */
     }
-  }, [state, hydrated, authed, dbReady]);
+  }, [state, hydrated, authed, dbReady, guestPinned, stopGuest]);
+
+  // ---- The guest store, changed in another tab ----
+  // A guest's page (kept the guest's, or not signed in): the work was added
+  // to an account, removed, or changed in another tab. A page kept the
+  // guest's stops writing at any change; a guest's page at its removal (two
+  // guest tabs still write in turn, as they always have). A signed-in page
+  // offers the work as the browser holds it now (none: no offer), unless
+  // its own "Add" is on its way. Its Comp Card or badges having changed
+  // there — added to the account in another tab, perhaps — it reads the
+  // account's card and badges again (rereadAccount): it shows what the
+  // account holds, and a save or a sharing choice made on it is about that.
+  const authedRef = React.useRef(authed);
+  const hydratedRef = React.useRef(hydrated);
+  React.useEffect(() => {
+    authedRef.current = authed;
+    hydratedRef.current = hydrated;
+  }, [authed, hydrated]);
+  // Once the guest store has settled for a moment; one read at a time.
+  const rereadTimer = React.useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const rereadAccount = React.useCallback(() => {
+    clearTimeout(rereadTimer.current);
+    rereadTimer.current = setTimeout(async () => {
+      const forUser = dbOwnerRef.current;
+      if (!forUser) return;
+      let global: Awaited<ReturnType<typeof loadLearnerGlobal>>;
+      try {
+        global = await withRetry(() => loadLearnerGlobal());
+      } catch {
+        return; // the page goes on as it was: its saves send only what changed here
+      }
+      const saved = cardSaved.current;
+      if (dbOwnerRef.current !== forUser || saved?.forUser !== forUser) return;
+      dispatch({
+        type: "accountReread",
+        compCard: global.compCard as CompCardData | null,
+        saved: saved.card,
+        badges: global.badges,
+      });
+      cardSaved.current = { forUser, card: savedCardOf(global.compCard, DEFAULT_STATE.compCard) };
+      for (const slug of global.badges) persistedBadges.current.add(slug);
+    }, 250);
+  }, []);
+  React.useEffect(() => () => clearTimeout(rereadTimer.current), []);
+  React.useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== STORAGE_KEY && e.key !== null) return;
+      if (guestPinnedRef.current || (!authedRef.current && hydratedRef.current)) {
+        if (guestPinnedRef.current || e.newValue === null) stopGuest();
+        return;
+      }
+      if (!dbOwnerRef.current || claimingRef.current) return;
+      setGuestWork(readGuestWork());
+      if (e.key === null || guestCardOrBadgesChanged(e.oldValue, e.newValue)) rereadAccount();
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [stopGuest, rereadAccount]);
+
+  // ---- A guest's page kept the guest's: any other page is a full load ----
+  // Every page after the sign-in is rendered for the account, so a page
+  // opened from it in the app (a link, the language, back and forward)
+  // would show the account's data on the guest's page, and the store would
+  // take it as the guest's. A link is followed by the browser instead: a
+  // full load, the account's page, which offers the guest's work. Any other
+  // way the app goes to another page shows nothing and loads it in full.
+  React.useEffect(() => {
+    if (!guestPinned) return;
+    const onClick = (e: MouseEvent) => {
+      if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      const link = e.target instanceof Element ? e.target.closest("a[href]") : null;
+      if (!(link instanceof HTMLAnchorElement) || (link.target && link.target !== "_self") || link.hasAttribute("download")) return;
+      const to = new URL(link.href, window.location.href);
+      if (to.origin !== window.location.origin) return;
+      if (to.pathname === window.location.pathname && to.search === window.location.search) return;
+      // Not to the app's router: the browser follows the link.
+      e.stopImmediatePropagation();
+    };
+    window.addEventListener("click", onClick, true);
+    return () => window.removeEventListener("click", onClick, true);
+  }, [guestPinned]);
+  const pathname = usePathname();
+  const leftPinnedPage = guestPinned && pinnedAt !== null && pathname !== pinnedAt;
+  React.useEffect(() => {
+    if (leftPinnedPage) window.location.reload();
+  }, [leftPinnedPage]);
 
   // ---- Load a course's saved progress from the DB when it becomes active ----
   // The learner may be in the course before their data has loaded — on a
@@ -903,6 +1209,8 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
   // isn't saved and what the learner does stays in memory.
   React.useEffect(() => {
     const slug = state.course.courseSlug;
+    // Read again only as the course it was asked for.
+    if (rereadRef.current !== null && rereadRef.current !== slug) rereadRef.current = null;
     if (loadedCourseRef.current !== slug) {
       courseSave.flush();
       loadedCourseRef.current = null;
@@ -940,9 +1248,17 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
       const saved = prog as CourseProgress | null;
       const refs = progressRefs.current;
       const server = savedProgress(saved);
+      // Read again after guest work moved into it: what the server held
+      // before, so only what this page did since goes on top (courseReread).
+      const base = rereadRef.current === slug ? refs.acked.get(slug) : undefined;
+      if (rereadRef.current === slug) rereadRef.current = null;
       refs.acked.set(slug, server);
       refs.latest.delete(slug);
       refs.refused.delete(slug);
+      if (base) {
+        dispatch({ type: "courseReread", slug, saved, base });
+        return;
+      }
       const migrated = migratedRef.current?.courseSlug === slug ? migratedRef.current : null;
       if (migrated) migratedRef.current = null;
       dispatch({ type: "courseProgressLoaded", slug, saved, migrated });
@@ -956,7 +1272,7 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
       if (kept) dispatch({ type: "outboxRestored", slug, patch: kept });
     })();
     return () => abort.abort();
-  }, [authed, dbReady, state.course.courseSlug, locale, owner, courseSave]);
+  }, [authed, dbReady, state.course.courseSlug, locale, owner, courseSave, courseReload]);
 
   // ---- DB write-through: course progress (debounced) ----
   // Never a course whose saved progress hasn't loaded and been merged in
@@ -1008,11 +1324,32 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
   }, [authed, dbOwner, state.course, courseSave, saveFor]);
 
   // ---- DB write-through: Comp Card (debounced) ----
-  // What is sent leaves out who sees the card (its own action, setSharing)
-  // and any text over the limit, which keeps its stored text while the
-  // learner is told it is too long; the other fields save (cardToSave).
-  // A change of who sees it alone (updatedAt and the texts as they were)
-  // isn't an edit, and sends nothing.
+  // What is sent is only what was changed here from what the server is
+  // known to hold (cardSaved), worked out when it is sent (card-save.ts):
+  // a card loaded, or read again, is not saved back, and a field another
+  // tab or device changed since is never written over with this page's
+  // older copy. It leaves out who sees the card (its own action,
+  // setSharing) and any text over the limit, which keeps its stored text
+  // while the learner is told it is too long (cardToSave). A change of who
+  // sees it alone (updatedAt and the texts as they were) isn't an edit, and
+  // sends nothing. A save confirmed while the card still differs from what
+  // the server is then known to hold — an answer changed back while it was
+  // on its way — is followed by another, of the card as it is then.
+  const saveCardFor = React.useCallback(
+    (card: CompCardData, forUser: string) => {
+      const save = (c: CompCardData): Promise<void> =>
+        saveCard(c, forUser, cardSaved, {
+          send: saveCompCard,
+          latest: () => cardScheduled.current,
+          again: () => {
+            const latest = cardScheduled.current;
+            if (latest) cardSave.schedule(() => save(latest));
+          },
+        });
+      return () => save(card);
+    },
+    [cardSave]
+  );
   React.useEffect(() => {
     if (!authed || !dbOwner || !state.compCard.updatedAt) return;
     const snap = state.compCard;
@@ -1020,9 +1357,8 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
     if (snap === prev) return;
     cardScheduled.current = snap;
     if (prev && prev.updatedAt === snap.updatedAt && sameCardText(prev, snap)) return;
-    const forUser = dbOwner;
-    cardSave.schedule(() => saveCompCard(cardToSave(snap), forUser));
-  }, [authed, dbOwner, state.compCard, cardSave]);
+    cardSave.schedule(saveCardFor(snap, dbOwner));
+  }, [authed, dbOwner, state.compCard, cardSave, saveCardFor]);
 
   // ---- DB write-through: badges (append-only) ----
   // An award that doesn't get through (a dropped connection, a session
@@ -1095,75 +1431,158 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
   );
 
   // ---- The guest store's work (spec 5.5) ----
-  // "Add it to my account": what the account holds now is read first (the
-  // guest store stays if that fails), then the guest store is moved in
-  // under the account-wins rules (guest-migration.ts), each write tried
-  // again, and removed once every write is through: until then it outlives
-  // a tab closed mid-move, and is offered again (a second move changes
-  // nothing: the account has it, and wins). What the account should now
-  // hold goes to the store whether its write got through or not, and the
-  // store's write-throughs save what didn't: the Comp Card, the badges not
-  // yet awarded, and the course once it has loaded (migratedRef, read back
-  // from the server and merged, the account's answers first). The page
-  // says it was added only once every write is through: someone who signs
-  // out on a shared computer when told so leaves nothing of theirs behind.
-  // A write that didn't get through is said too, and the offer comes back.
+  // "Add it to my account" (D37, D69, D79, D80): what this page has
+  // waiting to be saved is sent first, so the account is judged with it.
+  // Then the guest store, as it is read now, goes to the server once
+  // (claimGuestWork in learner.ts), which decides each part in one
+  // transaction: the course only into an account with no progress in it,
+  // the Comp Card only into none or a blank one not shared, badges as a
+  // union. A try that fails (a dropped connection, a session lookup that
+  // failed) is sent again; a part already in the account is answered
+  // "already", never added twice. Nothing to send — the guest store gone or
+  // emptied in another tab, or unreadable — and the page says nothing was
+  // added. A refusal (another account's session, a text too long to add)
+  // leaves the guest store as it is; for another account the page reads
+  // its session again, lets go of this account's data and offers the work
+  // to whoever is signed in. Otherwise the guest store loses what the
+  // server says is in the account, and only as it was read
+  // (storeAfterClaim) — whoever is signed in by then: it is in the account
+  // it was sent for. What a tab still a guest saved meanwhile stays, and is
+  // offered again.
+  // The page then shows what the server holds: the Comp Card as answered
+  // (fields changed here meanwhile kept), the course being played read
+  // again (courseReread), the account's badges; and says what became of
+  // each part.
   const claimGuestWork = React.useCallback(async () => {
     const forUser = dbOwnerRef.current;
     if (!forUser) return;
-    let saved: Awaited<ReturnType<typeof loadLearnerGlobal>>;
+    courseSave.flush();
+    cardSave.flush();
+    // The Comp Card as this page holds it now: a field changed from it while
+    // the work is added was changed here, and stays.
+    const cardBefore = stateRef.current.compCard;
+    let read: string | null = null;
     try {
-      saved = await withRetry(() => loadLearnerGlobal());
+      read = window.localStorage.getItem(STORAGE_KEY);
     } catch {
-      setGuestWorkDone("failed");
-      return;
+      /* none to read */
     }
-    if (dbOwnerRef.current !== forUser) return;
-    const guest = readGuestStore();
-    const removeGuestStore = () => {
-      try {
-        window.localStorage.removeItem(STORAGE_KEY);
-      } catch {
-        /* nothing to remove */
-      }
-    };
-    if (!guest) {
-      removeGuestStore();
+    let guest: DemoState | null = null;
+    let unreadable = false;
+    try {
+      guest = read ? storedGuestState(JSON.parse(read), DEFAULT_STATE) : null;
+    } catch {
+      unreadable = true;
+    }
+    const claim = guest ? guestClaimOf(guest) : null;
+    if (read === null || !guest || !claim) {
+      if (unreadable && read !== null) removeGuestStoreIf(read);
       setGuestWork(null);
-      setGuestWorkDone("added");
+      setGuestWorkDone({ kind: "nothing" });
       return;
     }
-    const migrated = await migrateGuest(
-      guest,
-      { compCard: saved.compCard as CompCardData | null, badges: saved.badges, enrollments: saved.enrollments },
-      {
-        awardBadge: (slug) => awardBadgeAction(slug, forUser),
-        saveCompCard: (card) => saveCompCard(cardToSave(card), forUser),
-        saveCourse: (slug, patch) => saveCourseProgressPatch(slug, patch, forUser),
+    // Too big for the server to take: said here, as the server would.
+    if (claimTooLarge(claim)) {
+      setGuestWork(readGuestWork());
+      setGuestWorkDone({ kind: "tooLarge" });
+      return;
+    }
+    let answer: GuestClaimResult;
+    claimingRef.current = true;
+    try {
+      answer = await withRetry(() => claimGuestWorkAction(claim, forUser));
+    } catch {
+      claimingRef.current = false;
+      if (dbOwnerRef.current === forUser) {
+        setGuestWork(readGuestWork());
+        setGuestWorkDone({ kind: "unconfirmed" });
       }
-    );
-    // All of it in the account: the browser's copy goes.
-    if (migrated.settled) removeGuestStore();
-    // The account let go of meanwhile (signed out, another account): none
-    // of it goes to the next one.
+      return;
+    }
+    claimingRef.current = false;
+    if (!answer.ok) {
+      if (dbOwnerRef.current !== forUser) return;
+      setGuestWork(readGuestWork());
+      if (answer.error === "other-account") {
+        setGuestWorkDone({ kind: "otherAccount" });
+        void updateSession.current();
+      } else if (answer.error === "too-long") {
+        setGuestWorkDone({ kind: "tooLong", count: answer.texts.length });
+      } else if (answer.error === "too-large") {
+        setGuestWorkDone({ kind: "tooLarge" });
+      } else {
+        setGuestWorkDone({ kind: "failed" });
+      }
+      return;
+    }
+    // In the account it was sent for: it leaves this browser, as it was read.
+    const inAccount = (outcome: string | undefined) => outcome === "moved" || outcome === "already";
+    let more = false;
+    try {
+      const after = storeAfterClaim(
+        read,
+        window.localStorage.getItem(STORAGE_KEY),
+        {
+          course: inAccount(answer.course),
+          compCard: inAccount(answer.compCard),
+          badges: [...answer.badges.moved, ...answer.badges.already],
+        },
+        DEFAULT_STATE
+      );
+      more = after.more;
+      if (after.store === null) window.localStorage.removeItem(STORAGE_KEY);
+      else if (after.store !== undefined) window.localStorage.setItem(STORAGE_KEY, after.store);
+    } catch {
+      /* the browser's storage can't be reached: nothing to remove */
+    }
+    // The account let go of meanwhile (signed out, another account): nothing
+    // of it is shown to the next one.
     if (dbOwnerRef.current !== forUser) return;
-    dispatch({ type: "hydrateGlobal", compCard: migrated.compCard, badges: migrated.badges });
-    for (const slug of migrated.awarded) persistedBadges.current.add(slug);
-    if (migrated.course) {
-      migratedRef.current = migrated.course;
-      dispatch({ type: "guestCourseMigrated", course: migrated.course });
+    dispatch({ type: "hydrateGlobal", compCard: null, badges: answer.accountBadges });
+    for (const slug of answer.accountBadges) persistedBadges.current.add(slug);
+    if (answer.card && inAccount(answer.compCard)) {
+      // Not saved again: it is what the server holds (the write-through
+      // sends only a field changed here meanwhile). Moved, it is Only me.
+      cardSaved.current = { forUser, card: savedCardOf(answer.card, DEFAULT_STATE.compCard) };
+      const card: CompCardData =
+        answer.compCard === "moved"
+          ? { ...cardBefore, ...answer.card, sharing: "onlyMe", sharedAt: null, organisationName: null }
+          : { ...cardBefore, ...answer.card };
+      cardScheduled.current = card;
+      dispatch({ type: "cardAfterClaim", card, before: cardBefore });
+    }
+    const slug = claim.course?.slug;
+    if (answer.course === "moved" && slug) {
+      if (stateRef.current.course.courseSlug === slug) {
+        // The course being played moved under this page: it is read again,
+        // and what was done here that the server didn't have goes on top
+        // (one still loading loads again, after the move).
+        rereadRef.current = loadedCourseRef.current === slug ? slug : null;
+        loadedCourseRef.current = null;
+        setLoadedCourse(null);
+        setCourseReload((n) => n + 1);
+      } else {
+        // Shown when no course is being played, and loaded like any other
+        // when it is opened: what the server holds then, the guest's copy
+        // on the page left out (courseAfterLoad).
+        migratedRef.current = guest.course;
+        dispatch({ type: "guestCourseMigrated", course: guest.course });
+      }
     }
     // Server-rendered parts (the dashboard) show what was just written.
-    if (migrated.wrote) router.refresh();
-    if (migrated.settled) {
-      setGuestWork(null);
-      setGuestWorkDone("added");
-    } else {
-      // Offered again: a second move sends only what the account lacks.
-      setGuestWork(guestWorkOf(guest));
-      setGuestWorkDone("failed");
-    }
-  }, [router]);
+    if (answer.course === "moved" || answer.compCard === "moved" || answer.badges.moved.length) router.refresh();
+    const title = guestWorkOf(guest)?.courses[0];
+    setGuestWork(readGuestWork());
+    setGuestWorkDone({
+      kind: "claimed",
+      ...(answer.course ? { course: { outcome: answer.course, title: title?.title ?? slug ?? "", locale: title?.locale ?? null } } : {}),
+      ...(answer.compCard ? { compCard: answer.compCard } : {}),
+      badgesMoved: answer.badges.moved.length,
+      badgesAlready: answer.badges.already.length,
+      badgesRefused: answer.badges.refused.length,
+      more,
+    });
+  }, [router, courseSave, cardSave]);
 
   // "Remove it from this browser": nothing is sent.
   const discardGuestWork = React.useCallback(() => {
@@ -1173,19 +1592,35 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
       /* nothing to remove */
     }
     setGuestWork(null);
-    setGuestWorkDone("removed");
+    setGuestWorkDone({ kind: "removed" });
+  }, []);
+
+  // A text of the guest store too long to add, shortened in the offer: that
+  // text of the guest store changes (a Comp Card answer with its time);
+  // nothing else of it, and nothing is sent (the next "Add" sends it).
+  const shortenGuestText = React.useCallback((ref: GuestText, text: string): boolean => {
+    try {
+      const raw = window.localStorage.getItem(STORAGE_KEY);
+      const next = raw === null ? null : withText(raw, ref, text);
+      if (next === null) return false;
+      window.localStorage.setItem(STORAGE_KEY, next);
+      return true;
+    } catch {
+      return false;
+    }
   }, []);
 
   // A guest's "Clear my work from this browser": the guest store goes, and
   // so does what the page holds of it.
   const clearGuestWork = React.useCallback(() => {
-    if (authed) return;
+    if (authed && !guestPinnedRef.current) return;
     try {
       window.localStorage.removeItem(STORAGE_KEY);
     } catch {
       /* nothing to remove */
     }
     clearedGuest.current = true;
+    lastGuestText.current = null;
     dispatch({ type: "reset" });
   }, [authed]);
 
@@ -1219,8 +1654,9 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   // A signed-in learner's course once loaded and merged; a guest's as soon
-  // as the guest store has been read (it holds their one course, D69).
-  const readyCourse = authed
+  // as the guest store has been read (it holds their one course, D69), also
+  // on a guest's page kept the guest's (guestPinned).
+  const readyCourse = authed && !guestPinned
     ? dbReady
       ? loadedCourse
       : null
@@ -1236,11 +1672,14 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
       profileIncomplete,
       guestWork,
       guestWorkDone,
+      shortenGuestText,
       claimGuestWork,
       discardGuestWork,
       clearGuestWork,
       setSharing,
       accountLoaded: dbReady,
+      signedInElsewhere: guestPinned,
+      guestStoreChanged: guestStopped,
     }),
     [
       state,
@@ -1249,18 +1688,24 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
       profileIncomplete,
       guestWork,
       guestWorkDone,
+      shortenGuestText,
       claimGuestWork,
       discardGuestWork,
       clearGuestWork,
       setSharing,
       dbReady,
+      guestPinned,
+      guestStopped,
     ]
   );
 
   return (
     <DemoStateContext.Provider value={value}>
       <GenerationContext.Provider value={generation}>
-        {children}
+        <PinnedContext.Provider value={guestPinned}>
+          {/* Leaving a guest's page kept the guest's: nothing of the next page is shown before it loads in full. */}
+          {leftPinnedPage ? null : children}
+        </PinnedContext.Provider>
       </GenerationContext.Provider>
     </DemoStateContext.Provider>
   );
@@ -1294,6 +1739,7 @@ export function LearnerView({
   children: React.ReactNode;
 }) {
   const generation = React.useContext(GenerationContext);
+  const pinned = React.useContext(PinnedContext);
   const router = useRouter();
   const { data: session, status } = useSession();
   const owner = sessionOwner(status, session?.user);
@@ -1306,6 +1752,9 @@ export function LearnerView({
   React.useEffect(() => {
     if (shown.current === generation) return;
     shown.current = generation;
+    // A guest's page kept the guest's isn't refreshed: the server renders
+    // for the account (its next page loads in full).
+    if (pinned) return;
     router.refresh();
     let refreshes = 1;
     const timer = setInterval(() => {
@@ -1322,7 +1771,7 @@ export function LearnerView({
       }
     }, LEARNER_VIEW_RECHECK_MS);
     return () => clearInterval(timer);
-  }, [generation, router]);
+  }, [generation, router, pinned]);
   return <React.Fragment key={generation}>{children}</React.Fragment>;
 }
 
@@ -1331,11 +1780,14 @@ const NOTHING_SAVED = {
   profileIncomplete: false,
   guestWork: null,
   guestWorkDone: null,
+  shortenGuestText: () => false,
   claimGuestWork: async () => {},
   discardGuestWork: () => {},
   clearGuestWork: () => {},
   setSharing: async () => false,
   accountLoaded: false,
+  signedInElsewhere: false,
+  guestStoreChanged: false,
 } satisfies Partial<ContextValue>;
 
 /**

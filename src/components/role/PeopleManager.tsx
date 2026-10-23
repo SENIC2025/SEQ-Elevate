@@ -652,6 +652,11 @@ export function PeopleManager({
               {m.guardianConsent ? (
                 <span className={chipCls}>{underAge(minAge, false)}, guardian&apos;s permission recorded</span>
               ) : null}
+              {m.guardianNeeded ? (
+                <span className={chipCls}>
+                  {underAge(minAge, false)}, guardian&apos;s permission not recorded here (add them again with it ticked)
+                </span>
+              ) : null}
             </div>
             {m.guardianConsent && changeable && m.roles.length === 1 && m.roles[0] === "LEARNER" ? (
               <label className="mt-1 flex max-w-60 items-start gap-1.5 text-[11px]">

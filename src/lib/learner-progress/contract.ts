@@ -109,7 +109,8 @@ export interface RefusedKey {
 }
 
 export type SaveProgressResult =
-  | { ok: true; refused: RefusedKey[] }
+  /** `kept`, in fill mode: the keys where the account's answer stayed over a different one (merge-server.ts). */
+  | { ok: true; refused: RefusedKey[]; kept?: string[] }
   | { ok: false; error: "other-account" | "unknown-course" | "bad-input" | "too-large" };
 
 /**

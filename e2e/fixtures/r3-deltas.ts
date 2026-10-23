@@ -15,6 +15,13 @@ import type { Captured } from "./r2-deltas";
  *          paragraph under the step's heading; in a reflection of the
  *          lesson's extra content ("Reflection questions"), the part's
  *          heading, or its intro when it has one.
+ *   R3-D2  The built-in course's second English reflection answer box says
+ *          who sees the answer as it is (owner's decision, 22 Oct): its
+ *          name, the `course.workplaceConflict.reflection.placeholder2`
+ *          placeholder, is "Be honest. Only you see this." where Release 2
+ *          promised a sharing there is none of ("… unless you choose to
+ *          share it."). Course reflections are seen by no one but the
+ *          learner.
  *
  * Everything else Release 3 adds is outside the page's main area (the
  * safeguarding box, the footer link), absent from the walked courses (the
@@ -23,23 +30,29 @@ import type { Captured } from "./r2-deltas";
  * never has (spec 18.4).
  *
  * A difference applies once the change that makes it is in. The hint is
- * placed (Stream E: ReflectionStage, sectioned/ReflectionPart), so R3-D1 is
- * in LIVE: the walk expects Release 2's recording with the hint, and
- * nothing else.
+ * placed (Stream E: ReflectionStage, sectioned/ReflectionPart) and the
+ * placeholder reworded (src/messages/en.json), so R3-D1 and R3-D2 are in
+ * LIVE: the walk expects Release 2's recording with both, and nothing else.
  */
 
-export type R3Delta = "R3-D1";
+export type R3Delta = "R3-D1" | "R3-D2";
 
 /** The differences the code in this tree makes. */
-export const LIVE: ReadonlySet<R3Delta> = new Set<R3Delta>(["R3-D1"]);
+export const LIVE: ReadonlySet<R3Delta> = new Set<R3Delta>(["R3-D1", "R3-D2"]);
 
 type Locale = "en" | "de";
 
+/** The messages of `locale`, as the walked pages read them. */
+function messages(locale: Locale): {
+  safeguarding: { hintReflection: string };
+  course: { workplaceConflict: { reflection: { placeholder2: string } } };
+} {
+  return JSON.parse(readFileSync(path.resolve(__dirname, `../../src/messages/${locale}.json`), "utf8"));
+}
+
 /** The hint's text before, inside and after its link, in `locale`. */
 function hint(locale: Locale): { before: string; link: string; after: string } {
-  const file = path.resolve(__dirname, `../../src/messages/${locale}.json`);
-  const text = (JSON.parse(readFileSync(file, "utf8")) as { safeguarding: { hintReflection: string } }).safeguarding
-    .hintReflection;
+  const text = messages(locale).safeguarding.hintReflection;
   const match = /^(.*?)<help>(.*?)<\/help>(.*)$/.exec(text);
   if (!match) throw new Error(`r3-deltas: safeguarding.hintReflection in ${locale} has no <help> link`);
   return { before: match[1].trim(), link: match[2], after: match[3].trim() };
@@ -91,9 +104,34 @@ function reflectionHint(key: string, aria: string): string {
   return out.join("\n");
 }
 
+/** Release 2's name of the built-in course's second English reflection answer box (R3-D2). */
+export const R2_PLACEHOLDER2 = "Be honest — only you see this unless you choose to share it.";
+
+/**
+ * R3-D2 on one snapshot: the answer box's placeholder, R2_PLACEHOLDER2, as
+ * en.json words it now. In Release 0's recording the box is named by it
+ * (`- textbox "…"`); once Release 2's D3 names the box by its question, it
+ * is the box's `/placeholder:` line, as Playwright prints it.
+ */
+function placeholder2(key: string, aria: string): string {
+  if (key.split(":")[1] !== "en") return aria;
+  const now = messages("en").course.workplaceConflict.reflection.placeholder2;
+  const quote = (text: string) => `"${text.replace(/"/g, '\\"')}"`;
+  return aria
+    .split("\n")
+    .map((line) => {
+      const bare = line.trimStart();
+      if (bare === `- textbox ${quote(R2_PLACEHOLDER2)}`) return line.replace(quote(R2_PLACEHOLDER2), quote(now));
+      if (bare === `- /placeholder: ${R2_PLACEHOLDER2}`) return line.replace(R2_PLACEHOLDER2, now);
+      return line;
+    })
+    .join("\n");
+}
+
 /** What a learner sees at `key` in Release 3, from what Release 2 showed there. */
 export function applyR3Deltas(key: string, captured: Captured, live: ReadonlySet<R3Delta> = LIVE): Captured {
   let aria = captured.aria;
   if (live.has("R3-D1")) aria = reflectionHint(key, aria);
+  if (live.has("R3-D2")) aria = placeholder2(key, aria);
   return { aria, counter: captured.counter };
 }

@@ -316,7 +316,9 @@ describe("Release 3: German and Greek, switched on per course (D90)", () => {
 
       // Manage courses says it in a word on the course's German chip, not by a mark alone.
       await staff.page.goto("/en/content/courses");
-      const gridCard = staff.page.locator(`article[aria-labelledby="course-${LANG.slug}-title"]`);
+      // The card as shown: while the page streams in, React may hold the
+      // server's copy of it hidden for a moment.
+      const gridCard = staff.page.locator(`article[aria-labelledby="course-${LANG.slug}-title"]`).filter({ visible: true });
       await expect(gridCard).toBeVisible({ timeout: 15_000 });
       await expect(gridCard.getByText(en.courseManager.languageReady.liveMark, { exact: true })).toHaveCount(1);
       await expect(gridCard.getByText(en.courseManager.languageReady.liveMark, { exact: true })).toBeVisible();

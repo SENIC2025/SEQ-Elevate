@@ -82,10 +82,11 @@ describe("the Release 4 migration", () => {
   it("sorts after every other migration, Release 3's included", () => {
     const dirs = readdirSync(`${root}${MIGRATIONS}`).filter((d) => /^\d{14}_/.test(d)).sort();
     expect(dirs.at(-1)).toBe(R4);
-    expect(dirs.slice(-4, -1)).toEqual([
+    expect(dirs.slice(-5, -1)).toEqual([
       "20261120090000_r3_role_partner_admin",
       "20261120090100_r3_people_privacy_content",
       "20261120090200_r3_course_project_columns",
+      "20261120090300_r3_sharing_and_guardian_triggers",
     ]);
   });
 

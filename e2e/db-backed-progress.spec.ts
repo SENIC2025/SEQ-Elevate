@@ -3,7 +3,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { createPerson, createSession } from "./fixtures/people";
-import { addGuestWork } from "./fixtures/guest-work";
+import { addGuestWork, guestCourseCompleted } from "./fixtures/guest-work";
 
 /**
  * Verifies that an AUTHENTICATED learner's progress persists to Postgres:
@@ -68,6 +68,16 @@ async function walkWorkplaceConflict(page: import("@playwright/test").Page) {
   ).toBeVisible();
 }
 
+/**
+ * How long a test waits for what the learner did to be in the database. The
+ * store saves once the server has answered its loads (each tried again
+ * after 1, 2, 4 and 8 s when one fails) and the saves go one server action
+ * at a time, so on a loaded machine that can take well over 15 s.
+ */
+const SAVED_WITHIN = 45_000;
+/** A test that waits up to SAVED_WITHIN, `waits` times, has that long and the walk's time besides. */
+const timeFor = (waits: number) => test.setTimeout(30_000 + waits * SAVED_WITHIN);
+
 describe("DB-backed learner progress", () => {
   const email = "e2e-learner@example.com";
   let userId: string;
@@ -88,6 +98,7 @@ describe("DB-backed learner progress", () => {
     page,
     context,
   }) => {
+    timeFor(1);
     await context.addCookies([
       {
         name: "authjs.session-token",
@@ -106,33 +117,39 @@ describe("DB-backed learner progress", () => {
     // Walk the workplace-conflict course end to end
     await walkWorkplaceConflict(page);
 
-    // let the debounced DB writes flush
-    await page.waitForTimeout(2000);
-
     // ---- assertions against the database ----
+    // Waited for in the database, not for a fixed time: the saves land once
+    // the server has answered them, later on a loaded machine.
     const course = await prisma.course.findFirst({
       where: { slug: "workplace-conflict" },
     });
-    const enrollment = await prisma.courseEnrollment.findFirst({
-      where: { userId, courseId: course!.id },
-    });
-    expect(enrollment, "enrollment created").toBeTruthy();
-    expect(enrollment?.completedAt, "course marked complete").toBeTruthy();
-    expect(enrollment?.stagesCompleted.length, "stages recorded").toBeGreaterThan(
-      5
-    );
-    expect(enrollment?.scenarioRoot, "scenario choice saved").toBe("private");
-
-    const membership = await prisma.membership.findFirst({
-      where: { userId, role: "LEARNER" },
-    });
-    expect(membership, "LEARNER membership auto-provisioned").toBeTruthy();
-
-    const userBadge = await prisma.userBadge.findFirst({
-      where: { userId },
-      include: { badge: true },
-    });
-    expect(userBadge?.badge.slug, "badge awarded").toBe("voice-without-edges");
+    await expect
+      .poll(
+        async () => {
+          const [enrollment, membership, userBadge] = await Promise.all([
+            prisma.courseEnrollment.findFirst({ where: { userId, courseId: course!.id } }),
+            prisma.membership.findFirst({ where: { userId, role: "LEARNER" } }),
+            prisma.userBadge.findFirst({ where: { userId }, include: { badge: true } }),
+          ]);
+          return {
+            enrolled: !!enrollment,
+            completed: !!enrollment?.completedAt,
+            stagesRecorded: (enrollment?.stagesCompleted.length ?? 0) > 5,
+            scenarioRoot: enrollment?.scenarioRoot ?? null,
+            learnerMembership: !!membership,
+            badge: userBadge?.badge.slug ?? null,
+          };
+        },
+        { message: "enrolment, completion, stages, scenario, LEARNER membership and badge saved", timeout: SAVED_WITHIN }
+      )
+      .toEqual({
+        enrolled: true,
+        completed: true,
+        stagesRecorded: true,
+        scenarioRoot: "private",
+        learnerMembership: true,
+        badge: "voice-without-edges",
+      });
   });
 });
 
@@ -430,6 +447,7 @@ describe("progress made before the learner's data has loaded", () => {
     page,
     context,
   }) => {
+    timeFor(1);
     const { id: userId } = users[firstEmail];
     await signIn(context, firstEmail);
     const actions = await holdServerActions(page);
@@ -452,7 +470,7 @@ describe("progress made before the learner's data has loaded", () => {
     actions.release();
 
     await expect
-      .poll(() => savedFor(userId), { timeout: 15_000 })
+      .poll(() => savedFor(userId), { timeout: SAVED_WITHIN })
       .toMatchObject({
         enrollment: {
           completed: true,
@@ -468,6 +486,7 @@ describe("progress made before the learner's data has loaded", () => {
     page,
     context,
   }) => {
+    timeFor(1);
     const { id: userId } = users[resumeEmail];
     // Earlier visit: two lessons done and a reflection answer, plus another
     // course's badge.
@@ -497,7 +516,7 @@ describe("progress made before the learner's data has loaded", () => {
     actions.release();
 
     await expect
-      .poll(() => savedFor(userId), { timeout: 15_000 })
+      .poll(() => savedFor(userId), { timeout: SAVED_WITHIN })
       .toMatchObject({
         enrollment: {
           completed: true,
@@ -774,8 +793,12 @@ describe("progress kept when the learner's data loads late, fails or overlaps", 
         timeout: 15_000,
       })
       .toMatchObject(played);
-    // The guest's two lessons, added now, don't take their place.
-    await addGuestWork(page);
+    // The guest's two lessons, added now, don't take their place: the
+    // account already holds them (Release 3, D69: a course moves only into
+    // an account with no progress in it).
+    const prompt = page.getByRole("region", { name: "Work saved on this browser before you signed in" });
+    await prompt.getByRole("button", { name: "Add it to my account" }).click({ timeout: 20_000 });
+    await expect(prompt.getByRole("status")).toHaveText("It's already in your account.", { timeout: 30_000 });
     await page.waitForTimeout(1500); // past the save debounce
     expect(await enrollmentFor(userId, "workplace-conflict")).toMatchObject(played);
   });
@@ -1331,14 +1354,16 @@ describe("progress kept when the session is lost, changes hands or the course ch
       .toBe("Guest: I listened");
 
     // Signed in: a fresh page, so the guest store holds the only copy. The
-    // first save of the Comp Card and the first of the course — the move's
-    // — find no session.
+    // move's first two tries find no session: Release 3 sends it in one
+    // call ("Add it to my account"), tried again; the build before sent the
+    // Comp Card and the course in saves of their own.
     await signIn(context, emails.migrateNoSession);
     const first = new Set<string>();
     const lost = await sessionLostDuring(
       page,
       session,
       (body) => {
+        if (body.startsWith('[{"claim":1')) return true;
         const call = body.startsWith('[{"wentWell"')
           ? "card"
           : isCourseSave("workplace-conflict")(body)
@@ -1371,7 +1396,7 @@ describe("progress kept when the session is lost, changes hands or the course ch
       .toMatchObject({ stages: ["CONTEXT", "CONCEPT"] });
   });
 
-  test("a guest tab signed in from another tab doesn't save the guest's copy over the account's saved data", async ({
+  test("a guest tab signed in from another tab stays the guest's until it is reloaded: nothing of it is saved over the account's data", async ({
     page,
     context,
   }) => {
@@ -1401,17 +1426,34 @@ describe("progress kept when the session is lost, changes hands or the course ch
       .toBe("Guest: I listened");
 
     // The magic link opens in another tab: this one learns of it without
-    // reloading. The account's saved card wins, as when signing in on a
-    // fresh page (guest-migration.ts).
+    // reloading. It holds the guest's work, so it stays the guest's page
+    // (IL-2b): it says so and offers a reload; the guest's text stays on
+    // screen and nothing of it is saved into the account (D79: guest work
+    // moves only when claimed).
     await signIn(context, emails.guestSignsIn);
     await recheckSession(page);
-    await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible({
+    await expect(page.getByRole("status").filter({ hasText: /signed in in another tab/i })).toBeVisible({
       timeout: 15_000,
     });
+    await expect(compCardField(page, "Even small wins count.")).toHaveValue("Guest: I listened");
+    await page.waitForTimeout(2000); // past the save debounce
+    expect(
+      await prisma.compCard.findFirst({
+        where: { userId },
+        select: { wentWell: true },
+      })
+    ).toEqual({ wentWell: "Saved: I stayed calm" });
+
+    // Reloaded, it is the account's page: the account's saved card, and the
+    // guest's work offered, not moved.
+    await page.getByRole("button", { name: "Reload this page" }).click();
     await expect(compCardField(page, "Even small wins count.")).toHaveValue(
       "Saved: I stayed calm",
       { timeout: 15_000 }
     );
+    await expect(
+      page.getByRole("region", { name: "Work saved on this browser before you signed in" })
+    ).toContainText("Comp Card: yes.");
     await page.waitForTimeout(2000); // past the save debounce
     expect(
       await prisma.compCard.findFirst({
@@ -1436,19 +1478,19 @@ describe("progress kept when the session is lost, changes hands or the course ch
       },
     });
     await signIn(context, emails.readFailsStale);
-    // Once loaded, the Comp Card is saved back as it came; once that's in…
-    const savedBack = page.waitForResponse(
-      (r) =>
-        r.request().method() === "POST" &&
-        (r.request().postData() ?? "").startsWith(
-          '[{"wentWell":"Draft from Monday"'
-        )
-    );
+    // Every Comp Card save this tab sends (its first argument is the card's fields).
+    const cardSaves: string[] = [];
+    page.on("request", (r) => {
+      const body = r.postData() ?? "";
+      if (r.method() === "POST" && /^\[\{"(wentWell|difficult|improve|behaviour|confidence)"/.test(body)) cardSaves.push(body);
+    });
     await page.goto("/en/learner/comp-card");
     await expect(compCardField(page, "Even small wins count.")).toHaveValue(
       "Draft from Monday"
     );
-    await savedBack;
+    // Once loaded, the Comp Card isn't saved back: nothing was changed here (D80).
+    await page.waitForTimeout(2000); // past the save debounce
+    expect(cardSaves).toEqual([]);
     const signOut = page.getByRole("button", { name: "Sign out" });
     await expect(signOut).toBeVisible();
 
@@ -1472,6 +1514,7 @@ describe("progress kept when the session is lost, changes hands or the course ch
         select: { wentWell: true },
       })
     ).toEqual({ wentWell: "Final, from the phone" });
+    expect(cardSaves, "this tab's copy was never sent").toEqual([]);
   });
 
   test("a save still failing when the learner leaves the course and comes back isn't replaced by the save of the course loaded again", async ({
@@ -1677,9 +1720,14 @@ describe("guest progress migrates to the DB on sign-in", () => {
     page,
     context,
   }) => {
+    timeFor(3);
     // 1) As a GUEST (no session cookie), walk the course end to end. Progress
     //    accrues in localStorage only — nothing in the DB for this user yet.
+    //    The page records the completion in the guest store just after
+    //    "Course complete" is drawn, and the account gets what the store
+    //    holds: the test signs in once the store holds the course finished.
     await walkWorkplaceConflict(page);
+    await guestCourseCompleted(page, "workplace-conflict", "voice-without-edges");
 
     // Sanity: the DB has no enrollment for this user before sign-in.
     const course = await prisma.course.findFirst({
@@ -1729,7 +1777,7 @@ describe("guest progress migrates to the DB on sign-in", () => {
             scenarioRoot: enrollment?.scenarioRoot ?? null,
           };
         },
-        { timeout: 15_000 }
+        { timeout: SAVED_WITHIN }
       )
       .toEqual({ completed: true, scenarioRoot: "private" });
     await expect
@@ -1741,18 +1789,28 @@ describe("guest progress migrates to the DB on sign-in", () => {
               include: { badge: true },
             })
           ).map((b) => b.badge.slug),
-        { timeout: 15_000 }
+        { timeout: SAVED_WITHIN }
       )
       .toEqual(["voice-without-edges"]);
 
     // The completion holds once the course is played again: the account's
-    // saved progress is read back and merged, never replaced by less.
+    // saved progress is read back and merged, never replaced by less. The
+    // page's own load of it is waited for (its answer, and the course opened
+    // at its end from it), not a fixed time.
+    const saved = await prisma.courseEnrollment.findFirst({ where: { userId, courseId: course!.id } });
+    const loaded = page.waitForResponse(
+      (r) =>
+        r.request().method() === "POST" &&
+        !!r.request().headers()["next-action"] &&
+        r.request().postData() === JSON.stringify(["workplace-conflict", "en"]),
+      { timeout: SAVED_WITHIN }
+    );
     await page.goto("/en/learner/course/workplace-conflict");
-    await page.waitForTimeout(1500); // past the save debounce
-    expect(
-      (await prisma.courseEnrollment.findFirst({ where: { userId, courseId: course!.id } }))?.completedAt,
-      "completion kept"
-    ).toBeTruthy();
+    await loaded;
+    await expect(page.getByRole("heading", { name: /course complete/i })).toBeVisible();
+    const after = await prisma.courseEnrollment.findFirst({ where: { userId, courseId: course!.id } });
+    expect(after?.completedAt, "completion kept").toEqual(saved?.completedAt);
+    expect(after?.scenarioRoot, "scenario kept").toBe("private");
   });
 });
 
