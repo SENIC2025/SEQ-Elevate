@@ -1,4 +1,4 @@
-import { checkLinkHref, comparableHost, emailAddressOf } from "./link-url";
+import { checkLinkHref, comparableHost, emailAddressOf, standardPath } from "./link-url";
 import { asciiDomain } from "./link-text";
 import { registrableDomain } from "./top-level-domains";
 
@@ -100,7 +100,7 @@ export function textIsSite(text: string, href: string): boolean {
   const tail = end < 0 ? "" : address.slice(end);
   const linkHost = comparableHost(url.hostname) + (url.port ? `:${url.port}` : "");
   if (withoutWww(host.toLowerCase()) !== withoutWww(linkHost)) return false;
-  return rest(tail) === rest(url.pathname + url.search + url.hash);
+  return rest(tail) === rest(standardPath(url.pathname) + url.search + url.hash);
 }
 
 // Characters that draw nothing but take room in a line, in the fonts
