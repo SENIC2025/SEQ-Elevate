@@ -39,6 +39,11 @@ const inputCls =
  * per language. Field keys are fixed (each maps to a stored column), which the
  * panel states plainly rather than offering an "add field" button that would
  * silently fail to save anything.
+ *
+ * Its own words are English on every locale's page, so they are marked
+ * lang="en" (WCAG 3.1.2), as the admin screens are; the wording being
+ * edited is marked with the language picked here, and each language's name
+ * with its own.
  */
 export function CompCardTemplateEditor() {
   const [locale, setLocale] = React.useState<Locale>("en");
@@ -131,7 +136,7 @@ export function CompCardTemplateEditor() {
   if (denied) return null;
 
   return (
-    <Card>
+    <Card lang="en">
       <CardContent className="p-4" role="region" aria-label="Comp Card wording">
         <div className="flex flex-wrap items-center gap-2 mb-1">
           <p className="text-sm font-semibold flex items-center gap-1.5">
@@ -150,7 +155,7 @@ export function CompCardTemplateEditor() {
               className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs"
             >
               {LOCALES.map((l) => (
-                <option key={l.value} value={l.value}>
+                <option key={l.value} value={l.value} lang={l.value}>
                   {l.label}
                 </option>
               ))}
@@ -229,6 +234,7 @@ export function CompCardTemplateEditor() {
                   <span className="block mb-1">Question</span>
                   <input
                     value={f.label}
+                    lang={locale}
                     onChange={(e) => patch(f.key, { label: e.target.value })}
                     className={inputCls}
                   />
@@ -238,6 +244,7 @@ export function CompCardTemplateEditor() {
                     <span className="block mb-1">Hint shown in the box</span>
                     <input
                       value={f.placeholder ?? ""}
+                      lang={locale}
                       onChange={(e) =>
                         patch(f.key, { placeholder: e.target.value })
                       }

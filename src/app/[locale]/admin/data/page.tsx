@@ -17,7 +17,8 @@ export const metadata: Metadata = { title: "Data" };
 /**
  * Release 3 (spec 8, 13.4, 14; D88): data requests, test accounts and the
  * go-live clean-up. ADMIN with project scope only (getDataTools reads
- * nothing for anyone else); English, like the other staff screens.
+ * nothing for anyone else); English, like the other staff screens, and
+ * marked as English under /de and /el (WCAG 3.1.2).
  */
 export default async function Page({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
@@ -25,14 +26,14 @@ export default async function Page({ params }: { params: Promise<{ locale: strin
   const tools = await getDataTools();
   if (!tools) {
     return (
-      <AccessNotice title="Admins only">
+      <AccessNotice lang="en" title="Admins only">
         Sign in with an admin account to handle data requests and test accounts.
       </AccessNotice>
     );
   }
   const from = statsFrom();
   return (
-    <div className="mx-auto max-w-5xl px-4 py-8">
+    <div lang="en" className="mx-auto max-w-5xl px-4 py-8">
       <Link
         href="/admin"
         className="inline-flex items-center gap-1 text-sm text-[var(--muted-foreground)] hover:text-[var(--foreground)] mb-3"

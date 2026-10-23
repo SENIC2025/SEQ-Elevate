@@ -154,6 +154,25 @@ describe("the Comp Card's sharing (spec 4.5)", () => {
   });
 });
 
+describe("the Comp Card's confidence (WCAG 1.3.1, 4.1.2)", () => {
+  it("is a group of five buttons named by the question it answers, not a label tied to nothing", () => {
+    const { html } = render(MEMBER, { confidence: 3 });
+    const group = /<div role="group" aria-labelledby="([^"]+)"[^>]*>([\s\S]*?)<\/div>/.exec(html);
+    expect(group, "a group").not.toBeNull();
+    const [, labelId, inner] = group!;
+    expect(html).toContain(`id="${labelId}" class="block text-sm font-medium mb-2">${en.compCard.fieldConfidence}<`);
+    expect([...inner.matchAll(/<button[^>]*aria-pressed="(true|false)"[^>]*>(\d)<\/button>/g)].map((m) => [m[2], m[1]])).toEqual([
+      ["1", "false"],
+      ["2", "false"],
+      ["3", "true"],
+      ["4", "false"],
+      ["5", "false"],
+    ]);
+    // Every label is some field's.
+    for (const label of html.matchAll(/<label([^>]*)>/g)) expect(label[1]).toMatch(/\bfor="/);
+  });
+});
+
 describe("the Comp Card's length notes (D80)", () => {
   it("says nothing while short, how many are left from 1,800, and too long past 2,000", () => {
     expect(cardFieldLength("x".repeat(1799))).toBeNull();
@@ -203,6 +222,28 @@ describe("the course's own text on the Comp Card carries its language (D90, spec
     const { html } = render(MEMBER);
     expect(tagOf(html, "Saying no")).not.toContain("lang=");
     expect(tagOf(html, "Ask to finish → Thank them")).not.toContain("lang=");
+  });
+
+  it("a guest store written before Release 3 (its title's language unknown) is shown unmarked, in the form and the printout", () => {
+    // Decided (integration): unmarked, not marked as the course's English.
+    // Such a title was stored as the page showed it, in the language the
+    // guest played in, which is the language this browser most likely
+    // shows now; marking it "en" would make a screen reader read a German
+    // or Greek title with an English voice. The next time the course is
+    // opened the player records the language and the title is marked.
+    pageLocale = "de";
+    played = {
+      courseSlug: "workplace-conflict",
+      courseTitle: "Konflikte am Arbeitsplatz",
+      scenario: { root: "c1", followup: "f1", rootLabel: "Ruhig ansprechen", followupLabel: "Danken" },
+    };
+    const { html } = render(MEMBER);
+    const holders = [...html.matchAll(/(<[a-z0-9]+[^>]*>)Konflikte am Arbeitsplatz</g)].map((m) => m[1]);
+    expect(holders.length, "the form and the printout").toBe(2);
+    for (const tag of holders) expect(tag).not.toContain("lang=");
+    const choices = [...html.matchAll(/(<[a-z0-9]+[^>]*>)Ruhig ansprechen → Danken</g)].map((m) => m[1]);
+    expect(choices.length).toBe(2);
+    for (const tag of choices) expect(tag).not.toContain("lang=");
   });
 
   it("marks nothing for a course whose language the store doesn't know, nor the dash of no course", () => {

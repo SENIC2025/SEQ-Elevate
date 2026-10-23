@@ -1,20 +1,6 @@
-import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
-import { cardToSave, guestWorkOf, migrateGuest, type GuestWrites } from "./guest-migration";
-import { withRetry } from "./retry";
-import type { ProgressPatch } from "@/lib/learner-progress/contract";
+import { describe, it, expect } from "vitest";
+import { cardToSave, guestClaimOf, guestWorkOf, storeAfterClaim, withText } from "./guest-migration";
 import type { CompCardData, CourseProgress, DemoState } from "./demo-state";
-
-beforeEach(() => {
-  vi.spyOn(console, "error").mockImplementation(() => undefined);
-});
-
-afterEach(() => {
-  vi.restoreAllMocks();
-});
-
-/** Tried again at once, twice: three tries in all. */
-const retry = <T,>(call: () => Promise<T>) =>
-  withRetry(call, { delays: [0, 0] });
 
 const card: CompCardData = {
   wentWell: "Guest: I listened",
@@ -41,9 +27,6 @@ const course: CourseProgress = {
   completedAt: null,
 };
 
-/** What moving `course` sends: all of it, in fill mode (the account wins). */
-const moved: ProgressPatch = { v: 2, completed: ["context", "concept"], fill: true };
-
 const guest: DemoState = {
   projectId: "seq-elevate",
   role: null,
@@ -52,288 +35,6 @@ const guest: DemoState = {
   compCard: card,
   refusedKeys: {},
 };
-
-/** A new account: nothing saved. */
-const nothingSaved = { compCard: null, badges: [], enrollments: [] };
-
-/** The account's enrolment in workplace conflict, as loadLearnerGlobal sums it up. */
-const enrolment = (stagesCompleted: number, hasProgress: boolean) => ({
-  slug: "workplace-conflict",
-  stagesCompleted,
-  completed: false,
-  hasProgress,
-});
-
-/** Writes that each fail their first `fails` tries, then get through. */
-function writes(fails: { badge?: number; card?: number; course?: number } = {}) {
-  const tries = { badge: 0, card: 0, course: 0 };
-  const server = {
-    badges: [] as string[],
-    card: null as CompCardData | null,
-    course: null as ProgressPatch | null,
-  };
-  const noSession = () => new Error("No signed-in learner");
-  const w: GuestWrites = {
-    awardBadge: async (slug) => {
-      if (++tries.badge <= (fails.badge ?? 0)) throw noSession();
-      server.badges.push(slug);
-    },
-    saveCompCard: async (c) => {
-      if (++tries.card <= (fails.card ?? 0)) throw noSession();
-      server.card = c;
-    },
-    saveCourse: async (_slug, patch) => {
-      if (++tries.course <= (fails.course ?? 0)) throw noSession();
-      server.course = patch;
-      return { ok: true, refused: [] };
-    },
-  };
-  return { writes: w, server, tries };
-}
-
-describe("migrateGuest", () => {
-  it("moves the guest's badges, Comp Card and course to a new account", async () => {
-    const { writes: w, server } = writes();
-    const migrated = await migrateGuest(guest, nothingSaved, w, retry);
-
-    expect(server).toEqual({
-      badges: ["voice-without-edges"],
-      card,
-      course: moved,
-    });
-    expect(migrated).toEqual({
-      badges: ["voice-without-edges"],
-      awarded: ["voice-without-edges"],
-      compCard: card,
-      course,
-      wrote: true,
-      settled: true,
-    });
-  });
-
-  it("moves the guest's quick-check answers, and whether they were checked, with the course", async () => {
-    const answered: CourseProgress = {
-      ...course,
-      stagesCompleted: [...course.stagesCompleted, "assessment"],
-      assessment: { answers: { qk3f: "a1x", q9zz: "a4x" }, checked: true },
-    };
-    const { writes: w, server } = writes();
-    const migrated = await migrateGuest(
-      { ...guest, course: answered },
-      nothingSaved,
-      w,
-      retry
-    );
-    expect(server.course?.answers?.["assessment/main"]).toEqual({
-      type: "quiz",
-      ...answered.assessment,
-    });
-    expect(migrated.course?.assessment).toEqual(answered.assessment);
-  });
-
-  it("tries a write that finds no session again, and gets it through", async () => {
-    const { writes: w, server, tries } = writes({ badge: 1, card: 2, course: 1 });
-    const migrated = await migrateGuest(guest, nothingSaved, w, retry);
-
-    expect(tries).toEqual({ badge: 2, card: 3, course: 2 });
-    expect(server).toEqual({ badges: ["voice-without-edges"], card, course: moved });
-    expect(migrated.awarded).toEqual(["voice-without-edges"]);
-    expect(migrated.settled, "all of it in the account: the guest store can go").toBe(true);
-  });
-
-  it("keeps the rest going, and hands the store all of it, when a write never gets through", async () => {
-    // The learner store's write-throughs save it, and the guest store,
-    // not settled, stays: it outlives a tab closed before they do.
-    const { writes: w, server } = writes({ badge: 100, card: 100 });
-    const migrated = await migrateGuest(guest, nothingSaved, w, retry);
-
-    expect(server.course).toEqual(moved); // not skipped
-    expect(migrated).toEqual({
-      badges: ["voice-without-edges"], // shown…
-      awarded: [], // …and awarded by the store's badge write-through
-      compCard: card, // saved by its Comp Card write-through
-      course, // saved once it has loaded
-      wrote: true,
-      settled: false,
-    });
-    expect(console.error).toHaveBeenCalled();
-  });
-
-  it("doesn't try again an award the server refused, and doesn't count it as awarded", async () => {
-    // A badge with no Badge row on the server: no try can succeed, so it
-    // isn't tried again for 15 s while the learner waits for their data.
-    const tries = { badge: 0 };
-    const { writes: base } = writes();
-    const w: GuestWrites = {
-      ...base,
-      awardBadge: async () => {
-        tries.badge++;
-        return { ok: false, reason: "no-badge" };
-      },
-    };
-    const migrated = await migrateGuest(guest, nothingSaved, w, retry);
-
-    expect(tries.badge).toBe(1);
-    expect(migrated.badges).toEqual(["voice-without-edges"]); // still shown
-    expect(migrated.awarded).toEqual([]); // not counted as saved
-    expect(migrated.settled, "a refusal leaves nothing to try again").toBe(true);
-  });
-
-  it("hands the store the guest's course when its save never gets through", async () => {
-    const { writes: w, server } = writes({ course: 100 });
-    const migrated = await migrateGuest(guest, nothingSaved, w, retry);
-
-    expect(server.course).toBeNull();
-    expect(migrated.course).toEqual(course);
-    expect(migrated.settled).toBe(false);
-  });
-
-  it("leaves what the account has saved as it is: the saved data wins", async () => {
-    const savedCard = { ...card, wentWell: "Saved: I stayed calm" };
-    const { writes: w, server } = writes();
-    const migrated = await migrateGuest(
-      guest,
-      {
-        compCard: savedCard,
-        badges: ["voice-without-edges"],
-        enrollments: [enrolment(3, true)],
-      },
-      w,
-      retry
-    );
-
-    expect(server).toEqual({ badges: [], card: null, course: null });
-    expect(migrated).toEqual({
-      badges: ["voice-without-edges"],
-      awarded: ["voice-without-edges"],
-      compCard: savedCard,
-      course: null,
-      wrote: false,
-      settled: true,
-    });
-  });
-
-  it("moves a course the account has opened but done nothing in", async () => {
-    const { writes: w, server } = writes();
-    await migrateGuest(
-      guest,
-      {
-        ...nothingSaved,
-        enrollments: [enrolment(0, false)],
-      },
-      w,
-      retry
-    );
-    expect(server.course).toEqual(moved);
-  });
-
-  it("moves no Comp Card the guest never filled in, and no course with nothing done", async () => {
-    const { writes: w, server } = writes();
-    const migrated = await migrateGuest(
-      {
-        ...guest,
-        badges: [],
-        compCard: { ...card, updatedAt: null },
-        course: { ...course, stagesCompleted: [] },
-      },
-      nothingSaved,
-      w,
-      retry
-    );
-
-    expect(server).toEqual({ badges: [], card: null, course: null });
-    expect(migrated).toMatchObject({ compCard: null, course: null, wrote: false });
-  });
-
-  // U9 (spec 5.4, D37 "the account wins", per course; D69).
-  it("moves a guest's progress in the course's own lessons, and answers per item, into an empty account", async () => {
-    const own: CourseProgress = {
-      ...course,
-      stagesCompleted: [],
-      sectionsCompleted: ["s-abcdefgh"],
-      responses: { "s-abcdefgh/p-12345678": { type: "rating", values: { s1: 4 } } },
-    };
-    const { writes: w, server } = writes();
-    const migrated = await migrateGuest({ ...guest, course: own }, nothingSaved, w, retry);
-    expect(server.course).toEqual({
-      v: 2,
-      completed: ["s-abcdefgh"],
-      answers: { "s-abcdefgh/p-12345678": { type: "rating", values: { s1: 4 } } },
-      fill: true,
-    });
-    expect(migrated.course).toEqual(own);
-  });
-
-  it("moves a guest's answer when no lesson is done yet", async () => {
-    const answered: CourseProgress = {
-      ...course,
-      stagesCompleted: [],
-      simulation: { choice: "iStatement", correct: true },
-    };
-    const { writes: w, server } = writes();
-    await migrateGuest({ ...guest, course: answered }, nothingSaved, w, retry);
-    expect(server.course).toEqual({
-      v: 2,
-      answers: { "simulation/main": { type: "practice", optionId: "iStatement", correct: true } },
-      fill: true,
-    });
-  });
-
-  it("leaves the course alone when the account has any progress in it, even without a lesson done", async () => {
-    const { writes: w, server } = writes();
-    const migrated = await migrateGuest(
-      guest,
-      { ...nothingSaved, enrollments: [enrolment(0, true)] },
-      w,
-      retry
-    );
-    expect(server.course).toBeNull();
-    expect(migrated.course).toBeNull();
-  });
-
-  it("doesn't count a move the server refused as saved, and still hands the store the course", async () => {
-    const { writes: base, server } = writes();
-    const w: GuestWrites = {
-      ...base,
-      saveCourse: async () => ({ ok: false, error: "unknown-course" }),
-    };
-    const migrated = await migrateGuest(
-      { ...guest, badges: [], compCard: { ...card, updatedAt: null } },
-      nothingSaved,
-      w,
-      retry
-    );
-    expect(server.course).toBeNull();
-    expect(migrated).toMatchObject({ course, wrote: false });
-    expect(console.error).toHaveBeenCalled();
-  });
-});
-
-describe("Release 3: a guest's Comp Card moves as Only me, within the limit (D80, UB3)", () => {
-  it("counts a Comp Card save the server refused (a text over the limit) as not saved, and still hands the store the card", async () => {
-    const { writes: base } = writes();
-    const w: GuestWrites = {
-      ...base,
-      saveCompCard: async () => ({ ok: false, error: "too-long", field: "difficult" }),
-    };
-    const migrated = await migrateGuest(
-      { ...guest, badges: [], course: { ...course, courseSlug: null } },
-      nothingSaved,
-      w,
-      retry
-    );
-    expect(migrated.wrote).toBe(false);
-    expect(migrated.compCard).toMatchObject({ wentWell: card.wentWell, difficult: card.difficult, sharing: "onlyMe" });
-    expect(console.error).toHaveBeenCalled();
-  });
-
-  it("hands the store the guest's card as Only me, whatever the guest's copy said", async () => {
-    const { writes: w } = writes();
-    const shared = { ...card, sharing: "facilitators" as const, sharedAt: "2026-11-21T08:00:00.000Z", organisationName: "X" };
-    const migrated = await migrateGuest({ ...guest, compCard: shared }, nothingSaved, w, retry);
-    expect(migrated.compCard).toMatchObject({ sharing: "onlyMe", sharedAt: null, organisationName: null });
-  });
-});
 
 describe("cardToSave (UB3)", () => {
   it("sends the texts and the confidence, never who sees the card", () => {
@@ -372,14 +73,42 @@ describe("guestWorkOf: what a guest store holds, offered after sign-in (spec 5.5
       ...guest,
       course: { ...course, reflection: { p1: "One", p2: " ", p3: "Three" } },
     });
-    expect(work).toEqual({ courses: ["Workplace conflict"], compCard: true, reflections: 2, badges: guest.badges.length });
+    expect(work).toEqual({
+      courses: [{ title: "Workplace conflict", locale: course.courseLocale ?? null }],
+      compCard: true,
+      texts: [
+        { ref: { part: "course", key: "reflection/main", prompt: "p1" }, text: "One", max: 5000, n: 1 },
+        { ref: { part: "course", key: "reflection/main", prompt: "p3" }, text: "Three", max: 5000, n: 2 },
+        { ref: { part: "compCard", field: "wentWell" }, text: card.wentWell, max: 2000 },
+        { ref: { part: "compCard", field: "difficult" }, text: card.difficult, max: 2000 },
+      ],
+      tooLong: [],
+      reflections: 2,
+      badges: guest.badges.length,
+    });
+  });
+
+  it("gives each course's title with the language it was recorded in (none for a store from before Release 3)", () => {
+    const work = (courseLocale: "en" | "de" | null | undefined) =>
+      guestWorkOf({ ...guest, course: { ...course, courseTitle: "Workplace conflict", courseLocale } })?.courses;
+    expect(work("en")).toEqual([{ title: "Workplace conflict", locale: "en" }]);
+    expect(work("de")).toEqual([{ title: "Workplace conflict", locale: "de" }]);
+    expect(work(undefined)).toEqual([{ title: "Workplace conflict", locale: null }]);
   });
 
   it("is a Comp Card alone, or badges alone, too, and counts the badges so the offer can name them", () => {
-    expect(guestWorkOf({ ...empty, compCard: card })).toEqual({ courses: [], compCard: true, reflections: 0, badges: 0 });
+    expect(guestWorkOf({ ...empty, compCard: card })).toMatchObject({
+      courses: [],
+      compCard: true,
+      tooLong: [],
+      reflections: 0,
+      badges: 0,
+    });
     expect(guestWorkOf({ ...empty, badges: ["voice-without-edges", "listening-first"] })).toEqual({
       courses: [],
       compCard: false,
+      texts: [],
+      tooLong: [],
       reflections: 0,
       badges: 2,
     });
@@ -387,5 +116,177 @@ describe("guestWorkOf: what a guest store holds, offered after sign-in (spec 5.5
 
   it("doesn't count a course opened and left empty", () => {
     expect(guestWorkOf({ ...empty, course: { ...course, stagesCompleted: [] } })).toBeNull();
+  });
+});
+
+/*
+ * Release 3 (D79): "Add it to my account" sends the guest store's work once
+ * (guestClaimOf), and the browser then removes only the parts the server
+ * says are in the account, and only as it read them (storeAfterClaim). A
+ * text too long to add is offered to be shortened, in the guest store
+ * (withText).
+ */
+describe("guestClaimOf: what Add sends", () => {
+  const blank: DemoState = {
+    projectId: "seq-elevate",
+    role: null,
+    badges: [],
+    course: { ...course, courseSlug: null, courseTitle: null, stagesCompleted: [] },
+    compCard: { ...card, wentWell: "", difficult: "", confidence: 3, updatedAt: null },
+    refusedKeys: {},
+  };
+
+  it("sends each part that holds work, as it is: the course as a patch of all of it, the card's texts and confidence, the badges", () => {
+    const store: DemoState = {
+      ...guest,
+      badges: ["voice-without-edges", "voice-without-edges"],
+      course: {
+        ...course,
+        reflection: { p1: "One", p2: "", p3: "" },
+        assessment: { answers: { q1: "b" }, checked: true },
+        responses: { "s-abcdefgh/main": { type: "rating", values: { s1: 4 } } },
+        completedAt: "2026-10-01T09:00:00.000Z",
+      },
+    };
+    const claim = guestClaimOf(store);
+    expect(claim).toEqual({
+      claim: 1,
+      course: {
+        slug: "workplace-conflict",
+        patch: {
+          v: 2,
+          completed: ["context", "concept"],
+          answers: {
+            "reflection/main": { type: "reflection", text: { p1: "One" } },
+            "assessment/main": { type: "quiz", answers: { q1: "b" }, checked: true },
+            "s-abcdefgh/main": { type: "rating", values: { s1: 4 } },
+          },
+          completedAt: "2026-10-01T09:00:00.000Z",
+        },
+      },
+      compCard: { wentWell: card.wentWell, difficult: card.difficult, improve: "", behaviour: "", confidence: 4 },
+      badges: ["voice-without-edges"],
+    });
+    // Known by its first key in the request.
+    expect(JSON.stringify(claim).startsWith('{"claim":1')).toBe(true);
+    // Never who sees the card.
+    expect(JSON.stringify(claim)).not.toMatch(/sharing|privacy|sharedAt/);
+  });
+
+  it("leaves out what isn't work, and is nothing for a store with none", () => {
+    expect(guestClaimOf({ ...blank, badges: ["b"] })).toEqual({ claim: 1, badges: ["b"] });
+    expect(guestClaimOf({ ...blank, compCard: { ...card, confidence: 9 as number } })).toMatchObject({
+      compCard: { confidence: 3 },
+    });
+    expect(guestClaimOf(blank)).toBeNull();
+  });
+
+  it("sends a text too long to add as it is: the server refuses the whole of it, and it is never cut", () => {
+    const long = "y".repeat(5001);
+    const claim = guestClaimOf({ ...blank, course: { ...course, reflection: { p1: long, p2: "", p3: "" } } });
+    expect(claim?.course?.patch.answers?.["reflection/main"]).toEqual({ type: "reflection", text: { p1: long } });
+  });
+
+  it("guestWorkOf lists the reflection answers and Comp Card answers too long to add, numbered and in order", () => {
+    const work = guestWorkOf({
+      ...blank,
+      course: {
+        ...course,
+        reflection: { p1: "ok", p2: "y".repeat(5001), p3: "" },
+        responses: { "s-abcdefgh/p-abcdefgh": { type: "reflection", text: { q1: "z".repeat(5002), q2: "fine" } } },
+      },
+      compCard: { ...card, behaviour: "b".repeat(2001) },
+    });
+    expect(work?.tooLong).toEqual([
+      { ref: { part: "course", key: "reflection/main", prompt: "p2" }, text: "y".repeat(5001), max: 5000, n: 2 },
+      { ref: { part: "course", key: "s-abcdefgh/p-abcdefgh", prompt: "q1" }, text: "z".repeat(5002), max: 5000, n: 3 },
+      { ref: { part: "compCard", field: "behaviour" }, text: "b".repeat(2001), max: 2000 },
+    ]);
+  });
+});
+
+describe("storeAfterClaim: the browser keeps what isn't in the account, as it is now", () => {
+  const blank: DemoState = {
+    projectId: "seq-elevate",
+    role: null,
+    badges: [],
+    course: { ...course, courseSlug: null, courseTitle: null, stagesCompleted: [] },
+    compCard: { ...card, wentWell: "", difficult: "", confidence: 3, updatedAt: null },
+    refusedKeys: {},
+  };
+  const read = JSON.stringify(guest);
+  const all = { course: true, compCard: true, badges: ["voice-without-edges"] };
+
+  it("removes the store once every part is in the account, as read", () => {
+    expect(storeAfterClaim(read, read, all, blank)).toEqual({ store: null, more: false });
+  });
+
+  it("keeps a part the server kept back, without the parts in the account", () => {
+    const after = storeAfterClaim(read, read, { course: false, compCard: true, badges: ["voice-without-edges"] }, blank);
+    expect(after.more).toBe(false);
+    expect(JSON.parse(after.store!)).toEqual({ ...guest, compCard: blank.compCard, badges: [] });
+    const cardKept = storeAfterClaim(read, read, { course: true, compCard: false, badges: [] }, blank);
+    expect(JSON.parse(cardKept.store!)).toEqual({ ...guest, course: blank.course, refusedKeys: {} });
+  });
+
+  it("keeps a part saved to since it was read (a tab still a guest), and says more was saved", () => {
+    const later = JSON.stringify({ ...guest, course: { ...course, stagesCompleted: [...course.stagesCompleted, "behaviour"] } });
+    const after = storeAfterClaim(read, later, all, blank);
+    expect(after.more).toBe(true);
+    expect(JSON.parse(after.store!)).toEqual({
+      ...guest,
+      course: { ...course, stagesCompleted: [...course.stagesCompleted, "behaviour"] },
+      compCard: blank.compCard,
+      badges: [],
+    });
+    // A badge earned meanwhile is more too, and stays.
+    const badge = JSON.stringify({ ...guest, badges: ["voice-without-edges", "listening-first"] });
+    expect(storeAfterClaim(read, badge, all, blank)).toEqual({
+      store: JSON.stringify({ ...guest, course: blank.course, refusedKeys: {}, compCard: blank.compCard, badges: ["listening-first"] }),
+      more: true,
+    });
+  });
+
+  it("leaves the store alone when it is gone, unreadable, or nothing of it is in the account", () => {
+    expect(storeAfterClaim(read, null, all, blank)).toEqual({ store: undefined, more: false });
+    expect(storeAfterClaim(read, "{nope", all, blank)).toEqual({ store: undefined, more: true });
+    expect(storeAfterClaim(read, read, { course: false, compCard: false, badges: [] }, blank)).toEqual({ store: undefined, more: false });
+  });
+
+  it("isn't more for a part emptied elsewhere meanwhile", () => {
+    const emptied = JSON.stringify({ ...guest, compCard: blank.compCard });
+    expect(storeAfterClaim(read, emptied, { course: true, compCard: false, badges: ["voice-without-edges"] }, blank)).toEqual({
+      store: null,
+      more: false,
+    });
+  });
+});
+
+describe("withText: a text of the guest work shortened in the offer", () => {
+  const stored = JSON.stringify({
+    ...guest,
+    course: {
+      ...course,
+      reflection: { p1: "long one", p2: "", p3: "" },
+      responses: { "s-abcdefgh/p-abcdefgh": { type: "reflection", text: { q1: "long two" } } },
+    },
+  });
+
+  it("changes that text only: a Comp Card answer (and its time), a reflection answer, the standard one's or the course's own", () => {
+    const card1 = JSON.parse(withText(stored, { part: "compCard", field: "difficult" }, "short")!);
+    expect(card1.compCard).toMatchObject({ difficult: "short", wentWell: card.wentWell });
+    expect(card1.compCard.updatedAt).not.toBe(card.updatedAt);
+    expect(card1.course).toEqual(JSON.parse(stored).course);
+    const p1 = JSON.parse(withText(stored, { part: "course", key: "reflection/main", prompt: "p1" }, "short")!);
+    expect(p1.course.reflection).toEqual({ p1: "short", p2: "", p3: "" });
+    const own = JSON.parse(withText(stored, { part: "course", key: "s-abcdefgh/p-abcdefgh", prompt: "q1" }, "short")!);
+    expect(own.course.responses["s-abcdefgh/p-abcdefgh"]).toEqual({ type: "reflection", text: { q1: "short" } });
+    expect(own.compCard).toEqual(JSON.parse(stored).compCard);
+  });
+
+  it("is null for a text the store doesn't hold", () => {
+    expect(withText(stored, { part: "course", key: "s-zzzzzzzz/main", prompt: "q1" }, "x")).toBeNull();
+    expect(withText(stored, { part: "course", key: "reflection/main", prompt: "p9" }, "x")).toBeNull();
+    expect(withText("{nope", { part: "compCard", field: "difficult" }, "x")).toBeNull();
   });
 });

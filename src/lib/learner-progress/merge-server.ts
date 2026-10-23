@@ -21,7 +21,12 @@
  *     refused for its own key (`row-full`).
  *   - Fill mode (a guest's progress moving into the account): what the
  *     account holds stays; a reflection or rating gets only the questions
- *     it has no answer to.
+ *     it has no answer to. The standard quick check is the account's once
+ *     it has one: answers, a check, "Try again" (saved empty), or its
+ *     lesson done (D49: the latest check counts), as a quick check of the
+ *     course's own is once it has an entry. Where the account's answer
+ *     stays over a different one of the patch's, its key is reported
+ *     (`kept`): the page says the account kept its own.
  *
  * Pure: no Prisma (the action maps the result to columns), never throws,
  * never changes the row it is given.
@@ -78,6 +83,8 @@ export interface MergeResult {
   refused: RefusedKey[];
   /** completedAt went from none to set: the badge is saved with it. */
   completedNow: boolean;
+  /** Fill mode: the keys where the account's answer stayed over a different one of the patch's. */
+  kept: string[];
 }
 
 type Rec = Record<string, unknown>;
@@ -99,16 +106,24 @@ const same = (a: unknown, b: unknown) => canonical(a) === canonical(b);
 /** A text answer the learner has written something in. */
 const written = (v: unknown) => typeof v === "string" && v.trim() !== "";
 
-/** `incoming`'s fields over `stored`'s; in fill mode only where `stored` has none (`has`). */
+/**
+ * `incoming`'s fields over `stored`'s; in fill mode only where `stored` has
+ * none (`has`), and `kept` is called when one of `stored`'s stays over a
+ * different value of `incoming`'s.
+ */
 function mergeFields(
   stored: Rec,
   incoming: Rec,
   fill: boolean,
-  has: (v: unknown) => boolean
+  has: (v: unknown) => boolean,
+  kept: () => void = () => {}
 ): Rec {
   const out: Rec = { ...stored };
   for (const [field, value] of Object.entries(incoming)) {
-    if (fill && has(stored[field])) continue;
+    if (fill && has(stored[field])) {
+      if (has(value) && !same(stored[field], value)) kept();
+      continue;
+    }
     out[field] = value;
   }
   return out;
@@ -128,25 +143,55 @@ function storedAnswer(key: PartKey, raw: unknown, type: PatchAnswer["type"]): Pa
 /**
  * A response entry's next value: the answer replacing a practice, scenario
  * or quick check whole, merged into a reflection or rating; null for "leave
- * it" (fill mode, where the account has its own).
+ * it" (fill mode, where the account has its own). `kept` is called when the
+ * account's answer stays over a different one.
  */
-function nextResponse(key: PartKey, stored: unknown, answer: PatchAnswer, fill: boolean): PatchAnswer | null {
+function nextResponse(
+  key: PartKey,
+  stored: unknown,
+  answer: PatchAnswer,
+  fill: boolean,
+  kept: () => void
+): PatchAnswer | null {
   const before = storedAnswer(key, stored, answer.type);
   // Fill mode leaves the account's entry alone, even one it can't read.
-  if (fill && stored !== undefined && before === null) return null;
+  if (fill && stored !== undefined && before === null) {
+    kept();
+    return null;
+  }
   if (answer.type === "reflection") {
     const text = before?.type === "reflection" ? before.text : {};
-    return { type: "reflection", text: mergeFields(text, answer.text, fill, written) as Record<string, string> };
+    return { type: "reflection", text: mergeFields(text, answer.text, fill, written, kept) as Record<string, string> };
   }
   if (answer.type === "rating") {
     const values = before?.type === "rating" ? before.values : {};
     return {
       type: "rating",
-      values: mergeFields(values, answer.values, fill, (v) => v !== undefined) as Record<string, 1 | 2 | 3 | 4 | 5>,
+      values: mergeFields(values, answer.values, fill, (v) => v !== undefined, kept) as Record<string, 1 | 2 | 3 | 4 | 5>,
     };
   }
-  if (fill && stored !== undefined) return null;
+  if (fill && stored !== undefined) {
+    if (!same(before, answer)) kept();
+    return null;
+  }
   return answer;
+}
+
+/**
+ * Has the account a standard quick check of its own, which fill mode
+ * leaves alone (D49: the latest check counts)? Answers or a check; or
+ * "Try again" pressed, which saves it empty (`answers` written, a column
+ * no save has written holds none); or its lesson done, a check made
+ * before answers were saved, or tried again since.
+ */
+function ownQuickCheck(before: EnrollmentProgress): boolean {
+  const stored = readAssessment(before.assessment);
+  return (
+    Object.keys(stored.answers).length > 0 ||
+    stored.checked ||
+    (isRecord(before.assessment) && "answers" in before.assessment) ||
+    before.stagesCompleted.includes("ASSESSMENT")
+  );
 }
 
 /** `"key":value` as it stands in the stored JSON. */
@@ -169,6 +214,10 @@ export function mergeIntoEnrollment(
   const next: EnrollmentProgress = { ...before };
   const refused: RefusedKey[] = [...patch.refused];
   const fill = patch.fill;
+  const kept: string[] = [];
+  const keep = (key: string) => () => {
+    if (!kept.includes(key)) kept.push(key);
+  };
 
   /* ---------------------------------------------------- finished lessons */
   const stages = [...before.stagesCompleted];
@@ -204,22 +253,33 @@ export function mergeIntoEnrollment(
   for (const [key, answer] of patch.answers) {
     if (isLegacyKey(key)) {
       if (answer.type === "practice") {
-        if (fill && before.simulationChoice !== null) continue;
+        if (fill && before.simulationChoice !== null) {
+          if (before.simulationChoice !== answer.optionId) keep(key)();
+          continue;
+        }
         next.simulationChoice = answer.optionId;
         next.simulationCorrect = answer.correct;
       } else if (answer.type === "scenario") {
-        if (fill && before.scenarioRoot !== null) continue;
+        if (fill && before.scenarioRoot !== null) {
+          if (before.scenarioRoot !== answer.rootId || (before.scenarioFollowup ?? null) !== (answer.followupId ?? null)) {
+            keep(key)();
+          }
+          continue;
+        }
         next.scenarioRoot = answer.rootId;
         next.scenarioFollowup = answer.followupId ?? null;
       } else if (answer.type === "reflection") {
         const stored = isRecord(before.reflection) ? before.reflection : {};
         const text: Rec = {};
         for (const p of LEGACY_PROMPT_IDS) if (p in answer.text) text[p] = answer.text[p];
-        next.reflection = mergeFields(stored, text, fill, written);
+        next.reflection = mergeFields(stored, text, fill, written, keep(key));
       } else if (answer.type === "quiz") {
-        if (fill) {
+        if (fill && ownQuickCheck(before)) {
           const stored = readAssessment(before.assessment);
-          if (Object.keys(stored.answers).length > 0 || stored.checked) continue;
+          if (!same({ answers: stored.answers, checked: stored.checked }, { answers: answer.answers, checked: answer.checked })) {
+            keep(key)();
+          }
+          continue;
         }
         // Checked as Release 1's action checks it (parse.ts already checked
         // the same limits, so this doesn't refuse; never null for this shape).
@@ -237,7 +297,7 @@ export function mergeIntoEnrollment(
       continue;
     }
     const stored = items[key];
-    const value = nextResponse(key, stored, answer, fill);
+    const value = nextResponse(key, stored, answer, fill, keep(key));
     if (value === null) continue;
     if (isRecord(stored) && same({ ...stored, at: undefined }, { ...value, at: undefined })) continue;
     const entry = { ...value, at };
@@ -267,5 +327,6 @@ export function mergeIntoEnrollment(
     changed,
     refused,
     completedNow: before.completedAt === null && next.completedAt !== null,
+    kept,
   };
 }

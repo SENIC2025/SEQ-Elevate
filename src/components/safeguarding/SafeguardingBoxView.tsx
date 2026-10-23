@@ -3,6 +3,7 @@ import { useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import type { CountryContacts } from "@/lib/safeguarding";
 import { ContactList } from "./ContactList";
+import { EmergencyLine } from "./EmergencyLine";
 import { LifeBuoy } from "lucide-react";
 
 /**
@@ -22,7 +23,9 @@ export function SafeguardingBoxView({ groups }: { groups: readonly CountryContac
           <LifeBuoy className="h-4 w-4 text-[var(--accent)]" aria-hidden="true" />
           {t("title")}
         </h2>
-        <p className="mt-2 font-medium">{t("emergency")}</p>
+        <p className="mt-2 font-medium">
+          <EmergencyLine />
+        </p>
         {groups.length ? (
           groups.map((g) => (
             <section key={g.country} className="mt-3">

@@ -36,16 +36,23 @@ type Removed = { block: EditableBlock; index: number };
  *
  * "Remove block" acts at once and leaves "Block removed. Undo" in its place
  * until the next change (or `resetKey` changes, e.g. after a save).
+ *
+ * Its own words are English on every locale's page: marked lang="en" (WCAG
+ * 3.1.2). The blocks' text is marked with the language it is written in,
+ * `contentLang` (BlockEditor).
  */
 export function BlockList({
   blocks,
   onBlocksChange,
   resetKey,
+  contentLang,
 }: {
   blocks: EditableBlock[];
   onBlocksChange: (next: EditableBlock[]) => void;
   /** Changing it clears the undo row (the parent bumps it on save). */
   resetKey: number;
+  /** The language the blocks' text is written in. */
+  contentLang: string;
 }) {
   const ids = React.useId();
   const addEndRef = React.useRef<HTMLButtonElement>(null);
@@ -134,7 +141,7 @@ export function BlockList({
   const endPickerId = `${ids}-picker-end`;
 
   return (
-    <div>
+    <div lang="en">
       {blocks.length === 0 && !removed ? (
         <p className="rounded-lg border border-dashed border-[var(--border)] px-3 py-4 text-sm text-[var(--muted-foreground)]">
           This lesson has no content yet. Add the first block below.
@@ -155,6 +162,7 @@ export function BlockList({
                 focus={focus?.key === block._key ? focus : null}
                 addOpen={addOpen}
                 pickerId={pickerId}
+                contentLang={contentLang}
                 onChange={(patch) =>
                   change(
                     blocks.map((b) =>

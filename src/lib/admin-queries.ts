@@ -81,6 +81,13 @@ export interface AdminMember {
   /** That permission also covers sharing the Comp Card. */
   guardianSharing: boolean;
   /**
+   * Invited under a guardian's permission (their profile step's age rule),
+   * but none is recorded now: the record went with the organisation that
+   * made it when they moved (setPersonOrganisation). Their organisation
+   * records its own by adding them again with the tick.
+   */
+  guardianNeeded: boolean;
+  /**
    * For ADMINs only (always false for a partner admin): a learner whose
    * country is mapped to another organisation than theirs, or whose
    * organisation the profile step released because the country they picked
@@ -185,6 +192,7 @@ export async function getAdminMembers(scope: Scope): Promise<AdminMember[] | nul
               testAccountAt: true,
               guardianConsentRecordedAt: true,
               guardianSharingConsentAt: true,
+              ageRule: true,
               createdAt: true,
               organisation: { select: { name: true } },
             },
@@ -222,6 +230,7 @@ export async function getAdminMembers(scope: Scope): Promise<AdminMember[] | nul
         formerStaff: u.staffHistory.length > 0 && learner,
         guardianConsent: !!profile?.guardianConsentRecordedAt,
         guardianSharing: !!profile?.guardianSharingConsentAt,
+        guardianNeeded: profile?.ageRule === "INVITED_WITH_GUARDIAN_CONSENT" && !profile.guardianConsentRecordedAt,
         countryMismatch:
           scope.kind === "project" &&
           learner &&

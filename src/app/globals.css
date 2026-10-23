@@ -137,21 +137,26 @@ a.seq-link:focus-visible {
   border-radius: 2px;
 }
 
-/* Skip-to-content link — hidden until focused (WCAG 2.4.1 Bypass Blocks) */
+/* Skip-to-content link — hidden until focused (WCAG 2.4.1 Bypass Blocks).
+   Moved up by its own height, so it is off the page whatever its height:
+   a long label on a phone with the largest text wraps to three lines, and
+   a fixed offset left part of it over the header's controls (WCAG 2.5.8). */
 .skip-link {
   position: absolute;
   left: 0.5rem;
-  top: -3rem;
+  top: 0.5rem;
+  max-width: calc(100vw - 1rem);
+  transform: translateY(calc(-100% - 1rem));
   z-index: 100;
   background: var(--primary);
   color: var(--primary-foreground);
   padding: 0.5rem 1rem;
   border-radius: 0.5rem;
   font-weight: 600;
-  transition: top 0.15s ease;
+  transition: transform 0.15s ease;
 }
 .skip-link:focus {
-  top: 0.5rem;
+  transform: none;
 }
 
 /* Respect reduced-motion (WCAG 2.3.3) — kill non-essential animation. */

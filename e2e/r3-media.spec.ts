@@ -28,8 +28,9 @@ import en from "../src/messages/en.json";
  *         the page never asks that host for anything
  *   E-E7  a facilitator's direct setLessonDocumentPublished is refused
  *   E-E9  a YouTube lesson at 320 px with the largest reading-help text,
- *         in German and Greek: the play button is below the video, visible,
- *         reachable by keyboard; no sideways scroll; axe passes
+ *         in German, Greek and English: the play button is below the video,
+ *         visible, reachable by keyboard; no sideways scroll; axe passes
+ *         (the target size of the privacy link included)
  *   E-E10 removing a document asks with the new wording; its address is
  *         queued as the record held it, and nothing deletes the file; the
  *         same address pasted into another lesson, the admin clean-up's
@@ -401,6 +402,8 @@ describe("Release 3: lesson media from our own store, YouTube on request (D91, D
   for (const [locale, messages] of [
     ["de", de],
     ["el", el],
+    // English too: its privacy link is one short line, the smallest target (WCAG 2.5.8).
+    ["en", en],
   ] as const) {
     test(`E-E9: at 320 px with the largest text, in ${locale}, the play button is below the video, reachable, and nothing scrolls sideways`, async ({
       page,

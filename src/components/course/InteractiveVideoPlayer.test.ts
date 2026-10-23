@@ -8,10 +8,12 @@ vi.mock("@/i18n/navigation", async () => {
   };
 });
 
+import { ContentLangContext } from "./CourseText";
 import {
   ExternalVideo,
   InteractiveVideoPlayer,
   NARROW_PLAYER_PX,
+  QuizOverlay,
   VideoStatus,
   YouTubeGate,
   followNativeVideo,
@@ -106,6 +108,8 @@ describe("the YouTube gate", () => {
     );
     expect(text).toContain("Play video (loads YouTube)");
     expect(html).toContain('href="/en/legal/privacy"');
+    // At least 24 px high, however short its line (WCAG 2.5.8; English is one short line).
+    expect(/<a[^>]*href="\/en\/legal\/privacy"[^>]*>/.exec(html)?.[0]).toMatch(/class="[^"]*\bmin-h-6\b/);
     expect(html).toContain('href="https://www.youtube.com/watch?v=dQw4w9WgXcQ"');
     expect(html).toContain('target="_blank"');
     // The status line focus will move to is there from the start, empty.
@@ -205,5 +209,44 @@ describe("a video on another host (stored before Release 3)", () => {
     const html = renderIn(createElement(InteractiveVideoPlayer, { video: { provider: "file", src: "/demo/sample-lesson.webm" } }));
     expect(html).toMatch(/<video[^>]*src="\/demo\/sample-lesson.webm"/);
     expect(html).not.toContain('data-testid="youtube-gate"');
+  });
+});
+
+/*
+ * Release 3 (D90, spec 9.3; WCAG 3.1.2): a course shown in English under
+ * German or Greek marks its course text as English (ContentLangContext) —
+ * the video's title and caption and its questions with their options too —
+ * and leaves the player's own words in the page's language.
+ */
+describe("a video's text in a course shown in English under another language", () => {
+  const FILE: VideoContent = {
+    provider: "file",
+    src: "/demo/clip.mp4",
+    title: "A talk about saying no",
+    caption: "Filmed at the youth centre",
+    cues: [],
+  };
+  const inEnglish = (element: ReturnType<typeof createElement>) =>
+    renderIn(createElement(ContentLangContext.Provider, { value: "en" }, element), "de");
+
+  it("marks the title and the caption as English, and none of the player's own words", () => {
+    const html = inEnglish(createElement(InteractiveVideoPlayer, { video: FILE }));
+    expect(html).toMatch(/<p lang="en"[^>]*>A talk about saying no<\/p>/);
+    expect(html).toMatch(/<p lang="en"[^>]*>Filmed at the youth centre<\/p>/);
+    expect(html.match(/lang="en"/g)).toHaveLength(2);
+  });
+
+  it("marks a question and its options as English, and not the words around them", () => {
+    const cue = { id: "c1", atSeconds: 5, question: "What would you say?", options: [{ id: "a", text: "No, thanks" }], correctOptionId: "a" };
+    const html = inEnglish(createElement(QuizOverlay, { cue, onResolve: () => {} }));
+    expect(html).toMatch(/<h3[^>]*lang="en"[^>]*>What would you say\?<\/h3>/);
+    expect(html).toMatch(/<span lang="en"[^>]*>No, thanks<\/span>/);
+    expect(textOf(html)).toContain("Kurze Frage");
+    expect(html.match(/lang="en"/g)).toHaveLength(2);
+  });
+
+  it("marks nothing when the course is in the page's language", () => {
+    const html = renderIn(createElement(InteractiveVideoPlayer, { video: FILE }), "de");
+    expect(html).not.toContain("lang=");
   });
 });

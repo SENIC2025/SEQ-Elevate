@@ -18,7 +18,19 @@ vi.mock("next/navigation", () => ({
     throw new Redirected(to);
   },
 }));
-vi.mock("next-intl/server", () => ({ setRequestLocale: () => {} }));
+vi.mock("next-intl/server", async () => {
+  const { createTranslator } = await import("next-intl");
+  const messages = {
+    en: (await import("@/messages/en.json")).default,
+    de: (await import("@/messages/de.json")).default,
+    el: (await import("@/messages/el.json")).default,
+  };
+  return {
+    setRequestLocale: () => {},
+    getTranslations: async ({ locale, namespace }: { locale: "en" | "de" | "el"; namespace: string }) =>
+      createTranslator({ locale, messages: messages[locale], namespace: namespace as never }),
+  };
+});
 const getCurrentUser = vi.fn();
 const getProjectMemberships = vi.fn();
 vi.mock("@/lib/auth-helpers", () => ({ getCurrentUser, getProjectMemberships }));
@@ -31,7 +43,7 @@ vi.mock("@/components/AppHeader", () => ({ AppHeader: () => null }));
 vi.mock("@/components/safeguarding/SafeguardingBox", () => ({ SafeguardingBox: () => null }));
 vi.mock("@/components/profile/ProfileStepForm", () => ({ ProfileStepForm: () => null }));
 
-const { default: Page } = await import("./page");
+const { default: Page, generateMetadata } = await import("./page");
 const { ProfileStepForm } = await import("@/components/profile/ProfileStepForm");
 const { AppHeader } = await import("@/components/AppHeader");
 const { SafeguardingBox } = await import("@/components/safeguarding/SafeguardingBox");
@@ -154,5 +166,15 @@ describe("/welcome (UB5)", () => {
     expect(prisma.projectProfile.findUnique.mock.calls[0][0].where).toEqual({
       userId_projectId: { userId: "u1", projectId: "seq-elevate" },
     });
+  });
+});
+
+describe("the profile step's own title (WCAG 2.4.2)", () => {
+  it.each([
+    ["en", "Before you start"],
+    ["de", "Bevor es losgeht"],
+    ["el", "Πριν ξεκινήσεις"],
+  ] as const)("is its heading, in the page's language (%s)", async (locale, title) => {
+    await expect(generateMetadata({ params: Promise.resolve({ locale }) })).resolves.toEqual({ title });
   });
 });

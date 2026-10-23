@@ -8,7 +8,8 @@ import el from "@/messages/el.json";
  * Release 3 (spec 4.6, 5.9): the learner side's own wording, rendered with
  * the real messages — counts that read right for one, Greek dates with
  * their article, a guest-work summary that names everything it would add,
- * and no reflection placeholder that promises a sharing there is none of.
+ * no reflection placeholder that promises a sharing there is none of, and
+ * no hub line that offers staff the learners' reflections.
  */
 
 const MESSAGES = { en, de, el } as const;
@@ -41,17 +42,40 @@ describe("the learner side's wording", () => {
     expect(tr("el", "guestWork")("summary", values)).toBe("Καμία πρόοδος σε μάθημα. Comp Card: όχι. Σήματα: 2.");
   });
 
-  // English keeps Release 2's wording for now: it is in the recorded walk
-  // (e2e/fixtures/r1-learner-baseline.json), whose closed list of Release 3
-  // differences (spec 18.4) has no entry for it.
-  it.each([["de", /teil/i], ["el", /μοιρασ/i]] as const)(
-    "promises no sharing of a reflection in %s: nothing shares one",
-    (lang, sharing) => {
-      const course = (MESSAGES[lang] as { course: Record<string, { reflection?: { placeholder2?: string } }> }).course;
-      for (const [slug, texts] of Object.entries(course)) {
-        const placeholder = texts?.reflection?.placeholder2;
-        if (placeholder) expect(placeholder, `${lang} course.${slug}.reflection.placeholder2`).not.toMatch(sharing);
-      }
+  // Course reflections are seen by no one but the learner (owner's decision,
+  // 22 Oct): every placeholder says so, and none promises a sharing. The
+  // English change is in the recorded walk's closed list as R3-D2
+  // (e2e/fixtures/r3-deltas.ts).
+  it.each([
+    ["en", /shar/i, /only you see this/i],
+    ["de", /teil/i, /nur du siehst das/i],
+    ["el", /μοιρασ/i, /μόνο εσύ το βλέπεις/i],
+  ] as const)("promises no sharing of a reflection in %s: nothing shares one", (lang, sharing, onlyYou) => {
+    const course = (MESSAGES[lang] as { course: Record<string, { reflection?: { placeholder2?: string } }> }).course;
+    const placeholders = Object.entries(course).flatMap(([slug, texts]) =>
+      texts?.reflection?.placeholder2 ? [[slug, texts.reflection.placeholder2] as const] : []
+    );
+    expect(placeholders.length, `${lang}: the built-in courses' placeholders`).toBeGreaterThanOrEqual(2);
+    for (const [slug, placeholder] of placeholders) {
+      expect(placeholder, `${lang} course.${slug}.reflection.placeholder2`).not.toMatch(sharing);
+      expect(placeholder, `${lang} course.${slug}.reflection.placeholder2`).toMatch(onlyYou);
     }
-  );
+  });
+
+  it("words the built-in course's second reflection placeholder as the owner decided", () => {
+    expect(en.course.workplaceConflict.reflection.placeholder2).toBe("Be honest. Only you see this.");
+    expect(de.course.workplaceConflict.reflection.placeholder2).toBe("Sei ehrlich. Nur du siehst das.");
+    expect(el.course.workplaceConflict.reflection.placeholder2).toBe("Πες την αλήθεια. Μόνο εσύ το βλέπεις.");
+  });
+
+  // Support learners never shows a learner's reflections (the roster reads
+  // none), so the hub doesn't promise them.
+  it.each([
+    ["en", /reflection/i],
+    ["de", /reflexion/i],
+    ["el", /αναστοχασ/i],
+  ] as const)("doesn't offer staff a learner's reflections on the hub in %s", (lang, reflections) => {
+    const desc = (MESSAGES[lang] as { hub: { facilitator: { desc: string } } }).hub.facilitator.desc;
+    expect(desc).not.toMatch(reflections);
+  });
 });

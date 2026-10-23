@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useRouter } from "next/navigation";
+import type { AdminOrg } from "@/lib/admin-queries";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { setCountryMapping } from "@/app/actions/admin";
@@ -20,6 +20,11 @@ import { AlertTriangle, CheckCircle2, Globe2, Loader2 } from "lucide-react";
  * have no organisation yet (assignUnplaced): ticked by default the first
  * time a country is mapped. Learners whose organisation the profile step
  * released for DIESIS to check are never placed this way.
+ *
+ * A save shows from its own answer: the mapping it answers (and, through
+ * onOrganisations, the organisations with the learners it placed), never
+ * through a router refresh of the page, which can be dropped or come back
+ * with the mapping from before the save.
  */
 
 const COUNTRY_NAMES: Record<Country, string> = {
@@ -51,14 +56,16 @@ function errorText(error?: string): string {
 export function CountryMappingPanel({
   mappings,
   organisations,
+  onOrganisations,
 }: {
   mappings: Mapping[];
   organisations: { id: string; name: string }[];
+  /** Given the organisations a save answers (its placed learners counted). */
+  onOrganisations?: (orgs: AdminOrg[]) => void;
 }) {
-  const router = useRouter();
   const ids = React.useId();
-  // The mapping the last save returned, shown until the page's own is
-  // rendered again (see actions/admin.ts).
+  // The mapping the last save answered, shown until new props replace it
+  // (a navigation).
   const [fresh, setFresh] = React.useState<{ from: Mapping[]; list: Mapping[] } | null>(null);
   const shown = fresh && fresh.from === mappings ? fresh.list : mappings;
   const mappedTo = (c: Country) => shown.find((m) => m.country === c)?.organisationId ?? "";
@@ -89,6 +96,7 @@ export function CountryMappingPanel({
       return;
     }
     if (res.mappings) setFresh({ from: mappings, list: res.mappings });
+    if (res.orgs) onOrganisations?.(res.orgs);
     setDrafts((all) => {
       const next = { ...all };
       delete next[c];
@@ -102,7 +110,6 @@ export function CountryMappingPanel({
         (d.place ? ` ${res.placed === 1 ? "1 learner" : `${res.placed} learners`} with no organisation joined it now.` : ""),
     });
     setPending(null);
-    router.refresh();
   }
 
   return (

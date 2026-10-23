@@ -54,6 +54,37 @@ import ts from "typescript";
  * relation, directly or through a nested write of profiles from a user, a
  * project or an organisation) are allowed only in setPersonOrganisation
  * (D101). Complements src/app/actions/use-server-exports.test.ts.
+ *
+ * A Scope is made only by the scope module (hardening SS4): its type is
+ * branded and read-only, so neither a hand-made literal nor a changed copy
+ * or a change in place of a real one type-checks (src/lib/scope-brand.test.ts
+ * checks that with tsc). What would get round the type check fails here
+ * instead, anywhere in src/ outside tests and the module, read with the
+ * type checker (so whatever the type is spelled as: an alias, Viewer["scope"],
+ * ReturnType<…>, an import type): the module's test-only factories
+ * (testOnlyScope, testOnlyScopeFor); an assertion (as, angle brackets) to a
+ * Scope or to a type holding one, of a value that isn't one or holds an any
+ * (Promise<any>); a value of type any or never where a Scope is expected,
+ * or one holding an any or a never in an array, a tuple or a promise; an
+ * object literal there; Object.assign, defineProperty and the like on a
+ * Scope, or copying one into another object, however the function is named
+ * where it is called; a call of a generic function of src/ that makes a
+ * value of its own type parameter (an assertion to it, a spread of it,
+ * Object.assign, an any given where it is expected), when a Scope comes out
+ * of it; a type predicate or assertion function (`x is Scope`); an overload
+ * that answers a Scope; a server action (an exported function of a
+ * "use server" module, or a function that says "use server") that takes a
+ * Scope or a Viewer from its caller, also through a library type of one
+ * (Pick<Viewer, "scope">, Partial<Viewer>, Omit, Readonly). An action is
+ * found by its export where it is declared: use-server-exports.test.ts
+ * refuses an export list, export * and export default of a value in every
+ * "use server" module of src/.
+ *
+ * What a static reading can't follow (a generic class whose method makes
+ * its class's type parameter's value, a generic function that hands what
+ * it makes to a callback, code outside src/) meets the scope module's
+ * run-time check instead: every function of it that takes a Scope throws
+ * for a value the module didn't make (src/lib/scope-runtime.test.ts).
  */
 
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
@@ -255,11 +286,62 @@ function returnedBy(fn: FunctionNode): ts.Expression[] {
   return out;
 }
 
+/** What a variable is given after its declaration, in its own scope (see objectsOf). */
+const MUTATIONS = new WeakMap<ts.VariableDeclaration, ts.Expression[] | null>();
+
+/**
+ * The values a variable is given after its declaration, in the block that
+ * declares it: the sources of `Object.assign(v, …)` and the right side of
+ * `v = …`. Null — the object can't be followed — when a property of it is
+ * assigned (`v.key = …`, `v[key] = …`): the test would otherwise read only
+ * what the declaration wrote, and miss a key written into the object later.
+ */
+function mutationsOf(d: ts.VariableDeclaration): ts.Expression[] | null {
+  if (MUTATIONS.has(d)) return MUTATIONS.get(d)!;
+  const name = (d.name as ts.Identifier).text;
+  const scope = d.parent?.parent?.parent;
+  const out: ts.Expression[] = [];
+  let unfollowed = false;
+  const isIt = (e: ts.Expression) => {
+    const u = unwrap(e);
+    return ts.isIdentifier(u) && u.text === name && declarationOf(name, u) === d;
+  };
+  const visit = (n: ts.Node) => {
+    if (unfollowed) return;
+    if (
+      ts.isCallExpression(n) &&
+      ts.isPropertyAccessExpression(n.expression) &&
+      ts.isIdentifier(n.expression.expression) &&
+      n.expression.expression.text === "Object" &&
+      n.expression.name.text === "assign" &&
+      n.arguments.length > 0 &&
+      isIt(n.arguments[0])
+    ) {
+      out.push(...n.arguments.slice(1));
+    }
+    if (ts.isBinaryExpression(n) && n.operatorToken.kind >= ts.SyntaxKind.FirstAssignment && n.operatorToken.kind <= ts.SyntaxKind.LastAssignment) {
+      const left = unwrap(n.left);
+      if ((ts.isPropertyAccessExpression(left) || ts.isElementAccessExpression(left)) && isIt(left.expression)) {
+        unfollowed = true;
+        return;
+      }
+      if (isIt(left)) out.push(n.right);
+    }
+    ts.forEachChild(n, visit);
+  };
+  if (scope) visit(scope);
+  const result = unfollowed ? null : out;
+  MUTATIONS.set(d, result);
+  return result;
+}
+
 /**
  * The object literals an expression can be, following identifiers to
- * same-file constants, calls of same-file functions to what they return,
- * both arms of a condition, and spreads. Null when some part can't be
- * followed (a parameter, an import, a call to elsewhere).
+ * same-file constants (and what is assigned into them later, mutationsOf),
+ * calls of same-file functions to what they return, both arms of a
+ * condition, and spreads. Null when some part can't be followed (a
+ * parameter, an import, a call to elsewhere, a property written into the
+ * object after its declaration).
  */
 function objectsOf(e: ts.Expression, seen = new Set<ts.Node>()): ts.ObjectLiteralExpression[] | null {
   e = unwrap(e);
@@ -275,7 +357,15 @@ function objectsOf(e: ts.Expression, seen = new Set<ts.Node>()): ts.ObjectLitera
   if (ts.isIdentifier(e)) {
     const d = declarationOf(e.text, e);
     if (d && ts.isVariableDeclaration(d) && d.initializer && ts.isIdentifier(d.name)) {
-      return objectsOf(d.initializer, seen);
+      const later = mutationsOf(d);
+      if (!later) return null;
+      const all: ts.ObjectLiteralExpression[] = [];
+      for (const v of [d.initializer, ...later]) {
+        const objs = objectsOf(v, seen);
+        if (!objs) return null;
+        all.push(...objs);
+      }
+      return all;
     }
     return null;
   }
@@ -967,6 +1057,7 @@ const ALLOW: AllowList = {
   "src/app/actions/admin.ts#removeMember": staff("Manage people: remove (SP23)"),
   "src/app/actions/admin.ts#manageable": staff("whether a manager may change a person: in scope, and their roles (SP21–SP23, SP26)"),
   "src/app/actions/admin.ts#claimable": staff("whether a partner admin may take on an account that holds nothing yet (SP19)"),
+  "src/app/actions/admin.ts#deleteCohort": staff("a partner admin deletes a cohort only when it is shown everyone in it (SP18)"),
   "src/app/actions/admin.ts#deleteOrganisation": staff("an organisation is deleted only while no profile names it (SP16)"),
   "src/app/actions/admin.ts#setCountryMapping": staff("the country mapping places unplaced learners of that country (SP25)"),
   "src/app/actions/admin.ts#updatePersonProfile": staff("Manage people: a person's name, country or organisation (SP26)"),
@@ -985,8 +1076,12 @@ const ALLOW: AllowList = {
   "src/lib/server-queries.ts#getLearnerEnrollments": own("the dashboard's own enrolments (SP37)"),
   "src/app/actions/learner.ts#loadLearnerGlobal": own("the learner's own card, badges and enrolments (SP37)"),
   "src/app/actions/learner.ts#loadCourseProgress": own("the learner's own progress in a course (SP37)"),
-  "src/app/actions/learner.ts#saveProgress": own("the learner's own progress save (SP37)"),
+  "src/app/actions/learner.ts#progressInTx": own("the learner's own progress save, in its transaction (SP37)"),
   "src/app/actions/learner.ts#lockRow": own("locks the learner's own enrolment row in a save (SP37)"),
+  "src/app/actions/learner.ts#badgeMayBeGiven": own("whether the learner's own course is finished, for its badge (SP37)"),
+  "src/app/actions/learner.ts#claimGuestWork": own("the browser's guest work added to the learner's own account (D79, SP37)"),
+  "src/app/actions/learner.ts#claimCard": own("the guest's Comp Card added to the learner's own (D79, D80, SP37)"),
+  "src/app/actions/learner.ts#claimBadges": own("the guest's badges added to the learner's own (D79, SP37)"),
   "src/app/actions/learner.ts#saveCompCard": own("the learner's own Comp Card (SP37)"),
   "src/app/actions/learner.ts#awardBadgeAction": own("the learner's own badge (SP37)"),
   "src/app/actions/learner.ts#ownProfile": own("the learner's own profile: whether the profile step is done, their organisation and the guardian rule (D79, D80)"),
@@ -1008,6 +1103,7 @@ const ALLOW: AllowList = {
   "src/lib/scope.ts#getViewer": system("the scope module reads the viewer's own profile"),
   "src/lib/scope.ts#inScope": system("the scope module's own count (peopleInScope)"),
   "src/lib/person-organisation.ts#setPersonOrganisation": system("the one writer of a person's organisation (D101); called only by guarded actions and the profile step"),
+  "src/lib/person-organisation.ts#releaseIfCountryElsewhere": system("the profile step's organisation rule for someone who becomes a learner after it (spec 5.4 (c)); writes through setPersonOrganisation; called by setMemberRoles and addMember after their scope checks, and by ensureLearnerMembership and completeProfile for the signed-in person"),
   "src/lib/gdpr-export.ts#collectUserData": system("a person's data export: the session's own id (/api/me/export, SP27)"),
   "src/lib/account-data.ts#lockUser": system("locks the user row an erasure or reset is about, inside its transaction (D86)"),
   "src/lib/account-data.ts#eraseAccount": system("erasure: called only by deleteMyAccount (the session's own account, SP28) and by ADMIN-only paths (eraseAccountByAdmin, the clean-up run, SP31)"),
@@ -1037,6 +1133,332 @@ const ALLOW: AllowList = {
   "src/app/actions/lesson.ts#lockLesson": system("locks a lesson row for an editor's change (no people's data)"),
   "src/app/actions/structure.ts#writeIfUnchanged": system("an editor's structure change under a row lock (no people's data)"),
 };
+
+/* ------------------------- Scopes made elsewhere (SS4) ------------------------- */
+
+/** The one module that makes a Scope. */
+const SCOPE_MODULE = "src/lib/scope.ts";
+/** Its factory for tests: forbidden in src/ outside tests and the module. */
+const TEST_ONLY_FACTORY = "testOnlyScope";
+/**
+ * Its factories for tests, by name: forbidden in src/ outside tests and the
+ * module. testOnlyScopeFor is the scope of roles and settings the caller
+ * chooses (the module's own scopeFor isn't exported).
+ */
+const TEST_ONLY_FACTORIES = new Set([TEST_ONLY_FACTORY, "testOnlyScopeFor"]);
+/** The brand every Scope carries (scope.ts): a class no other module can name. */
+const BRAND = "MadeByTheScopeModule";
+/** What changes an object in place, or copies one, without an assignment the type checker refuses. */
+const IN_PLACE = new Set([
+  "Object.assign", "Object.defineProperty", "Object.defineProperties", "Object.setPrototypeOf",
+  "Reflect.set", "Reflect.defineProperty", "Reflect.deleteProperty", "Reflect.setPrototypeOf",
+]);
+/** The same, by the declaration a call resolves to, however the function is named where it is called. */
+const IN_PLACE_DECLARED: Readonly<Record<string, ReadonlySet<string>>> = {
+  ObjectConstructor: new Set(["assign", "defineProperty", "defineProperties", "setPrototypeOf"]),
+  Reflect: new Set(["set", "defineProperty", "deleteProperty", "setPrototypeOf"]),
+};
+
+/** This project's compiler options (tsconfig.json), without emitting. */
+const COMPILER_OPTIONS: ts.CompilerOptions = (() => {
+  const config = ts.readConfigFile(`${ROOT}tsconfig.json`, ts.sys.readFile);
+  const { options } = ts.parseJsonConfigFileContent(config.config, ts.sys, ROOT);
+  return { ...options, incremental: false, noEmit: true, plugins: [] };
+})();
+/** The declaration files the project's type check reads besides the code (next-env.d.ts, src's own). */
+const DECLARATIONS = (() => {
+  const config = ts.readConfigFile(`${ROOT}tsconfig.json`, ts.sys.readFile);
+  return ts.parseJsonConfigFileContent(config.config, ts.sys, ROOT).fileNames.filter(
+    (f) => f.endsWith(".d.ts") && !f.includes("/node_modules/") && !f.includes("/.next/")
+  );
+})();
+/** Files read from disk, parsed once for every program below. */
+const PARSED = new Map<string, ts.SourceFile>();
+
+/**
+ * A program of `files` (paths from the repository root), type-checked the
+ * way tsc does it, with `text` in place of what is on disk for the files it
+ * names (which need not exist).
+ */
+function programOf(files: readonly string[], text: ReadonlyMap<string, string> = new Map()): ts.Program {
+  const host = ts.createCompilerHost(COMPILER_OPTIONS, true);
+  const virtual = new Map([...text].map(([file, source]) => [`${ROOT}${file}`, source]));
+  const getSourceFile = host.getSourceFile.bind(host);
+  host.getSourceFile = (fileName, languageVersion, onError, shouldCreate) => {
+    const source = virtual.get(fileName);
+    if (source !== undefined) return ts.createSourceFile(fileName, source, languageVersion, true);
+    let parsed = PARSED.get(fileName);
+    if (!parsed) {
+      parsed = getSourceFile(fileName, languageVersion, onError, shouldCreate);
+      if (parsed) PARSED.set(fileName, parsed);
+    }
+    return parsed;
+  };
+  const fileExists = host.fileExists.bind(host);
+  host.fileExists = (fileName) => virtual.has(fileName) || fileExists(fileName);
+  const readFile = host.readFile.bind(host);
+  host.readFile = (fileName) => virtual.get(fileName) ?? readFile(fileName);
+  return ts.createProgram({
+    rootNames: [...DECLARATIONS, ...files.map((f) => `${ROOT}${f}`)],
+    options: COMPILER_OPTIONS,
+    host,
+  });
+}
+
+/**
+ * Where `file` (of `program`; a file of src/, tests excluded) makes a Scope
+ * the scope module didn't, read with the type checker, whatever the type is
+ * spelled as: "file:line: text" for each use of a test-only factory (not in
+ * a `typeof`); each assertion (as, angle brackets) to a Scope, or to a type
+ * holding one, of a value that isn't one already or holds an any; each
+ * value of type any or never, or holding one in an array, a tuple or a
+ * promise, where a Scope (or a type holding one) is expected; each object
+ * literal where a Scope is expected (only a @ts-expect-error or @ts-ignore
+ * lets one through); each Object.assign, defineProperty and the like on a
+ * Scope or a value holding one, or copying one; each call of a generic
+ * function of src/ that makes a value of its own type parameter (`x as T`,
+ * a spread, Object.assign, an any where it is expected) whose result holds
+ * a Scope; each type predicate to a Scope; each overload answering one; and
+ * each server action with a parameter that holds a Scope. Nothing for the
+ * scope module itself.
+ */
+function scopesMadeIn(program: ts.Program, file: string): string[] {
+  if (file === SCOPE_MODULE) return [];
+  const sf = program.getSourceFile(`${ROOT}${file}`);
+  if (!sf) throw new Error(`${file} isn't in the program`);
+  const checker = program.getTypeChecker();
+  const hits: string[] = [];
+  const at = (node: ts.Node, what: string) => {
+    const { line } = sf.getLineAndCharacterOfPosition(node.getStart(sf));
+    hits.push(`${file}:${line + 1}: ${what}`);
+  };
+  const isBrand = (type: ts.Type) => {
+    const symbol = type.getSymbol();
+    return (
+      symbol?.getName() === BRAND &&
+      !!symbol.declarations?.some((d) => d.getSourceFile().fileName === `${ROOT}${SCOPE_MODULE}`)
+    );
+  };
+  /** Is `type` a Scope (or a union holding one), or, `depth` levels down, a type that holds one? */
+  const holdsScope = (type: ts.Type, depth: number, seen = new Set<ts.Type>()): boolean => {
+    if (seen.has(type)) return false;
+    seen.add(type);
+    if (isBrand(type)) return true;
+    if (type.isUnionOrIntersection()) return type.types.some((t) => holdsScope(t, depth, seen));
+    if (depth === 0 || !(type.flags & ts.TypeFlags.Object)) return false;
+    // A promise, an array, a tuple: their type arguments.
+    if ((type as ts.ObjectType).objectFlags & ts.ObjectFlags.Reference) {
+      if (checker.getTypeArguments(type as ts.TypeReference).some((t) => holdsScope(t, depth - 1, seen))) return true;
+    }
+    // An object type of this project's own (Viewer, a type literal), or one a
+    // library type makes of a type holding a Scope (Pick<Viewer, "scope">,
+    // Partial<Viewer>, Omit, Readonly, Required): its properties.
+    const declared = (type.getSymbol() ?? type.aliasSymbol)?.declarations ?? [];
+    const ours = declared.some((d) => d.getSourceFile().fileName.startsWith(`${ROOT}src/`));
+    if (!ours && !(type.aliasTypeArguments ?? []).some((t) => holdsScope(t, depth, new Set(seen)))) return false;
+    return checker
+      .getPropertiesOfType(type)
+      .some((p) => holdsScope(checker.getTypeOfSymbolAtLocation(p, sf), depth - 1, seen));
+  };
+  const LOOSE = ts.TypeFlags.Any | ts.TypeFlags.Unknown | ts.TypeFlags.Never;
+  /**
+   * Does `type` hold an any or a never `depth` levels down, inside an array,
+   * a tuple, a promise or a union (`any[]`, `Promise<any>`)? Such a value is
+   * assignable to the same container of Scopes without being one.
+   */
+  const holdsLoose = (type: ts.Type, depth: number): boolean => {
+    if (type.flags & (ts.TypeFlags.Any | ts.TypeFlags.Never)) return true;
+    if (type.isUnion()) return type.types.some((t) => holdsLoose(t, depth));
+    if (depth === 0 || !(type.flags & ts.TypeFlags.Object)) return false;
+    if (!((type as ts.ObjectType).objectFlags & ts.ObjectFlags.Reference)) return false;
+    return checker.getTypeArguments(type as ts.TypeReference).some((t) => holdsLoose(t, depth - 1));
+  };
+  /** Is the call `node` Object.assign, defineProperty and the like, however it is named where it is called? */
+  const changesInPlace = (node: ts.CallExpression): boolean => {
+    if (ts.isPropertyAccessExpression(node.expression) && IN_PLACE.has(node.expression.getText(sf))) return true;
+    const declaration = checker.getResolvedSignature(node)?.getDeclaration();
+    const name = declaration?.name && ts.isIdentifier(declaration.name) ? declaration.name.text : null;
+    if (!declaration || !name) return false;
+    let owner: ts.Node | undefined = declaration.parent;
+    if (owner && ts.isModuleBlock(owner)) owner = owner.parent;
+    const ownerName =
+      owner && (ts.isInterfaceDeclaration(owner) || ts.isModuleDeclaration(owner)) && ts.isIdentifier(owner.name)
+        ? owner.name.text
+        : null;
+    return !!ownerName && !!IN_PLACE_DECLARED[ownerName]?.has(name);
+  };
+  /** Exported, as a function or as a constant holding one? */
+  const exported = (fn: ts.FunctionLikeDeclaration): boolean => {
+    const hasExport = (n: ts.Node) =>
+      ts.canHaveModifiers(n) && !!ts.getModifiers(n)?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword);
+    if (ts.isFunctionDeclaration(fn)) return hasExport(fn);
+    const declaration = fn.parent;
+    if (!declaration || !ts.isVariableDeclaration(declaration) || declaration.initializer !== fn) return false;
+    const statement = declaration.parent?.parent;
+    return !!statement && ts.isVariableStatement(statement) && hasExport(statement);
+  };
+  /** Does a block (a file, a function's body) start with the "use server" directive? */
+  const usesServer = (statements: readonly ts.Statement[] | undefined): boolean => {
+    for (const s of statements ?? []) {
+      if (!ts.isExpressionStatement(s) || !ts.isStringLiteral(s.expression)) return false;
+      if (s.expression.text === "use server") return true;
+    }
+    return false;
+  };
+  const serverModule = usesServer(sf.statements);
+  /**
+   * How a generic function of ours makes a value of one of its own type
+   * parameters: an assertion to it (`x as T`), a spread of a value of such a
+   * type, Object.assign and the like, or an any given where such a type is
+   * expected (`(t): T => JSON.parse(t)`). Null when it does none of these.
+   */
+  const madeBy = new Map<ts.Declaration, string | null>();
+  const howItMakesItsType = (declaration: ts.Declaration): string | null => {
+    if (madeBy.has(declaration)) return madeBy.get(declaration)!;
+    let found: string | null = null;
+    if (ts.isFunctionLike(declaration) && declaration.typeParameters?.length) {
+      const own = new Set(declaration.typeParameters.map((t) => t.name.text));
+      const ownTypes = new Set(declaration.typeParameters.map((t) => checker.getTypeAtLocation(t)));
+      /** Does `type` mention one of the function's own type parameters (T, Partial<T>, T & U)? */
+      const mentionsOwn = (type: ts.Type, depth = 3): boolean => {
+        if (ownTypes.has(type)) return true;
+        if (depth === 0) return false;
+        if (type.isUnionOrIntersection()) return type.types.some((t) => mentionsOwn(t, depth - 1));
+        const alias = type.aliasTypeArguments ?? [];
+        const args = type.flags & ts.TypeFlags.Object && (type as ts.ObjectType).objectFlags & ts.ObjectFlags.Reference
+          ? checker.getTypeArguments(type as ts.TypeReference)
+          : [];
+        const mapped = (type as { typeParameter?: ts.Type; constraintType?: ts.Type }).constraintType;
+        return [...alias, ...args, ...(mapped ? [mapped] : [])].some((t) => mentionsOwn(t, depth - 1));
+      };
+      const look = (node: ts.Node) => {
+        if (found) return;
+        if ((ts.isAsExpression(node) || ts.isTypeAssertionExpression(node)) && ts.isTypeReferenceNode(node.type)) {
+          if (ts.isIdentifier(node.type.typeName) && own.has(node.type.typeName.text)) found = "assertion";
+        }
+        if ((ts.isSpreadAssignment(node) || ts.isSpreadElement(node)) && mentionsOwn(checker.getTypeAtLocation(node.expression))) {
+          found = "spread";
+        }
+        if (!found && ts.isCallExpression(node) && changesInPlace(node)) found = "Object.assign";
+        if (!found && ts.isExpression(node) && !ts.isParenthesizedExpression(node) && given(node)) {
+          if (checker.getTypeAtLocation(node).flags & ts.TypeFlags.Any) {
+            const expected = checker.getContextualType(node);
+            if (expected && mentionsOwn(expected)) found = "any";
+          }
+        }
+        if (!found) ts.forEachChild(node, look);
+      };
+      ts.forEachChild(declaration, look);
+    }
+    madeBy.set(declaration, found);
+    return found;
+  };
+  /** Is `node` a value given to something typed: an argument, an initialiser, a returned value, a property, an assigned value? */
+  const given = (node: ts.Node): boolean => {
+    const p = node.parent;
+    if (!p) return false;
+    if (ts.isParenthesizedExpression(p)) return given(p);
+    if ((ts.isCallExpression(p) || ts.isNewExpression(p)) && p.arguments?.some((a) => a === node)) return true;
+    if ((ts.isVariableDeclaration(p) || ts.isPropertyDeclaration(p) || ts.isParameter(p)) && p.initializer === node) return true;
+    if (ts.isPropertyAssignment(p) && p.initializer === node) return true;
+    if (ts.isReturnStatement(p) || ts.isArrayLiteralExpression(p) || ts.isJsxExpression(p)) return true;
+    if (ts.isArrowFunction(p) && p.body === node) return true;
+    if (ts.isConditionalExpression(p) && (p.whenTrue === node || p.whenFalse === node)) return true;
+    if (ts.isBinaryExpression(p) && p.right === node) {
+      const op = p.operatorToken.kind;
+      return op === ts.SyntaxKind.EqualsToken || op === ts.SyntaxKind.QuestionQuestionToken || op === ts.SyntaxKind.BarBarToken;
+    }
+    return false;
+  };
+  /** Is `node` inside a type query (`typeof x`), where a name is only read for its type? */
+  const inTypeQuery = (node: ts.Node): boolean => {
+    for (let n: ts.Node | undefined = node.parent; n; n = n.parent) {
+      if (ts.isTypeQueryNode(n)) return true;
+      if (ts.isStatement(n)) return false;
+    }
+    return false;
+  };
+  const visit = (node: ts.Node) => {
+    if (ts.isIdentifier(node) && TEST_ONLY_FACTORIES.has(node.text) && !inTypeQuery(node)) at(node, `${node.text} outside tests`);
+    // A generic function of ours that makes a value of its type parameter
+    // (an assertion, a spread, Object.assign, an any), called so that a
+    // Scope comes out of it.
+    if (ts.isCallExpression(node)) {
+      const declaration = checker.getResolvedSignature(node)?.getDeclaration();
+      if (
+        declaration &&
+        declaration.getSourceFile().fileName.startsWith(`${ROOT}src/`) &&
+        declaration.getSourceFile().fileName !== `${ROOT}${SCOPE_MODULE}` &&
+        holdsScope(checker.getTypeAtLocation(node), 3)
+      ) {
+        const how = howItMakesItsType(declaration);
+        if (how) at(node, `a Scope out of a generic ${how}`);
+      }
+    }
+    if (ts.isAsExpression(node) || ts.isTypeAssertionExpression(node)) {
+      const target = checker.getTypeFromTypeNode(node.type);
+      if (holdsScope(target, 3)) {
+        const value = checker.getTypeAtLocation(node.expression);
+        const empty = ts.isArrayLiteralExpression(node.expression) && node.expression.elements.length === 0;
+        if (value.flags & LOOSE || (!empty && holdsLoose(value, 3)) || !checker.isTypeAssignableTo(value, target)) {
+          at(node, holdsScope(target, 0) ? "a value asserted to be a Scope" : "a value asserted to hold a Scope");
+        }
+      }
+    }
+    // Object.assign and the like: onto a Scope (in place), or a Scope copied
+    // into another object with its fields changed.
+    if (ts.isCallExpression(node) && changesInPlace(node)) {
+      const [target, ...sources] = node.arguments;
+      if (target && holdsScope(checker.getTypeAtLocation(target), 3)) at(node, "a Scope changed in place");
+      else if (sources.some((s) => holdsScope(checker.getTypeAtLocation(s), 3)) || holdsScope(checker.getTypeAtLocation(node), 3)) {
+        at(node, "a Scope copied by Object.assign or the like");
+      }
+    }
+    // A type predicate or an assertion function: `x is Scope`, `asserts x is Scope`.
+    if (ts.isTypePredicateNode(node) && node.type && holdsScope(checker.getTypeFromTypeNode(node.type), 3)) {
+      at(node, "a type predicate that makes a Scope");
+    }
+    // An overload that answers a Scope: its implementation's answer is never checked against it.
+    if ((ts.isFunctionDeclaration(node) || ts.isMethodDeclaration(node)) && !node.body && node.type && !sf.isDeclarationFile) {
+      if (holdsScope(checker.getTypeFromTypeNode(node.type), 3)) at(node, "an overload that answers a Scope");
+    }
+    // A server action (an exported function of a "use server" module, or a
+    // function that says "use server" itself) whose caller, the browser,
+    // would choose the Scope or the Viewer it is given.
+    if (ts.isFunctionLike(node) && "body" in node && node.body) {
+      const fn = node as ts.FunctionLikeDeclaration;
+      const action =
+        (serverModule && exported(fn) && fn.parent && (ts.isSourceFile(fn.parent) || ts.isVariableDeclaration(fn.parent))) ||
+        (fn.body && ts.isBlock(fn.body) && usesServer(fn.body.statements));
+      if (action && fn.parameters.some((p) => holdsScope(checker.getTypeAtLocation(p), 3))) {
+        at(node, "a server action that takes a Scope from its caller");
+      }
+    }
+    if (ts.isExpression(node) && !ts.isParenthesizedExpression(node) && given(node)) {
+      const type = checker.getTypeAtLocation(node);
+      if (type.flags & (ts.TypeFlags.Any | ts.TypeFlags.Never)) {
+        const expected = checker.getContextualType(node);
+        if (expected && holdsScope(expected, 3)) {
+          at(node, `a value of type ${type.flags & ts.TypeFlags.Any ? "any" : "never"} used as a Scope`);
+        }
+      } else if (ts.isObjectLiteralExpression(node)) {
+        const expected = checker.getContextualType(node);
+        if (expected && holdsScope(expected, 0)) at(node, "an object literal used as a Scope");
+      } else if (!ts.isArrayLiteralExpression(node) && holdsLoose(type, 3)) {
+        const expected = checker.getContextualType(node);
+        if (expected && holdsScope(expected, 3)) at(node, "a value holding any or never used as a Scope");
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
+  return hits;
+}
+
+/** scopesMadeIn for one file of src/ with `source` as its text, as if it were added (for the meta-tests). */
+function scopesMadeElsewhere(file: string, source: string): string[] {
+  return scopesMadeIn(programOf([file], new Map([[file, source]])), file);
+}
 
 /* --------------------------------- Tests --------------------------------- */
 
@@ -1069,13 +1491,255 @@ describe("the scope guard (FD-U15)", () => {
   it("gives every entry a reason", () => {
     for (const [id, entry] of Object.entries(ALLOW)) expect(entry.reason.length, id).toBeGreaterThan(10);
   });
+
+  it("finds no Scope made outside the scope module (SS4): no test-only factory, assertion, any or literal", { timeout: 240_000 }, () => {
+    // One program of every file of src/ (tests excluded), type-checked as tsc does.
+    const program = programOf([...SOURCES.keys()]);
+    expect([...SOURCES.keys()].flatMap((file) => scopesMadeIn(program, file))).toEqual([]);
+    // It reads the module it exempts: the factory and the brand are defined there.
+    expect(SOURCES.get(SCOPE_MODULE)).toContain(`export function ${TEST_ONLY_FACTORY}(`);
+    expect(SOURCES.get(SCOPE_MODULE)).toContain(`declare class ${BRAND} {`);
+  });
+});
+
+describe("the scope guard refuses a Scope made outside the scope module (SS4 meta-test)", { timeout: 120_000 }, () => {
+  it("the test-only factory, in any file of src/ outside tests", () => {
+    expect(
+      scopesMadeElsewhere(
+        "src/lib/new-report.ts",
+        `import { testOnlyScope } from "@/lib/scope";
+         export const everyone = testOnlyScope({ kind: "project", viewerId: "x", viewerOrganisationId: null });`
+      )
+    ).toEqual([
+      "src/lib/new-report.ts:1: testOnlyScope outside tests",
+      "src/lib/new-report.ts:2: testOnlyScope outside tests",
+    ]);
+  });
+
+  it("a literal asserted to be a Scope, directly, through unknown, in angle brackets or under another name", () => {
+    expect(
+      scopesMadeElsewhere(
+        "src/app/actions/new-action.ts",
+        `import type { Scope } from "@/lib/scope";
+         import { type Scope as Seen } from "@/lib/scope";
+         export const a = { kind: "none" } as Scope;
+         export const b = { kind: "project" } as unknown as Scope;
+         export const c = <Scope>{ kind: "none" };
+         export const d = { kind: "none" } as Seen;`
+      )
+    ).toEqual([
+      "src/app/actions/new-action.ts:3: a value asserted to be a Scope",
+      "src/app/actions/new-action.ts:4: a value asserted to be a Scope",
+      "src/app/actions/new-action.ts:5: a value asserted to be a Scope",
+      "src/app/actions/new-action.ts:6: a value asserted to be a Scope",
+    ]);
+  });
+
+  it("an assertion to a Scope under any spelling, and an untyped value where a Scope is expected", () => {
+    expect(
+      scopesMadeElsewhere(
+        "src/lib/x.ts",
+        `import { getViewerScope, type Scope, type Viewer } from "@/lib/scope";
+         type S = Scope;
+         export const a = {} as Viewer["scope"];
+         export const b = {} as Awaited<ReturnType<typeof getViewerScope>>;
+         export const c = {} as S;
+         export const d = {} as import("@/lib/scope").Scope;
+         export const e = (f: (s: Scope) => void) => f({} as never);`
+      )
+    ).toEqual([
+      "src/lib/x.ts:3: a value asserted to be a Scope",
+      "src/lib/x.ts:4: a value asserted to be a Scope",
+      "src/lib/x.ts:5: a value asserted to be a Scope",
+      "src/lib/x.ts:6: a value asserted to be a Scope",
+      "src/lib/x.ts:7: a value of type never used as a Scope",
+    ]);
+  });
+
+  it("an any where a Scope is expected, a literal let through, a Viewer asserted, a scope changed in place", () => {
+    expect(
+      scopesMadeElsewhere(
+        "src/app/actions/new-action.ts",
+        `import { getViewer, learnerUsersInScope, type Scope, type Viewer } from "@/lib/scope";
+         export const a = learnerUsersInScope({ kind: "project" } as any);
+         export const b: Scope = JSON.parse("{}");
+         // @ts-expect-error a literal isn't a Scope
+         export const c: Scope = { kind: "none" };
+         export const d = async () => ({ ...(await getViewer()), scope: { kind: "none" } }) as Viewer;
+         export const e = async () => Object.assign((await getViewer()).scope, { kind: "project" });
+         export const f = async (): Promise<Viewer> => ({ user: null, roles: [], profile: null, scope: {} as never });`
+      )
+    ).toEqual([
+      "src/app/actions/new-action.ts:2: a value of type any used as a Scope",
+      "src/app/actions/new-action.ts:3: a value of type any used as a Scope",
+      "src/app/actions/new-action.ts:5: an object literal used as a Scope",
+      "src/app/actions/new-action.ts:6: a value asserted to hold a Scope",
+      "src/app/actions/new-action.ts:6: an object literal used as a Scope",
+      "src/app/actions/new-action.ts:7: a Scope changed in place",
+      "src/app/actions/new-action.ts:8: a value of type never used as a Scope",
+    ]);
+  });
+
+  it("a type reached through a builder's parameters, and a generic function that asserts to its type parameter", () => {
+    expect(
+      scopesMadeElsewhere(
+        "src/lib/new-report.ts",
+        `import { learnerUsersInScope, type Scope } from "@/lib/scope";
+         export const a = { kind: "project" } as Parameters<typeof learnerUsersInScope>[0];
+         const cast = <T,>(x: unknown) => x as T;
+         export const b = learnerUsersInScope(cast<Scope>({ kind: "project" }));
+         function launder<T>(x: unknown): { scope: T } { return { scope: x as T }; }
+         export const c = learnerUsersInScope(launder<Scope>({}).scope);`
+      )
+    ).toEqual([
+      "src/lib/new-report.ts:2: a value asserted to be a Scope",
+      "src/lib/new-report.ts:4: a Scope out of a generic assertion",
+      "src/lib/new-report.ts:6: a Scope out of a generic assertion",
+    ]);
+  });
+
+  it("a copy of a real scope with its fields changed by Object.assign, under its own name or another", () => {
+    expect(
+      scopesMadeElsewhere(
+        "src/lib/new-report.ts",
+        `import { getViewerScope, peopleInScope, type Scope } from "@/lib/scope";
+         export async function theirs(other: string) {
+           const mine = await getViewerScope();
+           const s: Scope = Object.assign({}, mine, { organisationId: other });
+           const assign = Object.assign;
+           const t: Scope = assign({}, mine, { organisationId: other });
+           return [peopleInScope(s), peopleInScope(t)];
+         }`
+      )
+    ).toEqual([
+      "src/lib/new-report.ts:4: a Scope copied by Object.assign or the like",
+      "src/lib/new-report.ts:6: a Scope copied by Object.assign or the like",
+    ]);
+  });
+
+  it("a generic function of ours that copies its argument with a spread or Object.assign, or makes it from an any", () => {
+    expect(
+      scopesMadeElsewhere(
+        "src/lib/new-report.ts",
+        `import { getViewerScope, peopleInScope, type Scope } from "@/lib/scope";
+         const withOrganisation = <T,>(s: T, organisationId: string) => ({ ...s, organisationId });
+         const patched = <T extends object>(base: T, patch: Partial<T>): T => ({ ...base, ...patch });
+         const merge = <A extends object, B extends object>(a: A, b: B) => Object.assign({}, a, b);
+         const fromJson = <T,>(text: string): T => JSON.parse(text);
+         export async function a(other: string) { return peopleInScope(withOrganisation(await getViewerScope(), other)); }
+         export async function b() { return peopleInScope(patched(await getViewerScope(), { kind: "none" })); }
+         export async function c(other: string) { return peopleInScope(merge(await getViewerScope(), { organisationId: other })); }
+         export const d = (body: string) => peopleInScope(fromJson<Scope>(body));`
+      )
+    ).toEqual([
+      "src/lib/new-report.ts:6: a Scope out of a generic spread",
+      "src/lib/new-report.ts:7: a Scope out of a generic spread",
+      "src/lib/new-report.ts:8: a Scope out of a generic Object.assign",
+      "src/lib/new-report.ts:9: a Scope out of a generic any",
+    ]);
+  });
+
+  it("the test-only scope of roles and settings the caller chose, anywhere outside tests", () => {
+    expect(
+      scopesMadeElsewhere(
+        "src/app/actions/new-action.ts",
+        `import { learnerUsersInScope, testOnlyScopeFor } from "@/lib/scope";
+         export async function preview(userId: string) {
+           return learnerUsersInScope(testOnlyScopeFor({ userId, name: "x", roles: ["ADMIN"], profile: null }, { R3_PROFILE_GATE: "off" }));
+         }`
+      )
+    ).toEqual([
+      "src/app/actions/new-action.ts:1: testOnlyScopeFor outside tests",
+      "src/app/actions/new-action.ts:3: testOnlyScopeFor outside tests",
+    ]);
+  });
+
+  it("an any inside an array or a promise, a type predicate or assertion function, an overload that answers a Scope", () => {
+    expect(
+      scopesMadeElsewhere(
+        "src/lib/new-report.ts",
+        `import { learnerUsersInScope, type Scope } from "@/lib/scope";
+         export const a = (rows: any[]) => { const [s]: Scope[] = rows; return learnerUsersInScope(s); };
+         export const b = async (body: string) => learnerUsersInScope(await (Promise.resolve(JSON.parse(body)) as Promise<Scope>));
+         const isScope = (x: unknown): x is Scope => typeof x === "object" && x !== null;
+         function assertScope(x: unknown): asserts x is Scope { if (!x) throw new Error("no"); }
+         function asScope(x: object): Scope;
+         function asScope(x: any) { return x; }
+         export const c = (body: string): Scope[] => (JSON.parse(body) as unknown[]).map((x) => x as never);
+         export const d = (x: unknown, y: unknown, z: object) => { assertScope(y); return [isScope(x) ? x : null, y, asScope(z)]; };`
+      )
+    ).toEqual([
+      "src/lib/new-report.ts:2: a value holding any or never used as a Scope",
+      "src/lib/new-report.ts:3: a value asserted to hold a Scope",
+      "src/lib/new-report.ts:4: a type predicate that makes a Scope",
+      "src/lib/new-report.ts:5: a type predicate that makes a Scope",
+      "src/lib/new-report.ts:6: an overload that answers a Scope",
+      "src/lib/new-report.ts:8: a value holding any or never used as a Scope",
+    ]);
+  });
+
+  it("a server action that takes a Scope or a Viewer from its caller", () => {
+    expect(
+      scopesMadeElsewhere(
+        "src/app/actions/new-action.ts",
+        `"use server";
+         import { getViewerScope, learnerUsersInScope, type Scope, type Viewer } from "@/lib/scope";
+         export async function listLearners(cohortId: string, scope?: Scope) {
+           const s = scope ?? (await getViewerScope());
+           return [cohortId, learnerUsersInScope(s)];
+         }
+         export const rolesOf = async (viewer: Viewer) => viewer.roles;
+         async function helper(scope: Scope) { return learnerUsersInScope(scope); }
+         export async function mine(cohortId: string) { return [cohortId, await helper(await getViewerScope())]; }`
+      )
+    ).toEqual([
+      "src/app/actions/new-action.ts:3: a server action that takes a Scope from its caller",
+      "src/app/actions/new-action.ts:7: a server action that takes a Scope from its caller",
+    ]);
+  });
+
+  it("a server action that takes a Viewer through a library type: Pick, Partial, Omit, Readonly (polish2-verify V1)", () => {
+    expect(
+      scopesMadeElsewhere(
+        "src/app/actions/new-action.ts",
+        `"use server";
+         import { learnerUsersInScope, type Viewer } from "@/lib/scope";
+         export async function asViewer(v: Pick<Viewer, "scope">) { return learnerUsersInScope(v.scope); }
+         export async function rolesAs(v: Partial<Viewer>) { return v.scope ? learnerUsersInScope(v.scope) : null; }
+         export async function without(v: Omit<Viewer, "roles">) { return learnerUsersInScope(v.scope); }
+         export async function frozen(v: Readonly<Required<Viewer>>) { return learnerUsersInScope(v.scope); }
+         export async function rolesOnly(v: Pick<Viewer, "roles">) { return v.roles; }`
+      )
+    ).toEqual([
+      "src/app/actions/new-action.ts:3: a server action that takes a Scope from its caller",
+      "src/app/actions/new-action.ts:4: a server action that takes a Scope from its caller",
+      "src/app/actions/new-action.ts:5: a server action that takes a Scope from its caller",
+      "src/app/actions/new-action.ts:6: a server action that takes a Scope from its caller",
+    ]);
+  });
+
+  it("and a scope that came from the module passes", () => {
+    expect(
+      scopesMadeElsewhere(
+        "src/lib/new-report.ts",
+        `import { getViewer, getViewerScope, learnerUsersInScope, type Scope } from "@/lib/scope";
+         const same = <T,>(x: T): T => x;
+         export async function mine(): Promise<Scope> { const scope: Scope = await getViewerScope(); return scope; }
+         export async function both() { const [scope, viewer] = await Promise.all([getViewerScope(), getViewer()]); return [scope, viewer.scope]; }
+         export async function kept() { const scopes: Scope[] = []; scopes.push(same(await getViewerScope())); return scopes.map(learnerUsersInScope); }`
+      )
+    ).toEqual([]);
+  });
 });
 
 /*
  * The meta-test: changes that must fail. Each adds a file (or a function to
- * a real file) to the real sources and judges them with the real list.
+ * a real file) to the real sources and judges them with the real list. Each
+ * judgement parses every source file again (about 1 s alone, several times
+ * that while the whole suite runs), so a test that judges several cases has
+ * more time than the default 5 s.
  */
-describe("the scope guard refuses (FD-U15 meta-test)", () => {
+describe("the scope guard refuses (FD-U15 meta-test)", { timeout: 60_000 }, () => {
   const failuresWith = (file: string, text: string, allow: AllowList = ALLOW) => {
     const sources = new Map(SOURCES);
     sources.set(file, file in Object.fromEntries(SOURCES) ? `${SOURCES.get(file)}\n${text}` : text);
@@ -1375,6 +2039,22 @@ describe("the scope guard refuses (FD-U15 meta-test)", () => {
       "src/lib/new-activity.ts#everyonesTime: auditLog.findMany — not on the allow-list",
       "src/lib/new-activity.ts#grouped: auditLog.groupBy — not on the allow-list",
     ]);
+  });
+
+  it("a person's organisation written into a data object after its declaration: by Object.assign or by a property", () => {
+    const D101 = "only setPersonOrganisation writes a person's organisation (D101)";
+    const PROFILE = "src/app/actions/profile.ts";
+    expect(
+      failuresInjected(PROFILE, "        Object.assign(data, {\n          country: value.country,", `          organisationId: "seq-elevate-synthesis",`)
+    ).toEqual([`src/app/actions/profile.ts#completeProfile: projectProfile.update writes organisationId — ${D101}`]);
+    expect(
+      failuresInjected(PROFILE, "      const name = value.name;", `      data.organisationId = "seq-elevate-synthesis";`)
+    ).toEqual([`src/app/actions/profile.ts#completeProfile: projectProfile.update writes organisationId — ${D101}`]);
+    expect(
+      failuresInjected(PROFILE, "      const name = value.name;", `      data["organisation"] = { connect: { id: "seq-elevate-synthesis" } };`)
+    ).toEqual([`src/app/actions/profile.ts#completeProfile: projectProfile.update writes organisationId — ${D101}`]);
+    // The control: what the profile step writes there today passes.
+    expect(failuresInjected(PROFILE, "      const name = value.name;", "")).toEqual([]);
   });
 
   it("a person's organisation written through a relation, even on the list", () => {

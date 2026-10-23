@@ -69,14 +69,41 @@ export function legalFooterLinks(locale: string, docs: readonly string[] = LEGAL
     .map((doc) => ({ label: LEGAL_LINK_LABELS[doc][lang], path: `/${lang}/legal/${doc}` }));
 }
 
-/** The legal links as HTML, each on the site `linkUrl` belongs to. */
-function legalLinksHtml(linkUrl: string, links: readonly LegalLink[]): string {
+/** The language of a legal link: its path's first part ("/de/legal/…"). */
+const linkLang = (l: LegalLink) => l.path.split("/")[1] ?? "en";
+
+/**
+ * The legal links as HTML, each on the site `linkUrl` belongs to; a label
+ * in another language than the email's (`emailLang`) is marked as such.
+ */
+function legalLinksHtml(linkUrl: string, links: readonly LegalLink[], emailLang?: string): string {
   return links
     .map(
       (l) =>
-        `<a href="${escapeHtml(new URL(l.path, linkUrl).href)}" style="color: #4d4d66; text-decoration: underline;">${escapeHtml(l.label)}</a>`
+        `<a href="${escapeHtml(new URL(l.path, linkUrl).href)}"${
+          emailLang && linkLang(l) !== emailLang ? ` lang="${linkLang(l)}"` : ""
+        } style="color: #4d4d66; text-decoration: underline;">${escapeHtml(l.label)}</a>`
     )
     .join(" · ");
+}
+
+/**
+ * The language the person asked for a sign-in link in: the first part of
+ * the link's callbackUrl, on the link's own site ("/el/…", or that site's
+ * absolute address). English for anything else.
+ */
+export function signInLocale(url: string): string {
+  try {
+    const link = new URL(url);
+    const callback = link.searchParams.get("callbackUrl");
+    if (!callback) return "en";
+    const target = new URL(callback, link.origin);
+    if (target.origin !== link.origin) return "en";
+    const first = target.pathname.split("/")[1] ?? "";
+    return first in LEGAL_LINK_LABELS.privacy ? first : "en";
+  } catch {
+    return "en";
+  }
 }
 
 /** The legal links as plain text, "Label: URL" per line. */
@@ -189,10 +216,11 @@ export function renderInviteEmail({
 /**
  * The sign-in link email (auth.ts's email provider). In English, as the
  * sign-in page sends it; its footer links the privacy notice (and the
- * legal notice once there is one).
+ * legal notice once there is one) in the language the person signed in
+ * from (signInLocale), the label marked with that language.
  */
 export function renderSignInEmail(url: string): { html: string; text: string } {
-  const links = legalFooterLinks("en");
+  const links = legalFooterLinks(signInLocale(url));
   const html = `
   <div style="font-family: Inter, system-ui, sans-serif; max-width: 480px; margin: 0 auto; padding: 32px; color: #2e2e3d;">
     ${emailHeaderHtml(url)}
@@ -201,7 +229,7 @@ export function renderSignInEmail(url: string): { html: string; text: string } {
     <a href="${escapeHtml(url)}" style="display: inline-block; margin: 20px 0; background: #cad12c; color: #2e2e3d; font-weight: 600; text-decoration: none; padding: 12px 24px; border-radius: 8px;">Sign in</a>
     <p style="font-size: 12px; color: #4d4d66; line-height: 1.6;">If you didn't request this, you can safely ignore this email.</p>
     <p style="font-size: 11px; color: #4d4d66; border-top: 1px solid #e4e4e8; padding-top: 16px; margin-top: 24px;">Created and Powered by SENIC · senic.world${
-      links.length ? `<br>${legalLinksHtml(url, links)}` : ""
+      links.length ? `<br>${legalLinksHtml(url, links, "en")}` : ""
     }</p>
   </div>`;
   const text = [`Sign in to SEQ Elevate: ${url}`, "", ...legalLinksText(url, links)].join("\n");

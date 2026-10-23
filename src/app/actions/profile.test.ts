@@ -22,7 +22,9 @@ const setPersonOrganisation = vi.fn(async (_tx: unknown, _userId: string, organi
   if (profile) Object.assign(profile, { organisationId, organisationSource: by.source });
   return { changed: true };
 });
-vi.mock("@/lib/person-organisation", () => ({ setPersonOrganisation }));
+/** The profile step's organisation rule for someone who becomes a learner later (spec 5.4 (c)). */
+const releaseIfCountryElsewhere = vi.fn(async () => ({ released: false }));
+vi.mock("@/lib/person-organisation", () => ({ setPersonOrganisation, releaseIfCountryElsewhere }));
 
 type Row = Record<string, unknown>;
 let profile: Row | null;
@@ -333,6 +335,20 @@ describe("completeProfile: later calls (UB2)", () => {
   it("a blank stored name is asked for: without one the call is refused", async () => {
     user.name = null;
     await expect(completeProfile({ termsAccepted: true })).resolves.toEqual({ ok: false, errors: { name: "empty" } });
+  });
+
+  it("someone with no role left (Removed) who accepts new Terms becomes a learner under the organisation rule (spec 5.4 (c))", async () => {
+    roles = [];
+    profile = completedProfile({ termsVersion: "2026-01-01", organisationSource: "partner-admin", country: "CY" });
+    await expect(completeProfile({ termsAccepted: true })).resolves.toEqual({ ok: true });
+    expect(roles).toEqual(["LEARNER"]);
+    expect(releaseIfCountryElsewhere).toHaveBeenCalledWith(db, "u1", { actorId: "u1" });
+    // A learner who accepts new Terms is already one: nothing to apply.
+    vi.clearAllMocks();
+    roles = ["LEARNER"];
+    profile = completedProfile({ termsVersion: "2026-01-01" });
+    await completeProfile({ termsAccepted: true });
+    expect(releaseIfCountryElsewhere).not.toHaveBeenCalled();
   });
 });
 

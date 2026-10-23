@@ -103,6 +103,38 @@ describe("migrate-deploy", () => {
     expect(printed(log)).toContain("FAILED");
   });
 
+  /** Prisma's P3009, naming the migration that failed in an earlier deploy. */
+  const p3009 = (name: string) =>
+    `Error: P3009\n\nmigrate found failed migrations in the target database, new migrations will not be applied.\nThe \`${name}\` migration started at 2026-11-20 08:00:00.000 UTC failed\n`;
+
+  it("after P3009 for a migration whose statements commit one by one: it may be partly applied, and runs again as it stands", async () => {
+    const C = "20261120090200_r3_course_project_columns";
+    const log = quietLog();
+    const code = await main(ENV, {
+      deploy: () => ({ status: 1, output: p3009(C) }),
+      createClient: vi.fn(),
+      log,
+      readMigration: (name: string) =>
+        name === C ? `SET lock_timeout = '5s';\nALTER TABLE "Project" ADD COLUMN IF NOT EXISTS "x" JSONB;\nALTER TABLE "Course" ADD COLUMN IF NOT EXISTS "y" TEXT;\n` : null,
+    });
+    expect(code).toBe(1);
+    expect(printed(log)).toContain(`${C} may be partly applied`);
+    expect(printed(log)).toContain(`npx prisma migrate resolve --rolled-back ${C}`);
+    expect(printed(log)).not.toContain("once nothing of it is applied");
+  });
+
+  it("after P3009 for a migration that is one transaction: nothing of it was applied", async () => {
+    const log = quietLog();
+    await main(ENV, {
+      deploy: () => ({ status: 1, output: p3009(NAME) }),
+      createClient: vi.fn(),
+      log,
+      readMigration: migrationsWith(ONE_TRANSACTION),
+    });
+    expect(printed(log)).toContain(`${NAME} is one transaction, so nothing of it was applied`);
+    expect(printed(log)).toContain(`npx prisma migrate resolve --rolled-back ${NAME}`);
+  });
+
   it("never runs again a file that isn't one transaction", async () => {
     const client = fakeClient();
     await expect(rerunRolledBack(client, "CREATE TABLE x (); COMMIT; BEGIN; SELECT 1; COMMIT;")).rejects.toThrow(

@@ -15,6 +15,12 @@ import type { RtInline, RtText } from "./types";
  * Every other scheme — javascript:, data:, vbscript:, file: and the rest —
  * is never linked, because an href is only ever built from these three
  * patterns, and checked once more by the URL parser.
+ * A host — a web address's, or an email address's domain — has no label
+ * over 63 characters and is itself at most 253 (DNS's limits), every
+ * character counted as typed, letters or not, before anything parses it:
+ * a run past them isn't an address, and the URL parser never sees it (it
+ * converts an international label at a cost that grows with the square
+ * of its length).
  *
  * Trailing punctuation (". , ; : ! ?" and closing quotes, Greek and German
  * ones included) and unbalanced closing brackets stay outside the link, so
@@ -24,7 +30,8 @@ import type { RtInline, RtText } from "./types";
  *
  * Pure and linear in the length of the text (lesson text is at most
  * RT_LIMITS.maxTextChars a block), so server and client agree and every
- * render can afford it.
+ * render can afford it; the URL parser only ever sees a host within DNS's
+ * limits.
  */
 
 export type LinkKind = "web" | "email";
@@ -79,6 +86,11 @@ const LOCAL_CHAR = /[\p{L}\p{N}\p{M}._+-]/u;
 const GLUED_BEFORE_EMAIL = /[\p{L}\p{N}\p{M}_/:@.+-]/u;
 const DOMAIN_CHAR = /[\p{L}\p{N}\p{M}.-]/u;
 
+// The longest a host's label and a whole host may be (DNS's 63 and 253),
+// in code points as typed.
+const MAX_LABEL = 63;
+const MAX_HOST = 253;
+
 /** Every address in `text`, in order and never overlapping. */
 export function findLinks(text: string): FoundLink[] {
   const found: FoundLink[] = [];
@@ -128,6 +140,8 @@ function scheme(
 
 /** An https or http href for a typed address, or null if it isn't one. */
 function webHref(typed: string): string | null {
+  const [from, to] = webHost(typed);
+  if (!hostFits(typed, from, to)) return null;
   let url: URL;
   try {
     url = new URL(typed);
@@ -143,12 +157,61 @@ function webHref(typed: string): string | null {
   return url.href;
 }
 
+/**
+ * Where the host of a typed "https://…" or "http://…" is in it, [from, to),
+ * as the URL parser finds it: past the scheme and its slashes (backslashes
+ * too), up to the path, query or fragment, after a user name, before a
+ * port. One pass.
+ */
+function webHost(typed: string): [number, number] {
+  let from = typed.indexOf(":") + 1;
+  while (from < typed.length && (typed[from] === "/" || typed[from] === "\\")) from++;
+  let to = from;
+  for (; to < typed.length; to++) {
+    const char = typed[to];
+    if (char === "/" || char === "\\" || char === "?" || char === "#") break;
+    if (char === "@") from = to + 1;
+  }
+  // "[…]" holds an IPv6 address's colons; otherwise a colon starts the port.
+  const bracketed = typed[from] === "[";
+  for (let i = from; i < to; i++) {
+    if (bracketed ? typed[i] === "]" : typed[i] === ":") return [from, bracketed ? i + 1 : i];
+  }
+  return [from, to];
+}
+
+/**
+ * Could `text.slice(from, to)` be a host? None of its labels over MAX_LABEL
+ * code points, and itself at most MAX_HOST (a final dot, the root, aside):
+ * every code point counts, letters or not. The full stop and the ones the
+ * URL parser reads as it (ideographic, fullwidth, halfwidth) separate
+ * labels. Linear, and it stops at the first that is too long.
+ */
+function hostFits(text: string, from: number, to: number): boolean {
+  let host = 0;
+  let label = 0;
+  let lastDot = false;
+  for (let i = from; i < to; i++) {
+    const code = text.charCodeAt(i);
+    // A surrogate pair is one code point.
+    if (code >= 0xd800 && code <= 0xdbff && i + 1 < to) {
+      const low = text.charCodeAt(i + 1);
+      if (low >= 0xdc00 && low <= 0xdfff) i++;
+    }
+    lastDot = code === 0x2e || code === 0x3002 || code === 0xff0e || code === 0xff61;
+    if (lastDot) label = 0;
+    else if (++label > MAX_LABEL) return false;
+    if (++host > MAX_HOST + 1) return false;
+  }
+  return host - (lastDot ? 1 : 0) <= MAX_HOST;
+}
+
 /** The href for a typed "mailto:address[?query]", or null. */
 function mailtoHref(typed: string): string | null {
   const rest = typed.slice("mailto:".length);
   const query = rest.indexOf("?");
   const address = query < 0 ? rest : rest.slice(0, query);
-  return isEmailAddress(address) ? `mailto:${rest}` : null;
+  return isEmail(address) ? `mailto:${rest}` : null;
 }
 
 /**
@@ -172,9 +235,21 @@ function email(
   }
   if (start > 0 && GLUED_BEFORE_EMAIL.test(text[start - 1])) return at + 1;
   const address = text.slice(start, end);
-  if (!isEmailAddress(address)) return at + 1;
+  if (!isEmail(address)) return at + 1;
   found.push({ start, end, href: `mailto:${address}`, kind: "email" });
   return end;
+}
+
+/**
+ * "user@example.org" (isEmailAddress, link-url.ts), its domain first
+ * measured against DNS's limits as typed (hostFits), before anything else
+ * reads it.
+ */
+function isEmail(address: string): boolean {
+  const at = address.indexOf("@");
+  if (at <= 0 || at !== address.lastIndexOf("@")) return false;
+  if (!hostFits(address, at + 1, address.length)) return false;
+  return isEmailAddress(address);
 }
 
 /**

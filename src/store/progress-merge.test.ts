@@ -428,8 +428,7 @@ describe("courseAfterLoad", () => {
 });
 
 describe("courseAfterLoad, for a guest's course moved into the account (spec 5.4)", () => {
-  // The guest's course, moved in fill mode on sign-in: the account had no
-  // progress in it when its enrolments were read.
+  // The guest's course, shown on the page once it moved in fill mode.
   const guest = progress({
     courseTitle: "Workplace conflict",
     stagesCompleted: ["context", "concept"],
@@ -441,42 +440,34 @@ describe("courseAfterLoad, for a guest's course moved into the account (spec 5.4
       [`${OWN}/main`]: { type: "practice", optionId: "g", correct: false },
     },
   });
-  // Meanwhile another device saved the course; the fill kept what it saved.
+  // What the account holds once the move got through: the server's fill kept
+  // the account's own answers (another device's, saved first) and added the
+  // guest's where it had none (merge-server.ts). The page never works that
+  // out itself: the server's answer is what holds.
   const account = progress({
-    stagesCompleted: ["context", "behaviour"],
+    stagesCompleted: ["context", "behaviour", "concept"],
     simulation: { choice: "B", correct: false },
-    reflection: { p1: "Account", p2: "", p3: "" },
-    assessment: { answers: { q1: "b" }, checked: false },
-    responses: { [`${OWN}/${PART}`]: { type: "rating", values: { s1: 5 } } },
+    reflection: { p1: "Account", p2: "Guest", p3: "" },
+    assessment: { answers: {}, checked: false },
+    responses: {
+      [`${OWN}/${PART}`]: { type: "rating", values: { s1: 5, s2: 2 } },
+      [`${OWN}/main`]: { type: "practice", optionId: "g", correct: false },
+    },
   });
 
-  it("keeps the account's answers when the course loads: the save after it sends only what the account lacks", () => {
+  it("shows what the account holds when the course loads, and sends nothing of the guest's again", () => {
     // The bug: merged as if done on the page, the guest's practice "A" won
     // over the account's "B", and the next save sent it over "B".
     const shown = courseAfterMigration(progress({ courseSlug: null }), guest)!;
     const next = courseAfterLoad(shown, SLUG, account, guest)!;
-    expect(next).toEqual(
-      progress({
-        courseTitle: "Workplace conflict",
-        stagesCompleted: ["context", "behaviour", "concept"],
-        simulation: { choice: "B", correct: false },
-        reflection: { p1: "Account", p2: "Guest", p3: "" },
-        assessment: { answers: { q1: "b" }, checked: false },
-        responses: {
-          [`${OWN}/${PART}`]: { type: "rating", values: { s1: 5, s2: 2 } },
-          [`${OWN}/main`]: { type: "practice", optionId: "g", correct: false },
-        },
-      })
-    );
-    expect(patchSince(account, next)).toEqual({
-      v: 2,
-      completed: ["concept"],
-      answers: {
-        "reflection/main": { type: "reflection", text: { p2: "Guest" } },
-        [`${OWN}/${PART}`]: { type: "rating", values: { s2: 2 } },
-        [`${OWN}/main`]: { type: "practice", optionId: "g", correct: false },
-      },
-    });
+    expect(next).toEqual({ ...account, courseTitle: "Workplace conflict" });
+    expect(patchSince(account, next)).toBeNull();
+  });
+
+  it("keeps a quick check the account tried again (saved empty): the page doesn't fill it with the guest's (D49)", () => {
+    const shown = courseAfterMigration(progress({ courseSlug: null }), guest)!;
+    const next = courseAfterLoad(shown, SLUG, account, guest)!;
+    expect(next.assessment).toEqual({ answers: {}, checked: false });
   });
 
   it("still lets what the learner did on the page win over the account, as for any saved progress", () => {
@@ -491,13 +482,6 @@ describe("courseAfterLoad, for a guest's course moved into the account (spec 5.4
     expect(next.simulation).toEqual({ choice: "C", correct: true });
     expect(next.reflection).toEqual({ p1: "Account", p2: "Guest", p3: "On the page" });
     expect(next.responses[`${OWN}/${PART}`]).toEqual({ type: "rating", values: { s1: 5, s2: 4 } });
-  });
-
-  it("is the guest's course when the account still has nothing saved (the move didn't get through)", () => {
-    const shown = courseAfterMigration(progress({ courseSlug: null }), guest)!;
-    const next = courseAfterLoad(shown, SLUG, null, guest);
-    expect(next).toEqual(guest);
-    expect(next).not.toBe(shown);
   });
 });
 
@@ -783,6 +767,20 @@ describe("storedGuestState", () => {
     expect(after.badges).toEqual(["b"]);
     expect(after.course).toEqual({ ...blank.course, courseSlug: SLUG });
     expect(after.compCard).toEqual(blank.compCard);
+  });
+
+  it("reads a guest store written before Release 3 with its title's language unknown, never guessed", () => {
+    const before = { ...blank, course: { ...progress({ stagesCompleted: ["context"] }), courseSlug: SLUG, courseTitle: "Nein sagen" } };
+    delete (before.course as { courseLocale?: unknown }).courseLocale;
+    const after = storedGuestState(JSON.parse(JSON.stringify(before)), blank);
+    expect(after.course.courseTitle).toBe("Nein sagen");
+    expect(after.course.courseLocale).toBeUndefined();
+    // Claimed into an account whose own copy of the course is in English:
+    // the guest's title is shown, and its language stays unknown rather
+    // than taking the account's (which would mark "Nein sagen" as English).
+    const claimed = mergeCourseProgress(after.course, progress({ courseSlug: SLUG, courseTitle: "Saying no", courseLocale: "en" }));
+    expect(claimed).toMatchObject({ courseTitle: "Nein sagen" });
+    expect(claimed.courseLocale).toBeUndefined();
   });
 
   it("reads a Release 1 guest store, which has no lessons of the course's own or answers per item", () => {

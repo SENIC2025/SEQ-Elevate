@@ -76,8 +76,12 @@ learner's name, country or organisation on **Manage people**. Email addresses ca
 changed in the platform: erase the account on request, and the person signs up again.
 
 **Restriction or objection.** DIESIS decides. Usual answers: the person sets their Comp
-Card to "Only me"; an admin removes the person from the project (Manage people →
-Remove: the account and its data stay); or erasure.
+Card to "Only me" (on the Comp Card page, or on their account page, which stays open
+even while the profile step waits for them); or erasure. **Remove** on Manage people is
+no restriction: it takes the person's roles away only until their next visit, when they
+are a learner again, and their account and data stay as they are (Q29). If DIESIS needs
+an account kept out of every staff screen without erasing it, ask SENIC: there is no
+such mark yet.
 
 ## 4. Test accounts
 
@@ -153,7 +157,9 @@ daily backup carries these records. Corrections are made again from the register
 ## 8. Staff notes
 
 Notes and validations staff write about a learner are in the learner's data download,
-signed "a facilitator at ‹organisation›", never by name. Learners can read them there.
+signed "a facilitator at ‹organisation›", never by name, while the author is still in the
+organisation they wrote it in; after the author moves, or once their account is erased,
+"a member of staff". Learners can read them there.
 Write them as you would want the learner to read them: factual, about what happened.
 
 ## 9. The log

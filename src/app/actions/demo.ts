@@ -17,6 +17,7 @@
 import { cookies, headers } from "next/headers";
 import { prisma } from "@/lib/prisma";
 import { demoCodeMatches, demoLoginAllowed } from "@/lib/demo-gate";
+import { DEMO_SESSION_PREFIX } from "@/lib/demo-session";
 import { getDemoProfile, type DemoRole } from "@/lib/demo-profiles";
 import { setPersonOrganisation } from "@/lib/person-organisation";
 import { currentTermsVersion, profileRules } from "@/lib/profile";
@@ -116,7 +117,9 @@ export async function demoSignIn(profileId: string, code: string) {
   await completeDemoProfile(user.id, profile.roles);
 
   // Create a database session and set the Auth.js cookie.
-  const token = `demo-${crypto.randomUUID()}`;
+  // A demo session's token says so: where demo sign-in isn't allowed it
+  // resolves to no one (demo-session.ts).
+  const token = `${DEMO_SESSION_PREFIX}${crypto.randomUUID()}`;
   const expires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
   await prisma.session.create({
     data: { sessionToken: token, userId: user.id, expires },

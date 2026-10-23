@@ -151,6 +151,29 @@ describe("the emails' legal links", () => {
     expect(text).toContain("Legal notice: https://seq-elevate.eu/en/legal/notice");
   });
 
+  it("in the sign-in email, link the pages in the language the person signed in from, the label marked as such", () => {
+    const from = (callbackUrl: string) =>
+      renderSignInEmail(`http://localhost:3000/api/auth/callback/resend?callbackUrl=${encodeURIComponent(callbackUrl)}&token=x&email=a%40b.eu`);
+    const el = from("/el/learner/course/x");
+    expect(el.html).toContain('<a href="http://localhost:3000/el/legal/privacy"');
+    expect(el.html).toContain('lang="el"');
+    expect(el.html).toContain(">Ενημέρωση για το απόρρητο</a>");
+    expect(el.text).toContain("http://localhost:3000/el/legal/privacy");
+    // An absolute callback, as Auth.js may pass it, and the sign-in page's own default.
+    expect(from("http://localhost:3000/de").html).toContain('href="http://localhost:3000/de/legal/privacy"');
+    // Anything else: English, unmarked (the email's own language).
+    for (const other of ["/fr/x", "", "https://elsewhere.example/el"]) {
+      const { html } = from(other);
+      expect(html, other).toContain('href="http://localhost:3000/en/legal/privacy"');
+      expect(html, other).not.toMatch(/<a [^>]*lang=/);
+    }
+  });
+
+  it("the sign-in email says who made the platform in the invitation's words", async () => {
+    const en = (await import("@/messages/en.json")).default;
+    expect(renderSignInEmail("http://localhost:3000/api/auth/callback/resend?token=x").html).toContain(`>${en.invite.footer}`);
+  });
+
   it("sit in the sign-in email's footer too", () => {
     const signIn = "http://localhost:3000/api/auth/callback/resend?callbackUrl=%2Fen&token=x&email=a%40b.eu";
     const { html, text } = renderSignInEmail(signIn);
