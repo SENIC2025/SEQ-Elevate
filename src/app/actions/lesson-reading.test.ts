@@ -502,6 +502,17 @@ describe("what a link may be (spec 4.2), refused before anything is written", ()
     });
   });
 
+  it("stores an address with ^ or | in its path as the URL standard writes it in every engine, its length counted so", async () => {
+    // 2,041 characters as the standard writes it; Chrome's parser writes the twenty "^" as "%5E".
+    const long = `https://evil.example/${"a".repeat(2_000)}${"^".repeat(20)}`;
+    expect(await addLessonLink(SLUG, "context", { title: "PayPal – sign in", url: long })).toMatchObject({ ok: true });
+    expect(await addLessonLink(SLUG, "context", { title: "Signs", url: "https://example.org/a%7Cb%5e^" })).toMatchObject({ ok: true });
+    expect(db.links.map((l) => [l.title, l.url])).toEqual([
+      ["PayPal – sign in", long],
+      ["Signs", "https://example.org/a|b^^"],
+    ]);
+  });
+
   it("allows 30 links on a lesson and refuses the 31st, under the lesson's lock", async () => {
     for (let i = 0; i < 30; i++) expect(await addLessonLink(SLUG, "context", LINK)).toMatchObject({ ok: true });
     db.log = [];
