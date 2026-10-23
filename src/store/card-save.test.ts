@@ -1,5 +1,14 @@
-import { describe, it, expect } from "vitest";
-import { afterCardSave, cardAfterReread, cardChanges, guestCardOrBadgesChanged, savedCardOf } from "./card-save";
+import { describe, it, expect, vi } from "vitest";
+import type { CompCardInput, SaveCompCardResult } from "@/app/actions/learner";
+import {
+  afterCardSave,
+  cardAfterReread,
+  cardChanges,
+  guestCardOrBadgesChanged,
+  saveCard,
+  savedCardOf,
+  type CardSavedRef,
+} from "./card-save";
 import type { CompCardData } from "./demo-state";
 
 const blank: CompCardData = {
@@ -81,6 +90,100 @@ describe("afterCardSave: what the server is known to hold once a save is answere
     const after = afterCardSave(saved, { improve: "Mine" }, "failed");
     expect(after).not.toHaveProperty("improve");
     expect(cardChanges({ ...blank, improve: "", updatedAt: "2026-11-21T10:00:00.000Z" }, after)).toEqual({ improve: "" });
+  });
+});
+
+describe("saveCard: a save, and another once it is confirmed if the page still differs (V3)", () => {
+  const X = { ...moved, wentWell: "X", updatedAt: "2026-11-21T10:00:00.000Z" };
+  const Y = { ...X, wentWell: "Y", updatedAt: "2026-11-21T10:00:01.000Z" };
+  const backToX = { ...X, updatedAt: "2026-11-21T10:00:02.000Z" };
+
+  /** A page signed in as "u", whose card loaded as X; each save's answer is held until `answer` is called. */
+  function page() {
+    const saved: CardSavedRef = { current: { forUser: "u", card: savedCardOf(X, blank) } };
+    const sent: CompCardInput[] = [];
+    const answers: ((result: SaveCompCardResult) => void)[] = [];
+    let latest: typeof X | null = X;
+    const again = vi.fn();
+    const deps = {
+      send: (input: CompCardInput) => {
+        sent.push(input);
+        return new Promise<SaveCompCardResult>((resolve) => answers.push(resolve));
+      },
+      latest: () => latest,
+      again,
+    };
+    return {
+      saved,
+      sent,
+      again,
+      show: (card: typeof X | null) => (latest = card),
+      save: (card: typeof X, forUser = "u") => saveCard(card, forUser, saved, deps),
+      answer: (n: number, result: SaveCompCardResult) => answers[n](result),
+    };
+  }
+
+  it("an answer changed back while the save of the change is on its way: once that save is confirmed, another is scheduled", async () => {
+    const p = page();
+    p.show(Y);
+    const first = p.save(Y);
+    expect(p.sent).toEqual([{ wentWell: "Y" }]);
+    // Changed back while Y is on its way: the server is still known to hold X, so nothing is sent.
+    p.show(backToX);
+    await p.save(backToX);
+    expect(p.sent).toHaveLength(1);
+    p.answer(0, { ok: true });
+    await first;
+    expect(p.saved.current?.card.wentWell).toBe("Y");
+    expect(p.again).toHaveBeenCalledTimes(1);
+    // The save scheduled then sends X, and nothing is left after it.
+    const second = p.save(backToX);
+    expect(p.sent[1]).toEqual({ wentWell: "X" });
+    p.answer(1, { ok: true });
+    await second;
+    expect(p.saved.current?.card.wentWell).toBe("X");
+    expect(p.again).toHaveBeenCalledTimes(1);
+  });
+
+  it("nothing left once a save is confirmed: no other", async () => {
+    const p = page();
+    p.show(Y);
+    const save = p.save(Y);
+    p.answer(0, { ok: true });
+    await save;
+    expect(p.again).not.toHaveBeenCalled();
+  });
+
+  it("not after a refusal (the same save would be refused again), nor once the learner's data was let go of or is another's", async () => {
+    const refused = page();
+    refused.show(backToX);
+    const a = refused.save(Y);
+    refused.answer(0, { ok: false, error: "other-account" });
+    await a;
+    expect(refused.saved.current?.card.wentWell).toBe("X");
+    expect(refused.again).not.toHaveBeenCalled();
+
+    const letGo = page();
+    const b = letGo.save(Y);
+    letGo.show(backToX);
+    letGo.saved.current = null;
+    letGo.answer(0, { ok: true });
+    await b;
+    expect(letGo.again).not.toHaveBeenCalled();
+
+    const other = page();
+    other.saved.current = { forUser: "someone else", card: savedCardOf(X, blank) };
+    await other.save(Y);
+    expect(other.sent).toEqual([]);
+  });
+
+  it("a save that fails is thrown on, to be tried again, and what it sent is no longer known", async () => {
+    const saved: CardSavedRef = { current: { forUser: "u", card: savedCardOf(X, blank) } };
+    const again = vi.fn();
+    const deps = { send: () => Promise.reject(new Error("offline")), latest: () => Y, again };
+    await expect(saveCard(Y, "u", saved, deps)).rejects.toThrow("offline");
+    expect(saved.current?.card).not.toHaveProperty("wentWell");
+    expect(again).not.toHaveBeenCalled();
   });
 });
 

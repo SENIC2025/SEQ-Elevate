@@ -1,4 +1,4 @@
-import { test, expect, type APIRequestContext, type Page } from "@playwright/test";
+import { test, expect, type APIRequestContext, type Page, type Request } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
@@ -90,6 +90,22 @@ async function cardReady(page: Page) {
 async function typeInto(page: Page, placeholder: string, text: string) {
   await cardReady(page);
   await field(page, placeholder).fill(text);
+}
+
+/** Holds the first server action whose body contains `marker`, as on a slow connection, until released. */
+async function holdAction(page: Page, marker: string) {
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => (release = resolve));
+  const state: { request: Request | null } = { request: null };
+  await page.route("**/*", async (route) => {
+    const request = route.request();
+    if (!state.request && request.method() === "POST" && (await request.headerValue("next-action")) && (request.postData() ?? "").includes(marker)) {
+      state.request = request;
+      await held;
+    }
+    await route.continue().catch(() => undefined);
+  });
+  return { state, release };
 }
 
 describe("Release 3 Comp Card, learner side", () => {
@@ -402,6 +418,40 @@ describe("Release 3 Comp Card, learner side", () => {
     });
     expect(grown.result).toEqual({ ok: false, error: "too-long", field: "behaviour" });
     expect((await cardOf(learner.userId))?.behaviour).toBe(older);
+  });
+
+  test("B-E8 (saves): an answer changed, then changed back while the save of the change is on its way, ends in the account as the page shows it", async ({
+    page,
+    context,
+  }) => {
+    const learner = await learnerOfA("back");
+    const before = `went well ${RUN}`;
+    const changed = `changed ${RUN}`;
+    await prisma.compCard.create({ data: { userId: learner.userId, projectId: PROJECT, wentWell: before }, select: { id: true } });
+    await signIn(context, learner.sessionToken);
+    // The save of the change is held, as on a slow connection, until the change back is past the page's save pause.
+    const held = await holdAction(page, changed);
+    await page.goto(CARD_PAGE);
+    const box = field(page, "Even small wins count.");
+    await expect(box).toHaveValue(before);
+    try {
+      await typeInto(page, "Even small wins count.", changed);
+      await expect.poll(() => held.state.request !== null, { timeout: 15_000 }).toBe(true);
+      await box.fill(before);
+      // Past the save pause (700 ms): the change back is worked out while the server is still known to hold `before`.
+      await page.waitForTimeout(2000);
+    } finally {
+      held.release();
+    }
+    // The held save reaches the server and is answered; then the account holds what the page shows.
+    expect((await held.state.request!.response())?.status()).toBe(200);
+    await expect(box).toHaveValue(before);
+    await expect
+      .poll(async () => (await cardOf(learner.userId))?.wentWell, { timeout: 15_000, message: "the account holds what the page shows" })
+      .toBe(before);
+    await page.waitForTimeout(1500);
+    expect((await cardOf(learner.userId))?.wentWell).toBe(before);
+    await expect(box).toHaveValue(before);
   });
 
   test("B-E9: a guest's card stored with the mentor choice is Only me once it moves into the account", async ({ page, context }) => {

@@ -48,14 +48,7 @@ import {
   storedGuestState,
 } from "./progress-merge";
 import { guestClaimOf, guestWorkOf, storeAfterClaim, withText, type GuestWork } from "./guest-migration";
-import {
-  afterCardSave,
-  cardAfterReread,
-  cardChanges,
-  guestCardOrBadgesChanged,
-  savedCardOf,
-  type SavedCard,
-} from "./card-save";
+import { cardAfterReread, guestCardOrBadgesChanged, saveCard, savedCardOf, type SavedCard } from "./card-save";
 import { courseChanged, courseSaveRefs, saveCourse } from "./course-save";
 import { clearEveryOutbox, restoreOutbox } from "./outbox";
 import { pendingSave } from "./pending-save";
@@ -1339,25 +1332,24 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
   // setSharing) and any text over the limit, which keeps its stored text
   // while the learner is told it is too long (cardToSave). A change of who
   // sees it alone (updatedAt and the texts as they were) isn't an edit, and
-  // sends nothing.
-  const saveCard = React.useCallback(async (card: CompCardData, forUser: string): Promise<void> => {
-    const saved = cardSaved.current;
-    if (saved?.forUser !== forUser) return;
-    const input = cardChanges(card, saved.card);
-    if (Object.keys(input).length === 0) return;
-    const answered = (answer: "ok" | "refused" | "failed") => {
-      const now = cardSaved.current;
-      if (now?.forUser === forUser) cardSaved.current = { forUser, card: afterCardSave(now.card, input, answer) };
-    };
-    let result: Awaited<ReturnType<typeof saveCompCard>>;
-    try {
-      result = await saveCompCard(input, forUser);
-    } catch (err) {
-      answered("failed");
-      throw err;
-    }
-    answered(result.ok ? "ok" : "refused");
-  }, []);
+  // sends nothing. A save confirmed while the card still differs from what
+  // the server is then known to hold — an answer changed back while it was
+  // on its way — is followed by another, of the card as it is then.
+  const saveCardFor = React.useCallback(
+    (card: CompCardData, forUser: string) => {
+      const save = (c: CompCardData): Promise<void> =>
+        saveCard(c, forUser, cardSaved, {
+          send: saveCompCard,
+          latest: () => cardScheduled.current,
+          again: () => {
+            const latest = cardScheduled.current;
+            if (latest) cardSave.schedule(() => save(latest));
+          },
+        });
+      return () => save(card);
+    },
+    [cardSave]
+  );
   React.useEffect(() => {
     if (!authed || !dbOwner || !state.compCard.updatedAt) return;
     const snap = state.compCard;
@@ -1365,9 +1357,8 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
     if (snap === prev) return;
     cardScheduled.current = snap;
     if (prev && prev.updatedAt === snap.updatedAt && sameCardText(prev, snap)) return;
-    const forUser = dbOwner;
-    cardSave.schedule(() => saveCard(snap, forUser));
-  }, [authed, dbOwner, state.compCard, cardSave, saveCard]);
+    cardSave.schedule(saveCardFor(snap, dbOwner));
+  }, [authed, dbOwner, state.compCard, cardSave, saveCardFor]);
 
   // ---- DB write-through: badges (append-only) ----
   // An award that doesn't get through (a dropped connection, a session

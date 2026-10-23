@@ -11,7 +11,10 @@
  * tab, say — never writes its older copy of a field it didn't change. A
  * field whose save wasn't confirmed (a dropped connection: it may have
  * been written) isn't known any more, and goes with the next save; a field
- * the server refused keeps what it was known to hold.
+ * the server refused keeps what it was known to hold. When something is
+ * still left once a save is confirmed — an answer changed back while that
+ * save was on its way, whose own save found nothing to send — another is
+ * scheduled (saveCard), as a course's is (course-save.ts).
  *
  * Another tab may change the card under a page (the guest's card added to
  * the account): the page then reads the account's card again, and keeps
@@ -21,7 +24,7 @@
  * No React: DemoStateProvider in demo-state.tsx applies it.
  */
 
-import type { CompCardInput } from "@/app/actions/learner";
+import type { CompCardInput, SaveCompCardResult } from "@/app/actions/learner";
 import { COMP_CARD_FIELDS, type CompCardField } from "@/lib/comp-card-visibility";
 import type { CompCardData } from "./demo-state";
 import { cardToSave } from "./guest-migration";
@@ -73,6 +76,54 @@ export function afterCardSave(saved: SavedCard, sent: CompCardInput, answer: "ok
     else delete next[field];
   }
   return next;
+}
+
+/** What a page keeps for its Comp Card saves: what the server is known to hold, and for whom; null once let go of. */
+export interface CardSavedRef {
+  current: { forUser: string; card: SavedCard } | null;
+}
+
+export interface CardSaveDeps {
+  /** saveCompCard. */
+  send(input: CompCardInput, forUser: string): Promise<SaveCompCardResult>;
+  /** The card as the page has it now: the last one handed to the saves. */
+  latest(): CompCardData | null;
+  /** Something is left to send: schedule another save, of the card as it is then. */
+  again(): void;
+}
+
+/**
+ * Sends what the learner changed on `card` from what the server is known
+ * to hold (`saved`), for `forUser`, and moves that on by the answer
+ * (afterCardSave); a thrown error is thrown on, so it's tried again
+ * (pending-save.ts). Once a save is confirmed, a card that still differs
+ * from what the server is now known to hold gets another (`again`): an
+ * answer changed and changed back while the first save was on its way had
+ * nothing to send then, the server being known to hold it, and holds the
+ * change once that save is confirmed. Not after a refusal: the same save
+ * would be refused again.
+ */
+export async function saveCard(card: CompCardData, forUser: string, saved: CardSavedRef, deps: CardSaveDeps): Promise<void> {
+  const known = saved.current;
+  if (known?.forUser !== forUser) return;
+  const input = cardChanges(card, known.card);
+  if (Object.keys(input).length === 0) return;
+  const answered = (answer: "ok" | "refused" | "failed") => {
+    const now = saved.current;
+    if (now?.forUser === forUser) saved.current = { forUser, card: afterCardSave(now.card, input, answer) };
+  };
+  let result: SaveCompCardResult;
+  try {
+    result = await deps.send(input, forUser);
+  } catch (err) {
+    answered("failed");
+    throw err;
+  }
+  answered(result.ok ? "ok" : "refused");
+  if (!result.ok) return;
+  const now = saved.current;
+  const latest = deps.latest();
+  if (now?.forUser === forUser && latest && Object.keys(cardChanges(latest, now.card)).length > 0) deps.again();
 }
 
 /**
