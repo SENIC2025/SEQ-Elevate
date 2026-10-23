@@ -371,4 +371,34 @@ describe("D-E6: the go-live clean-up", () => {
     const log = main.getByRole("table");
     await expect(log.getByRole("row").filter({ hasText: "data.cleanup_run" }).first()).toContainText(emails.admin);
   });
+
+  test("on a slow device too (the page's processor twenty times slower), the dry run's counts and the run's result each take the focus", async ({
+    page,
+    context,
+  }) => {
+    test.setTimeout(120_000);
+    await signIn(context, admin.sessionToken);
+    await page.goto(DATA);
+    const main = page.getByRole("main");
+    await expect(main.getByRole("heading", { name: "Data", level: 1 })).toBeVisible();
+    // From the Dry run on, the page runs as on a slow device: a frame is drawn
+    // between an answer and the render that shows it.
+    const cdp = await context.newCDPSession(page);
+    await cdp.send("Emulation.setCPUThrottlingRate", { rate: 20 });
+    try {
+      await main.getByRole("button", { name: "Dry run" }).click();
+      const planned = main.getByRole("heading", { name: "What a run would delete now" });
+      await expect(planned).toBeVisible({ timeout: 30_000 });
+      await expect(planned).toBeFocused({ timeout: 20_000 });
+      const confirm = (await main.getByText("To run it, type:").locator("strong").textContent())?.trim() ?? "";
+      expect(confirm).toMatch(/^ERASE \d+ TEST ACCOUNTS$/);
+      await main.getByRole("textbox", { name: /^To run it, type:/ }).fill(confirm);
+      await main.getByRole("button", { name: "Run the clean-up" }).click();
+      const done = main.getByRole("heading", { name: /^Run .+: done$/ });
+      await expect(done).toBeVisible({ timeout: 30_000 });
+      await expect(done).toBeFocused({ timeout: 20_000 });
+    } finally {
+      await cdp.send("Emulation.setCPUThrottlingRate", { rate: 1 });
+    }
+  });
 });
