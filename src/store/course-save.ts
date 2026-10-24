@@ -28,11 +28,16 @@
  * course loading again says what the server holds, and ends the doubt.
  *
  * A save is answered, not thrown, when no try can succeed: another
- * account's (dropped, D37), or one the server can't take at all (logged).
+ * account's (dropped, D37), one before the profile step is done (D79: the
+ * page says so, `profileIncomplete`), or one the server can't take at all
+ * (logged).
  * A thrown error is thrown on, so it's tried again (pending-save.ts) —
  * except Next's UnrecognizedActionError, which means this page is from a
  * build the server no longer has (D68): only a reload helps, so what isn't
  * confirmed when it fails goes to the tab's outbox instead (outbox.ts).
+ *
+ * Once the store has let go of the learner (signed out, another account
+ * signed in), a save's answer keeps nothing of theirs in the tab (D68).
  *
  * Next sends a page's server actions one at a time: a save handed over
  * while another is on its way waits behind it, and one waiting never
@@ -43,7 +48,10 @@
  * is on its way or failed — every answer a save on its way carries
  * counted as not confirmed — and the page that loads the course next
  * brings it back over what the server held or any value those saves may
- * have left.
+ * have left. And when the page is left (pagehide), what it has of each
+ * such course that the server hasn't confirmed is sent outside that queue
+ * too, with fetch(keepalive), which the browser finishes after the page
+ * has gone (progressBeacons; POST /api/progress/beacon, D37 as built).
  *
  * The outbox only ever holds what a page of this tab had that the server
  * hadn't confirmed — beside an answer a save not confirmed carried, each
@@ -76,6 +84,7 @@ import {
   type FittedPatch,
   type UnsureAnswers,
 } from "@/lib/learner-progress/patch";
+import { BEACON_BUDGET_BYTES, fitBeacon } from "@/lib/learner-progress/beacon";
 import { clearOutbox, inOutbox, putInOutbox, type OutboxStorage } from "./outbox";
 
 /** At most this many failed saves' outcomes kept for a course: the first ones, and the newest. */
@@ -136,6 +145,8 @@ export interface CourseSaveDeps {
   again(): void;
   /** Are the refs still the learner's? False once the store has let go of them. */
   current(): boolean;
+  /** The save was refused because the profile step isn't done (D79): the page says so. */
+  profileIncomplete?(): void;
 }
 
 /** JSON with object keys in order, so the same answer reads the same. */
@@ -276,6 +287,21 @@ export function outstandingPatch(refs: CourseSaveRefs, slug: string): ProgressPa
 const loaded = (refs: CourseSaveRefs, slug: string) => refs.acked.has(slug) && refs.latest.has(slug);
 
 /**
+ * What this page has of `slug` that the server hasn't confirmed: what it
+ * has that `acked` doesn't, and every answer whose save failed — with
+ * `onTheirWay`, every answer a save on its way carries too — as the page
+ * has it. Null when nothing, or before the course has loaded.
+ */
+function unconfirmedOf(refs: CourseSaveRefs, slug: string, onTheirWay: boolean): ProgressPatch | null {
+  const acked = refs.acked.get(slug);
+  const latest = refs.latest.get(slug);
+  if (!acked || !latest) return null;
+  const unsure = new Map(refs.unsure.get(slug)?.answers);
+  if (onTheirWay) for (const patch of refs.sending.get(slug) ?? []) addAnswers(unsure, answersIn(patch));
+  return patchSince(acked, latest, unsure);
+}
+
+/**
  * What this page has of `slug` that the server hasn't confirmed, kept in
  * the tab's outbox in place of what it held — this page took that in when
  * the course loaded — or nothing kept when there is none. A save whose
@@ -291,12 +317,9 @@ function keepUnconfirmed(
   onTheirWay: boolean
 ) {
   const acked = refs.acked.get(slug);
-  const latest = refs.latest.get(slug);
   const lost = refs.unsure.get(slug);
   const sending = onTheirWay ? (refs.sending.get(slug) ?? []) : [];
-  const unsure = new Map(lost?.answers);
-  for (const patch of sending) addAnswers(unsure, answersIn(patch));
-  const unconfirmed = acked && latest ? patchSince(acked, latest, unsure) : null;
+  const unconfirmed = unconfirmedOf(refs, slug, onTheirWay);
   if (!acked || !unconfirmed) {
     clearOutbox(outbox, forUser, slug);
     return;
@@ -351,6 +374,39 @@ export function pageHidden(refs: CourseSaveRefs, forUser: string, outbox: Outbox
   for (const slug of new Set([...refs.sending.keys(), ...refs.unsure.keys()])) {
     if (loaded(refs, slug)) keepUnconfirmed(refs, slug, forUser, outbox, true);
   }
+}
+
+/**
+ * The page is being left (pagehide), its waiting saves just sent and what
+ * isn't confirmed put in the tab's outbox (pageHidden). For each course
+ * with a save on its way — on the wire, or waiting behind another in
+ * Next's queue, never to leave a page that goes — or one that failed: what
+ * the page has that the server hasn't confirmed, every answer a save on
+ * its way carries counted as not confirmed, as the page has it, without
+ * what the server refused before and the page hasn't changed since. The
+ * bodies of POST /api/progress/beacon, sent with fetch(keepalive): the
+ * browser finishes them after the page has gone, and the route saves each
+ * through the save action's own code, so a save that also arrives through
+ * the queue writes the same values (D37 as built). Every course together
+ * within `budget` bytes; what doesn't fit isn't sent this way.
+ */
+export function progressBeacons(
+  refs: CourseSaveRefs,
+  forUser: string,
+  budget: number = BEACON_BUDGET_BYTES
+): string[] {
+  const bodies: string[] = [];
+  let left = budget;
+  for (const slug of new Set([...refs.sending.keys(), ...refs.unsure.keys()])) {
+    if (!loaded(refs, slug)) continue;
+    const unconfirmed = unconfirmedOf(refs, slug, true);
+    const patch = unconfirmed && withoutRepeats(unconfirmed, refs.refused.get(slug), []);
+    const fitted = patch && fitBeacon(slug, forUser, patch, left);
+    if (!fitted) continue;
+    bodies.push(fitted.body);
+    left -= fitted.bytes;
+  }
+  return bodies;
 }
 
 /**
@@ -412,6 +468,9 @@ export async function saveCourse(
   } catch (err) {
     answered();
     if (unstable_isUnrecognizedActionError(err)) {
+      // The store has let go of the learner (signed out, another account):
+      // nothing of theirs is kept in the tab (D68).
+      if (!deps.current()) return;
       // What isn't confirmed now, not when it was sent: an answer changed
       // back meanwhile mustn't come back after the reload.
       keepUnconfirmed(refs, slug, forUser, deps.outbox, false);
@@ -429,7 +488,8 @@ export async function saveCourse(
   answered();
   if (!deps.current()) return;
   if (!result.ok) {
-    if (result.error !== "other-account") {
+    if (result.error === "profile-incomplete") deps.profileIncomplete?.();
+    else if (result.error !== "other-account") {
       console.error(`The progress of "${slug}" wasn't saved, and can't be: ${result.error}.`);
     }
     return;

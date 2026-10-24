@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { Adapter, AdapterSession, AdapterUser } from "next-auth/adapters";
 import { DEMO_SESSION_PREFIX, isDemoSessionToken, refusingDemoSessions } from "./demo-session";
 
@@ -16,6 +16,19 @@ const OFF = { DEMO_LOGIN_ENABLED: "", DEMO_ACCESS_CODE: "a-private-code-1" };
 const PRODUCTION = { ...ON, VERCEL_ENV: "production" };
 
 const user: AdapterUser = { id: "u-1", email: "stefan@senic.org", emailVerified: null, name: "Stefan" };
+
+// A session's expiry is read from the clock (sessionOf), once by the adapter
+// and once for the answer expected. The clock is frozen, so both are the same
+// date however long the machine takes between the two reads: a clock that
+// moved on by a millisecond in between failed the comparison under load.
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-10-24T09:00:00.000Z"));
+});
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 const sessionOf = (sessionToken: string): AdapterSession => ({
   sessionToken,
   userId: user.id,

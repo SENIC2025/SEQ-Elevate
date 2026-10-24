@@ -22,6 +22,9 @@
  * — the store going away — sends what's waiting and every retry at once,
  * and tries nothing again after.
  *
+ * Signing out (D68) sends every save still waiting and waits for them,
+ * and for those on their way, for a short while: settleWithin().
+ *
  * No React: DemoStateProvider in demo-state.tsx applies it.
  */
 
@@ -44,6 +47,14 @@ export interface PendingSave {
    * (out the delay, or to be tried again) is sent now.
    */
   settle(key: string): Promise<void>;
+  /**
+   * settle() for every key, again until nothing is left: a save waiting
+   * out the delay is sent now, one waiting to be tried again is sent now,
+   * and a save scheduled while it waits (another is needed once one is
+   * confirmed) is sent at once too. Once `signal` is aborted it sends
+   * nothing more, and resolves.
+   */
+  settleAll(signal?: AbortSignal): Promise<void>;
   /** Forgets the waiting save and stops every retry: none is ever sent. */
   drop(): void;
   /**
@@ -147,6 +158,13 @@ export function pendingSave(
     clearWaiting();
     sendNow?.();
   };
+  const settle = async (key: string) => {
+    if (waiting && waitingKey === key) flush();
+    for (let entry = unsettled.get(key); entry; entry = unsettled.get(key)) {
+      entry.retryNow?.();
+      await entry.settled;
+    }
+  };
 
   return {
     schedule(save, key = "") {
@@ -161,11 +179,15 @@ export function pendingSave(
       timer = setTimeout(flush, delayMs);
     },
     flush,
-    async settle(key) {
-      if (waiting && waitingKey === key) flush();
-      for (let entry = unsettled.get(key); entry; entry = unsettled.get(key)) {
-        entry.retryNow?.();
-        await entry.settled;
+    settle,
+    async settleAll(signal) {
+      const stopped = signal ? new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve(), { once: true })) : null;
+      while (!signal?.aborted) {
+        const keys = new Set(unsettled.keys());
+        if (waiting) keys.add(waitingKey ?? "");
+        if (!keys.size) return;
+        const all = Promise.all([...keys].map(settle));
+        await (stopped ? Promise.race([all, stopped]) : all);
       }
     },
     drop() {
@@ -184,4 +206,27 @@ export function pendingSave(
       newest.clear();
     },
   };
+}
+
+/**
+ * Signing out (D68): every save of `saves` still waiting is sent now, and
+ * those on their way are waited for (settleAll), for at most `ms`. True
+ * when none was left; false when the wait ran out first, after which
+ * nothing more is sent by it.
+ */
+export async function settleWithin(saves: readonly PendingSave[], ms: number): Promise<boolean> {
+  const stop = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const ranOut = new Promise<false>((resolve) => {
+    timer = setTimeout(() => resolve(false), ms);
+  });
+  try {
+    return await Promise.race([
+      Promise.all(saves.map((save) => save.settleAll(stop.signal))).then(() => true as const),
+      ranOut,
+    ]);
+  } finally {
+    clearTimeout(timer);
+    stop.abort();
+  }
 }

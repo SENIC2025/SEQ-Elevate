@@ -14,11 +14,13 @@ import {
   courseSaveRefs,
   outstandingPatch,
   pageHidden,
+  progressBeacons,
   saveCourse,
   type CourseSaveDeps,
 } from "./course-save";
-import { outboxKey, putInOutbox, readOutbox, restoreOutbox, type OutboxStorage } from "./outbox";
+import { clearEveryOutbox, outboxKey, putInOutbox, readOutbox, restoreOutbox, type OutboxStorage } from "./outbox";
 import { pendingSave } from "./pending-save";
+import { signOutAfterSaves } from "./sign-out";
 
 /*
  * One save of a course's progress as the learner store sends it (spec 5.4,
@@ -50,12 +52,16 @@ const reflection = (p1: string, p2 = "") => ({ p1, p2, p3: "" });
 const lostAnswer = () => new TypeError("Failed to fetch");
 
 /** sessionStorage, in memory. */
-function storage(): OutboxStorage {
+function storage(): OutboxStorage & Pick<Storage, "length" | "key"> {
   const items = new Map<string, string>();
   return {
     getItem: (k) => items.get(k) ?? null,
     setItem: (k, v) => void items.set(k, String(v)),
     removeItem: (k) => void items.delete(k),
+    get length() {
+      return items.size;
+    },
+    key: (i) => [...items.keys()][i] ?? null,
   };
 }
 
@@ -334,6 +340,22 @@ describe("saveCourse", () => {
     expect(t.outbox()).toEqual(KEPT);
   });
 
+  it("refused before the profile step is done (D79): the page says so, logs nothing, and tries nothing again", async () => {
+    const t = setup(EMPTY_PROGRESS, state({ stagesCompleted: ["context"] }));
+    const profileIncomplete = vi.fn();
+    t.deps.profileIncomplete = profileIncomplete;
+    t.answerWith(async () => ({ ok: false, error: "profile-incomplete" }));
+    await t.save();
+    expect(profileIncomplete).toHaveBeenCalledTimes(1);
+    expect(console.error).not.toHaveBeenCalled();
+    expect(t.refs.acked.get(SLUG)).toBe(EMPTY_PROGRESS);
+    expect(t.calls).toMatchObject({ again: 0 });
+    // Not once the store has let go of the learner's data.
+    t.letGo();
+    await t.save();
+    expect(profileIncomplete).toHaveBeenCalledTimes(1);
+  });
+
   it("forgets the answer to a save once the store has let go of the learner's data", async () => {
     const t = setup(EMPTY_PROGRESS, state({ stagesCompleted: ["context"] }));
     t.answerWith(async () => {
@@ -434,6 +456,80 @@ describe("pageHidden: the page hidden, or left", () => {
   });
 });
 
+describe("progressBeacons: what the page sends as it goes, outside Next's queue (D37)", () => {
+  /** The bodies, read back. */
+  const read = (bodies: string[]) => bodies.map((b) => JSON.parse(b) as { v: number; slug: string; forUser: string; patch: ProgressPatch });
+
+  it("for a course with saves on their way: what the page has that isn't confirmed, every answer they carry at the page's value", async () => {
+    const t = setup(state({ reflection: reflection("X") }), state({ reflection: reflection("Y") }));
+    const held: (() => void)[] = [];
+    t.answerWith(() => new Promise((resolve) => held.push(() => resolve({ ok: true, refused: [] }))));
+    const first = t.save();
+    expect(courseChanged(t.refs, SLUG, ANA, state({ reflection: reflection("X", "W") }), t.deps.outbox)).toBe(true);
+    const second = t.save();
+    expect(read(progressBeacons(t.refs, ANA))).toEqual([
+      {
+        v: 1,
+        slug: SLUG,
+        forUser: ANA,
+        patch: { v: 2, answers: { "reflection/main": { type: "reflection", text: { p1: "X", p2: "W" } } } },
+      },
+    ]);
+    held[0]();
+    held[1]();
+    await Promise.all([first, second]);
+    expect(progressBeacons(t.refs, ANA), "all confirmed: nothing").toEqual([]);
+  });
+
+  it("for a course whose save failed: the answer it carried, as the page has it", async () => {
+    const t = setup(state({ reflection: reflection("X") }), state({ reflection: reflection("Y") }));
+    t.answerWith(async () => {
+      throw lostAnswer();
+    });
+    await expect(t.save()).rejects.toThrow();
+    expect(read(progressBeacons(t.refs, ANA)).map((b) => b.patch)).toEqual([
+      { v: 2, answers: { "reflection/main": { type: "reflection", text: { p1: "Y" } } } },
+    ]);
+  });
+
+  it("nothing for a course with no save on its way and none failed, or one that hasn't loaded", async () => {
+    const t = setup(state({ reflection: reflection("X") }), state({ reflection: reflection("Y") }));
+    expect(progressBeacons(t.refs, ANA)).toEqual([]);
+    t.answerWith(() => new Promise(() => undefined));
+    void t.save();
+    t.refs.latest.delete(SLUG);
+    expect(progressBeacons(t.refs, ANA)).toEqual([]);
+  });
+
+  it("leaves out what the server refused, unchanged, and what it would refuse", async () => {
+    const long = "x".repeat(RESPONSE_LIMITS.reflectionChars + 1);
+    const t = setup(
+      state({ reflection: reflection("X") }),
+      state({ reflection: reflection("X"), simulation: practice("a"), stagesCompleted: ["context"] })
+    );
+    t.answerWith(async () => ({ ok: true, refused: [{ key: "simulation/main", reason: "invalid" }] }));
+    await t.save();
+    expect(courseChanged(t.refs, SLUG, ANA, state({ reflection: reflection(long), simulation: practice("a"), stagesCompleted: ["context", "concept"] }), t.deps.outbox)).toBe(true);
+    t.answerWith(() => new Promise(() => undefined));
+    void t.save();
+    expect(read(progressBeacons(t.refs, ANA)).map((b) => b.patch)).toEqual([{ v: 2, completed: ["concept"] }]);
+  });
+
+  it("every course together within the budget, in bytes: what doesn't fit is left out", async () => {
+    const greek = (n: number) => "λ".repeat(n);
+    const refs = courseSaveRefs();
+    for (const slug of ["course-a", "course-b"]) {
+      courseLoaded(refs, slug, state());
+      refs.latest.set(slug, state({ reflection: reflection(greek(3000)) }));
+      refs.sending.set(slug, [{ v: 2, answers: { "reflection/main": { type: "reflection", text: { p1: "y" } } } }]);
+    }
+    const bodies = progressBeacons(refs, ANA, 8_000);
+    expect(read(bodies).map((b) => b.slug), "one course's answer (6 KB) fits; both don't").toEqual(["course-a"]);
+    expect(new TextEncoder().encode(bodies.join("")).length).toBeLessThanOrEqual(8_000);
+    expect(read(progressBeacons(refs, ANA, 20_000)).map((b) => b.slug)).toEqual(["course-a", "course-b"]);
+  });
+});
+
 describe("outstandingPatch", () => {
   it("is what the next save would send: null when nothing", () => {
     const t = setup(EMPTY_PROGRESS, state({ stagesCompleted: ["context"] }));
@@ -530,6 +626,18 @@ describe("a save whose answer is lost: what it sent isn't known on the server un
     });
     await expect(t.save()).rejects.toThrow();
     expect(t.calls.again).toBe(0);
+  });
+
+  it("a newer build's answer once the learner's data was let go of (signed out, another account): nothing of theirs is kept in the tab", async () => {
+    const t = setup(state({ reflection: reflection("X") }), state({ reflection: reflection("Y") }));
+    t.deps.outbox?.removeItem(outboxKey(ANA, SLUG));
+    t.answerWith(async () => {
+      t.letGo();
+      throw unknownAction();
+    });
+    await t.save();
+    expect(t.outbox()).toBeNull();
+    expect(t.calls.stale, "the page that has let go isn't asked to reload for them").toBe(0);
   });
 
   it("a newer build wrote nothing: what was sent is as known as before, and the outbox holds what the page shows", async () => {
@@ -681,6 +789,8 @@ describe("a course's saves with the page's pending saves (pending-save.ts), as D
     /** The server writes it, and the page gets a dropped connection. */
     lost(): void;
     refuse(keys: RefusedKey[]): void;
+    /** A newer build's server: it doesn't know the page's action, and writes nothing. */
+    stale(): void;
   }
 
   /**
@@ -713,8 +823,13 @@ describe("a course's saves with the page's pending saves (pending-save.ts), as D
     const answers: Answer[] = [];
     const net = { offline: false, stale: false };
     const told: RefusedKey[][] = [];
-    const tab = storage();
+    let tab = storage();
     let courseSave = pendingSave(700);
+    // The learner's session: once it has ended, a save that reaches the
+    // server is refused (thrown: "No signed-in learner") and writes nothing.
+    const session = { ended: false, endedAfter: [] as ProgressPatch[] };
+    // demo-state.tsx: signing out (sign-out.ts) from now on.
+    let signingOut = false;
     // Next's queue of server actions: the one on its way, and those waiting behind it.
     let onItsWay: { patch: ProgressPatch; gone: (written: boolean) => void } | null = null;
     let waiting: (() => void)[] = [];
@@ -731,6 +846,7 @@ describe("a course's saves with the page's pending saves (pending-save.ts), as D
             reject(net.offline ? lostAnswer() : unknownAction());
             return next();
           }
+          const signedIn = () => !session.ended;
           let given = false;
           const once = (fn: () => void) => () => {
             if (given) return;
@@ -743,23 +859,31 @@ describe("a course's saves with the page's pending saves (pending-save.ts), as D
             patch,
             gone: (written) => {
               given = true;
-              if (written) srv.now = applyPatch(srv.now, patch);
+              if (written && signedIn()) srv.now = applyPatch(srv.now, patch);
             },
+          };
+          const refusedSignedOut = () => {
+            session.endedAfter.push(patch);
+            reject(new Error("No signed-in learner, or the session lookup failed"));
           };
           answers.push({
             ok: once(() => {
+              if (!signedIn()) return refusedSignedOut();
               srv.now = applyPatch(srv.now, patch);
               resolve({ ok: true, refused: [] });
             }),
             lost: once(() => {
+              if (!signedIn()) return refusedSignedOut();
               srv.now = applyPatch(srv.now, patch);
               reject(lostAnswer());
             }),
             refuse: (keys) =>
               once(() => {
+                if (!signedIn()) return refusedSignedOut();
                 srv.now = applyPatch(srv.now, withoutRefused(patch, keys));
                 resolve({ ok: true, refused: keys });
               })(),
+            stale: once(() => reject(unknownAction())),
           });
         });
         next();
@@ -790,17 +914,39 @@ describe("a course's saves with the page's pending saves (pending-save.ts), as D
       const kept = restoreOutbox(tab, ANA, SLUG, srv.now);
       change(kept ? applyPatch(srv.now, kept) : srv.now);
     };
-    // demo-state.tsx: pagehide, and visibilitychange to hidden.
-    const hide = () => {
+    // What the page sends with fetch(keepalive) as it goes (D37): the
+    // browser finishes it after the page has gone (`inFlight`, until then).
+    const beacons: string[] = [];
+    let inFlight: string[] = [];
+    // demo-state.tsx: pagehide, and visibilitychange to hidden; only a
+    // pagehide sends what isn't confirmed outside Next's queue.
+    const hide = ({ pagehide = false } = {}) => {
+      if (signingOut) return clearEveryOutbox(tab);
       courseSave.flush();
       pageHidden(refs, ANA, tab);
+      if (pagehide) {
+        const bodies = progressBeacons(refs, ANA);
+        beacons.push(...bodies);
+        inFlight.push(...bodies);
+      }
+    };
+    // The keepalive requests reach the server (POST /api/progress/beacon,
+    // the save action's own code), after the save on the wire, which left
+    // the page before them.
+    const beaconsArrive = (arrive = true) => {
+      for (const body of arrive ? inFlight : []) {
+        const { forUser, patch } = JSON.parse(body) as { forUser: string; patch: ProgressPatch };
+        if (!session.ended && forUser === ANA) srv.now = applyPatch(srv.now, patch);
+      }
+      inFlight = [];
     };
     // The page is gone: none of its timers or retries runs again.
-    const gone = (written: boolean) => {
+    const gone = (written: boolean, beaconsReach = true) => {
       courseSave.drop();
       onItsWay?.gone(written);
       onItsWay = null;
       waiting = [];
+      beaconsArrive(beaconsReach);
     };
     // A new page in the same tab loads the course.
     const newPage = () => {
@@ -815,15 +961,33 @@ describe("a course's saves with the page's pending saves (pending-save.ts), as D
       answers,
       net,
       told,
-      tab,
+      get tab() {
+        return tab;
+      },
       change,
-      hide,
+      hide: () => hide(),
+      beacons,
       shown: () => page,
-      /** The page reloaded: its pagehide, then it is gone and a new one loads the course. */
-      reload: async ({ written = true } = {}) => {
-        hide();
+      /**
+       * The page reloaded: its pagehide, then it is gone and a new one
+       * loads the course. `beacons: false`: what it sent as it went never
+       * reaches the server (lost, or more than a page may send that way).
+       */
+      reload: async ({ written = true, beacons = true } = {}) => {
+        hide({ pagehide: true });
+        await vi.advanceTimersByTimeAsync(0);
+        gone(written, beacons);
+        newPage();
+      },
+      /**
+       * The tab closed: its pagehide, then it is gone; the course opened
+       * again in a new tab, with its own sessionStorage.
+       */
+      closedThenNewTab: async ({ written = true } = {}) => {
+        hide({ pagehide: true });
         await vi.advanceTimersByTimeAsync(0);
         gone(written);
+        tab = storage();
         newPage();
       },
       /** Hidden before, the page is gone with no event, and the tab loaded again. */
@@ -831,6 +995,30 @@ describe("a course's saves with the page's pending saves (pending-save.ts), as D
         gone(written);
         newPage();
       },
+      session,
+      /**
+       * The header's Sign out (demo-state.tsx, sign-out.ts): the saves
+       * first, then the session ends and the page goes (its pagehide,
+       * then gone). Resolves with what signOutAfterSaves answers.
+       */
+      signOut: () =>
+        signOutAfterSaves({
+          saves: [courseSave],
+          signingOut: (on) => void (signingOut = on),
+          outbox: tab,
+          signOut: async () => {
+            session.ended = true;
+            hide({ pagehide: true });
+            gone(true);
+          },
+        }),
+      /** Another tab signed out, and this one lets go of the learner (demo-state.tsx letGo). */
+      letGo: () => {
+        courseSave.drop();
+        clearEveryOutbox(tab);
+        refs = courseSaveRefs();
+      },
+      outboxKeys: () => Array.from({ length: tab.length }, (_, i) => tab.key(i)).filter((k) => k?.startsWith("seq-elevate-outbox-v1:")),
       /** Another course opened and this one opened again: flush, then settle before the load. */
       navigateAwayAndBack: async () => {
         courseSave.flush();
@@ -1011,7 +1199,7 @@ describe("a course's saves with the page's pending saves (pending-save.ts), as D
     expect(p.srv.now.reflection.p1).toBe("X");
   });
 
-  it("reload while the change's save is on its way (written by the server, its answer reaching no page) and the change back's save waits behind it", async () => {
+  it("reload while the change's save is on its way (written by the server, its answer reaching no page) and the change back's save waits behind it; what the page sends as it goes lost", async () => {
     const p = wired(state({ reflection: reflection("X") }));
     p.change(state({ reflection: reflection("Y") }));
     await vi.advanceTimersByTimeAsync(700);
@@ -1020,12 +1208,29 @@ describe("a course's saves with the page's pending saves (pending-save.ts), as D
     await vi.advanceTimersByTimeAsync(2_000);
     expect(p.handed, "the change back's save is handed over").toHaveLength(2);
     expect(p.sent, "and waits behind the change's: Next sends server actions one at a time").toHaveLength(1);
-    await p.reload();
+    // What the page sends as it goes (D37) never reaches the server here: the outbox brings it back.
+    await p.reload({ beacons: false });
     expect(p.srv.now.reflection.p1, "the server wrote the change").toBe("Y");
     await vi.advanceTimersByTimeAsync(60_000);
     await allConfirmed(p);
     expect(p.shown().reflection.p1, "the page after the reload shows what the learner left").toBe("X");
     expect(p.srv.now.reflection.p1, "the account holds it").toBe("X");
+  });
+
+  it("the same, what the page sends as it goes reaching the server after the change's save (D37): the account holds what the learner left at once", async () => {
+    const p = wired(state({ reflection: reflection("X") }));
+    p.change(state({ reflection: reflection("Y") }));
+    await vi.advanceTimersByTimeAsync(700);
+    p.change(state({ reflection: reflection("X") }));
+    await vi.advanceTimersByTimeAsync(2_000);
+    await p.reload();
+    expect(p.beacons, "one course's save sent as the page went").toHaveLength(1);
+    expect(p.srv.now.reflection.p1, "the account holds what the learner left").toBe("X");
+    await vi.advanceTimersByTimeAsync(60_000);
+    await allConfirmed(p);
+    expect(p.shown().reflection.p1).toBe("X");
+    expect(p.srv.now.reflection.p1).toBe("X");
+    expect(p.outboxKeys(), "nothing left kept").toEqual([]);
   });
 
   it("the same with the change's save not written (the connection dropped before the server got it)", async () => {
@@ -1249,5 +1454,169 @@ describe("a course's saves with the page's pending saves (pending-save.ts), as D
     expect(answered, "every save answered, and none left on its way").toBe(p.answers.length);
     expect(p.sent.length).toBeLessThanOrEqual(8);
     expect(p.srv.now.reflection.p1).toBe("abcd");
+  });
+
+  describe("signing out from the header (D68): the saves first, then the session ends", () => {
+    it("signed out within the save pause after a change: the save is sent at once and confirmed before the session ends", async () => {
+      const p = wired(state({ reflection: reflection("X") }));
+      p.change(state({ reflection: reflection("Y") }));
+      await vi.advanceTimersByTimeAsync(150);
+      let done: boolean | undefined;
+      void p.signOut().then((v) => (done = v));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(p.sent, "sent now, not after the pause").toHaveLength(1);
+      expect(p.session.ended, "the session ends only once the save is answered").toBe(false);
+      p.answers[0].ok();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(done, "nothing was left").toBe(true);
+      expect(p.session.ended).toBe(true);
+      expect(p.srv.now.reflection.p1, "the account holds the change").toBe("Y");
+      expect(p.session.endedAfter, "no save reached the server after the session ended").toEqual([]);
+      expect(p.outboxKeys(), "nothing of the learner stays in the tab").toEqual([]);
+    });
+
+    it("the change's save on its way and the change back's waiting behind it: both are answered before the session ends, and the account holds the change back", async () => {
+      const p = wired(state({ reflection: reflection("X") }));
+      p.change(state({ reflection: reflection("Y") }));
+      await vi.advanceTimersByTimeAsync(700);
+      p.change(state({ reflection: reflection("X") }));
+      await vi.advanceTimersByTimeAsync(150);
+      let done: boolean | undefined;
+      void p.signOut().then((v) => (done = v));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(p.handed, "the change back's save handed over now").toHaveLength(2);
+      p.answers[0].lost();
+      await vi.advanceTimersByTimeAsync(10);
+      expect(p.session.ended).toBe(false);
+      p.answers[1].ok();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(done).toBe(true);
+      expect(p.session.ended).toBe(true);
+      expect(p.srv.now.reflection.p1, "the account holds what the learner left").toBe("X");
+      expect(p.session.endedAfter).toEqual([]);
+    });
+
+    it("a save on its way that isn't answered within 3 s: the sign-out goes ahead, answers that something was left, and keeps nothing of the learner in the tab", async () => {
+      const p = wired(state({ reflection: reflection("X") }));
+      p.change(state({ reflection: reflection("Y") }));
+      await vi.advanceTimersByTimeAsync(700);
+      p.change(state({ reflection: reflection("Z") }));
+      let done: boolean | undefined;
+      void p.signOut().then((v) => (done = v));
+      await vi.advanceTimersByTimeAsync(2_999);
+      expect(p.session.ended, "it waits for the save on its way").toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(done, "something was left").toBe(false);
+      expect(p.session.ended).toBe(true);
+      expect(p.outboxKeys(), "the page's pagehide keeps nothing of the learner in the tab").toEqual([]);
+    });
+
+    it("guard: nothing waiting or on its way: the sign-out goes ahead at once", async () => {
+      const p = wired(state({ reflection: reflection("X") }));
+      let done: boolean | undefined;
+      void p.signOut().then((v) => (done = v));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(done).toBe(true);
+      expect(p.session.ended).toBe(true);
+      expect(p.sent).toEqual([]);
+    });
+
+    it("another tab signs out while this one, hidden with a save on its way, kept an entry: the entry goes when this tab lets go, and a newer build's answer after keeps nothing", async () => {
+      const p = wired(state({ reflection: reflection("X") }));
+      p.change(state({ reflection: reflection("Y") }));
+      await vi.advanceTimersByTimeAsync(700);
+      p.hide();
+      expect(p.outboxKeys(), "hidden with a save on its way: kept").toHaveLength(1);
+      p.session.ended = true;
+      p.letGo();
+      expect(p.outboxKeys(), "let go of: cleared").toEqual([]);
+      p.answers[0].stale();
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(p.outboxKeys(), "the late answer keeps nothing of the learner").toEqual([]);
+    });
+  });
+
+  describe("the tab closed (D37): what isn't confirmed leaves outside Next's queue as the page goes", () => {
+    it("C1 closed with the change's save on the wire and the change back's waiting behind it (the one on the wire written); the course opened again in a new tab: the account and the new tab hold what the learner left", async () => {
+      const p = wired(state({ reflection: reflection("X") }));
+      p.change(state({ reflection: reflection("Y") }));
+      await vi.advanceTimersByTimeAsync(700);
+      p.change(state({ reflection: reflection("X") }));
+      await vi.advanceTimersByTimeAsync(700);
+      expect(p.sent, "the change back's save waits behind the change's").toHaveLength(1);
+      await p.closedThenNewTab({ written: true });
+      expect(p.srv.now.reflection.p1, "the account holds what the learner left").toBe("X");
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(p.shown().reflection.p1, "the new tab shows it").toBe("X");
+    });
+
+    it("C1b closed with one question's save on the wire and another question answered after it left: the account holds both", async () => {
+      const p = wired(state({ reflection: reflection("X") }));
+      p.change(state({ reflection: reflection("Y") }));
+      await vi.advanceTimersByTimeAsync(700);
+      p.change(state({ reflection: reflection("Y", "W") }));
+      await vi.advanceTimersByTimeAsync(700);
+      await p.closedThenNewTab({ written: true });
+      expect(p.srv.now.reflection).toEqual(reflection("Y", "W"));
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(p.shown().reflection).toEqual(reflection("Y", "W"));
+    });
+
+    it("C2 closed within the save pause after the change, the save it sends never leaving the closing page: the account holds the change", async () => {
+      const p = wired(state({ reflection: reflection("X") }));
+      p.change(state({ reflection: reflection("Y") }));
+      await vi.advanceTimersByTimeAsync(150);
+      await p.closedThenNewTab({ written: false });
+      expect(p.srv.now.reflection.p1).toBe("Y");
+    });
+
+    it("closed while a failed save waits to be tried again: the account holds the answer", async () => {
+      const p = wired(state({ reflection: reflection("X") }));
+      p.net.offline = true;
+      p.change(state({ reflection: reflection("Y") }));
+      await vi.advanceTimersByTimeAsync(700); // failed: tried again in 1 s
+      p.net.offline = false;
+      await p.closedThenNewTab();
+      expect(p.srv.now.reflection.p1).toBe("Y");
+    });
+
+    it("a lesson finished and the course completed, then closed with the save on the wire written: the completion once, as the save wrote it", async () => {
+      const p = wired(state({ stagesCompleted: ["context"] }));
+      p.change(state({ stagesCompleted: ["context", "concept"], completedAt: "2026-11-10T09:00:00.000Z" }));
+      await vi.advanceTimersByTimeAsync(700);
+      await p.closedThenNewTab({ written: true });
+      expect(p.srv.now.stagesCompleted).toEqual(["context", "concept"]);
+      expect(p.srv.now.completedAt).toBe("2026-11-10T09:00:00.000Z");
+    });
+
+    it("guard: closed with every save confirmed: nothing is sent that way", async () => {
+      const p = wired(state({ reflection: reflection("X") }));
+      p.change(state({ reflection: reflection("Y") }));
+      await vi.advanceTimersByTimeAsync(700);
+      p.answers[0].ok();
+      await vi.advanceTimersByTimeAsync(0);
+      await p.closedThenNewTab();
+      expect(p.beacons).toEqual([]);
+      expect(p.srv.now.reflection.p1).toBe("Y");
+    });
+
+    it("guard: hidden (a phone), not left: nothing is sent that way; the outbox keeps it", async () => {
+      const p = wired(state({ reflection: reflection("X") }));
+      p.change(state({ reflection: reflection("Y") }));
+      await vi.advanceTimersByTimeAsync(700);
+      p.hide();
+      expect(p.beacons).toEqual([]);
+      expect(p.outboxKeys()).toHaveLength(1);
+    });
+
+    it("guard: signed out from the page: nothing is sent that way", async () => {
+      const p = wired(state({ reflection: reflection("X") }));
+      p.change(state({ reflection: reflection("Y") }));
+      await vi.advanceTimersByTimeAsync(700);
+      void p.signOut();
+      await vi.advanceTimersByTimeAsync(3_000);
+      expect(p.session.ended).toBe(true);
+      expect(p.beacons).toEqual([]);
+    });
   });
 });

@@ -34,7 +34,9 @@
  * comes back. Nothing of a learner stays in the tab
  * once the store lets go of them (signed out, another account, erased):
  * every entry is cleared then (clearEveryOutbox), at the cost of what a
- * page from a build that was gone hadn't sent yet.
+ * page from a build that was gone hadn't sent yet. Signing out from the
+ * page, its saves are sent and waited for first (sign-out.ts), and every
+ * entry is cleared before the session ends.
  *
  * Pure but for the storage handed in, and never throws: a browser that
  * blocks storage keeps nothing here, which leaves the answers on the page.

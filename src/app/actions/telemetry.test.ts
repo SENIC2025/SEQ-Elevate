@@ -8,16 +8,30 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const getCurrentUser = vi.fn();
 const auditLog = { findFirst: vi.fn(), create: vi.fn(), update: vi.fn() };
+/** The signed-in person's profile, as the profile step reads it (complete by default). */
+const projectProfile = { findUnique: vi.fn() };
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/auth-helpers", () => ({ getCurrentUser }));
-vi.mock("@/lib/prisma", () => ({ prisma: { auditLog } }));
+vi.mock("@/lib/prisma", () => ({ prisma: { auditLog, projectProfile } }));
 
 const { recordCourseOpened, recordStageTime } = await import("./telemetry");
+const { currentTermsVersion } = await import("@/lib/profile");
+
+const USER = { id: "u1", name: "Ana", lastProjectId: null };
+/** A profile the profile step left complete. */
+const completeProfile = (over: Record<string, unknown> = {}) => ({
+  country: "DE",
+  termsVersion: currentTermsVersion(),
+  ageConfirmedAt: new Date("2026-11-20T10:00:00Z"),
+  consentAt: null,
+  ...over,
+});
 
 beforeEach(() => {
   vi.clearAllMocks();
-  getCurrentUser.mockResolvedValue({ id: "u1", lastProjectId: null });
+  getCurrentUser.mockResolvedValue(USER);
   auditLog.findFirst.mockResolvedValue(null);
+  projectProfile.findUnique.mockResolvedValue(completeProfile());
 });
 
 describe("recordStageTime", () => {
@@ -85,6 +99,49 @@ describe("recordCourseOpened", () => {
   it("does nothing for a guest", async () => {
     getCurrentUser.mockResolvedValue(null);
     await recordCourseOpened("speaking-up");
+    expect(auditLog.create).not.toHaveBeenCalled();
+  });
+});
+
+/*
+ * D79 (the integrator's decision (c), 24 October): before the profile step is
+ * done nothing of the person's learning is saved, the activity records that
+ * facilitators are shown included, whatever R3_PROFILE_GATE says. A page
+ * loaded before the Terms changed or before Release 3, and a hand-made call,
+ * write nothing and are answered "profile-incomplete", never thrown.
+ */
+describe("before the profile step is done (D79)", () => {
+  it.each([
+    ["no profile at all", null, USER],
+    ["no country", completeProfile({ country: null }), USER],
+    ["Terms of an older version", completeProfile({ termsVersion: "1999-01-01" }), USER],
+    ["no age rule confirmed", completeProfile({ ageConfirmedAt: null }), USER],
+    ["a blank name", completeProfile(), { ...USER, name: "  " }],
+  ])("records neither time on a lesson nor a course opened for %s, and answers profile-incomplete", async (_, profile, user) => {
+    getCurrentUser.mockResolvedValue(user);
+    projectProfile.findUnique.mockResolvedValue(profile);
+    await expect(recordStageTime({ courseSlug: "speaking-up", stage: "context", seconds: 12 })).resolves.toBe(
+      "profile-incomplete"
+    );
+    await expect(recordCourseOpened("speaking-up")).resolves.toBe("profile-incomplete");
+    expect(auditLog.findFirst).not.toHaveBeenCalled();
+    expect(auditLog.create).not.toHaveBeenCalled();
+    expect(auditLog.update).not.toHaveBeenCalled();
+  });
+
+  it("reads the signed-in person's own profile, nobody else's", async () => {
+    await recordStageTime({ courseSlug: "speaking-up", stage: "context", seconds: 12 });
+    await recordCourseOpened("speaking-up");
+    const own = { userId_projectId: { userId: "u1", projectId: "seq-elevate" } };
+    expect(projectProfile.findUnique.mock.calls.map((c) => c[0].where)).toEqual([own, own]);
+    expect(auditLog.create).toHaveBeenCalledTimes(2);
+  });
+
+  it("reads no profile for a guest, and records nothing", async () => {
+    getCurrentUser.mockResolvedValue(null);
+    await expect(recordStageTime({ courseSlug: "speaking-up", stage: "context", seconds: 12 })).resolves.toBeUndefined();
+    await expect(recordCourseOpened("speaking-up")).resolves.toBeUndefined();
+    expect(projectProfile.findUnique).not.toHaveBeenCalled();
     expect(auditLog.create).not.toHaveBeenCalled();
   });
 });

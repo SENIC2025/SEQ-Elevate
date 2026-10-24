@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
-import { useSession, signOut } from "next-auth/react";
+import { useSession } from "next-auth/react";
 import { Link, usePathname } from "@/i18n/navigation";
 import { useDemoState } from "@/store/demo-state";
 import {
@@ -38,9 +38,17 @@ export function AppHeaderClient({
   const t = useTranslations("common");
   const tAuth = useTranslations("auth");
   const tRoles = useTranslations("roles");
-  const { state, dispatch } = useDemoState();
+  const { state, dispatch, signOut } = useDemoState();
   const { data: session, status } = useSession();
   const authed = status === "authenticated";
+  // Signing out waits for the learner's saves first (up to 3 s, D68): the
+  // button says it is busy meanwhile, and a second press does nothing.
+  const [signingOut, setSigningOut] = useState(false);
+  const onSignOut = () => {
+    if (signingOut) return;
+    setSigningOut(true);
+    signOut().catch(() => setSigningOut(false));
+  };
   // Staff get the workspace switcher too. Words join the icons as the screen
   // widens (md: product name, workspace; lg: sign out; xl: email), so the
   // header never scrolls sideways, from a 320px phone up (WCAG 1.4.10), in
@@ -84,8 +92,10 @@ export function AppHeaderClient({
               </Link>
               <button
                 type="button"
-                onClick={() => signOut({ callbackUrl: "/" })}
-                className="flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm hover:bg-[var(--surface-muted)]"
+                onClick={onSignOut}
+                aria-busy={signingOut || undefined}
+                aria-disabled={signingOut || undefined}
+                className="flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm hover:bg-[var(--surface-muted)] aria-busy:cursor-wait aria-busy:opacity-70"
               >
                 <LogOut className="h-4 w-4" aria-hidden />
                 <span className="sr-only lg:not-sr-only">{tAuth("signOut")}</span>

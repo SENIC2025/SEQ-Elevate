@@ -2,9 +2,11 @@ import { PERSONAS, THROWN, answers, type Persona, type Row } from "./kit";
 
 /**
  * The action table's rows for Stream B's files (spec 17.3): learner.ts and
- * profile.ts. A learner's own data is keyed to the session: a save names
- * the account it was loaded for (`forUser`), and one aimed at anyone else
- * is refused; with no session nothing is read or written. The profile step
+ * profile.ts, and the route a page sends a course or Comp Card save to as
+ * it goes (POST /api/progress/beacon, D37), which saves through learner.ts. A
+ * learner's own data is keyed to the session: a save names the account it
+ * was loaded for (`forUser`), and one aimed at anyone else is refused;
+ * with no session nothing is read or written. The profile step
  * takes no one's id at all: it is the signed-in person's own, and after
  * the first completion a call changes only the Terms, the consent and a
  * blank name (SP34).
@@ -13,6 +15,9 @@ import { PERSONAS, THROWN, answers, type Persona, type Row } from "./kit";
 const LEARNER = "src/app/actions/learner.ts";
 const PROFILE = "src/app/actions/profile.ts";
 const PAGE = "/en/learner";
+
+/** The e2e server's own origin: the beacon route refuses any other. */
+const appOrigin = () => `http://localhost:${process.env.E2E_PORT ?? "3000"}`;
 
 /** No session: the action throws (requireLearner). Signed in: `refused`. */
 const otherAccount = (refused: unknown) => (as: Persona) => (as === "anonymous" ? THROWN : answers(refused));
@@ -62,6 +67,34 @@ export const rows: Row[] = [
     outcome: otherAccount({ ok: false, error: "other-account" }),
     tables: ["CourseEnrollment", "UserBadge", "AuditLog"],
     why: "progress is saved only for the account it was loaded for",
+  },
+  {
+    kind: "route",
+    route: "POST /api/progress/beacon",
+    method: "POST",
+    path: () => "/api/progress/beacon",
+    // This site's own page, and a well-formed save: only whose it is is wrong.
+    headers: () => ({ Origin: appOrigin(), "Sec-Fetch-Site": "same-origin", "Content-Type": "application/json" }),
+    body: (c) => ({ v: 1, slug: c.world.course.slug, forUser: c.target.userId, patch: { v: 2, completed: ["context"] } }),
+    refuse: PERSONAS,
+    partnerAdmin: "anyone",
+    status: (as) => (as === "anonymous" ? 401 : 403),
+    tables: ["CourseEnrollment", "UserBadge", "AuditLog"],
+    why: "a course save sent as the page goes is saved only for the account it was loaded for (D37)",
+  },
+  {
+    kind: "route",
+    route: "POST /api/progress/beacon (the Comp Card's save)",
+    method: "POST",
+    path: () => "/api/progress/beacon",
+    // This site's own page, and a well-formed card save: only whose it is is wrong.
+    headers: () => ({ Origin: appOrigin(), "Sec-Fetch-Site": "same-origin", "Content-Type": "application/json" }),
+    body: (c) => ({ v: 1, forUser: c.target.userId, card: { wentWell: `Overwritten ${c.run}`, confidence: 1, privacy: "facilitator" } }),
+    refuse: PERSONAS,
+    partnerAdmin: "anyone",
+    status: (as) => (as === "anonymous" ? 401 : 403),
+    tables: ["CompCard", "AuditLog"],
+    why: "a Comp Card save sent as the page goes is saved only for the account it was loaded for, and never shares it (D37, D80)",
   },
   {
     kind: "call",

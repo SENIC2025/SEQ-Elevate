@@ -3,11 +3,13 @@ import type { CompCardInput, SaveCompCardResult } from "@/app/actions/learner";
 import {
   afterCardSave,
   cardAfterReread,
+  cardBeacon,
   cardChanges,
   guestCardOrBadgesChanged,
   saveCard,
   savedCardOf,
   type CardSavedRef,
+  type CardSendingRef,
 } from "./card-save";
 import type { CompCardData } from "./demo-state";
 import { pendingSave } from "./pending-save";
@@ -409,5 +411,229 @@ describe("guestCardOrBadgesChanged: when a signed-in tab reads the account's car
   it("not for a course step saved by a guest's page", () => {
     expect(guestCardOrBadgesChanged(store({}), store({ course: { courseSlug: "c" } }))).toBe(false);
     expect(guestCardOrBadgesChanged(null, null)).toBe(false);
+  });
+});
+
+describe("cardBeacon: the card's fields the page sends as it goes, outside Next's queue (D37 as built)", () => {
+  const X = { ...blank, wentWell: "X", improve: "I", updatedAt: "2026-11-21T10:00:00.000Z" };
+  const known = (): CardSavedRef => ({ current: { forUser: "u", card: savedCardOf(X, blank) } });
+
+  it("nothing while no card save is on its way and none failed: the server is known to hold the card", () => {
+    expect(cardBeacon({ ...X, wentWell: "Z" }, "u", known(), [])).toBeNull();
+  });
+
+  it("with a save on its way: the fields the server isn't known to hold, as the page has them", () => {
+    const sending = [{ forUser: "u", input: { wentWell: "Y" } }];
+    expect(cardBeacon({ ...X, wentWell: "Z", confidence: 5 }, "u", known(), sending)).toEqual({ wentWell: "Z", confidence: 5 });
+  });
+
+  it("every field a save on its way carries counts as not confirmed: one changed back is sent as the page has it", () => {
+    const sending = [{ forUser: "u", input: { wentWell: "Y" } }];
+    expect(cardBeacon(X, "u", known(), sending)).toEqual({ wentWell: "X" });
+  });
+
+  it("never a field the page didn't change: another tab's or device's change of it stays", () => {
+    const sending = [{ forUser: "u", input: { wentWell: "Y" } }];
+    expect(cardBeacon({ ...X, wentWell: "Y" }, "u", known(), sending)).toEqual({ wentWell: "Y" });
+  });
+
+  it("a failed save, nothing on its way: the fields it sent, no longer known", () => {
+    const saved = known();
+    saved.current!.card = afterCardSave(saved.current!.card, { wentWell: "Y" }, "failed");
+    expect(cardBeacon({ ...X, wentWell: "Y" }, "u", saved, [])).toEqual({ wentWell: "Y" });
+  });
+
+  it("never who sees the card, nor a text over 2,000 characters", () => {
+    const sending = [{ forUser: "u", input: { wentWell: "Y" } }];
+    const card = { ...X, wentWell: "Y", sharing: "facilitators" as const, behaviour: "b".repeat(2001) };
+    expect(cardBeacon(card, "u", known(), sending)).toEqual({ wentWell: "Y" });
+  });
+
+  it("nothing for another learner's saves, once the page let go of the learner, or with no card", () => {
+    expect(cardBeacon({ ...X, wentWell: "Z" }, "u", known(), [{ forUser: "v", input: { wentWell: "Y" } }])).toBeNull();
+    const sending = [{ forUser: "u", input: { wentWell: "Y" } }];
+    expect(cardBeacon({ ...X, wentWell: "Z" }, "u", { current: null }, sending)).toBeNull();
+    expect(cardBeacon({ ...X, wentWell: "Z" }, "v", known(), sending)).toBeNull();
+    expect(cardBeacon(null, "u", known(), sending)).toBeNull();
+  });
+});
+
+describe("saveCard: the saves on their way, and a refusal before the profile step", () => {
+  const X = { ...blank, wentWell: "X", updatedAt: "2026-11-21T10:00:00.000Z" };
+  const Y = { ...X, wentWell: "Y", updatedAt: "2026-11-21T10:00:01.000Z" };
+
+  it("a save is on its way from when it is sent until it is answered: confirmed, refused or failed", async () => {
+    for (const end of ["ok", "refused", "failed"] as const) {
+      const saved: CardSavedRef = { current: { forUser: "u", card: savedCardOf(X, blank) } };
+      const sending: CardSendingRef = { current: [] };
+      let answer!: (r: SaveCompCardResult) => void;
+      let fail!: (e: Error) => void;
+      const done = saveCard(Y, "u", saved, {
+        send: () => new Promise((resolve, reject) => ((answer = resolve), (fail = reject))),
+        latest: () => Y,
+        again: () => undefined,
+        sending,
+      }).catch(() => undefined);
+      expect(sending.current, end).toEqual([{ forUser: "u", input: { wentWell: "Y" } }]);
+      if (end === "failed") fail(new TypeError("Failed to fetch"));
+      else answer(end === "ok" ? { ok: true } : { ok: false, error: "bad-input" });
+      await done;
+      expect(sending.current, end).toEqual([]);
+    }
+  });
+
+  it("refused before the profile step is done (D79): the page says so, and the server is known to hold what it did", async () => {
+    const saved: CardSavedRef = { current: { forUser: "u", card: savedCardOf(X, blank) } };
+    const profileIncomplete = vi.fn();
+    const again = vi.fn();
+    const deps = {
+      send: async (): Promise<SaveCompCardResult> => ({ ok: false, error: "profile-incomplete" }),
+      latest: () => Y,
+      again,
+      profileIncomplete,
+    };
+    await saveCard(Y, "u", saved, deps);
+    expect(profileIncomplete).toHaveBeenCalledTimes(1);
+    expect(again).not.toHaveBeenCalled();
+    expect(saved.current?.card.wentWell).toBe("X");
+    // Not for another refusal, nor once the page let go of the learner.
+    await saveCard(Y, "u", saved, { ...deps, send: async () => ({ ok: false, error: "bad-input" }) });
+    let letGo!: () => void;
+    const late = saveCard(Y, "u", saved, { ...deps, send: () => new Promise((resolve) => (letGo = () => resolve({ ok: false, error: "profile-incomplete" }))) });
+    saved.current = null;
+    letGo();
+    await late;
+    expect(profileIncomplete).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("the page going with a card save on its way, as DemoStateProvider wires it: Next's queue and the keepalive request (K1, K4)", () => {
+  const X = { ...blank, wentWell: "X", improve: "I", updatedAt: "2026-11-21T10:00:00.000Z" };
+
+  /**
+   * A page signed in as "u", whose card loaded as X, and the server. Next
+   * sends the page's actions one at a time: a save handed over while
+   * another is on its way waits behind it. The test answers the one on the
+   * wire; when the page goes (pagehide), what is waiting is flushed, and
+   * the page's keepalive request (cardBeacon), if any, reaches the server
+   * after the save on the wire, which the server writes with its answer
+   * reaching no page; the saves behind it never leave.
+   */
+  function goingPage({ beacon = true } = {}) {
+    vi.useFakeTimers();
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const server: Record<string, unknown> = { wentWell: "X", improve: "I" };
+    const write = (input: CompCardInput) => {
+      for (const field of ["wentWell", "difficult", "improve", "behaviour", "confidence"] as const) {
+        if (input[field] !== undefined) server[field] = input[field];
+      }
+    };
+    const saved: CardSavedRef = { current: { forUser: "u", card: savedCardOf(X, blank) } };
+    const sending: CardSendingRef = { current: [] };
+    const queue: { input: CompCardInput; resolve: (r: SaveCompCardResult) => void; reject: (e: Error) => void }[] = [];
+    const cardSave = pendingSave(700);
+    let scheduled: CompCardData = X;
+    let gone = false;
+    const send = (input: CompCardInput) =>
+      new Promise<SaveCompCardResult>((resolve, reject) => queue.push({ input, resolve, reject }));
+    const save = (c: CompCardData): Promise<void> =>
+      saveCard(c, "u", saved, {
+        send,
+        latest: () => scheduled,
+        again: () => {
+          const latest = scheduled;
+          cardSave.schedule(() => save(latest));
+        },
+        sending,
+      });
+    let t = 0;
+    return {
+      server,
+      queue,
+      change(fields: Partial<CompCardData>) {
+        const card = { ...scheduled, ...fields, updatedAt: new Date(Date.parse(X.updatedAt) + ++t * 1000).toISOString() };
+        scheduled = card;
+        cardSave.schedule(() => save(card));
+      },
+      /** The save on the wire is confirmed: the next in the queue goes on the wire. */
+      confirm() {
+        const first = queue.shift()!;
+        write(first.input);
+        first.resolve({ ok: true });
+      },
+      /** The page goes: the waiting save is flushed, the save on the wire written, its answer lost; the keepalive request lands. */
+      goes() {
+        cardSave.flush();
+        const sent = beacon ? cardBeacon(scheduled, "u", saved, sending.current) : null;
+        gone = true;
+        const onTheWire = queue.shift();
+        if (onTheWire) write(onTheWire.input);
+        if (sent) write(sent);
+        return sent;
+      },
+      gone: () => gone,
+    };
+  }
+
+  it("K1: more typed after the save left, the next save waiting behind it: the account holds what the learner left", async () => {
+    const p = goingPage();
+    p.change({ wentWell: "first" });
+    await vi.advanceTimersByTimeAsync(700);
+    p.change({ wentWell: "first and more" });
+    await vi.advanceTimersByTimeAsync(1_500);
+    expect(p.queue.map((q) => q.input), "the second waits behind the first").toEqual([{ wentWell: "first" }, { wentWell: "first and more" }]);
+    expect(p.goes()).toEqual({ wentWell: "first and more" });
+    expect(p.server).toEqual({ wentWell: "first and more", improve: "I" });
+  });
+
+  it("without the keepalive request (the build before), the account keeps what the save on its way carried", async () => {
+    const p = goingPage({ beacon: false });
+    p.change({ wentWell: "first" });
+    await vi.advanceTimersByTimeAsync(700);
+    p.change({ wentWell: "first and more" });
+    await vi.advanceTimersByTimeAsync(1_500);
+    p.goes();
+    expect(p.server.wentWell).toBe("first");
+  });
+
+  it("K4: more typed and the page gone at once, within the pause: the waiting save is flushed into the queue, and the request carries it", async () => {
+    const p = goingPage();
+    p.change({ wentWell: "first" });
+    await vi.advanceTimersByTimeAsync(700);
+    p.change({ wentWell: "first more" });
+    expect(p.goes()).toEqual({ wentWell: "first more" });
+    expect(p.server.wentWell).toBe("first more");
+  });
+
+  it("an answer changed back while the save of the change is on its way: the account holds what the page shows", async () => {
+    const p = goingPage();
+    p.change({ wentWell: "Y" });
+    await vi.advanceTimersByTimeAsync(700);
+    p.change({ wentWell: "X" });
+    await vi.advanceTimersByTimeAsync(700); // nothing to send: the server is known to hold X
+    expect(p.queue).toHaveLength(1);
+    expect(p.goes()).toEqual({ wentWell: "X" });
+    expect(p.server.wentWell).toBe("X");
+  });
+
+  it("a field changed in another tab meanwhile, not on this page, keeps the other tab's", async () => {
+    const p = goingPage();
+    p.change({ wentWell: "Y" });
+    await vi.advanceTimersByTimeAsync(700);
+    p.server.improve = "from another tab";
+    p.change({ wentWell: "Y and more" });
+    await vi.advanceTimersByTimeAsync(700);
+    expect(p.goes()).toEqual({ wentWell: "Y and more" });
+    expect(p.server).toEqual({ wentWell: "Y and more", improve: "from another tab" });
+  });
+
+  it("guard: every save confirmed before the page goes: nothing is sent outside the queue", async () => {
+    const p = goingPage();
+    p.change({ wentWell: "Y" });
+    await vi.advanceTimersByTimeAsync(700);
+    p.confirm();
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(p.goes()).toBeNull();
+    expect(p.server.wentWell).toBe("Y");
   });
 });

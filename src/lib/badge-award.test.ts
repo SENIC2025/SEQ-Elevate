@@ -5,6 +5,7 @@ describe("isRefusedAward", () => {
   it("spots a refusal", () => {
     expect(isRefusedAward({ ok: false, reason: "no-badge" })).toBe(true);
     expect(isRefusedAward({ ok: false, reason: "other-account" })).toBe(true);
+    expect(isRefusedAward({ ok: false, reason: "profile-incomplete" })).toBe(true);
   });
 
   it("takes anything else as no refusal: a saved award, or a write with no answer", () => {

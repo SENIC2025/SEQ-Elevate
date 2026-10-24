@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { getSession, useSession } from "next-auth/react";
+import { getSession, signOut as endSession, useSession } from "next-auth/react";
 import { usePathname, useRouter } from "next/navigation";
 import { useLocale } from "next-intl";
 import {
@@ -38,6 +38,7 @@ import type {
   StoredAnswer,
 } from "@/lib/learner-progress/contract";
 import { completeLesson, withAnswer } from "@/lib/learner-progress/answers";
+import { BEACON_BUDGET_BYTES, BEACON_PATH, fitCardBeacon } from "@/lib/learner-progress/beacon";
 import { EMPTY_PROGRESS, applyPatch, patchSince } from "@/lib/learner-progress/patch";
 import {
   courseAfterLoad,
@@ -48,11 +49,20 @@ import {
   storedGuestState,
 } from "./progress-merge";
 import { guestClaimOf, guestWorkOf, storeAfterClaim, withText, type GuestWork } from "./guest-migration";
-import { cardAfterReread, guestCardOrBadgesChanged, saveCard, savedCardOf, type SavedCard } from "./card-save";
-import { courseChanged, courseLoaded, courseSaveRefs, pageHidden, saveCourse } from "./course-save";
+import {
+  cardAfterReread,
+  cardBeacon,
+  guestCardOrBadgesChanged,
+  saveCard,
+  savedCardOf,
+  type CardSending,
+  type SavedCard,
+} from "./card-save";
+import { courseChanged, courseLoaded, courseSaveRefs, pageHidden, progressBeacons, saveCourse } from "./course-save";
 import { clearEveryOutbox, restoreOutbox } from "./outbox";
 import { pendingSave } from "./pending-save";
 import { RETRY_DELAYS_MS, wait, withRetry } from "./retry";
+import { signOutAfterSaves } from "./sign-out";
 import { isRefusedAward } from "@/lib/badge-award";
 import {
   SESSION_RECHECK_MS,
@@ -204,6 +214,26 @@ export const DEFAULT_STATE: DemoState = {
   },
   refusedKeys: {},
 };
+
+/**
+ * POST /api/progress/beacon with fetch(keepalive): the browser finishes it
+ * after the page has gone (D37 as built; card-save.ts cardBeacon,
+ * course-save.ts progressBeacons). Nothing waits for its answer, and it
+ * never throws.
+ */
+function sendBeacon(body: string): void {
+  try {
+    void fetch(BEACON_PATH, {
+      method: "POST",
+      keepalive: true,
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body,
+    }).catch(() => undefined);
+  } catch {
+    /* the page is going: nothing more can be done */
+  }
+}
 
 /** This tab's sessionStorage, for the outbox; null where the browser has none or blocks it. */
 function tabStorage(): Storage | null {
@@ -723,6 +753,13 @@ interface ContextValue {
    * to reload (GuestWorkPrompt).
    */
   guestStoreChanged: boolean;
+  /**
+   * The header's Sign out (D68, sign-out.ts): every course and Comp Card
+   * save still waiting is sent and waited for, with the save on its way,
+   * up to 3 s; then the session ends and the page goes, and nothing of the
+   * learner stays in the tab's outbox. True when no save was left.
+   */
+  signOut: () => Promise<boolean>;
 }
 
 const DemoStateContext = React.createContext<ContextValue | null>(null);
@@ -814,6 +851,10 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
   // What the server is known to hold of the Comp Card, and for whom: a
   // save sends only what was changed here from it (card-save.ts).
   const cardSaved = React.useRef<{ forUser: string; card: SavedCard } | null>(null);
+  // The Comp Card saves on their way, for the page's keepalive request as
+  // it goes (card-save.ts cardBeacon). Replaced whole when the store lets
+  // go of the learner's data.
+  const cardSending = React.useRef<CardSending[]>([]);
   // The debounced saves, one waiting at a time each (see pending-save.ts).
   const [courseSave] = React.useState(() => pendingSave(700));
   const [cardSave] = React.useState(() => pendingSave(700));
@@ -844,6 +885,9 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
   React.useEffect(() => {
     cardShown.current = state.compCard;
   }, [state.compCard]);
+  // Signing out from this page (sign-out.ts): once the saves are in, or the
+  // wait ran out, the page keeps nothing of the learner in the tab.
+  const signingOutRef = React.useRef(false);
   // next-auth's "read the session again, and tell the other tabs", for the
   // identity effect below: the latest one, without re-running it.
   const updateSession = React.useRef(update);
@@ -894,6 +938,7 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
     courseScheduled.current = null;
     cardScheduled.current = null;
     cardSaved.current = null;
+    cardSending.current = [];
     setDbOwner(null);
     setProfileIncomplete(false);
     setGuestWork(null);
@@ -1295,7 +1340,11 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
           staleBuild: () => setStaleBuild(true),
           outbox: tabStorage(),
           again: () => courseSave.schedule(save, slug),
-          current: () => refs === progressRefs.current,
+          // Not once signing out has gone ahead: an answer then keeps
+          // nothing in the tab, and moves nothing on.
+          current: () => refs === progressRefs.current && !signingOutRef.current,
+          // Refused before the profile step is done (D79): the page says so.
+          profileIncomplete: () => setProfileIncomplete(true),
         });
       return save;
     },
@@ -1348,6 +1397,9 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
             const latest = cardScheduled.current;
             if (latest) cardSave.schedule(() => save(latest));
           },
+          sending: cardSending,
+          // Refused before the profile step is done (D79): the page says so.
+          profileIncomplete: () => setProfileIncomplete(true),
         });
       return () => save(card);
     },
@@ -1369,8 +1421,9 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
   // idempotent — unless the learner's data has been let go of meanwhile
   // (persistedBadges replaced). One the server refuses (no Badge row for
   // it) is logged once and not sent again this visit: no retry can fix it
-  // (badge-award.ts). A completed course's badge is also saved with the
-  // course itself (see saveCourseProgress).
+  // (badge-award.ts). Refused before the profile step is done (D79), the
+  // page says so, as for a refused save. A completed course's badge is also
+  // saved with the course itself (see saveCourseProgress).
   React.useEffect(() => {
     if (!authed || !dbOwner) return;
     const sent = persistedBadges.current;
@@ -1383,7 +1436,8 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
         (result) => {
           tries.delete(slug);
           if (isRefusedAward(result)) {
-            console.error(`The badge "${slug}" wasn't saved.`, result);
+            if (result.reason === "profile-incomplete") setProfileIncomplete(true);
+            else console.error(`The badge "${slug}" wasn't saved.`, result);
           }
         },
         (err: unknown) => {
@@ -1411,22 +1465,44 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
   // tab and load it again. So what the page has of a course that the
   // server hasn't confirmed, while a save of it is on its way or failed,
   // goes to the tab's outbox, and the page that loads the course next
-  // brings it back (course-save.ts pageHidden).
+  // brings it back (course-save.ts pageHidden). A page that is left
+  // (pagehide) also sends that outside Next's queue, with fetch(keepalive),
+  // which the browser finishes after the page has gone (progressBeacons;
+  // POST /api/progress/beacon, D37 as built) — and, first, what it has of
+  // the Comp Card that the server hasn't confirmed, while a card save is
+  // on its way or failed (card-save.ts cardBeacon): the card has no outbox.
+  // Signing out from this page, the saves were sent first (sign-out.ts),
+  // and the page that goes keeps nothing of the learner in the tab (D68).
   React.useEffect(() => {
-    const sendWaiting = () => {
+    const sendWaiting = (left: boolean) => {
+      if (signingOutRef.current) {
+        clearEveryOutbox(tabStorage());
+        return;
+      }
       courseSave.flush();
       cardSave.flush();
       const forUser = dbOwnerRef.current;
-      if (forUser) pageHidden(progressRefs.current, forUser, tabStorage());
+      if (!forUser) return;
+      pageHidden(progressRefs.current, forUser, tabStorage());
+      if (!left) return;
+      let budget = BEACON_BUDGET_BYTES;
+      const card = cardBeacon(cardScheduled.current, forUser, cardSaved, cardSending.current);
+      const cardBody = card && fitCardBeacon(forUser, card, budget);
+      if (cardBody) {
+        sendBeacon(cardBody.body);
+        budget -= cardBody.bytes;
+      }
+      for (const body of progressBeacons(progressRefs.current, forUser, budget)) sendBeacon(body);
     };
     const onVisibility = () => {
-      if (document.visibilityState === "hidden") sendWaiting();
+      if (document.visibilityState === "hidden") sendWaiting(false);
     };
+    const onPageHide = () => sendWaiting(true);
     document.addEventListener("visibilitychange", onVisibility);
-    window.addEventListener("pagehide", sendWaiting);
+    window.addEventListener("pagehide", onPageHide);
     return () => {
       document.removeEventListener("visibilitychange", onVisibility);
-      window.removeEventListener("pagehide", sendWaiting);
+      window.removeEventListener("pagehide", onPageHide);
     };
   }, [courseSave, cardSave]);
 
@@ -1663,6 +1739,17 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
     return false;
   }, []);
 
+  const signOut = React.useCallback(
+    () =>
+      signOutAfterSaves({
+        saves: [courseSave, cardSave],
+        signingOut: (on) => void (signingOutRef.current = on),
+        outbox: tabStorage(),
+        signOut: () => endSession({ callbackUrl: "/" }),
+      }),
+    [courseSave, cardSave]
+  );
+
   // A signed-in learner's course once loaded and merged; a guest's as soon
   // as the guest store has been read (it holds their one course, D69), also
   // on a guest's page kept the guest's (guestPinned).
@@ -1690,6 +1777,7 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
       accountLoaded: dbReady,
       signedInElsewhere: guestPinned,
       guestStoreChanged: guestStopped,
+      signOut,
     }),
     [
       state,
@@ -1706,6 +1794,7 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
       dbReady,
       guestPinned,
       guestStopped,
+      signOut,
     ]
   );
 
@@ -1785,6 +1874,12 @@ export function LearnerView({
   return <React.Fragment key={generation}>{children}</React.Fragment>;
 }
 
+/** A preview saves nothing: signing out from it goes ahead at once. */
+async function signOutNow(): Promise<boolean> {
+  await endSession({ callbackUrl: "/" });
+  return true;
+}
+
 /** A preview's store: no profile, no guest store, nothing shared or saved. */
 const NOTHING_SAVED = {
   profileIncomplete: false,
@@ -1814,7 +1909,7 @@ export function PreviewStateProvider({
 }) {
   const [state, dispatch] = React.useReducer(reducer, DEFAULT_STATE);
   const value = React.useMemo(
-    () => ({ state, dispatch, readyCourse: true as const, staleBuild: false, ...NOTHING_SAVED }),
+    () => ({ state, dispatch, readyCourse: true as const, staleBuild: false, ...NOTHING_SAVED, signOut: signOutNow }),
     [state]
   );
   return (

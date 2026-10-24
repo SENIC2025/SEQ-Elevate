@@ -23,6 +23,21 @@
  * only what it changed itself and the server hasn't confirmed yet
  * (cardAfterReread).
  *
+ * Next sends a page's server actions one at a time: a card save handed
+ * over while another is on its way waits behind it, and one waiting never
+ * leaves a page that goes. So when the page is left (pagehide), while a
+ * save of the card is on its way or failed, the fields it has that the
+ * server hasn't confirmed — every field a save on its way carries counted
+ * as not confirmed — are sent outside that queue too, with
+ * fetch(keepalive), which the browser finishes after the page has gone
+ * (cardBeacon; POST /api/progress/beacon, D37 as built). The route saves
+ * them through the card's save action, so a save that also arrives through
+ * the queue writes the same values.
+ *
+ * Before the profile step is done (D79) the save action refuses
+ * ("profile-incomplete"): a page loaded before the Terms changed, say.
+ * The page then says so (`profileIncomplete`), and keeps the card on screen.
+ *
  * No React: DemoStateProvider in demo-state.tsx applies it.
  */
 
@@ -85,6 +100,17 @@ export interface CardSavedRef {
   current: { forUser: string; card: SavedCard } | null;
 }
 
+/** A card save sent and not answered yet, as sent, and for whom. */
+export interface CardSending {
+  forUser: string;
+  input: CompCardInput;
+}
+
+/** The page's card saves on their way: replaced whole once the page lets go of the learner. */
+export interface CardSendingRef {
+  current: CardSending[];
+}
+
 export interface CardSaveDeps {
   /** saveCompCard. */
   send(input: CompCardInput, forUser: string): Promise<SaveCompCardResult>;
@@ -92,6 +118,10 @@ export interface CardSaveDeps {
   latest(): CompCardData | null;
   /** Something is left to send: schedule another save, of the card as it is then. */
   again(): void;
+  /** The saves on their way, kept for the page's keepalive request as it goes (cardBeacon). */
+  sending?: CardSendingRef;
+  /** The save was refused because the profile step isn't done (D79): the page says so. */
+  profileIncomplete?(): void;
 }
 
 /**
@@ -126,17 +156,66 @@ export async function saveCard(card: CompCardData, forUser: string, saved: CardS
     const now = saved.current;
     if (now?.forUser === forUser && latest && Object.keys(cardChanges(latest, now.card)).length > 0) deps.again();
   };
+  // On its way until answered: the page's keepalive request carries what
+  // it carries as the page has it (cardBeacon).
+  const onItsWay: CardSending = { forUser, input };
+  const sending = deps.sending?.current;
+  sending?.push(onItsWay);
+  const sent = () => {
+    const at = sending?.indexOf(onItsWay) ?? -1;
+    if (at >= 0) sending?.splice(at, 1);
+  };
   let result: SaveCompCardResult;
   try {
     result = await deps.send(input, forUser);
   } catch (err) {
+    sent();
     answered("failed");
     const latest = deps.latest();
     if (latest !== card) againIfLeft(latest);
     throw err;
   }
+  sent();
   answered(result.ok ? "ok" : "refused");
   if (result.ok) againIfLeft(deps.latest());
+  else if (result.error === "profile-incomplete" && saved.current?.forUser === forUser) deps.profileIncomplete?.();
+}
+
+/**
+ * The page is being left (pagehide), its waiting card save just sent
+ * (pending-save.ts flush). While a save of the card for `forUser` is on
+ * its way — on the wire, or waiting behind another in Next's queue, never
+ * to leave a page that goes — or one failed (a field the server isn't
+ * known to hold): the fields of `card` (the page's, as the saves have it)
+ * that the server isn't known to hold, and every field a save on its way
+ * carries, as the page has it — what a save sends of them (cardToSave:
+ * never who sees the card, never a text over the limit). Never a field
+ * the page didn't change: another tab's or device's change of it stays.
+ * The fields of POST /api/progress/beacon's card body, sent with
+ * fetch(keepalive): the browser finishes it after the page has gone, and
+ * the route saves it through the card's save action, so a save that also
+ * arrives through the queue writes the same values (D37 as built). Null
+ * when there's no such save, or nothing to send.
+ */
+export function cardBeacon(
+  card: CompCardData | null,
+  forUser: string,
+  saved: CardSavedRef,
+  sending: readonly CardSending[]
+): CompCardInput | null {
+  const known = saved.current;
+  if (!card || known?.forUser !== forUser) return null;
+  const onTheirWay = sending.filter((s) => s.forUser === forUser);
+  const failed = SAVED_FIELDS.some((field) => known.card[field] === undefined);
+  if (!onTheirWay.length && !failed) return null;
+  const carried = new Set(SAVED_FIELDS.filter((field) => onTheirWay.some((s) => s.input[field] !== undefined)));
+  const all = cardToSave(card);
+  const input: CompCardInput = {};
+  for (const field of SAVED_FIELDS) {
+    if (all[field] === undefined) continue;
+    if (carried.has(field) || all[field] !== known.card[field]) (input as Record<string, unknown>)[field] = all[field];
+  }
+  return Object.keys(input).length ? input : null;
 }
 
 /**

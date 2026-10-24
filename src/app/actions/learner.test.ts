@@ -837,6 +837,96 @@ describe("the learner's place waits for the profile step (D79)", () => {
     expect(compCard.findUnique).not.toHaveBeenCalled();
     expect(courseEnrollment.findMany).not.toHaveBeenCalled();
   });
+
+  // The integrator's decision (c), 24 October: the save actions refuse
+  // themselves, as POST /api/progress/beacon does, for a page loaded before
+  // the profile stopped being complete or before Release 3.
+  it.each([
+    ["no profile at all", null, USER],
+    ["no country", completeProfile({ country: null }), USER],
+    ["Terms of an older version", completeProfile({ termsVersion: "1999-01-01" }), USER],
+    ["no age rule confirmed", completeProfile({ ageConfirmedAt: null }), USER],
+    ["a blank name", completeProfile(), { ...USER, name: "  " }],
+  ])("the course and Comp Card saves answer profile-incomplete and write nothing, without throwing, for %s", async (_, profile, user) => {
+    getCurrentUser.mockResolvedValue(user);
+    projectProfile.findUnique.mockResolvedValue(profile);
+    Object.assign(prisma, { compCard });
+    await expect(
+      saveCourseProgressPatch("speaking-up", { v: 2, completed: ["context"], completedAt: "2026-10-01T00:00:00.000Z" }, "u1")
+    ).resolves.toEqual({ ok: false, error: "profile-incomplete" });
+    await expect(saveCompCard({ wentWell: "W", confidence: 5 }, "u1")).resolves.toEqual({ ok: false, error: "profile-incomplete" });
+    await expect(
+      saveCourseProgress(
+        "speaking-up",
+        {
+          stagesCompleted: ["context"],
+          simulation: null,
+          scenario: { root: null, followup: null },
+          reflection: { p1: "R", p2: "", p3: "" },
+          assessment: { answers: {}, checked: false },
+          completedAt: null,
+        },
+        "u1"
+      )
+    ).resolves.toBeUndefined();
+    expect(course.findUnique).not.toHaveBeenCalled();
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(compCard.findUnique).not.toHaveBeenCalled();
+    expect(compCard.upsert).not.toHaveBeenCalled();
+    expect(userBadge.createMany).not.toHaveBeenCalled();
+  });
+
+  // The badge award refuses too (D79, the integrator's decision (c) of 24
+  // October): a badge is the person's learning as much as a save is. Its
+  // answer is the award's own shape, as "other-account" is there.
+  it.each([
+    ["no profile at all", null, USER],
+    ["no country", completeProfile({ country: null }), USER],
+    ["Terms of an older version", completeProfile({ termsVersion: "1999-01-01" }), USER],
+    ["no age rule confirmed", completeProfile({ ageConfirmedAt: null }), USER],
+    ["a blank name", completeProfile(), { ...USER, name: "  " }],
+  ])("the badge award answers profile-incomplete and gives no badge, without throwing, for %s", async (_, profile, user) => {
+    getCurrentUser.mockResolvedValue(user);
+    projectProfile.findUnique.mockResolvedValue(profile);
+    badge.findUnique.mockResolvedValue({ id: "b1", slug: "x-complete" });
+    userBadge.createMany.mockResolvedValue({ count: 1 });
+    await expect(awardBadgeAction("x-complete", "u1")).resolves.toEqual({ ok: false, reason: "profile-incomplete" });
+    expect(userBadge.createMany).not.toHaveBeenCalled();
+    expect(userBadge.upsert).not.toHaveBeenCalled();
+  });
+
+  it("the badge award reads the signed-in person's own profile, after whose the award is: another account's is still other-account", async () => {
+    projectProfile.findUnique.mockResolvedValue(null);
+    badge.findUnique.mockResolvedValue({ id: "b1", slug: "x-complete" });
+    await expect(awardBadgeAction("x-complete", "someone-else")).resolves.toEqual({ ok: false, reason: "other-account" });
+    expect(projectProfile.findUnique).not.toHaveBeenCalled();
+    await awardBadgeAction("x-complete", "u1");
+    expect(projectProfile.findUnique.mock.calls[0][0].where).toEqual({
+      userId_projectId: { userId: "u1", projectId: "seq-elevate" },
+    });
+  });
+
+  it("the badge award gives a complete profile's badge", async () => {
+    badge.findUnique.mockResolvedValue({ id: "b1", slug: "x-complete" });
+    userBadge.createMany.mockResolvedValue({ count: 1 });
+    await expect(awardBadgeAction("x-complete", "u1")).resolves.toEqual({ ok: true });
+    expect(userBadge.createMany).toHaveBeenCalledWith({ data: [{ userId: "u1", badgeId: "b1" }], skipDuplicates: true });
+  });
+
+  it("the saves read the signed-in person's own profile, after whose the save is: another account's is still other-account", async () => {
+    projectProfile.findUnique.mockResolvedValue(null);
+    Object.assign(prisma, { compCard });
+    await expect(saveCompCard({ wentWell: "W" }, "someone-else")).resolves.toEqual({ ok: false, error: "other-account" });
+    await expect(saveCourseProgressPatch("speaking-up", { v: 2, completed: ["context"] }, "someone-else")).resolves.toEqual({
+      ok: false,
+      error: "other-account",
+    });
+    expect(projectProfile.findUnique).not.toHaveBeenCalled();
+    await saveCompCard({ wentWell: "W" }, "u1");
+    expect(projectProfile.findUnique.mock.calls[0][0].where).toEqual({
+      userId_projectId: { userId: "u1", projectId: "seq-elevate" },
+    });
+  });
 });
 
 describe("loadLearnerGlobal's Comp Card says whether it is shared (D80)", () => {
