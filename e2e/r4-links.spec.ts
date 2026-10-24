@@ -1,4 +1,4 @@
-import { test, expect, type APIRequestContext, type Locator, type Page } from "@playwright/test";
+import { test, expect, type APIRequestContext, type BrowserContext, type Locator, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { Prisma, PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
@@ -92,6 +92,10 @@ import de from "../src/messages/de.json";
  *          the first box after its words begin, beside their last visible
  *          character or on the next line, and no blank opens a gap of more
  *          than a line between its words.
+ *   R4-E14 (its Link form) the Link form in a lesson's text, open and
+ *          refusing an address, at 320 px under /en, /de and /el: axe clean,
+ *          nothing past the screen's edge or scrolling sideways, no policy
+ *          violation (the release check's 320 px sweep, spec 10.7).
  * R4-E4 (pasting) is in rich-text-editor.spec.ts.
  *
  * Requires a real database (E2E_DB=1). Seeds a course of its own, removed
@@ -1584,4 +1588,87 @@ describe("Release 4 — links in lesson text", () => {
       await context.close();
     }
   });
+
+  for (const locale of ["en", "de", "el"] as const) {
+    test(`R4-E14 (${locale}): the Link form in a lesson's text, open and refusing, at 320 px: axe clean, nothing past the edge, no policy violation`, async ({
+      browser,
+    }) => {
+      await setNarrative(EDITED, narrative("R4 links lesson", [plain("Read the guide today.")]));
+      const context = await browser.newContext({ viewport: { width: 320, height: 640 } });
+      const violations = await collectViolations(context);
+      await signIn(context, editor.sessionToken);
+      const page = await context.newPage();
+      try {
+        const response = await page.goto(`/${locale}/content/courses/${SLUG}?lesson=${EDITED}`);
+        expect(response?.headers()["content-security-policy"], "an enforced policy").toBeTruthy();
+        await expect(page.locator("html")).toHaveAttribute("lang", locale);
+        const region = page
+          .locator(`#lesson-${EDITED}`)
+          .filter({ visible: true })
+          .getByRole("region", { name: /lesson text/i });
+        await expect(region).toBeVisible({ timeout: 20_000 });
+        const block = region.getByRole("group", { name: /^block 1 of 1/i });
+        await openParagraph(page, block);
+        await selectBeforeEnd(page, 7, 9);
+        await page.keyboard.press("ControlOrMeta+k");
+        const form = linkForm(block);
+        await expect(form).toBeVisible();
+        await expect(form.getByLabel("Address")).toBeFocused();
+        const sweep = async (where: string) => {
+          await expectNoSidewaysScroll(page, where);
+          for (const control of [form.getByLabel("Text to show"), form.getByLabel("Address"), form.getByRole("button", { name: "Apply", exact: true })]) {
+            const box = (await control.boundingBox())!;
+            expect(box.x, `${where}: on the screen`).toBeGreaterThanOrEqual(0);
+            expect(box.x + box.width, `${where}: on the screen`).toBeLessThanOrEqual(320);
+          }
+          await expectAxeClean(page, `#lesson-${EDITED}`, where);
+        };
+        await sweep(`${locale}, the form open`);
+        // Refusing an address: the problem is said, and the form still fits.
+        await page.keyboard.type("javascript:alert(1)");
+        await page.keyboard.press("Enter");
+        await expect(form.getByRole("alert")).toBeVisible();
+        await sweep(`${locale}, the form refusing`);
+        await page.keyboard.press("Escape");
+        await expect(form).toHaveCount(0);
+        expect(violations, "no policy violation").toEqual([]);
+      } finally {
+        await context.close();
+      }
+    });
+  }
 });
+
+/** Release 3's policy-violation collector: every report the page's Content-Security-Policy makes. */
+async function collectViolations(context: BrowserContext) {
+  const reports: { directive: string; blocked: string; page: string }[] = [];
+  await context.exposeBinding("__e2eR4aCspViolation", (_source, v: { directive: string; blocked: string; page: string }) => {
+    reports.push(v);
+  });
+  await context.addInitScript(() => {
+    document.addEventListener("securitypolicyviolation", (e) => {
+      (window as unknown as { __e2eR4aCspViolation: (v: unknown) => void }).__e2eR4aCspViolation({
+        directive: e.effectiveDirective,
+        blocked: e.blockedURI,
+        page: location.pathname,
+      });
+    });
+  });
+  return reports;
+}
+
+/** Nothing scrolls sideways on the page as it is now. */
+async function expectNoSidewaysScroll(page: Page, where: string) {
+  const sideways = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  expect(sideways, `${where}: no sideways scroll`).toBeLessThanOrEqual(0);
+}
+
+const AXE_TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
+/** axe's WCAG 2.2 AA rules: none broken in `scope`, and nothing serious or critical anywhere on the page. */
+async function expectAxeClean(page: Page, scope: string, where: string) {
+  const inScope = await new AxeBuilder({ page }).include(scope).withTags(AXE_TAGS).analyze();
+  expect(inScope.violations.map((v) => [v.id, v.nodes.map((n) => n.target)]), `${where}: ${scope}`).toEqual([]);
+  const all = await new AxeBuilder({ page }).withTags(AXE_TAGS).analyze();
+  const serious = all.violations.filter((v) => v.impact === "serious" || v.impact === "critical");
+  expect(serious.map((v) => [v.id, v.nodes.map((n) => n.target)]), `${where}: the whole page`).toEqual([]);
+}
