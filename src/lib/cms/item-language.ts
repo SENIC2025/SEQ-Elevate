@@ -1,6 +1,6 @@
 import { itemLanguageOn } from "@/lib/r4-switches";
 import { CONTENT_LOCALES } from "./course-admin-types";
-import type { Locale } from "./types";
+import type { CourseStage, Locale } from "./types";
 
 /**
  * Which documents and further-reading links a learner gets, by the
@@ -50,4 +50,39 @@ export function forLanguage<T extends WithLanguages>(
   return items.filter(
     (item) => !item.languages?.length || item.languages.some((language) => (locales as readonly string[]).includes(language))
   );
+}
+
+/**
+ * Does a lesson drawn by its stage screen (a CourseStage) show anything
+ * besides its documents and further reading: its text, an exercise, the
+ * reflection's introduction and questions, or a video? A standard text
+ * lesson nobody wrote shows only its title.
+ */
+export function stageShowsOwnContent(stage: CourseStage): boolean {
+  return !!(stage.video || stage.blocks?.length || stage.simulation || stage.scenario || stage.assessment || stage.reflection);
+}
+
+/** Does a lesson drawn piece by piece (a SectionStage) show a piece of content or a video? */
+export function sectionShowsOwnContent(section: { parts: readonly unknown[]; video?: unknown }): boolean {
+  return section.parts.length > 0 || !!section.video;
+}
+
+/**
+ * The documents a learner who reads in `locales` gets of a lesson (spec
+ * 4.4), from its published documents: those for their languages
+ * (forLanguage); or, when that leaves none and the lesson shows nothing
+ * else (`showsOwnContent` false), all of them, each marked with its
+ * language, so a learner never gets an empty lesson that counts. A lesson
+ * that shows something else is shown without them. The one rule for both
+ * kinds of lesson (learner-course.ts, sections/resolve.ts) and for what the
+ * course page says of it (LessonLinkManager's linkHints).
+ */
+export function lessonDocumentsFor<T extends WithLanguages>(
+  published: readonly T[],
+  locales: readonly Locale[],
+  showsOwnContent: boolean,
+  env: Record<string, string | undefined> = process.env
+): T[] {
+  const documents = forLanguage(published, locales, env);
+  return !documents.length && published.length && !showsOwnContent ? [...published] : documents;
 }

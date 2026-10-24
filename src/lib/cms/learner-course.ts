@@ -34,7 +34,7 @@ import "server-only";
 
 import { prisma } from "@/lib/prisma";
 import { furtherReadingOn } from "@/lib/r4-switches";
-import { forLanguage } from "./item-language";
+import { forLanguage, lessonDocumentsFor, stageShowsOwnContent } from "./item-language";
 import { documentRef, publishedLinksByLesson } from "./lesson-overlay";
 import type { ItemLanguages, StageReading } from "./reading-types";
 import { pickText } from "./structure";
@@ -84,10 +84,6 @@ const langOf = (lesson: { lang?: Locale }) => (lesson.lang ? { lang: lesson.lang
 /** A stage as getCourse builds it since Release 4: its documents' languages, and its further reading. */
 type ReadingStage = Omit<CourseStage, "documents"> & StageReading & { documents?: (LessonDocumentRef & ItemLanguages)[] };
 
-/** Does a stage show anything besides its documents? */
-const stageHasOwnContent = (s: CourseStage) =>
-  !!(s.video || s.blocks?.length || s.simulation || s.scenario || s.assessment || s.reflection);
-
 /**
  * A stage lesson's documents and links for the languages a learner reads
  * in (spec 4.4). The very stage getCourse built when nothing is left out;
@@ -97,8 +93,7 @@ const stageHasOwnContent = (s: CourseStage) =>
 function stageForLanguage(stage: CourseStage, locales: readonly Locale[]): CourseStage {
   const s: ReadingStage = stage;
   const all = s.documents ?? [];
-  let documents = forLanguage(all, locales);
-  if (!documents.length && all.length && !stageHasOwnContent(s)) documents = all;
+  const documents = lessonDocumentsFor(all, locales, stageShowsOwnContent(stage));
   const links = forLanguage(s.links ?? [], locales);
   if (documents.length === all.length && links.length === (s.links?.length ?? 0)) return stage;
   const { documents: _d, links: _l, ...rest } = s;

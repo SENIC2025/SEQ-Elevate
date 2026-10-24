@@ -82,6 +82,16 @@ vi.mock("@/lib/cms", async () => {
 });
 
 const { getCourseGrid, getCourseOutline } = await import("./course-admin");
+// The course page's hints are worked out in the link manager's module, whose actions run on the server.
+vi.mock("@/app/actions/lesson-reading", () => ({
+  addLessonLink: vi.fn(),
+  getLessonLinks: vi.fn(),
+  removeLessonLink: vi.fn(),
+  setLessonLinkOrder: vi.fn(),
+  setLessonLinkPublished: vi.fn(),
+  updateLessonLink: vi.fn(),
+}));
+const { readingHints } = await import("@/components/role/LessonLinkManager");
 
 const EN = { title: "Asking for help", tagline: "Short and real", clusterLabel: "Communication" };
 const written = (title: string, text: string) => ({ title, blocks: [para(text)] });
@@ -743,6 +753,62 @@ describe("further reading and languages on the course page (Release 4)", () => {
     // Documents follow the previewed language too.
     expect(own?.byLang.en.sectioned?.documents?.map((d) => d.id)).toEqual(["d-all"]);
     expect(own?.byLang.de.sectioned?.documents?.map((d) => d.id)).toEqual(["d-de", "d-all"]);
+  });
+
+  // The course page's further-reading hints (spec 4.6) say what learners
+  // get: learner-course.test.ts pins the same lessons on the learner's side.
+  const GERMAN_ONLY =
+    "Every language gets this lesson: its only material is for German learners, so others see the German document, marked “In German”.";
+  const ALONE = "Further reading alone doesn't make a lesson appear for learners.";
+  const NOT_NOW = "Learners don't get this lesson now, so they don't see its further reading.";
+  const hintsOf = (o: Awaited<ReturnType<typeof getCourseOutline>>, key: string) => {
+    const lesson = o?.lessons.find((l) => l.key === key);
+    if (!lesson) throw new Error(`no lesson ${key}`);
+    return readingHints(lesson);
+  };
+
+  it("says every language gets a lesson with a German-only document only where learners get the document: not of the standard reflection lesson, whose questions are its own", async () => {
+    ownCourse();
+    lessons = lessons.filter((l) => l.stageKey !== "reflection" && l.stageKey !== "concept");
+    lessons.push(
+      // Nothing stored: learners get its standard introduction and questions, and English learners no document.
+      { stageKey: "reflection", documents: [doc("nur-r", ["de"])] },
+      // A standard text lesson nobody wrote, and a lesson of the course's own with only a title: the document is all they show.
+      { stageKey: "concept", documents: [doc("nur-c", ["de"])] },
+      { stageKey: OWN, narrative: { en: { title: "Worksheet" } }, documents: [doc("nur-o", ["de"])] }
+    );
+    const o = await getCourseOutline("asking-for-help");
+    expect(hintsOf(o, "reflection")).toEqual([]);
+    expect(hintsOf(o, "concept")).toEqual([GERMAN_ONLY]);
+    expect(hintsOf(o, OWN)).toEqual([GERMAN_ONLY]);
+  });
+
+  it("says further reading alone makes no lesson only of a lesson learners don't get for want of content", async () => {
+    outline = {
+      v: 1,
+      sections: [
+        { id: OWN, template: "text", label: { en: "Reading only" } },
+        { id: "s-hiddenxx", template: "text", label: { en: "Hidden" }, hidden: true },
+        { id: "context", template: "context" },
+        { id: "concept", template: "concept" },
+        { id: "behaviour", template: "behaviour" },
+        { id: "reflection", template: "reflection" },
+      ],
+    };
+    lessons = lessons.filter((l) => l.stageKey !== "reflection" && l.stageKey !== "concept");
+    lessons.push(
+      { stageKey: OWN, narrative: { en: { title: "Reading only" } }, links: [link("k1")] },
+      { stageKey: "s-hiddenxx", narrative: { en: written("Hidden", "Text") }, links: [link("k2")] },
+      // Learners get both, and their further reading with them.
+      { stageKey: "reflection", links: [link("k3")] },
+      { stageKey: "concept", links: [link("k4")] }
+    );
+    const o = await getCourseOutline("asking-for-help");
+    expect(o?.lessons.find((l) => l.key === OWN)).toMatchObject({ live: false, notLive: "empty" });
+    expect(hintsOf(o, OWN)).toEqual([ALONE]);
+    expect(hintsOf(o, "s-hiddenxx")).toEqual([NOT_NOW]);
+    expect(hintsOf(o, "reflection")).toEqual([]);
+    expect(hintsOf(o, "concept")).toEqual([]);
   });
 
   it("takes a link's last change as the course's last edit, on the page and on the grid", async () => {

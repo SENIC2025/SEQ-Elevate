@@ -21,6 +21,8 @@ import {
   titleShowsNothing,
   type StaffLessonLink,
 } from "@/lib/cms/lesson-links";
+import type { LessonOutline } from "@/lib/cms/course-admin-types";
+import { forLanguage, lessonDocumentsFor, sectionShowsOwnContent, stageShowsOwnContent } from "@/lib/cms/item-language";
 import type { ItemLanguages } from "@/lib/cms/reading-types";
 import type { LessonDocumentRef, Locale } from "@/lib/cms/types";
 import { checkLinkHref, type LinkRefusal } from "@/lib/rich-text/link-url";
@@ -142,36 +144,72 @@ export function refusalMessage(answer: Exclude<ActionAnswer, { ok: true }>): { f
   }
 }
 
-/** The hints the page can give from what it knows of the lesson (spec 4.6). */
+const READING_ALONE = "Further reading alone doesn't make a lesson appear for learners.";
+const READING_NOT_NOW = "Learners don't get this lesson now, so they don't see its further reading.";
+
+/**
+ * The hints the page can give from what it knows of the lesson (spec 4.6),
+ * each true of what learners get:
+ * - a lesson they don't get because nothing in it can be shown yet
+ *   (`notLive` "empty"): further reading alone doesn't make it appear;
+ * - any other lesson they don't get (hidden, or the Release 2 player
+ *   switched off): they don't see its further reading;
+ * - a lesson they get whose only material is published documents for some
+ *   languages: every language gets it, with those documents, where the
+ *   player's fallback (lessonDocumentsFor) shows them to the others: only
+ *   while the lesson shows nothing else in their language.
+ */
 export function linkHints(lesson: {
   /** Learners get this lesson now (`live`). */
   live: boolean;
-  /** It has text, an exercise, extra content or a video. */
-  otherContent: boolean;
+  /** Why they don't (LessonOutline.notLive). */
+  notLive?: "empty" | "switched-off";
+  /**
+   * Per language, whether the lesson shows learners anything besides its
+   * documents and further reading (item-language.ts stageShowsOwnContent,
+   * sectionShowsOwnContent); null where the page has no view of it.
+   */
+  ownContent: Readonly<Record<Locale, boolean | null>>;
   documents: readonly (LessonDocumentRef & ItemLanguages)[];
 }): string[] {
+  if (!lesson.live) return [lesson.notLive === "empty" ? READING_ALONE : READING_NOT_NOW];
   const published = lesson.documents.filter((d) => d.published);
-  if (!lesson.otherContent && !published.length) {
-    return ["Further reading alone doesn't make a lesson appear for learners."];
-  }
-  const hints: string[] = [];
-  if (!lesson.live) hints.push("Learners don't get this lesson now, so they don't see its further reading.");
-  // Languages never change which lessons there are: a lesson whose only
-  // material is documents for some languages reaches everyone, and the
-  // others see those documents, marked with their language.
-  if (!lesson.otherContent && published.every((d) => d.languages?.length)) {
-    const covered = LANGUAGES.filter((l) => published.some((d) => d.languages?.includes(l.code)));
-    if (covered.length < LANGUAGES.length) {
-      const names = covered.map((l) => l.name);
-      const list = names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names.at(-1)}` : names[0];
-      hints.push(
-        covered.length === 1 && published.length === 1
-          ? `Every language gets this lesson: its only material is for ${list} learners, so others see the ${list} document, marked “In ${list}”.`
-          : `Every language gets this lesson: its only material is for ${list} learners, so others see it too, marked with its language.`
-      );
-    }
-  }
-  return hints;
+  // Languages never change which lessons there are: the learners of a
+  // language none of the documents is for get the lesson, and the documents
+  // only when it shows nothing else.
+  const others = LANGUAGES.filter((l) => !forLanguage(published, [l.code]).length);
+  if (!published.length || !others.length) return [];
+  if (!others.every((l) => lessonDocumentsFor(published, [l.code], lesson.ownContent[l.code] ?? true).length)) return [];
+  const names = LANGUAGES.filter((l) => !others.includes(l)).map((l) => l.name);
+  const list = names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names.at(-1)}` : names[0];
+  return [
+    names.length === 1 && published.length === 1
+      ? `Every language gets this lesson: its only material is for ${list} learners, so others see the ${list} document, marked “In ${list}”.`
+      : `Every language gets this lesson: its only material is for ${list} learners, so others see it too, marked with its language.`,
+  ];
+}
+
+/**
+ * The hints for a lesson of the course page (spec 4.6), from what learners
+ * get of it: whether they get it now and why not (the lesson plan, `live`
+ * and `notLive`), and, per language, whether it shows anything besides its
+ * documents, read from the page's view of it in that language: the
+ * preview of a lesson drawn piece by piece (`sectioned`), else the stage
+ * learners get (`stage`).
+ */
+export function readingHints(lesson: Pick<LessonOutline, "live" | "notLive" | "byLang" | "documents">): string[] {
+  const ownContent = Object.fromEntries(
+    LANGUAGES.map(({ code }) => {
+      const view = lesson.byLang[code];
+      const own = view?.sectioned
+        ? sectionShowsOwnContent(view.sectioned)
+        : view?.stage
+          ? stageShowsOwnContent(view.stage)
+          : null;
+      return [code, own];
+    })
+  ) as Record<Locale, boolean | null>;
+  return linkHints({ live: lesson.live, notLive: lesson.notLive, ownContent, documents: lesson.documents });
 }
 
 /** The controls of a link's row, as their ids name them. */

@@ -1,6 +1,13 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
-import { forLanguage, normaliseLanguages } from "./item-language";
+import {
+  forLanguage,
+  lessonDocumentsFor,
+  normaliseLanguages,
+  sectionShowsOwnContent,
+  stageShowsOwnContent,
+} from "./item-language";
+import type { CourseStage } from "./types";
 
 /*
  * Release 4 spec 4.2 and 4.4 (U16): the languages a document or link is for,
@@ -76,6 +83,55 @@ describe("forLanguage", () => {
     const out = forLanguage(items, ["de"], { R4_ITEM_LANGUAGE: "off" });
     expect(out).not.toBe(items);
     expect(out).toEqual(items);
+  });
+});
+
+describe("lessonDocumentsFor (the fallback of spec 4.4)", () => {
+  const de = { id: "de", languages: ["de"] };
+  const el = { id: "el", languages: ["el"] };
+  const all = { id: "all", languages: [] as string[] };
+  const ids = (docs: { id: string; languages: string[] }[], locales: ("en" | "de" | "el")[], own: boolean, env = {}) =>
+    lessonDocumentsFor(docs, locales, own, env).map((d) => d.id);
+
+  it("gives a learner the documents for their languages, as forLanguage does", () => {
+    expect(ids([all, de, el], ["en"], true)).toEqual(["all"]);
+    expect(ids([all, de, el], ["en"], false)).toEqual(["all"]);
+    expect(ids([all, de, el], ["en", "de"], true)).toEqual(["all", "de"]);
+  });
+
+  it("gives every document of a lesson that shows nothing else when none is for the learner's languages", () => {
+    expect(ids([de], ["en"], false)).toEqual(["de"]);
+    expect(ids([de, el], ["en"], false)).toEqual(["de", "el"]);
+  });
+
+  it("gives none of them when the lesson shows something else: its text, an exercise, its questions or a video", () => {
+    expect(ids([de], ["en"], true)).toEqual([]);
+    expect(ids([de, el], ["en"], true)).toEqual([]);
+  });
+
+  it("gives nothing of no documents, and every document with R4_ITEM_LANGUAGE=off", () => {
+    expect(ids([], ["en"], false)).toEqual([]);
+    expect(ids([de], ["en"], true, { R4_ITEM_LANGUAGE: "off" })).toEqual(["de"]);
+  });
+});
+
+describe("what a lesson shows besides its documents and further reading", () => {
+  const stage = (fields: Partial<CourseStage>): CourseStage => ({ key: "context", title: "T", ...fields });
+
+  it("a stage lesson: its text, an exercise, the reflection's questions or a video", () => {
+    expect(stageShowsOwnContent(stage({ blocks: [{ kind: "paragraph", text: "Hi" }] }))).toBe(true);
+    expect(stageShowsOwnContent(stage({ key: "reflection", reflection: { intro: "Take a moment.", prompts: [] } }))).toBe(true);
+    expect(stageShowsOwnContent(stage({ video: { provider: "file", src: "https://x/v.mp4" } }))).toBe(true);
+    expect(stageShowsOwnContent(stage({ simulation: { prompt: "p", instruction: "i", options: [] } }))).toBe(true);
+    // A standard text lesson nobody wrote: a title, no text.
+    expect(stageShowsOwnContent(stage({ blocks: [] }))).toBe(false);
+    expect(stageShowsOwnContent(stage({ blocks: [], documents: [], links: [] }))).toBe(false);
+  });
+
+  it("a lesson drawn piece by piece: a piece of content or a video", () => {
+    expect(sectionShowsOwnContent({ parts: [{ id: "main", type: "text", blocks: [] }] })).toBe(true);
+    expect(sectionShowsOwnContent({ parts: [], video: { provider: "file", src: "https://x/v.mp4" } })).toBe(true);
+    expect(sectionShowsOwnContent({ parts: [] })).toBe(false);
   });
 });
 
