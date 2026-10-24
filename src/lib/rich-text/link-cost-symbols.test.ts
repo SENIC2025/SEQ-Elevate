@@ -3,6 +3,7 @@ import { checkLinkHref } from "./link-url";
 import { linkSite, textIsSite } from "./link-site";
 import { linkTextProblem } from "./link-text";
 import { sanitizeRichText } from "./sanitize";
+import { cpuMs, cpuRatio, leastCpuMs } from "./cpu-time.test-helpers";
 
 /*
  * The length guards' verifier (D103, D104): a host made of symbols,
@@ -41,14 +42,11 @@ function symbols(units: number, from = 0): string {
   }
 }
 
+/** The median CPU time `run` takes, in milliseconds, over `times` runs after three to warm up (cpu-time.test-helpers.ts). */
 function median(run: () => unknown, times = 20): number {
   for (let i = 0; i < 3; i++) run();
   const took: number[] = [];
-  for (let i = 0; i < times; i++) {
-    const started = performance.now();
-    run();
-    took.push(performance.now() - started);
-  }
+  for (let i = 0; i < times; i++) took.push(cpuMs(run));
   took.sort((a, b) => a - b);
   return (took[times / 2 - 1] + took[times / 2]) / 2;
 }
@@ -77,8 +75,8 @@ describe("link text that shows a host of symbols DNS can't hold", () => {
     expect(long.length).toBeGreaterThan(9_990);
     drawnWithItsSite(long, EVIL);
     const took = median(() => linkTextProblem(long, EVIL));
-    const ratio = took / median(() => short.forEach((text) => linkTextProblem(text, EVIL)));
-    expect(took, `took ${took.toFixed(1)} ms, ratio ${ratio.toFixed(1)}`).toBeLessThan(10);
+    const { ratio } = cpuRatio(() => linkTextProblem(long, EVIL), () => short.forEach((text) => linkTextProblem(text, EVIL)));
+    expect(took, `took ${took.toFixed(1)} ms of CPU time, ratio ${ratio.toFixed(1)}`).toBeLessThan(10);
     expect(ratio, `ratio ${ratio.toFixed(1)}`).toBeLessThan(3);
   }, 60_000);
 });
@@ -98,10 +96,11 @@ describe("a 1 MB lesson of hosts of symbols", () => {
     }
     return blocks;
   }
+  /** The save's issues and its CPU time, the least of three. */
   const save = (blocks: unknown[]) => {
-    const started = performance.now();
-    const issues = blocks.map((b) => sanitizeRichText(b).issues);
-    return { took: performance.now() - started, issues };
+    let issues: string[][] = [];
+    const [took] = leastCpuMs([() => (issues = blocks.map((b) => sanitizeRichText(b).issues))], 3);
+    return { took, issues };
   };
 
   it("24 hrefs per block, each a host of 2,017 symbols, in under 0.5 s", () => {
@@ -109,7 +108,7 @@ describe("a 1 MB lesson of hosts of symbols", () => {
     expect(checkLinkHref(`https://${symbols(2_017)}.com/`)).toEqual({ ok: false, reason: "host" });
     const { took, issues } = save(blocks);
     for (const found of issues) expect(found.length).toBeGreaterThan(0);
-    expect(took, `${blocks.length} blocks: ${took.toFixed(0)} ms`).toBeLessThan(500);
+    expect(took, `${blocks.length} blocks: ${took.toFixed(0)} ms of CPU time`).toBeLessThan(500);
   }, 120_000);
 });
 

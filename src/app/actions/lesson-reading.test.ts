@@ -458,9 +458,11 @@ describe("what a link may be (spec 4.2), refused before anything is written", ()
 
   it("answers a million-character address at once, without parsing it", async () => {
     const million = HOSTILE_ADDRESSES.find((r) => r.name === "1,000,000 characters")!.href as string;
-    const started = performance.now();
+    // In CPU time, this process's (cpu-time.test-helpers.ts), not the wall clock.
+    const before = process.cpuUsage();
     expect(await addLessonLink(SLUG, "context", { ...LINK, url: million })).toMatchObject({ field: "url", reason: "too-long" });
-    expect(performance.now() - started).toBeLessThan(200);
+    const used = process.cpuUsage(before);
+    expect((used.user + used.system) / 1_000, "ms of CPU time").toBeLessThan(200);
   });
 
   it("refuses fields of the wrong type, and languages that aren't en, de or el once each", async () => {

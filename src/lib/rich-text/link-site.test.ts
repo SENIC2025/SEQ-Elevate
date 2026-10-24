@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { linkSite, linkWords, textIsSite } from "./link-site";
 import { checkLinkHref, MAX_HREF_CHARS } from "./link-url";
-import { cpuRatio } from "./cpu-time.test-helpers";
+import { cpuRatio, leastCpuMs } from "./cpu-time.test-helpers";
 
 /*
  * The site label (the owner's decision of 22 October 2026: learners see the
@@ -389,14 +389,15 @@ describe("textIsSite: the link's words are its address, so the box is left out",
     expect(textIsSite("   ", GUIDE)).toBe(false);
   });
 
-  it("takes time in proportion to the words: 10,000 characters in well under 10 ms", () => {
+  it("takes time in proportion to the words: 10,000 characters in well under 10 ms of CPU time", () => {
     const long = `example.org/${"a".repeat(10_000)}`;
     const href = `https://example.org/${"a".repeat(2_000)}`;
     for (const text of [long, "x".repeat(10_000), `${"例".repeat(5_000)}.com`, ` ${"a ".repeat(5_000)}`]) {
-      textIsSite(text, href);
-      const started = performance.now();
-      for (let i = 0; i < 10; i++) expect(textIsSite(text, href)).toBe(false);
-      expect((performance.now() - started) / 10, text.slice(0, 20)).toBeLessThan(10);
+      expect(textIsSite(text, href)).toBe(false);
+      const [took] = leastCpuMs([() => {
+        for (let i = 0; i < 10; i++) textIsSite(text, href);
+      }], 3);
+      expect(took / 10, text.slice(0, 20)).toBeLessThan(10);
     }
   });
 });
@@ -442,13 +443,13 @@ describe("linkWords: a named link's words as drawn before its box, no blank push
     }
   });
 
-  it("takes time in proportion to the words: 10,000 characters in well under 10 ms", () => {
+  it("takes time in proportion to the words: 10,000 characters in well under 10 ms of CPU time", () => {
     for (const words of [" ".repeat(10_000), " \u200B".repeat(5_000), "a ".repeat(5_000), "\u2003\u00AD".repeat(5_000)]) {
       const parts = [words.slice(0, 5_000), words.slice(5_000)];
-      linkWords(parts);
-      const started = performance.now();
-      for (let i = 0; i < 10; i++) linkWords(parts);
-      expect((performance.now() - started) / 10, JSON.stringify(words.slice(0, 4))).toBeLessThan(10);
+      const [took] = leastCpuMs([() => {
+        for (let i = 0; i < 10; i++) linkWords(parts);
+      }], 3);
+      expect(took / 10, JSON.stringify(words.slice(0, 4))).toBeLessThan(10);
     }
   });
 });

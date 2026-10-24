@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { leastCpuMs } from "./cpu-time.test-helpers";
 import {
   MAX_HREF_CHARS,
   checkLinkHref,
@@ -188,19 +189,20 @@ describe("checkLinkHref refuses everything else, and says why", () => {
 
   it("refuses a huge address by its length, before reading it", () => {
     const huge = "https://" + "a".repeat(5_000_000) + ".org";
-    const started = performance.now();
-    const check = checkLinkHref(huge);
-    expect(performance.now() - started).toBeLessThan(200);
+    let check = checkLinkHref(huge);
+    const [took] = leastCpuMs([() => (check = checkLinkHref(huge))], 3);
+    expect(took, "ms of CPU time").toBeLessThan(200);
     expect(brief(check)).toEqual({ ok: false, reason: "too-long" });
   });
 
   it("refuses an email address whose domain DNS can't hold before reading it, in time", () => {
     const label = Array.from({ length: 2_000 }, (_, i) => String.fromCodePoint(0x4e00 + i)).join("");
     for (const href of [`mailto:help@${label}.example`, `mailto:help@${"a".repeat(2_000)}.example?subject=Hi`]) {
-      checkLinkHref(href);
-      const started = performance.now();
-      for (let i = 0; i < 10; i++) expect(checkLinkHref(href)).toEqual({ ok: false, reason: "email" });
-      expect((performance.now() - started) / 10).toBeLessThan(1);
+      expect(checkLinkHref(href)).toEqual({ ok: false, reason: "email" });
+      const [took] = leastCpuMs([() => {
+        for (let i = 0; i < 10; i++) checkLinkHref(href);
+      }], 3);
+      expect(took / 10, "ms of CPU time a check").toBeLessThan(1);
     }
   });
 

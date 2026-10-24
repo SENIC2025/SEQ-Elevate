@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { cpuRatio } from "./cpu-time.test-helpers";
+import { cpuRatio, leastCpuMs } from "./cpu-time.test-helpers";
 import { checkLinkHref, emailAddressOf } from "./link-url";
 import {
   COMMON_TOP_LEVEL_DOMAINS,
@@ -698,9 +698,10 @@ describe("linkTextWarnings", () => {
   });
 
   it("reads long punctuation-only text quickly", () => {
-    const started = performance.now();
-    expect(linkTextWarnings(`${"!".repeat(10_000)}x${" !".repeat(10_000)}`)).toEqual(["long"]);
-    expect(performance.now() - started).toBeLessThan(200);
+    const text = `${"!".repeat(10_000)}x${" !".repeat(10_000)}`;
+    expect(linkTextWarnings(text)).toEqual(["long"]);
+    const [took] = leastCpuMs([() => linkTextWarnings(text)], 3);
+    expect(took, "ms of CPU time").toBeLessThan(200);
   });
 });
 

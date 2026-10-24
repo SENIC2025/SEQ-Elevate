@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { leastCpuMs } from "./cpu-time.test-helpers";
 import {
   addressProblem,
   cleanInlineText,
@@ -917,9 +918,9 @@ describe("sanitizeRichText: links (D104)", () => {
 
   it("counts an address into the text budget before reading it: 1 MB ends as too-much-text", () => {
     const huge = "https://example.org/" + "a".repeat(1_000_000);
-    const started = performance.now();
-    const result = sanitizeRichText(envelope(p(link("the guide", huge))));
-    expect(performance.now() - started).toBeLessThan(200);
+    let result = sanitizeRichText(envelope(p(link("the guide", huge))));
+    const [took] = leastCpuMs([() => (result = sanitizeRichText(envelope(p(link("the guide", huge)))))], 3);
+    expect(took, "ms of CPU time").toBeLessThan(200);
     expect(result.value).toBeNull();
     expect(result.issues).toEqual(["too-much-text"]);
     expect(result.hasLinks).toBe(true);

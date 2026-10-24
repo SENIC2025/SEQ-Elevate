@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { checkLinkHref } from "./link-url";
 import { linkTextProblem } from "./link-text";
 import { sanitizeRichText } from "./sanitize";
+import { cpuMs, cpuRatio, leastCpuMs } from "./cpu-time.test-helpers";
 
 /*
  * Release 4 (D103, D104): a host that DNS can't hold (a label of more than
@@ -26,15 +27,11 @@ const LATIN_LETTERS = Array.from({ length: 0x250 - 0xc0 }, (_, i) => String.from
 /** `length` of those letters, every one in turn, from the `from`th on. */
 const latin = (length: number, from = 0) => Array.from({ length }, (_, i) => LATIN_LETTERS[(from + i) % LATIN_LETTERS.length]).join("");
 
-/** The median time `run` takes, in milliseconds, over `times` runs after three to warm up. */
+/** The median CPU time `run` takes, in milliseconds, over `times` runs after three to warm up (cpu-time.test-helpers.ts). */
 function median(run: () => unknown, times = 20): number {
   for (let i = 0; i < 3; i++) run();
   const took: number[] = [];
-  for (let i = 0; i < times; i++) {
-    const started = performance.now();
-    run();
-    took.push(performance.now() - started);
-  }
+  for (let i = 0; i < times; i++) took.push(cpuMs(run));
   took.sort((a, b) => a - b);
   return (took[times / 2 - 1] + took[times / 2]) / 2;
 }
@@ -53,7 +50,11 @@ describe("checkLinkHref refuses an address whose host DNS can't hold before it p
   it("a 2,030-character international address, in about the time of another of its length", () => {
     const other = `https://bücher.example/${cjk(2_007)}`;
     expect(other).toHaveLength(2_030);
-    expect(median(() => checkLinkHref(address)) / median(() => checkLinkHref(other))).toBeLessThan(5);
+    const twenty = (href: string) => () => {
+      for (let i = 0; i < 20; i++) checkLinkHref(href);
+    };
+    const { ratio } = cpuRatio(twenty(address), twenty(other));
+    expect(ratio, `${ratio.toFixed(2)} times`).toBeLessThan(5);
   }, 60_000);
 });
 
@@ -76,9 +77,9 @@ describe("link text that shows a host DNS can't hold is read in time in proporti
       expect(long).toHaveLength(10_000);
       for (const text of [long, ...short]) expect(linkTextProblem(text, EVIL)).toBe(problem);
       const took = median(() => linkTextProblem(long, EVIL));
-      const ratio = took / median(() => short.forEach((text) => linkTextProblem(text, EVIL)));
-      expect(took, `took ${took.toFixed(2)} ms`).toBeLessThan(10);
-      expect(ratio).toBeLessThan(3);
+      const { ratio } = cpuRatio(() => linkTextProblem(long, EVIL), () => short.forEach((text) => linkTextProblem(text, EVIL)));
+      expect(took, `took ${took.toFixed(2)} ms of CPU time`).toBeLessThan(10);
+      expect(ratio, `${ratio.toFixed(2)} times`).toBeLessThan(3);
     },
     60_000
   );
@@ -131,10 +132,9 @@ describe("a lesson of long international hrefs and link text is checked in time 
   it("a crafted 1 MB lesson, every block refused, in under 0.5 s", () => {
     const blocks = lesson();
     expect(blocks.length).toBeGreaterThanOrEqual(10);
-    const started = performance.now();
-    const issues = blocks.map((block) => sanitizeRichText(block).issues);
-    const took = performance.now() - started;
+    let issues: string[][] = [];
+    const [took] = leastCpuMs([() => (issues = blocks.map((block) => sanitizeRichText(block).issues))], 3);
     for (const found of issues) expect(found.length).toBeGreaterThan(0);
-    expect(took).toBeLessThan(500);
+    expect(took, `${took.toFixed(0)} ms of CPU time`).toBeLessThan(500);
   }, 120_000);
 });

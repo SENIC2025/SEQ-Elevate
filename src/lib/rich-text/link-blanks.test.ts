@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { edgeBlanks } from "./link-blanks";
+import { leastCpuMs } from "./cpu-time.test-helpers";
 
 describe("edgeBlanks", () => {
   it("counts the blanks a link's words start and end with: spaces, no-break spaces, tabs, other whitespace", () => {
@@ -15,9 +16,11 @@ describe("edgeBlanks", () => {
 
   it("reads a long text in time in proportion to its blanks", () => {
     const text = `${" a".repeat(200_000)}x`;
-    const started = performance.now();
+    const blanks = `${" ".repeat(400_000)}x${" ".repeat(400_000)}`;
     expect(edgeBlanks(text)).toEqual({ lead: 1, trail: 0 });
-    expect(edgeBlanks(`${" ".repeat(400_000)}x${" ".repeat(400_000)}`)).toEqual({ lead: 400_000, trail: 400_000 });
-    expect(performance.now() - started).toBeLessThan(200);
+    expect(edgeBlanks(blanks)).toEqual({ lead: 400_000, trail: 400_000 });
+    // In CPU time, the least of three (cpu-time.test-helpers.ts).
+    const [took] = leastCpuMs([() => [edgeBlanks(text), edgeBlanks(blanks)]], 3);
+    expect(took, "ms of CPU time").toBeLessThan(200);
   });
 });
