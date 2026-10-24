@@ -105,12 +105,18 @@ describe("the partner guide on links, further reading and references (Release 4)
     expect(links).toMatch(/team or role address/);
   });
 
-  it("explains further reading: drafts until shown, up to 30, after the lesson and before Continue", () => {
+  it("explains further reading: drafts until shown, up to 30, at the end of the lesson, where the player puts it (spec 4.5)", () => {
     const reading = section("Further reading");
     expect(reading).toMatch(/\*\*Add a link\*\* sits next to \*\*Upload document\*\*/);
     expect(reading).toMatch(/\*\*drafts\*\* until you choose \*\*Show to learners\*\*/);
     expect(reading).toMatch(/Up to 30 per lesson/);
-    expect(reading).toMatch(/at the end of the lesson, before \*\*Continue\*\*/);
+    // A lesson drawn piece by piece has the list before its Continue; a
+    // standard lesson's stage ends with its own Continue, and the list
+    // follows it (R4-E9).
+    expect(reading).toMatch(
+      /at the end of the lesson: before \*\*Continue\*\* in a lesson of your own or a lesson you added content to, and after \*\*Continue\*\* in a standard lesson with only its main content/
+    );
+    expect(reading).not.toMatch(/at the end of the lesson, before \*\*Continue\*\*\./);
   });
 
   it("explains a language per document or link: items never change which lessons there are", () => {

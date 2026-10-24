@@ -67,7 +67,7 @@ Added text saves per language. If a colleague saved the same content while you w
 
 ## Further reading
 
-**Add a link** sits next to **Upload document** in each lesson: a title, the web address, a short description (optional) and the languages it is for. New links are **drafts** until you choose **Show to learners**. Up to 30 per lesson. The title must not show a different address than the link opens. Learners see them under "Further reading", at the end of the lesson, before **Continue**. If you wrote a "Further reading" list at the end of a lesson's text (as we advised before 26 November), move it into links, so learners don't see it twice.
+**Add a link** sits next to **Upload document** in each lesson: a title, the web address, a short description (optional) and the languages it is for. New links are **drafts** until you choose **Show to learners**. Up to 30 per lesson. The title must not show a different address than the link opens. Learners see them under "Further reading" at the end of the lesson: before **Continue** in a lesson of your own or a lesson you added content to, and after **Continue** in a standard lesson with only its main content (as in every lesson of the two courses that came with the platform). If you wrote a "Further reading" list at the end of a lesson's text (as we advised before 26 November), move it into links, so learners don't see it twice.
 
 ## A language for each document or link
 
