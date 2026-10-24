@@ -9,6 +9,19 @@ import { completedLessonIds, enrolmentHasProgress } from "./enrolment-read";
  */
 
 const OWN = "s-abcdefgh";
+
+/**
+ * The CPU time this thread has used, in milliseconds. Unlike the wall clock it
+ * doesn't count the time the test waits while other work has the processor,
+ * so a loaded machine doesn't fail a test of how much work something takes.
+ * Node tells a thread's own (threadCpuUsage, from 22.19); where it can't, the
+ * process's, which under vitest's pool (forks) is this test file's alone.
+ */
+function cpuMs(): number {
+  const own = (process as NodeJS.Process & { threadCpuUsage?: () => NodeJS.CpuUsage }).threadCpuUsage;
+  const used = own ? own.call(process) : process.cpuUsage();
+  return (used.user + used.system) / 1000;
+}
 const ROW = {
   stagesCompleted: [] as string[],
   sectionsCompleted: null as unknown,
@@ -34,11 +47,13 @@ describe("completedLessonIds", () => {
     expect(completedLessonIds({ stagesCompleted: [], sectionsCompleted: null })).toEqual([]);
   });
 
-  it("reads 50,000 ids in well under a second: every counter reads every enrolment", () => {
+  it("reads 50,000 ids in well under a second of CPU time: every counter reads every enrolment", () => {
     const many = Array.from({ length: 50_000 }, (_, i) => `s-${String(i).padStart(8, "0")}`);
-    const start = performance.now();
+    const start = cpuMs();
     const ids = completedLessonIds({ stagesCompleted: ["CONTEXT"], sectionsCompleted: [...many, many[0]] });
-    expect(performance.now() - start).toBeLessThan(250);
+    // Measured as work done, not time passed: a list searched once per id
+    // (out.includes) takes seconds of CPU here, a Set a few milliseconds.
+    expect(cpuMs() - start).toBeLessThan(250);
     expect(ids).toHaveLength(50_001);
   });
 
