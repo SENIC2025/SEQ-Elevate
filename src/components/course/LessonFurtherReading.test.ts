@@ -19,6 +19,9 @@ import { LessonFurtherReading } from "./LessonFurtherReading";
  * email link's bare address is under its title. An item for one
  * language that isn't the one the course text is shown in is marked with
  * that language and says so; the page's own words keep the page's language.
+ * What a link opens is heard in the page's words and marked with its
+ * language (QuickLink, D105): "(opens in a new tab)" for a web link,
+ * "(opens your email program)" for an email link.
  */
 
 const IntlProvider = NextIntlClientProvider as FC<{
@@ -89,7 +92,7 @@ describe("LessonFurtherReading", () => {
     expect(html).toContain(
       `<a href="https://example.org/a" target="_blank" rel="noopener noreferrer" class="seq-link"><span class="font-medium">Title a</span>${siteBox(
         "example.org"
-      )}<span class="sr-only"> (opens in a new tab)</span></a>`
+      )}<span class="sr-only" lang="en"> (opens in a new tab)</span></a>`
     );
     expect(html).not.toContain(">example.org</p>");
     expect(linkNames(html)).toEqual(["Title a, example.org (opens in a new tab)"]);
@@ -164,7 +167,12 @@ describe("LessonFurtherReading", () => {
     expect(html).not.toContain(">mailto:");
     expect(html).not.toContain("seq-link-site");
     expect(html).not.toContain("seq-link-sep");
-    expect(linkNames(html)).toEqual(["Write to us (opens in a new tab)"]);
+    // An email link says it opens the email program, in the page's words and language.
+    expect(linkNames(html)).toEqual(["Write to us (opens your email program)"]);
+    expect(html).toContain('<span class="sr-only" lang="en"> (opens your email program)</span></a>');
+    const german = render([link("mail", { kind: "email", url: "mailto:hilfe@example.org", title: "Schreib uns", languages: ["de"] })], "de", "en");
+    expect(linkNames(german)).toEqual(["Schreib uns (öffnet dein E-Mail-Programm)"]);
+    expect(german).toContain('<span class="sr-only" lang="de"> (öffnet dein E-Mail-Programm)</span></a>');
   });
 
   it("marks an item for one language that isn't the course text's with that language, and says so in the page's words", () => {
@@ -173,14 +181,16 @@ describe("LessonFurtherReading", () => {
     expect(html).toContain('<span lang="de" class="font-medium">Title de</span>');
     expect(html).toContain(">In German</span>");
     expect(html).toContain('<p lang="de" class="mt-0.5 text-[var(--muted-foreground)]">Nur auf Deutsch.</p>');
-    // The hidden "(opens in a new tab)" stays outside the item's language.
-    expect(html).toMatch(/<\/span><span class="sr-only"> \(opens in a new tab\)<\/span><\/a>/);
+    // The hidden "(opens in a new tab)" stays outside the item's language, in the page's.
+    expect(html).toMatch(/<\/span><span class="sr-only" lang="en"> \(opens in a new tab\)<\/span><\/a>/);
   });
 
   it("marks nothing for an item in the course text's language, or for every language", () => {
     for (const languages of [["en"], [], ["en", "de"]] as Locale[][]) {
       const html = render([link("x", { languages })]);
-      expect(html, languages.join()).not.toContain("lang=");
+      // The one language mark is the hidden "(opens in a new tab)", in the page's language.
+      expect(html.match(/lang="[^"]*"/g), languages.join()).toEqual(['lang="en"']);
+      expect(html, languages.join()).toContain('<span class="sr-only" lang="en"> (opens in a new tab)</span>');
       expect(html, languages.join()).not.toContain("In German");
       expect(html, languages.join()).not.toContain("In English");
     }
@@ -199,7 +209,9 @@ describe("LessonFurtherReading", () => {
 
   it("with German switched on for the course, a German item reads as the course does", () => {
     const html = render([link("de", { languages: ["de"] })], "de");
-    expect(html).not.toContain("lang=");
+    // The one language mark is the hidden "(öffnet in einem neuen Tab)", in the page's language.
+    expect(html.match(/lang="[^"]*"/g)).toEqual(['lang="de"']);
+    expect(html).toContain('<span class="sr-only" lang="de"> (öffnet in einem neuen Tab)</span>');
     expect(html).not.toContain("Auf Deutsch");
   });
 
