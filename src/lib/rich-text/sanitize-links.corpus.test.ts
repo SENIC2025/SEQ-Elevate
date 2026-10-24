@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { linkSite } from "./link-site";
 import { sanitizeRichText } from "./sanitize";
+import { cpuRatio, leastCpuMs } from "./cpu-time.test-helpers";
 import corpus from "./link-text.corpus.json";
 
 /*
@@ -10,6 +11,12 @@ import corpus from "./link-text.corpus.json";
  * against the rule itself), and saves the length guards' verifier's 1 MB
  * lessons in time. Lessons of accepted links are drawn with the box naming
  * the site each link opens (link-site.ts).
+ *
+ * Time is measured as work done, not time passed (cpu-time.test-helpers.ts):
+ * a save in CPU time, the least of three; a block of 10,000 characters
+ * against eight of 1,250 of the same kind, by cpuRatio (the least of 9
+ * rounds each, run in turn): about as long when the cost grows with a
+ * text's length, eight times as long when with its square.
  */
 
 type Honest = { text: string; href: string; answer: "misleading" | null };
@@ -72,9 +79,9 @@ for (let cp = 0x300; cp < 0x10000; cp++) {
     // not in a host
   }
 }
-/** 64 CJK ideographs from the `k`th on, the fifth carrying 9,800 marks: a label longer than DNS allows. */
-const heavyLabel = (k: number) =>
-  Array.from({ length: 64 }, (_, i) => String.fromCodePoint(0x4e00 + (i + k) * 7) + (i === 4 ? Array.from({ length: 9_800 }, (__, j) => MARKS[(k * 13 + j) % MARKS.length]).join("") : "")).join("");
+/** 64 CJK ideographs from the `k`th on, the fifth carrying `marks` marks (9,800): a label longer than DNS allows. */
+const heavyLabel = (k: number, marks = 9_800) =>
+  Array.from({ length: 64 }, (_, i) => String.fromCodePoint(0x4e00 + (i + k) * 7) + (i === 4 ? Array.from({ length: marks }, (__, j) => MARKS[(k * 13 + j) % MARKS.length]).join("") : "")).join("");
 
 /** The blocks of a save of at most 1 MB (a request's JSON body, as lesson blocks), each one link. */
 function lesson(block: (k: number) => { text: string; href: string }): unknown[] {
@@ -91,32 +98,50 @@ function lesson(block: (k: number) => { text: string; href: string }): unknown[]
   return blocks;
 }
 
-/** Every block saved with its link, the whole save in under 0.5 s. */
+/** Every block saved with its link, the whole save in under 0.5 s of CPU time (the least of three saves). */
 function savedWhole(blocks: unknown[]) {
-  const started = performance.now();
-  const issues = blocks.map((b) => sanitizeRichText(b).issues);
-  const took = performance.now() - started;
+  let issues: string[][] = [];
+  const [took] = leastCpuMs([() => (issues = blocks.map((b) => sanitizeRichText(b).issues))], 3);
   for (const found of issues) expect(found).toEqual([]);
-  expect(took, `${blocks.length} blocks: ${took.toFixed(0)} ms`).toBeLessThan(500);
+  expect(took, `${blocks.length} blocks: ${took.toFixed(0)} ms of CPU time`).toBeLessThan(500);
+}
+
+/** One block of a kind, its link text about `n` characters long, takes about as long as eight of an eighth of it: never eight times as long. */
+function inProportion(block: (n: number, j: number) => { text: string; href: string }) {
+  const save = (blocks: unknown[]) => () => {
+    for (const saved of blocks) sanitizeRichText(saved);
+  };
+  const one = (n: number, j: number) => {
+    const { text, href } = block(n, j);
+    return linked(text, href, 1);
+  };
+  const { long, ratio } = cpuRatio(save([one(10_000, 0)]), save(Array.from({ length: 8 }, (_, j) => one(1_250, j))));
+  expect(ratio, `${long.toFixed(2)} ms, ${ratio.toFixed(1)} times`).toBeLessThan(3);
 }
 
 describe("the length guards' verifier's 1 MB lessons, saved (every block accepted)", () => {
   it("link text of a host of symbols on the link's own site, in under 0.5 s", () => {
-    const blocks = lesson((k) => ({ text: `https://${symbols(10_000 - 21, k)}.evil.example`, href: `https://evil.example/${k}` }));
+    const block = (n: number, k: number) => ({ text: `https://${symbols(n - 21, k)}.evil.example`, href: `https://evil.example/${k}` });
+    const blocks = lesson((k) => block(10_000, k));
     expect(blocks.length).toBeGreaterThanOrEqual(30);
     savedWhole(blocks);
+    inProportion(block);
   }, 120_000);
 
   it("link text of a host of symbols the rule reads as no site, drawn with the link's site, in under 0.5 s", () => {
-    const blocks = lesson((k) => ({ text: `https://${symbols(10_000 - 12, k)}.com`, href: `https://evil.example/${k}` }));
+    const block = (n: number, k: number) => ({ text: `https://${symbols(n - 12, k)}.com`, href: `https://evil.example/${k}` });
+    const blocks = lesson((k) => block(10_000, k));
     expect(blocks.length).toBeGreaterThanOrEqual(30);
     savedWhole(blocks);
+    inProportion(block);
     for (let k = 0; k < blocks.length; k++) expect(linkSite(`https://evil.example/${k}`)).toBe("evil.example");
   }, 120_000);
 
   it("link text of a long label whose fifth letter carries 9,800 marks, on the link's own site, in under 0.5 s", () => {
-    const blocks = lesson((k) => ({ text: `https://${heavyLabel(k)}.evil.example`, href: `https://evil.example/${k}` }));
+    const block = (n: number, k: number) => ({ text: `https://${heavyLabel(k, n - 86)}.evil.example`, href: `https://evil.example/${k}` });
+    const blocks = lesson((k) => block(9_886, k));
     expect(blocks.length).toBeGreaterThanOrEqual(10);
     savedWhole(blocks);
+    inProportion(block);
   }, 120_000);
 });

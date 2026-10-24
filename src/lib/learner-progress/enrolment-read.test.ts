@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { completedLessonIds, enrolmentHasProgress } from "./enrolment-read";
+import { cpuRatio } from "../rich-text/cpu-time.test-helpers";
 
 /*
  * Reading an enrolment the way every counter does (spec 4.5, 6): the
@@ -10,18 +11,6 @@ import { completedLessonIds, enrolmentHasProgress } from "./enrolment-read";
 
 const OWN = "s-abcdefgh";
 
-/**
- * The CPU time this thread has used, in milliseconds. Unlike the wall clock it
- * doesn't count the time the test waits while other work has the processor,
- * so a loaded machine doesn't fail a test of how much work something takes.
- * Node tells a thread's own (threadCpuUsage, from 22.19); where it can't, the
- * process's, which under vitest's pool (forks) is this test file's alone.
- */
-function cpuMs(): number {
-  const own = (process as NodeJS.Process & { threadCpuUsage?: () => NodeJS.CpuUsage }).threadCpuUsage;
-  const used = own ? own.call(process) : process.cpuUsage();
-  return (used.user + used.system) / 1000;
-}
 const ROW = {
   stagesCompleted: [] as string[],
   sectionsCompleted: null as unknown,
@@ -47,15 +36,23 @@ describe("completedLessonIds", () => {
     expect(completedLessonIds({ stagesCompleted: [], sectionsCompleted: null })).toEqual([]);
   });
 
+  // Measured as work done, not time passed (cpu-time.test-helpers.ts): 50,000
+  // ids against eight lists of 6,250, by CPU time (cpuRatio: the least of 5
+  // rounds each, run in turn). A Set takes a few milliseconds and about as
+  // long for both; a list searched once per id (out.includes) seconds, and
+  // eight times as long for the one list.
   it("reads 50,000 ids in well under a second of CPU time: every counter reads every enrolment", () => {
-    const many = Array.from({ length: 50_000 }, (_, i) => `s-${String(i).padStart(8, "0")}`);
-    const start = cpuMs();
-    const ids = completedLessonIds({ stagesCompleted: ["CONTEXT"], sectionsCompleted: [...many, many[0]] });
-    // Measured as work done, not time passed: a list searched once per id
-    // (out.includes) takes seconds of CPU here, a Set a few milliseconds.
-    expect(cpuMs() - start).toBeLessThan(250);
-    expect(ids).toHaveLength(50_001);
-  });
+    const idsFrom = (from: number, n: number) => Array.from({ length: n }, (_, i) => `s-${String(from + i).padStart(8, "0")}`);
+    const enrolment = (list: string[]) => ({ stagesCompleted: ["CONTEXT"], sectionsCompleted: [...list, list[0]] });
+    const many = idsFrom(0, 50_000);
+    expect(completedLessonIds(enrolment(many))).toHaveLength(50_001);
+    const read = (lists: string[][]) => () => {
+      for (const list of lists) completedLessonIds(enrolment(list));
+    };
+    const { long, ratio } = cpuRatio(read([many]), read(Array.from({ length: 8 }, (_, j) => idsFrom(j * 6_250, 6_250))), 5);
+    expect(ratio, `${long.toFixed(1)} ms, ${ratio.toFixed(1)} times`).toBeLessThan(3);
+    expect(long, "50,000 ids, in ms of CPU time").toBeLessThan(250);
+  }, 60_000);
 
   it("skips what it can't read", () => {
     expect(completedLessonIds({ stagesCompleted: ["CONTEXT"], sectionsCompleted: [OWN, 5, "context"] })).toEqual([

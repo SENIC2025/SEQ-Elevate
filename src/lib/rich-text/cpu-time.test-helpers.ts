@@ -1,9 +1,11 @@
 /**
- * What a piece of work costs, for the link tests' time limits (Release 4,
- * verdict §7: at most 10 ms a text, 0.5 s a 1 MB save): the CPU time this
- * process spends on it, user and system (`process.cpuUsage()`), so the
- * load other processes put on a shared machine doesn't count. Vitest runs
- * each test file in a process of its own (its default pool, forks).
+ * What a piece of work costs, for every unit test of how much work something
+ * takes (the link tests' time limits, Release 4, verdict §7: at most 10 ms a
+ * text, 0.5 s a 1 MB save; the site a link opens; the enrolment read): the
+ * CPU time this process spends on it, user and system
+ * (`process.cpuUsage()`), so the load other processes put on a shared
+ * machine doesn't count, never the wall clock. Vitest runs each test file
+ * in a process of its own (its default pool, forks).
  *
  * A cost that grows with a text's length, not its square, is compared as a
  * ratio of two pieces of work: each is run once to warm up, then the two

@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { linkSite, linkWords, textIsSite } from "./link-site";
 import { checkLinkHref, MAX_HREF_CHARS } from "./link-url";
+import { cpuRatio } from "./cpu-time.test-helpers";
 
 /*
  * The site label (the owner's decision of 22 October 2026: learners see the
@@ -150,19 +151,30 @@ describe("linkSite: the site a web link opens, as learners see it", () => {
     expect(web).toBe(18);
   });
 
-  it("takes time in proportion to the address: the longest address in well under a millisecond", () => {
-    const longest = `https://${"a".repeat(63)}.example/${"b".repeat(1_900)}`;
-    // The longest email addresses: a local part of 1,950 characters; a domain of 253 distinct letters, the longest the check takes.
-    const label = (from: number) => Array.from({ length: 63 }, (_, i) => String.fromCodePoint(from + i)).join("");
-    const mailbox = `mailto:${"a".repeat(1_950)}@example.org`;
-    const domain = `mailto:help@${label(0x4e00)}.${label(0x4f00)}.${label(0x5000)}.${label(0x5100).slice(0, 53)}.example`;
-    for (const href of [longest, mailbox, domain]) {
-      expect(linkSite(href), href.slice(0, 40)).not.toBeNull();
-      const started = performance.now();
-      for (let i = 0; i < 100; i++) linkSite(href);
-      expect((performance.now() - started) / 100, href.slice(0, 40)).toBeLessThan(1);
+  // Measured as work done, not time passed (cpu-time.test-helpers.ts): each
+  // longest address of its kind against eight of an eighth of its length,
+  // the same characters, by CPU time (cpuRatio: the least of 9 rounds each,
+  // run in turn), 100 reads a round. About as long, or less, when the cost
+  // grows with the length; eight times as long when with its square.
+  it("takes time in proportion to the address: the longest address in well under a millisecond of CPU time", () => {
+    // A web address of 2,000 characters; the longest email addresses: a local part of 1,950 characters; a domain of 253 distinct letters, the longest the check takes.
+    const label = (from: number, n = 63) => Array.from({ length: n }, (_, i) => String.fromCodePoint(from + i)).join("");
+    const kinds: [string, string][] = [
+      [`https://${"a".repeat(63)}.example/${"b".repeat(1_900)}`, `https://${"a".repeat(8)}.example/${"b".repeat(237)}`],
+      [`mailto:${"a".repeat(1_950)}@example.org`, `mailto:${"a".repeat(244)}@example.org`],
+      [`mailto:help@${label(0x4e00)}.${label(0x4f00)}.${label(0x5000)}.${label(0x5100).slice(0, 53)}.example`, `mailto:help@${label(0x4e00, 32)}.example`],
+    ];
+    const read = (hrefs: string[]) => () => {
+      for (let i = 0; i < 100; i++) for (const href of hrefs) linkSite(href);
+    };
+    for (const [longest, short] of kinds) {
+      expect(linkSite(longest), longest.slice(0, 40)).not.toBeNull();
+      expect(linkSite(short), short.slice(0, 40)).not.toBeNull();
+      const { long, ratio } = cpuRatio(read([longest]), read(Array.from({ length: 8 }, () => short)));
+      expect(ratio, `${longest.slice(0, 40)}: ${ratio.toFixed(2)} times`).toBeLessThan(3);
+      expect(long / 100, `${longest.slice(0, 40)}: ms of CPU time a read`).toBeLessThan(1);
     }
-  });
+  }, 30_000);
 });
 
 /*
