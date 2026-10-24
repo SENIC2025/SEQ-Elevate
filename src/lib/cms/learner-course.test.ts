@@ -678,6 +678,42 @@ describe("getLearnerCourse: further reading and languages (Release 4)", () => {
     expect(log).toHaveBeenCalled();
   });
 
+  it("gives the standard reflection lesson its questions and only its learners' documents; a standard text lesson nobody wrote shows its only document to everyone", async () => {
+    // What the course page's hints follow (course-admin.test.ts, spec 4.6):
+    // the reflection lesson, nothing stored, shows its standard introduction
+    // and questions, so an English learner gets it without a German-only
+    // document, and with its further reading; a standard text lesson with no
+    // text shows nothing else, so the document is shown to everyone.
+    setCourse({ name: "standard", outline: null, lessons: [{ stageKey: "context", narrative: narrative("Context") }] });
+    const base = (await getDbCourse("seq-elevate", "golden", "en"))!;
+    const reading = { id: "l-r", title: "R", url: "https://example.org/r", kind: "web", description: "", languages: [], published: true };
+    const withMaterial = {
+      ...base,
+      stages: base.stages.map((st) =>
+        st.key === "reflection"
+          ? { ...st, documents: [doc("nur-r", ["de"])], links: [reading] }
+          : st.key === "concept"
+            ? { ...st, documents: [doc("nur-c", ["de"])] }
+            : st
+      ),
+    } as CourseContent;
+    const stageOf = async (key: string, requested: Locale) => {
+      const learner = await getLearnerCourse("seq-elevate", "golden", "en", withMaterial, { requested });
+      const l = learner.lessons.find((x) => x.id === key);
+      if (l?.kind !== "stage") throw new Error(`${key} is not a stage lesson`);
+      return l.stage as typeof l.stage & { links?: { id: string }[] };
+    };
+    const reflection = await stageOf("reflection", "en");
+    expect(reflection.reflection?.prompts.length).toBeGreaterThan(0);
+    expect(reflection.documents).toBeUndefined();
+    expect(reflection.links?.map((l) => l.id)).toEqual(["l-r"]);
+    expect((await stageOf("reflection", "el")).documents).toBeUndefined();
+    expect((await stageOf("reflection", "de")).documents?.map((d) => d.id)).toEqual(["nur-r"]);
+    for (const requested of ["en", "de", "el"] as const) {
+      expect((await stageOf("concept", requested)).documents?.map((d) => d.id), requested).toEqual(["nur-c"]);
+    }
+  });
+
   it("filters a built-in course's stages", async () => {
     const base = (await localProvider.getCourse("seq-elevate", "workplace-conflict", "en"))!;
     const withDocs = { ...base, stages: base.stages.map((st, i) => (i === 0 ? { ...st, documents: [doc("de", ["de"]), doc("en", ["en"])] } : st)) };

@@ -226,29 +226,50 @@ describe("linkHints", () => {
     published,
     ...(languages ? { languages } : {}),
   });
+  /** What the lesson shows besides its documents, the same in every language (null: no view of it). */
+  const every = (value: boolean | null) => ({ en: value, de: value, el: value });
+  const ALONE = "Further reading alone doesn't make a lesson appear for learners.";
+  const NOT_NOW = "Learners don't get this lesson now, so they don't see its further reading.";
+  const GERMAN_ONLY =
+    "Every language gets this lesson: its only material is for German learners, so others see the German document, marked “In German”.";
 
-  it("says further reading alone doesn't make a lesson appear", () => {
-    expect(linkHints({ live: false, otherContent: false, documents: [doc(undefined, false)] })).toEqual([
-      "Further reading alone doesn't make a lesson appear for learners.",
-    ]);
+  it("says further reading alone doesn't make a lesson appear, of a lesson learners don't get because nothing in it can be shown", () => {
+    expect(linkHints({ live: false, notLive: "empty", ownContent: every(null), documents: [doc(undefined, false)] })).toEqual([ALONE]);
   });
 
-  it("says learners don't see the further reading of a lesson they don't get", () => {
-    expect(linkHints({ live: false, otherContent: true, documents: [] })).toEqual([
-      "Learners don't get this lesson now, so they don't see its further reading.",
-    ]);
-    expect(linkHints({ live: true, otherContent: true, documents: [] })).toEqual([]);
+  it("never says so of a lesson learners get: they get its further reading with it", () => {
+    // The standard reflection lesson with nothing stored: its standard introduction and questions.
+    expect(linkHints({ live: true, ownContent: every(true), documents: [] })).toEqual([]);
+    // A standard text lesson nobody wrote is there for learners too.
+    expect(linkHints({ live: true, ownContent: every(false), documents: [] })).toEqual([]);
   });
 
-  it("says a lesson whose only material is for one language reaches every language", () => {
-    expect(linkHints({ live: true, otherContent: false, documents: [doc(["de"])] })).toEqual([
-      "Every language gets this lesson: its only material is for German learners, so others see the German document, marked “In German”.",
-    ]);
-    expect(linkHints({ live: true, otherContent: false, documents: [doc(["de"]), doc(["el"])] })).toEqual([
+  it("says learners don't see the further reading of a lesson they don't get: hidden, or the Release 2 player switched off", () => {
+    expect(linkHints({ live: false, ownContent: every(true), documents: [] })).toEqual([NOT_NOW]);
+    expect(linkHints({ live: false, ownContent: every(null), documents: [] })).toEqual([NOT_NOW]);
+    expect(linkHints({ live: false, notLive: "switched-off", ownContent: every(true), documents: [] })).toEqual([NOT_NOW]);
+    // Nor does it say that every language gets it.
+    expect(linkHints({ live: false, ownContent: every(false), documents: [doc(["de"])] })).toEqual([NOT_NOW]);
+  });
+
+  it("says a lesson whose only material is for one language reaches every language, with it", () => {
+    expect(linkHints({ live: true, ownContent: every(false), documents: [doc(["de"])] })).toEqual([GERMAN_ONLY]);
+    expect(linkHints({ live: true, ownContent: every(false), documents: [doc(["de"]), doc(["el"])] })).toEqual([
       "Every language gets this lesson: its only material is for German and Greek learners, so others see it too, marked with its language.",
     ]);
+    // A draft isn't material: the published German document is the only one.
+    expect(linkHints({ live: true, ownContent: every(false), documents: [doc(["de"]), doc(["en"], false)] })).toEqual([GERMAN_ONLY]);
     // A document for every language, or the three between them: no hint.
-    expect(linkHints({ live: true, otherContent: false, documents: [doc(["de"]), doc()] })).toEqual([]);
-    expect(linkHints({ live: true, otherContent: false, documents: [doc(["de"]), doc(["en", "el"])] })).toEqual([]);
+    expect(linkHints({ live: true, ownContent: every(false), documents: [doc(["de"]), doc()] })).toEqual([]);
+    expect(linkHints({ live: true, ownContent: every(false), documents: [doc(["de"]), doc(["en", "el"])] })).toEqual([]);
+  });
+
+  it("doesn't say so of a lesson that shows something else: the others get the lesson without the document", () => {
+    expect(linkHints({ live: true, ownContent: every(true), documents: [doc(["de"])] })).toEqual([]);
+    expect(linkHints({ live: true, ownContent: every(true), documents: [doc(["de"]), doc(["el"])] })).toEqual([]);
+  });
+
+  it("promises nothing for a language the page has no view of", () => {
+    expect(linkHints({ live: true, ownContent: { en: null, de: false, el: false }, documents: [doc(["de"])] })).toEqual([]);
   });
 });

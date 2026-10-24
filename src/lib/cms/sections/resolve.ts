@@ -29,7 +29,7 @@ import {
   resolveSimulation,
   type StoredStructure,
 } from "../structure";
-import { forLanguage } from "../item-language";
+import { forLanguage, lessonDocumentsFor, sectionShowsOwnContent } from "../item-language";
 import type { ItemLanguages } from "../reading-types";
 import { blocksHaveText, fallbackOrder, firstText, resolveNarrative } from "../text-fallback";
 import type { LessonDocumentRef, Locale, NarrativeBlock, VideoContent } from "../types";
@@ -225,8 +225,7 @@ export const resolveSectionStage: ResolveSectionStage = ({
   // What it shows follows the languages it is shown for (spec 4.4). A
   // lesson whose only material is documents for other languages shows them
   // all, each marked with its language, rather than nothing at all.
-  let documents = itemLocales ? forLanguage(published, itemLocales) : published;
-  if (!documents.length && published.length && !parts.length && !video) documents = published;
+  const documents = itemLocales ? lessonDocumentsFor(published, itemLocales, sectionShowsOwnContent({ parts, video })) : published;
   const links = itemLocales ? forLanguage(row?.links ?? [], itemLocales) : (row?.links ?? []);
 
   return {
