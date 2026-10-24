@@ -24,9 +24,16 @@ import { callAction } from "./fixtures/server-action";
  *          profile, with the way to it
  *   PS-E3  the same in a course: the reflection isn't saved, and the page
  *          says so
+ *   PS-E4  the badge award and the activity records (a course opened, time
+ *          on a lesson, an in-video answer) write nothing for a person with
+ *          no profile, or with Terms accepted in an older version, and answer
+ *          "profile-incomplete"; another account's award is still
+ *          "other-account"; a complete profile's are written
  *
- * All three are red on the build before (77970ed): the save actions wrote
- * for anyone signed in, and the page said nothing.
+ * The first three are red on the build before (77970ed): the save actions
+ * wrote for anyone signed in, and the page said nothing. PS-E4 is red on
+ * 652e29c's build: the award and the activity records wrote for anyone
+ * signed in.
  *
  * Requires a real database: gated on E2E_DB=1. Everything the run makes
  * is removed afterwards.
@@ -41,6 +48,8 @@ const describe = DB ? test.describe : test.describe.skip;
 const RUN = runId();
 const SLUG = "workplace-conflict";
 const LEARNER_FILE = "src/app/actions/learner.ts";
+const TELEMETRY_FILE = "src/app/actions/telemetry.ts";
+const VIDEO_FILE = "src/app/actions/video.ts";
 const BEACON = "/api/progress/beacon";
 const ORIGIN = `http://localhost:${process.env.E2E_PORT ?? "3000"}`;
 const NOT_SAVING = "Finish your profile to save your progress.";
@@ -79,6 +88,8 @@ const notSaving = (page: Page) => page.getByRole("status").filter({ hasText: NOT
 
 describe("Release 3: nothing of a person's learning is saved before the profile step (D79)", () => {
   test.afterAll(async () => {
+    // Activity records outlive their actor (SetNull): removed with the people.
+    await prisma.auditLog.deleteMany({ where: { actor: { email: { in: emails } } } });
     await removePeople(prisma, emails);
     await prisma.$disconnect();
   });
@@ -133,6 +144,64 @@ describe("Release 3: nothing of a person's learning is saved before the profile 
     expect(await wentWellOf(older.userId), "the card as it was").toBe(stored);
     expect(await wentWellOf(other.userId), "nothing in another account").toBeNull();
     expect(await prisma.auditLog.count({ where: { actorId: { in: [none.userId, older.userId] } } })).toBe(0);
+  });
+
+  test("PS-E4 the badge award and the activity records write nothing for a person whose profile step isn't done; a complete profile's are written", async ({
+    request,
+  }) => {
+    test.setTimeout(60_000);
+    const none = await learner("award-none", "none");
+    const older = await learner("award-older");
+    await oldTerms(older.userId);
+    const done = await learner("award-done");
+    const badge = (
+      await prisma.course.findUnique({
+        where: { projectId_slug: { projectId: PROJECT, slug: SLUG } },
+        select: { badge: { select: { slug: true } } },
+      })
+    )?.badge?.slug;
+    expect(badge, "the course's badge").toBeTruthy();
+    const player = `/en/learner/course/${SLUG}`;
+    const activity = (who: { userId: string }) =>
+      [
+        [TELEMETRY_FILE, "recordCourseOpened", [SLUG]],
+        [TELEMETRY_FILE, "recordStageTime", [{ courseSlug: SLUG, stage: "context", seconds: 30 }]],
+        [VIDEO_FILE, "recordVideoCueAnswer", [{ courseSlug: SLUG, cueId: `cue-ps4-${who.userId}`, correct: true, lessonId: "context" }]],
+      ] as const;
+    const call = (who: { sessionToken: string }, file: string, name: string, args: readonly unknown[]) =>
+      callAction(request, { as: { sessionToken: who.sessionToken }, page: player, file, name, args: [...args] });
+
+    for (const who of [none, older]) {
+      const award = await call(who, LEARNER_FILE, "awardBadgeAction", [badge, who.userId]);
+      expect.soft(award.result, "the badge award").toEqual({ ok: false, reason: "profile-incomplete" });
+      expect.soft(award.error, "answered, never thrown").toBeUndefined();
+      // Another account's: whose it is is answered first, as before.
+      const others = await call(who, LEARNER_FILE, "awardBadgeAction", [badge, done.userId]);
+      expect.soft(others.result, "another account's award").toEqual({ ok: false, reason: "other-account" });
+      for (const [file, name, args] of activity(who)) {
+        const answer = await call(who, file, name, args);
+        expect.soft(answer.result, name).toBe("profile-incomplete");
+        expect.soft(answer.error, `${name}: answered, never thrown`).toBeUndefined();
+      }
+    }
+    const refused = { in: [none.userId, older.userId] };
+    expect(await prisma.userBadge.count({ where: { userId: refused } }), "no badge given").toBe(0);
+    expect(await prisma.auditLog.count({ where: { actorId: refused } }), "no activity recorded").toBe(0);
+    expect(await prisma.userBadge.count({ where: { userId: done.userId } }), "nothing given to another account").toBe(0);
+
+    // The control: a complete profile's badge and activity are written.
+    const award = await call(done, LEARNER_FILE, "awardBadgeAction", [badge, done.userId]);
+    expect(award.result, "a complete profile's award").toEqual({ ok: true });
+    for (const [file, name, args] of activity(done)) {
+      const answer = await call(done, file, name, args);
+      expect.soft(answer.result, name).toBeUndefined();
+      expect.soft(answer.error, name).toBeUndefined();
+    }
+    expect(await prisma.userBadge.count({ where: { userId: done.userId } }), "the badge given").toBe(1);
+    expect(
+      (await prisma.auditLog.findMany({ where: { actorId: done.userId }, select: { action: true } })).map((r) => r.action).sort(),
+      "the activity recorded"
+    ).toEqual(["course.opened", "stage.time", "video.cue_answered"]);
   });
 
   async function cardPage(context: BrowserContext, text: string) {

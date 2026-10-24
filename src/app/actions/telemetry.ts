@@ -6,10 +6,18 @@
  * events (action "stage.time"), one accumulating row per (learner, course,
  * stage) — no schema migration, and consistent with how in-video answers are
  * recorded. Guests are a no-op.
+ *
+ * Release 3 (D79): nothing is recorded before the person's profile step is
+ * done, whatever R3_PROFILE_GATE says, as the course and Comp Card saves and
+ * the badge award refuse: answered "profile-incomplete", never thrown, and
+ * nothing written. A Release 3 page sends nothing then anyway; the refusal is
+ * for a page loaded before the Terms changed or before Release 3, and for a
+ * hand-made call.
  */
 
 import { getCurrentUser } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
+import { profileStepDone } from "@/lib/profile-step";
 import { isSectionId } from "@/lib/cms/sections/contract";
 import { SLUG } from "@/lib/cms/sections/store.server";
 
@@ -21,10 +29,11 @@ const MAX_DELTA_SECONDS = 3600; // clamp absurd single deltas (clock jumps etc.)
  * Only for a course slug as the platform makes them, like its siblings:
  * whatever else the browser sends is ignored, never stored as a row's key.
  */
-export async function recordCourseOpened(courseSlug: string) {
+export async function recordCourseOpened(courseSlug: string): Promise<"profile-incomplete" | undefined> {
   if (typeof courseSlug !== "string" || !SLUG.test(courseSlug)) return;
   const user = await getCurrentUser();
   if (!user) return;
+  if (!(await profileStepDone(user))) return "profile-incomplete";
   await prisma.auditLog.create({
     data: {
       projectId: user.lastProjectId ?? PROJECT,
@@ -47,9 +56,10 @@ export async function recordStageTime(input: {
   courseSlug: string;
   stage: string;
   seconds: number;
-}) {
+}): Promise<"profile-incomplete" | undefined> {
   const user = await getCurrentUser();
   if (!user) return;
+  if (!(await profileStepDone(user))) return "profile-incomplete";
   if (typeof input.courseSlug !== "string" || !SLUG.test(input.courseSlug)) return;
   if (!isSectionId(input.stage)) return;
   if (!Number.isFinite(input.seconds) || input.seconds <= 0) return;

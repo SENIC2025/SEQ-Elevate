@@ -1157,12 +1157,18 @@ describe("Release 3 people and organisations", () => {
     request,
   }) => {
     const timed = await createPerson(prisma, { email: address("timed"), profile: "none", organisation: null });
-    await callAction(request, {
-      as: timed,
-      page: `/en/learner/course/${world.course.slug}`,
-      file: "src/app/actions/telemetry.ts",
-      name: "recordStageTime",
-      args: [{ courseSlug: world.course.slug, stage: world.course.lessonId, seconds: 300 }],
+    // Written as recordStageTime wrote it before the activity records waited
+    // for the profile step too (D79): such rows are in the database.
+    await prisma.auditLog.create({
+      data: {
+        projectId: PROJECT,
+        actorId: timed.userId,
+        action: "stage.time",
+        entity: "Stage",
+        entityId: `${world.course.slug}:${world.course.lessonId}`,
+        metadata: { courseSlug: world.course.slug, stage: world.course.lessonId, seconds: 300 },
+      },
+      select: { id: true },
     });
     expect(await prisma.auditLog.count({ where: { actorId: timed.userId, action: "stage.time" } })).toBe(1);
     const answer = await call(request, world.people.PAA, "addMember", [timed.email, "LEARNER", `Mine ${RUN}`]);

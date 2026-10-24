@@ -158,9 +158,10 @@ function isLearner(
  * signed-in learner's id.
  *
  * Before the profile step is done nothing of the person's learning is
- * saved (D79): the course saves and the Comp Card's save refuse
- * ("profile-incomplete", nothing written), whatever R3_PROFILE_GATE says,
- * as POST /api/progress/beacon does. A Release 3 page saves nothing before
+ * saved (D79): the course saves, the Comp Card's save and the badge award
+ * refuse ("profile-incomplete", nothing written), whatever R3_PROFILE_GATE
+ * says, as POST /api/progress/beacon and the activity records
+ * (telemetry.ts, video.ts) do. A Release 3 page saves nothing before
  * then anyway (ensureLearnerMembership); the refusal is for a page loaded
  * before the person's profile stopped being complete (new Terms) or before
  * Release 3 (a Release 2 page), and for a hand-made call.
@@ -804,6 +805,10 @@ async function badgeMayBeGiven(
  * The row is inserted unless it is there (INSERT … ON CONFLICT DO NOTHING):
  * the save that completes the course writes it at the same moment, and an
  * upsert lost that race on the unique key (P2002).
+ *
+ * Like the saves, it gives nothing before the profile step is done (D79:
+ * "profile-incomplete", answered in the award's own shape, never thrown;
+ * see ownProfile), after whose the award is.
  */
 export async function awardBadgeAction(
   slug: string,
@@ -811,6 +816,7 @@ export async function awardBadgeAction(
 ): Promise<BadgeAwardResult> {
   const user = await requireLearner();
   if (!isLearner(user, forUser)) return { ok: false, reason: "other-account" };
+  if (!isProfileComplete(user, await ownProfile(user.id), profileRules())) return { ok: false, reason: "profile-incomplete" };
   const badge = await prisma.badge.findUnique({
     where: { projectId_slug: { projectId: PROJECT, slug } },
   });

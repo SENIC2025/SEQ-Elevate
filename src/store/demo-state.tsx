@@ -1421,8 +1421,9 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
   // idempotent — unless the learner's data has been let go of meanwhile
   // (persistedBadges replaced). One the server refuses (no Badge row for
   // it) is logged once and not sent again this visit: no retry can fix it
-  // (badge-award.ts). A completed course's badge is also saved with the
-  // course itself (see saveCourseProgress).
+  // (badge-award.ts). Refused before the profile step is done (D79), the
+  // page says so, as for a refused save. A completed course's badge is also
+  // saved with the course itself (see saveCourseProgress).
   React.useEffect(() => {
     if (!authed || !dbOwner) return;
     const sent = persistedBadges.current;
@@ -1435,7 +1436,8 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
         (result) => {
           tries.delete(slug);
           if (isRefusedAward(result)) {
-            console.error(`The badge "${slug}" wasn't saved.`, result);
+            if (result.reason === "profile-incomplete") setProfileIncomplete(true);
+            else console.error(`The badge "${slug}" wasn't saved.`, result);
           }
         },
         (err: unknown) => {

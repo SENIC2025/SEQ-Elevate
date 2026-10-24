@@ -9,10 +9,17 @@
  *
  * Formative: this is engagement signal, not a grade. One row per (learner,
  * cue) — re-answering updates the latest correctness.
+ *
+ * Release 3 (D79): nothing is kept before the person's profile step is done,
+ * whatever R3_PROFILE_GATE says, as the course and Comp Card saves and the
+ * badge award refuse: answered "profile-incomplete", never thrown, and
+ * nothing written (a page loaded before the Terms changed or before
+ * Release 3, a hand-made call).
  */
 
 import { getCurrentUser } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
+import { profileStepDone } from "@/lib/profile-step";
 import { isSectionId } from "@/lib/cms/sections/contract";
 import { SLUG } from "@/lib/cms/sections/store.server";
 
@@ -34,9 +41,10 @@ export async function recordVideoCueAnswer(input: {
   cueId: string;
   correct: boolean;
   lessonId?: string;
-}) {
+}): Promise<"profile-incomplete" | undefined> {
   const user = await getCurrentUser();
   if (!user) return; // guest — nothing to persist server-side
+  if (!(await profileStepDone(user))) return "profile-incomplete";
   if (
     typeof input.cueId !== "string" ||
     input.cueId.length === 0 ||

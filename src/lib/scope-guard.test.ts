@@ -1100,6 +1100,7 @@ const ALLOW: AllowList = {
   "src/lib/auth-helpers.ts#getCurrentUser": system("the signed-in person's own row, by the session's id"),
   "src/lib/auth-helpers.ts#load": system("the signed-in person's own memberships (getMemberships), by the session's id"),
   "src/lib/auth-helpers.ts#requireCompleteProfile": system("the profile step's gate: the signed-in person's own profile, by the session's id (spec 5.3)"),
+  "src/lib/profile-step.ts#profileStepDone": system("whether the signed-in person's own profile step is done (D79): called only by the activity records (telemetry.ts, video.ts) with the session's own user"),
   "src/lib/role-grants.ts#ensureProjectRoles": system("grants roles at sign-in to ADMIN_EMAILS and demo profiles (auth.ts) and on page load (auth-helpers.ts)"),
   "src/lib/scope.ts#getViewer": system("the scope module reads the viewer's own profile"),
   "src/lib/scope.ts#inScope": system("the scope module's own count (peopleInScope)"),

@@ -876,6 +876,43 @@ describe("the learner's place waits for the profile step (D79)", () => {
     expect(userBadge.createMany).not.toHaveBeenCalled();
   });
 
+  // The badge award refuses too (D79, the integrator's decision (c) of 24
+  // October): a badge is the person's learning as much as a save is. Its
+  // answer is the award's own shape, as "other-account" is there.
+  it.each([
+    ["no profile at all", null, USER],
+    ["no country", completeProfile({ country: null }), USER],
+    ["Terms of an older version", completeProfile({ termsVersion: "1999-01-01" }), USER],
+    ["no age rule confirmed", completeProfile({ ageConfirmedAt: null }), USER],
+    ["a blank name", completeProfile(), { ...USER, name: "  " }],
+  ])("the badge award answers profile-incomplete and gives no badge, without throwing, for %s", async (_, profile, user) => {
+    getCurrentUser.mockResolvedValue(user);
+    projectProfile.findUnique.mockResolvedValue(profile);
+    badge.findUnique.mockResolvedValue({ id: "b1", slug: "x-complete" });
+    userBadge.createMany.mockResolvedValue({ count: 1 });
+    await expect(awardBadgeAction("x-complete", "u1")).resolves.toEqual({ ok: false, reason: "profile-incomplete" });
+    expect(userBadge.createMany).not.toHaveBeenCalled();
+    expect(userBadge.upsert).not.toHaveBeenCalled();
+  });
+
+  it("the badge award reads the signed-in person's own profile, after whose the award is: another account's is still other-account", async () => {
+    projectProfile.findUnique.mockResolvedValue(null);
+    badge.findUnique.mockResolvedValue({ id: "b1", slug: "x-complete" });
+    await expect(awardBadgeAction("x-complete", "someone-else")).resolves.toEqual({ ok: false, reason: "other-account" });
+    expect(projectProfile.findUnique).not.toHaveBeenCalled();
+    await awardBadgeAction("x-complete", "u1");
+    expect(projectProfile.findUnique.mock.calls[0][0].where).toEqual({
+      userId_projectId: { userId: "u1", projectId: "seq-elevate" },
+    });
+  });
+
+  it("the badge award gives a complete profile's badge", async () => {
+    badge.findUnique.mockResolvedValue({ id: "b1", slug: "x-complete" });
+    userBadge.createMany.mockResolvedValue({ count: 1 });
+    await expect(awardBadgeAction("x-complete", "u1")).resolves.toEqual({ ok: true });
+    expect(userBadge.createMany).toHaveBeenCalledWith({ data: [{ userId: "u1", badgeId: "b1" }], skipDuplicates: true });
+  });
+
   it("the saves read the signed-in person's own profile, after whose the save is: another account's is still other-account", async () => {
     projectProfile.findUnique.mockResolvedValue(null);
     Object.assign(prisma, { compCard });
