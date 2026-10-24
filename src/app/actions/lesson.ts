@@ -31,7 +31,9 @@ import { queueFileDeletion, videoFileUrls } from "@/lib/blob-files";
 import {
   cleanNarrativeLine,
   sanitizeNarrativeBlocks,
+  type NarrativeText,
 } from "@/lib/rich-text/narrative";
+import { storedLanguages } from "@/lib/cms/lesson-links";
 import type {
   VideoContent,
   LessonDocumentRef,
@@ -330,6 +332,18 @@ const g6Error = (error: Refusal) =>
   };
 
 /**
+ * What a lesson's text is, for how a save names it (Release 4, R2): a
+ * reflection lesson's text is its introduction (its editor's "Introduction",
+ * RichTextEditor's "reflection-intro" variant), so a refusal names it as
+ * "The introduction" with the advice to shorten it; any other lesson's text
+ * is blocks, each named by its number and kind. The reflection lesson is the
+ * standard one: a lesson of a course's own is never a reflection lesson
+ * (mainKindOf), its reflection questions being added content.
+ */
+const narrativeTextOf = (stageKey: string): NarrativeText =>
+  stageKey === "reflection" ? "reflection-intro" : "blocks";
+
+/**
  * `base` is the fingerprint of this language's stored text when the editor
  * opened it (null = none stored; see stored-json.ts), as the course outline
  * or the last save handed it over.
@@ -368,7 +382,7 @@ export async function saveLessonNarrative(
   ) {
     return { ok: false as const, error: "bad-input" as const };
   }
-  const clean = sanitizeNarrativeBlocks(payload.blocks);
+  const clean = sanitizeNarrativeBlocks(payload.blocks, narrativeTextOf(stageKey));
   if (!clean.ok) {
     return {
       ok: false as const,
@@ -507,7 +521,11 @@ export async function clearLessonNarrative(
   return { ok: true as const };
 }
 
-/** Current author-attached media for a lesson (for the editor to preload). */
+/**
+ * Current author-attached media for a lesson (for the editor to preload):
+ * its video, and every document, drafts included, each with the languages
+ * it is for (Release 4, D108: [] = every language).
+ */
 export async function getLessonMedia(
   courseSlug: string,
   stageKey: string
@@ -531,6 +549,7 @@ export async function getLessonMedia(
       mimeType: d.mimeType,
       sizeBytes: d.sizeBytes,
       published: d.published,
+      languages: storedLanguages(d.languages),
     })),
   };
 }

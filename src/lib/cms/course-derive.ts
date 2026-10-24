@@ -46,6 +46,8 @@ export interface LessonFacts {
   structure?: unknown;
   updatedAt?: Date | string | null;
   documents?: { createdAt: Date | string }[];
+  /** Release 4 (D107): the lesson's further-reading links, as far as "last edited" reads them. */
+  links?: { updatedAt: Date | string }[];
 }
 
 const isInteractive = (key: string): boolean =>
@@ -200,18 +202,24 @@ const time = (d: Date | string) => new Date(d).getTime();
 
 /**
  * When the course was last edited: the latest of the course row, its lesson
- * rows, and its documents' upload times (documents have no updatedAt). Null
- * when there is nothing to go on. Returned as an ISO string.
+ * rows, its documents' upload times (documents have no updatedAt), its
+ * further-reading links' last changes (Release 4, spec 4.7: added, changed,
+ * shown or hidden) and its references list's last save (Release 4, D109:
+ * a row of its own, so saving it leaves the course row's time alone).
+ * Null when there is nothing to go on. Returned as an ISO string.
  */
 export function lastEdited(
   courseUpdatedAt: Date | string | null | undefined,
-  lessons: LessonFacts[]
+  lessons: LessonFacts[],
+  bibliography?: { updatedAt: Date | string } | null
 ): string | null {
   const stamps: number[] = [];
   if (courseUpdatedAt) stamps.push(time(courseUpdatedAt));
+  if (bibliography?.updatedAt) stamps.push(time(bibliography.updatedAt));
   for (const l of lessons) {
     if (l.updatedAt) stamps.push(time(l.updatedAt));
     for (const d of l.documents ?? []) stamps.push(time(d.createdAt));
+    for (const k of l.links ?? []) stamps.push(time(k.updatedAt));
   }
   const valid = stamps.filter((t) => Number.isFinite(t));
   return valid.length ? new Date(Math.max(...valid)).toISOString() : null;

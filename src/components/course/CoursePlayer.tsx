@@ -32,6 +32,7 @@ import { AssessmentStage } from "./AssessmentStage";
 import { CompletionStage } from "./CompletionStage";
 import { InteractiveVideoPlayer } from "./InteractiveVideoPlayer";
 import { LessonDocuments } from "./LessonDocuments";
+import { LessonFurtherReading } from "./LessonFurtherReading";
 import { SectionView } from "./sectioned/SectionView";
 import { completionCourse } from "./sectioned/completion-course";
 import { PlayerAnnouncer, useAnnounce } from "./PlayerAnnouncer";
@@ -43,7 +44,7 @@ import { useStageTimer } from "./useStageTimer";
 import { openStepAtTop } from "./step-focus";
 import { ContentLangContext } from "./CourseText";
 import { nameInSentence, sentenceStart } from "@/lib/cms/language-name";
-import { ChevronLeft, Languages, Pencil } from "lucide-react";
+import { BookOpen, ChevronLeft, Languages, Pencil } from "lucide-react";
 
 export interface CoursePlayerProps {
   course: LearnerCourse;
@@ -71,6 +72,13 @@ export interface CoursePlayerProps {
    * preview shows it, and says learners get English until it is switched on.
    */
   languageNotLive?: Locale;
+  /**
+   * Release 4 (D109, spec 5.4): the course has a references and
+   * bibliography list, worked out on the server (a yes or no: the list's
+   * text never reaches the player). The top bar links to it in a new tab,
+   * the completion screen in the same tab.
+   */
+  hasReferences?: boolean;
 }
 
 /**
@@ -111,6 +119,13 @@ export interface CoursePlayerProps {
  * (ContentLangContext, CourseText): the lesson area as a whole isn't,
  * since its parts hold the page's own words too. "Edit this lesson" opens
  * the page's language, the one asked for.
+ *
+ * Release 4 (D109, spec 5.4): a course with a references list
+ * (`hasReferences`) links to it from the top bar's left group, opening it
+ * in a new tab (?from=lesson: that page says "Close this tab to return to
+ * your lesson."), so the learner's place and unsent answers stay; the
+ * completion screen links to it in the same tab. In a preview both links
+ * keep the preview. A course without a list shows nothing more.
  */
 export function CoursePlayer(props: CoursePlayerProps) {
   return (
@@ -129,8 +144,11 @@ function Player({
   editLocale,
   serverResume,
   languageNotLive,
+  hasReferences = false,
 }: CoursePlayerProps) {
   const tPlayer = useTranslations("coursePlayer");
+  const tReferences = useTranslations("courseReferences");
+  const tLinks = useTranslations("lessonLinks");
   const tHint = useTranslations("continueHint");
   const tCourses = useTranslations("courseManager");
   const announce = useAnnounce();
@@ -370,6 +388,20 @@ function Player({
             <ChevronLeft className="h-4 w-4" aria-hidden />
             {tPlayer("dashboard")}
           </Link>
+          {/* Release 4 (D109): the course's references, in a new tab, so the
+              lesson stays where the learner left it, unsent answers and all. */}
+          {hasReferences ? (
+            <Link
+              href={`/learner/course/${course.slug}/references?from=lesson${preview ? "&preview=1" : ""}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-sm text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors"
+            >
+              <BookOpen className="h-4 w-4" aria-hidden />
+              {tReferences("title")}
+              <span className="sr-only"> {tLinks("newTab")}</span>
+            </Link>
+          ) : null}
           {/* canEdit comes from the server page: roles aren't on the client
               session. Opens the lesson being played on its course page. */}
           {canEdit && isLesson ? (
@@ -438,7 +470,7 @@ function Player({
                 <LessonNote kind="new" />
               ) : null}
               {current === "complete" ? (
-                <CompletionStage course={completionCourse(course)} />
+                <CompletionStage course={completionCourse(course)} hasReferences={hasReferences} preview={preview} />
               ) : lesson?.kind === "section" ? (
                 <SectionView
                   stage={lesson.section}
@@ -481,6 +513,11 @@ function Player({
  * screen (spec 5.3), with its video and documents above it. An unknown kind
  * of stage draws nothing — never the completion screen, which would
  * complete the course.
+ *
+ * Release 4 (D107, spec 4.5): its further reading comes after the stage
+ * screen, which ends with its own Continue, so learners meet the lesson
+ * before its links out and the list is the last thing in the lesson. A
+ * lesson without links is drawn as before.
  */
 function StageLesson({
   lesson,
@@ -516,6 +553,7 @@ function StageLesson({
       ) : stage.key === "assessment" ? (
         <AssessmentStage stage={stage} onContinue={onContinue} />
       ) : null}
+      <LessonFurtherReading links={stage.links} />
     </>
   );
 }

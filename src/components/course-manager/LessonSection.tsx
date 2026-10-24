@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { LessonNarrativeEditor } from "@/components/role/LessonNarrativeEditor";
 import { VideoBlockAuthor } from "@/components/role/VideoBlockAuthor";
 import { LessonDocumentManager } from "@/components/role/LessonDocumentManager";
+import { readingHints } from "@/components/role/LessonLinkManager";
 import { DraftBadge, StructureAuthor } from "@/components/role/StructureAuthor";
 import type { StoredStructure, StructureStageKey } from "@/lib/cms/structure";
 import { offersAdd } from "@/lib/cms/course-derive";
@@ -53,6 +54,7 @@ export function LessonSection(props: LessonSectionProps) {
     onStructureCleared,
     onVideoSaved,
     onDocumentsChanged,
+    onLinksChanged,
     reasons,
     live,
     addLocked,
@@ -312,8 +314,11 @@ export function LessonSection(props: LessonSectionProps) {
                 courseSlug={slug}
                 stageKey={key}
                 initialDocuments={lesson.documents}
+                initialLinks={lesson.links}
                 embedded
                 onChange={onDocumentsChanged}
+                onLinksChanged={onLinksChanged}
+                linkHints={readingHints(lesson)}
               />
             ) : null}
             {content}

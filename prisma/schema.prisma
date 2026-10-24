@@ -121,6 +121,7 @@ model Lesson {
 
   project   Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
   documents LessonDocument[]
+  links     LessonLink[]     // Release 4 (D107): further reading, never content
 
   @@unique([projectId, courseSlug, stageKey])
   @@index([projectId, courseSlug])
@@ -140,6 +141,8 @@ model LessonDocument {
   // Learners only ever see published documents.
   published Boolean  @default(false)
   createdAt DateTime @default(now())
+  // Release 4 (D108): the languages it is for; [] = every language.
+  languages String[] @default([])
 
   lesson Lesson @relation(fields: [lessonId], references: [id], onDelete: Cascade)
 
@@ -455,6 +458,7 @@ model Course {
   badge       Badge?             @relation(fields: [badgeId], references: [id], onDelete: SetNull)
   missions    Mission[]
   compCardEntries CompCardEntry[]
+  bibliography CourseBibliography? // Release 4 (D109): a relation only, no column on Course
 
   @@unique([projectId, slug])
   @@index([projectId])
@@ -683,4 +687,41 @@ model AuditLog {
 
   @@index([projectId, createdAt])
   @@index([actorId])
+}
+
+// ============================================================
+// Release 4 — further reading and references (D107–D109)
+// ============================================================
+// Neither table names a person: who changed what is in the audit log, so
+// they hold no personal data (nothing to export or erase). Each row goes
+// with its lesson or course.
+
+// A further-reading link of a lesson (D107). Not content: it never makes a
+// lesson appear, never counts for progress or completion, and is never
+// fetched or embedded. Hidden from learners until shown (Q15).
+model LessonLink {
+  id          String   @id @default(cuid())
+  lessonId    String
+  title       String   // 1–200 characters, refused not cut
+  url         String   // as checkLinkHref normalised it; at most 2,048 characters
+  description String   @default("") // at most 300 characters
+  languages   String[] @default([]) // the languages it is for; [] = every language (D108)
+  order       Int      @default(0)
+  published   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  lesson Lesson @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  @@index([lessonId])
+}
+
+// A created course's references and bibliography, one row per course (D109):
+// { v: 1, locales: { en?: { text, rich? }, de?: …, el?: … } } (cms/bibliography.ts).
+model CourseBibliography {
+  courseId  String   @id
+  content   Json
+  updatedAt DateTime @updatedAt
+
+  course Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
 }

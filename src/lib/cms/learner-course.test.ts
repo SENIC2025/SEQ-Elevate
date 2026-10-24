@@ -25,13 +25,33 @@ vi.mock("server-only", () => ({}));
 
 type Row = SectionFacts & {
   courseSlug?: string;
-  documents?: { id: string; name: string; url: string; mimeType: string; sizeBytes: number; published: boolean }[];
+  documents?: {
+    id: string;
+    name: string;
+    url: string;
+    mimeType: string;
+    sizeBytes: number;
+    published: boolean;
+    languages?: string[];
+  }[];
+};
+/** A LessonLink row (Release 4), with the key of its lesson. */
+type LinkRow = {
+  id: string;
+  stageKey: string;
+  courseSlug?: string;
+  title: string;
+  url: string;
+  description: string;
+  languages: string[];
+  published: boolean;
 };
 const db: {
   courses: { slug: string; meta: unknown; outline: unknown; status: string }[];
   lessons: Row[];
+  links: LinkRow[];
   fail: boolean;
-} = { courses: [], lessons: [], fail: false };
+} = { courses: [], lessons: [], links: [], fail: false };
 
 /** Like Prisma, for the where and select shapes these readers use. */
 function lessonsFor(args: {
@@ -72,6 +92,22 @@ const courseRow = (slug: string) => {
 };
 
 const lessonFindMany = vi.fn(async (args) => lessonsFor(args ?? {}));
+/** Like Prisma, for the further-reading read: published links of a course's lessons. */
+const linkFindMany = vi.fn(async (args: { where: { published?: boolean; lesson: { courseSlug: string } } }) => {
+  if (db.fail) throw new Error("db down");
+  return db.links
+    .filter((l) => (l.courseSlug ?? "golden") === args.where.lesson.courseSlug)
+    .filter((l) => args.where.published === undefined || l.published === args.where.published)
+    .map((l) => ({
+      id: l.id,
+      title: l.title,
+      url: l.url,
+      description: l.description,
+      languages: l.languages,
+      published: l.published,
+      lesson: { stageKey: l.stageKey },
+    }));
+});
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     course: {
@@ -82,6 +118,7 @@ vi.mock("@/lib/prisma", () => ({
       findMany: async () => db.courses.filter((c) => c.meta !== null).map((c) => courseRow(c.slug)),
     },
     lesson: { findMany: lessonFindMany },
+    lessonLink: { findMany: linkFindMany },
     // getLessonPlans: which lessons have a video, as an object (Postgres'
     // jsonb_typeof), without loading it.
     $queryRaw: async (sql: TemplateStringsArray, projectId: string, slugs: string[]) => {
@@ -215,6 +252,31 @@ const CASES: Case[] = [
       { stageKey: OWN2, narrative: { en: { title: "Broken" } }, video: "not a video" },
     ],
   },
+  {
+    // Release 4 (D108): languages never change which lessons there are.
+    name: "documents for one language only, and a lesson with nothing but further reading",
+    outline: { v: 1, sections: [...stored(STANDARD).sections, { id: OWN, template: "text" }, { id: OWN2, template: "text" }] },
+    lessons: [
+      ...STANDARD.map((l) =>
+        l.stageKey === "concept"
+          ? {
+              ...l,
+              parts: { v: 1, items: [MAIN, { id: "p-12345678", type: "text", blocks: { en: [para("More")] } }] },
+              documents: [
+                { id: "d-de", name: "de.pdf", url: "https://x/de.pdf", mimeType: "application/pdf", sizeBytes: 1, published: true, languages: ["de"] },
+                { id: "d-en", name: "en.pdf", url: "https://x/en.pdf", mimeType: "application/pdf", sizeBytes: 1, published: true, languages: ["en"] },
+              ],
+            }
+          : l
+      ),
+      {
+        stageKey: OWN,
+        narrative: { en: { title: "Worksheet" } },
+        documents: [{ id: "d-only", name: "nur.pdf", url: "https://x/nur.pdf", mimeType: "application/pdf", sizeBytes: 1, published: true, languages: ["de"] }],
+      },
+      { stageKey: OWN2, narrative: { en: { title: "Reading only" } } },
+    ],
+  },
   { name: "unreadable outline", outline: { v: 7, sections: "x" }, lessons: STANDARD },
   {
     name: "unreadable parts",
@@ -248,8 +310,10 @@ const savedEnv = { ...process.env };
 beforeEach(() => {
   db.courses = [];
   db.lessons = [];
+  db.links = [];
   db.fail = false;
   lessonFindMany.mockClear();
+  linkFindMany.mockClear();
 });
 afterEach(() => {
   process.env = { ...savedEnv };
@@ -273,6 +337,14 @@ describe("getLearnerCourse and getLessonPlans agree (golden)", () => {
           plan.lessons.map((l) => [l.id, l.kind, l.label, l.lang])
         );
         expect(learner.unseen).toEqual(plan.unseen);
+        // Release 4 (D108, R2): the learner page also asks for the page's
+        // language's documents and links; the lessons stay the plan's.
+        for (const requested of LOCALES) {
+          const asked = await getLearnerCourse("seq-elevate", "golden", locale, base, { requested });
+          expect(asked.lessons.map((l) => [l.id, l.kind, l.label, l.lang]), `requested ${requested}`).toEqual(
+            plan.lessons.map((l) => [l.id, l.kind, l.label, l.lang])
+          );
+        }
         // A stage lesson is the very stage getCourse built.
         for (const l of learner.lessons) {
           if (l.kind === "stage") expect(base.stages).toContain(l.stage);
@@ -446,5 +518,207 @@ describe("getLessonPlans", () => {
   it("is empty with no created course", async () => {
     expect((await getLessonPlans("seq-elevate", "en")).size).toBe(0);
     expect(lessonFindMany).not.toHaveBeenCalled();
+  });
+});
+
+/*
+ * U11, Release 4 (D107, D108; spec 4.2, 4.4): further reading never makes a
+ * lesson, and documents and links follow the languages a learner reads in:
+ * the course text's (`locale`) and the page's (`requested`). Which lessons
+ * there are, and what counts, stays the same in every language.
+ */
+describe("getLearnerCourse: further reading and languages (Release 4)", () => {
+  const doc = (id: string, languages: Locale[]) => ({
+    id,
+    name: `${id}.pdf`,
+    url: `https://x/${id}.pdf`,
+    mimeType: "application/pdf",
+    sizeBytes: 1,
+    published: true,
+    languages,
+  });
+  const link = (id: string, stageKey: string, languages: string[], url = `https://example.org/${id}`): LinkRow => ({
+    id,
+    stageKey,
+    title: `Reading ${id}`,
+    url,
+    description: "",
+    languages,
+    published: true,
+  });
+  /** A course with a text lesson of its own carrying documents and links for every language, German and English. */
+  function mixed() {
+    db.courses = [{ slug: "golden", meta: META, outline: { v: 1, sections: [{ id: OWN, template: "text" }], removed: [...STAGES] }, status: "published" }];
+    db.lessons = [
+      {
+        stageKey: OWN,
+        courseSlug: "golden",
+        narrative: { en: { title: "Own", blocks: [para("Mine")] }, de: { title: "Eigen", blocks: [para("Meins")] } },
+        documents: [doc("all", []), doc("de", ["de"]), doc("en", ["en"]), doc("de-el", ["de", "el"])],
+      },
+    ];
+    db.links = [link("l-all", OWN, []), link("l-de", OWN, ["de"]), link("l-en", OWN, ["en"])];
+  }
+  async function shown(locale: Locale, requested?: Locale) {
+    const base = (await getDbCourse("seq-elevate", "golden", locale))!;
+    const learner = await getLearnerCourse("seq-elevate", "golden", locale, base, requested ? { requested } : undefined);
+    const own = learner.lessons.find((l) => l.id === OWN);
+    if (own?.kind !== "section") throw new Error("no section");
+    return {
+      documents: own.section.documents?.map((d) => d.id),
+      links: own.section.links?.map((l) => l.id),
+    };
+  }
+
+  it("gives each learner the items for every language and for the languages they read in (spec 4.2's table)", async () => {
+    mixed();
+    // An English learner.
+    expect(await shown("en")).toEqual({ documents: ["all", "en"], links: ["l-all", "l-en"] });
+    // A German learner on a course still shown in English: German items too.
+    expect(await shown("en", "de")).toEqual({ documents: ["all", "de", "en", "de-el"], links: ["l-all", "l-de", "l-en"] });
+    // A German learner once German is switched on, and the German preview.
+    expect(await shown("de", "de")).toEqual({ documents: ["all", "de", "de-el"], links: ["l-all", "l-de"] });
+    expect(await shown("de")).toEqual({ documents: ["all", "de", "de-el"], links: ["l-all", "l-de"] });
+    // A Greek learner on a course shown in English.
+    expect(await shown("en", "el")).toEqual({ documents: ["all", "en", "de-el"], links: ["l-all", "l-en"] });
+  });
+
+  it("gives every item in every language with R4_ITEM_LANGUAGE=off", async () => {
+    mixed();
+    process.env.R4_ITEM_LANGUAGE = "off";
+    expect(await shown("en")).toEqual({ documents: ["all", "de", "en", "de-el"], links: ["l-all", "l-de", "l-en"] });
+  });
+
+  it("gives no further reading with R4_FURTHER_READING=off, and doesn't read it", async () => {
+    mixed();
+    process.env.R4_FURTHER_READING = "off";
+    expect((await shown("en")).links).toBeUndefined();
+    expect(linkFindMany).not.toHaveBeenCalled();
+  });
+
+  it("never draws a stored address the check refuses: it doesn't reach the player", async () => {
+    mixed();
+    db.links = [
+      link("ok", OWN, [], "HTTPS://Example.org/Ok"),
+      link("js", OWN, [], "javascript:alert(1)"),
+      link("data", OWN, [], "data:text/html,<script>alert(1)</script>"),
+      link("text", OWN, [], "not an address"),
+      link("empty", OWN, [], ""),
+      { ...link("draft", OWN, []), published: false },
+    ];
+    const base = (await getDbCourse("seq-elevate", "golden", "en"))!;
+    const learner = await getLearnerCourse("seq-elevate", "golden", "en", base);
+    const own = learner.lessons.find((l) => l.id === OWN);
+    expect(own?.kind === "section" && own.section.links).toEqual([
+      { id: "ok", title: "Reading ok", url: "https://example.org/Ok", kind: "web", description: "", languages: [], published: true },
+    ]);
+    const payload = JSON.stringify(learner);
+    for (const hostile of ["javascript:", "data:text", "not an address", "Reading draft"]) expect(payload).not.toContain(hostile);
+  });
+
+  it("never makes a lesson of further reading alone (D107)", async () => {
+    db.courses = [{ slug: "golden", meta: META, outline: { v: 1, sections: [{ id: OWN, template: "text" }, { id: OWN2, template: "text" }], removed: [...STAGES] }, status: "published" }];
+    db.lessons = [
+      { stageKey: OWN, courseSlug: "golden", narrative: { en: { title: "Own", blocks: [para("Mine")] } } },
+      { stageKey: OWN2, courseSlug: "golden", narrative: { en: { title: "Reading only" } } },
+    ];
+    db.links = [link("l1", OWN2, []), link("l2", OWN2, ["en"])];
+    for (const locale of LOCALES) {
+      const base = (await getDbCourse("seq-elevate", "golden", locale))!;
+      const learner = await getLearnerCourse("seq-elevate", "golden", locale, base);
+      const plan = (await getLessonPlans("seq-elevate", locale)).get("golden")!;
+      expect(learner.lessons.map((l) => l.id)).toEqual([OWN]);
+      expect(learner.unseen).toEqual([OWN2]);
+      expect(plan.lessons.map((l) => l.id)).toEqual([OWN]);
+    }
+  });
+
+  it("shows a lesson whose only material is a German document to everyone, the document with it (the fallback)", async () => {
+    db.courses = [{ slug: "golden", meta: META, outline: { v: 1, sections: [{ id: OWN, template: "text" }], removed: [...STAGES] }, status: "published" }];
+    db.lessons = [{ stageKey: OWN, courseSlug: "golden", narrative: { en: { title: "Worksheet" } }, documents: [doc("nur", ["de"])] }];
+    for (const [locale, requested] of [["en", "en"], ["en", "el"], ["el", "el"], ["de", "de"]] as const) {
+      expect((await shown(locale, requested)).documents, `${locale}/${requested}`).toEqual(["nur"]);
+    }
+  });
+
+  it("filters a stage lesson's documents and links too, in its fail-open path as well", async () => {
+    setCourse(CASES[0]);
+    const base = (await getDbCourse("seq-elevate", "golden", "en"))!;
+    const withMaterial = {
+      ...base,
+      stages: base.stages.map((st) =>
+        st.key === "context"
+          ? {
+              ...st,
+              documents: [doc("all", []), doc("de", ["de"]), doc("en", ["en"])],
+              links: [
+                { id: "l-de", title: "R", url: "https://example.org/de", kind: "web", description: "", languages: ["de"], published: true },
+                { id: "l-all", title: "R", url: "https://example.org/all", kind: "web", description: "", languages: [], published: true },
+              ],
+            }
+          : st
+      ),
+    } as CourseContent;
+    const context = async (requested: Locale) => {
+      const learner = await getLearnerCourse("seq-elevate", "golden", "en", withMaterial, { requested });
+      const l = learner.lessons.find((x) => x.id === "context");
+      if (l?.kind !== "stage") throw new Error("not a stage");
+      return l.stage as typeof l.stage & { links?: { id: string }[] };
+    };
+    expect((await context("en")).documents?.map((d) => d.id)).toEqual(["all", "en"]);
+    expect((await context("en")).links?.map((l) => l.id)).toEqual(["l-all"]);
+    expect((await context("de")).documents?.map((d) => d.id)).toEqual(["all", "de", "en"]);
+    // A stage with nothing left out is the very stage getCourse built.
+    const untouched = await getLearnerCourse("seq-elevate", "golden", "en", withMaterial, { requested: "en" });
+    expect(untouched.lessons.find((l) => l.id === "concept")).toMatchObject({ stage: withMaterial.stages.find((st) => st.key === "concept") });
+    // Fail open (D18): still filtered.
+    db.fail = true;
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    expect((await context("en")).documents?.map((d) => d.id)).toEqual(["all", "en"]);
+    expect(log).toHaveBeenCalled();
+  });
+
+  it("gives the standard reflection lesson its questions and only its learners' documents; a standard text lesson nobody wrote shows its only document to everyone", async () => {
+    // What the course page's hints follow (course-admin.test.ts, spec 4.6):
+    // the reflection lesson, nothing stored, shows its standard introduction
+    // and questions, so an English learner gets it without a German-only
+    // document, and with its further reading; a standard text lesson with no
+    // text shows nothing else, so the document is shown to everyone.
+    setCourse({ name: "standard", outline: null, lessons: [{ stageKey: "context", narrative: narrative("Context") }] });
+    const base = (await getDbCourse("seq-elevate", "golden", "en"))!;
+    const reading = { id: "l-r", title: "R", url: "https://example.org/r", kind: "web", description: "", languages: [], published: true };
+    const withMaterial = {
+      ...base,
+      stages: base.stages.map((st) =>
+        st.key === "reflection"
+          ? { ...st, documents: [doc("nur-r", ["de"])], links: [reading] }
+          : st.key === "concept"
+            ? { ...st, documents: [doc("nur-c", ["de"])] }
+            : st
+      ),
+    } as CourseContent;
+    const stageOf = async (key: string, requested: Locale) => {
+      const learner = await getLearnerCourse("seq-elevate", "golden", "en", withMaterial, { requested });
+      const l = learner.lessons.find((x) => x.id === key);
+      if (l?.kind !== "stage") throw new Error(`${key} is not a stage lesson`);
+      return l.stage as typeof l.stage & { links?: { id: string }[] };
+    };
+    const reflection = await stageOf("reflection", "en");
+    expect(reflection.reflection?.prompts.length).toBeGreaterThan(0);
+    expect(reflection.documents).toBeUndefined();
+    expect(reflection.links?.map((l) => l.id)).toEqual(["l-r"]);
+    expect((await stageOf("reflection", "el")).documents).toBeUndefined();
+    expect((await stageOf("reflection", "de")).documents?.map((d) => d.id)).toEqual(["nur-r"]);
+    for (const requested of ["en", "de", "el"] as const) {
+      expect((await stageOf("concept", requested)).documents?.map((d) => d.id), requested).toEqual(["nur-c"]);
+    }
+  });
+
+  it("filters a built-in course's stages", async () => {
+    const base = (await localProvider.getCourse("seq-elevate", "workplace-conflict", "en"))!;
+    const withDocs = { ...base, stages: base.stages.map((st, i) => (i === 0 ? { ...st, documents: [doc("de", ["de"]), doc("en", ["en"])] } : st)) };
+    const learner = await getLearnerCourse("seq-elevate", "workplace-conflict", "en", withDocs);
+    const first = learner.lessons[0];
+    expect(first.kind === "stage" && first.stage.documents?.map((d) => d.id)).toEqual(["en"]);
   });
 });

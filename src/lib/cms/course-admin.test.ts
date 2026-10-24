@@ -29,6 +29,10 @@ let lessons: {
   structureDraft?: unknown;
   parts?: unknown;
   video?: unknown;
+  updatedAt?: Date;
+  documents?: Record<string, unknown>[];
+  /** Release 4 (D107): LessonLink rows, drafts included. */
+  links?: Record<string, unknown>[];
 }[];
 
 const courseFindFirst = vi.fn();
@@ -56,6 +60,7 @@ vi.mock("@/lib/prisma", () => ({
           courseSlug: "asking-for-help",
           video: null,
           documents: [],
+          links: [],
           updatedAt: at,
           structure: null,
           structureDraft: null,
@@ -77,6 +82,16 @@ vi.mock("@/lib/cms", async () => {
 });
 
 const { getCourseGrid, getCourseOutline } = await import("./course-admin");
+// The course page's hints are worked out in the link manager's module, whose actions run on the server.
+vi.mock("@/app/actions/lesson-reading", () => ({
+  addLessonLink: vi.fn(),
+  getLessonLinks: vi.fn(),
+  removeLessonLink: vi.fn(),
+  setLessonLinkOrder: vi.fn(),
+  setLessonLinkPublished: vi.fn(),
+  updateLessonLink: vi.fn(),
+}));
+const { readingHints } = await import("@/components/role/LessonLinkManager");
 
 const EN = { title: "Asking for help", tagline: "Short and real", clusterLabel: "Communication" };
 const written = (title: string, text: string) => ({ title, blocks: [para(text)] });
@@ -614,5 +629,230 @@ describe("which languages are live for learners", () => {
     // Greek is live and complete: nothing to say.
     expect(live?.readiness).toContainEqual({ level: "warning", code: "language-live-incomplete", locale: "de" });
     expect(live?.readiness.filter((r) => r.locale === "el")).toEqual([]);
+  });
+});
+
+/*
+ * Release 4, R2 (spec 4.6, 4.7, D107, D108): the course page's data holds
+ * each lesson's further-reading links, drafts included, each stored
+ * address checked again as it is read (one the check refuses is marked
+ * unusable, to be shown as text); the documents' languages; links in what
+ * Delete would remove and in the content base deleteSection checks; a key
+ * with links isn't free for "Add lesson"; the lesson's preview in each
+ * language shows the published links for that language; and "last edited"
+ * takes a link's last change.
+ */
+describe("further reading and languages on the course page (Release 4)", () => {
+  const link = (id: string, fields: Record<string, unknown> = {}) => ({
+    id,
+    title: `Reading ${id}`,
+    url: `https://example.org/${id}`,
+    description: "",
+    languages: [],
+    order: 0,
+    published: true,
+    createdAt: at,
+    updatedAt: at,
+    ...fields,
+  });
+  const doc = (id: string, languages: string[]) => ({
+    id,
+    name: `${id}.pdf`,
+    url: `https://store.public.blob.vercel-storage.com/${id}.pdf`,
+    mimeType: "application/pdf",
+    sizeBytes: 10,
+    order: 0,
+    published: true,
+    createdAt: at,
+    languages,
+  });
+  const ownCourse = () => {
+    outline = {
+      v: 1,
+      sections: [
+        { id: OWN, template: "text", label: { en: "Warm-up" } },
+        { id: "context", template: "context" },
+        { id: "concept", template: "concept" },
+        { id: "behaviour", template: "behaviour" },
+        { id: "reflection", template: "reflection" },
+      ],
+    };
+  };
+
+  it("gives each lesson its links, drafts included, an address the check refuses marked unusable", async () => {
+    ownCourse();
+    lessons.push({
+      stageKey: OWN,
+      narrative: { en: written("Warm-up text", "Before we start") },
+      links: [
+        link("k1", { languages: ["de"] }),
+        link("k2", { published: false, url: "mailto:help@example.org" }),
+        link("k3", { url: "javascript:alert(1)" }),
+      ],
+    });
+    const o = await getCourseOutline("asking-for-help");
+    const own = o?.lessons.find((l) => l.key === OWN);
+    expect(own?.links).toEqual([
+      { id: "k1", title: "Reading k1", url: "https://example.org/k1", kind: "web", description: "", languages: ["de"], published: true },
+      { id: "k2", title: "Reading k2", url: "mailto:help@example.org", kind: "email", description: "", languages: [], published: false },
+      { id: "k3", title: "Reading k3", url: "javascript:alert(1)", kind: null, unusable: true, description: "", languages: [], published: true },
+    ]);
+    // Every lesson has its list, empty or not.
+    expect(o?.lessons.find((l) => l.key === "context")?.links).toEqual([]);
+  });
+
+  it("counts the links in what Delete removes and in the content base, and keeps a key with links from being free", async () => {
+    lessons.push(
+      { stageKey: "simulation", links: [link("k9")] },
+    );
+    lessons[1] = { ...lessons[1], links: [link("k1"), link("k2", { published: false })] };
+    const o = await getCourseOutline("asking-for-help");
+    const concept = o?.lessons.find((l) => l.key === "concept");
+    expect(concept?.section?.deleteSummary).toMatchObject({ links: 2 });
+    const { sectionContentVersion } = await import("./sections/versions");
+    expect(concept?.contentVersion).toBe(
+      sectionContentVersion({
+        narrative: lessons[1].narrative,
+        structure: null,
+        structureDraft: null,
+        parts: null,
+        video: null,
+        documentIds: [],
+        linkIds: ["k1", "k2"],
+      })
+    );
+    // "Add guided practice" would bring its old links back: it isn't free.
+    expect(o?.sections?.freeKeys).toEqual(["scenario", "assessment"]);
+    // A lesson without links keeps the summary and base it had.
+    expect(o?.lessons.find((l) => l.key === "context")?.section?.deleteSummary).not.toHaveProperty("links");
+  });
+
+  it("shows, in the lesson's preview in each language, the published links for that language, and documents with their languages", async () => {
+    ownCourse();
+    lessons.push({
+      stageKey: OWN,
+      narrative: { en: written("Warm-up text", "Before we start") },
+      documents: [doc("d-de", ["de"]), doc("d-all", [])],
+      links: [
+        link("all"),
+        link("en", { languages: ["en"] }),
+        link("de", { languages: ["de"] }),
+        link("draft", { published: false }),
+        link("bad", { url: "javascript:alert(1)" }),
+      ],
+    });
+    const o = await getCourseOutline("asking-for-help");
+    const own = o?.lessons.find((l) => l.key === OWN);
+    expect(own?.documents.map((d) => [d.id, d.languages])).toEqual([
+      ["d-de", ["de"]],
+      ["d-all", []],
+    ]);
+    expect(own?.byLang.en.sectioned?.links?.map((l) => l.id)).toEqual(["all", "en"]);
+    expect(own?.byLang.de.sectioned?.links?.map((l) => l.id)).toEqual(["all", "de"]);
+    expect(own?.byLang.el.sectioned?.links?.map((l) => l.id)).toEqual(["all"]);
+    // Documents follow the previewed language too.
+    expect(own?.byLang.en.sectioned?.documents?.map((d) => d.id)).toEqual(["d-all"]);
+    expect(own?.byLang.de.sectioned?.documents?.map((d) => d.id)).toEqual(["d-de", "d-all"]);
+  });
+
+  // The course page's further-reading hints (spec 4.6) say what learners
+  // get: learner-course.test.ts pins the same lessons on the learner's side.
+  const GERMAN_ONLY =
+    "Every language gets this lesson: its only material is for German learners, so others see the German document, marked “In German”.";
+  const ALONE = "Further reading alone doesn't make a lesson appear for learners.";
+  const NOT_NOW = "Learners don't get this lesson now, so they don't see its further reading.";
+  const hintsOf = (o: Awaited<ReturnType<typeof getCourseOutline>>, key: string) => {
+    const lesson = o?.lessons.find((l) => l.key === key);
+    if (!lesson) throw new Error(`no lesson ${key}`);
+    return readingHints(lesson);
+  };
+
+  it("says every language gets a lesson with a German-only document only where learners get the document: not of the standard reflection lesson, whose questions are its own", async () => {
+    ownCourse();
+    lessons = lessons.filter((l) => l.stageKey !== "reflection" && l.stageKey !== "concept");
+    lessons.push(
+      // Nothing stored: learners get its standard introduction and questions, and English learners no document.
+      { stageKey: "reflection", documents: [doc("nur-r", ["de"])] },
+      // A standard text lesson nobody wrote, and a lesson of the course's own with only a title: the document is all they show.
+      { stageKey: "concept", documents: [doc("nur-c", ["de"])] },
+      { stageKey: OWN, narrative: { en: { title: "Worksheet" } }, documents: [doc("nur-o", ["de"])] }
+    );
+    const o = await getCourseOutline("asking-for-help");
+    expect(hintsOf(o, "reflection")).toEqual([]);
+    expect(hintsOf(o, "concept")).toEqual([GERMAN_ONLY]);
+    expect(hintsOf(o, OWN)).toEqual([GERMAN_ONLY]);
+  });
+
+  it("says further reading alone makes no lesson only of a lesson learners don't get for want of content", async () => {
+    outline = {
+      v: 1,
+      sections: [
+        { id: OWN, template: "text", label: { en: "Reading only" } },
+        { id: "s-hiddenxx", template: "text", label: { en: "Hidden" }, hidden: true },
+        { id: "context", template: "context" },
+        { id: "concept", template: "concept" },
+        { id: "behaviour", template: "behaviour" },
+        { id: "reflection", template: "reflection" },
+      ],
+    };
+    lessons = lessons.filter((l) => l.stageKey !== "reflection" && l.stageKey !== "concept");
+    lessons.push(
+      { stageKey: OWN, narrative: { en: { title: "Reading only" } }, links: [link("k1")] },
+      { stageKey: "s-hiddenxx", narrative: { en: written("Hidden", "Text") }, links: [link("k2")] },
+      // Learners get both, and their further reading with them.
+      { stageKey: "reflection", links: [link("k3")] },
+      { stageKey: "concept", links: [link("k4")] }
+    );
+    const o = await getCourseOutline("asking-for-help");
+    expect(o?.lessons.find((l) => l.key === OWN)).toMatchObject({ live: false, notLive: "empty" });
+    expect(hintsOf(o, OWN)).toEqual([ALONE]);
+    expect(hintsOf(o, "s-hiddenxx")).toEqual([NOT_NOW]);
+    expect(hintsOf(o, "reflection")).toEqual([]);
+    expect(hintsOf(o, "concept")).toEqual([]);
+  });
+
+  it("takes a link's last change as the course's last edit, on the page and on the grid", async () => {
+    const later = new Date("2026-10-20T08:00:00.000Z");
+    lessons[0] = { ...lessons[0], links: [link("k1", { updatedAt: later })] };
+    expect((await getCourseOutline("asking-for-help"))?.lastEdited).toBe(later.toISOString());
+    listCourses.mockResolvedValueOnce([
+      { slug: "asking-for-help", title: "Asking for help", tagline: "t", clusterLabel: "c", status: "draft", durationMinutes: 15 },
+    ]);
+    courseFindMany.mockResolvedValueOnce([{ slug: "asking-for-help", meta, outline, updatedAt: at, _count: { enrollments: 0 } }] as never);
+    const [card] = await getCourseGrid("en");
+    expect(card.lastEdited).toBe(later.toISOString());
+  });
+
+  // Release 4, R2 on r4r (D109, spec 9.3): the references list is a row of
+  // its own; its last save is an edit of the course.
+  it("takes the references list's last save as the course's last edit, on the page and on the grid", async () => {
+    const later = new Date("2026-10-21T08:00:00.000Z");
+    const original = courseFindFirst.getMockImplementation()!;
+    courseFindFirst.mockImplementation(async (...args: unknown[]) => ({
+      ...(await original(...(args as []))),
+      bibliography: { updatedAt: later },
+    }));
+    try {
+      expect((await getCourseOutline("asking-for-help"))?.lastEdited).toBe(later.toISOString());
+      const asked = (courseFindFirst.mock.calls.at(-1) as unknown as [{ select: Record<string, unknown> }])[0].select;
+      expect(asked.bibliography).toEqual({ select: { updatedAt: true } });
+    } finally {
+      courseFindFirst.mockImplementation(original);
+    }
+    listCourses.mockResolvedValueOnce([
+      { slug: "asking-for-help", title: "Asking for help", tagline: "t", clusterLabel: "c", status: "draft", durationMinutes: 15 },
+    ]);
+    courseFindMany.mockClear();
+    courseFindMany.mockResolvedValueOnce([
+      { slug: "asking-for-help", meta, outline, updatedAt: at, bibliography: { updatedAt: later }, _count: { enrollments: 0 } },
+    ] as never);
+    const [card] = await getCourseGrid("en");
+    expect(card.lastEdited).toBe(later.toISOString());
+    const grid = (courseFindMany.mock.calls[0] as unknown as [{ select: Record<string, unknown> }])[0].select;
+    expect(grid.bibliography).toEqual({ select: { updatedAt: true } });
+  });
+
+  it("keeps the course's last edit where it was without a references list", async () => {
+    expect((await getCourseOutline("asking-for-help"))?.lastEdited).toBe(at.toISOString());
   });
 });

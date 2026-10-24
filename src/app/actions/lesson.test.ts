@@ -321,3 +321,65 @@ describe("the media actions queue the files they drop", () => {
     ]);
   });
 });
+
+/*
+ * Release 4, R2 (spec 4.3, D108): the document manager reads each
+ * document's languages with the lesson's media, so its badge and its
+ * "Languages" control start from what is stored; every language is [].
+ */
+describe("getLessonMedia: the languages each document is for (Release 4)", () => {
+  const doc = (id: string, languages?: string[]) => ({
+    id,
+    url: `https://${STORE}/${id}.pdf`,
+    name: `${id}.pdf`,
+    mimeType: "application/pdf",
+    sizeBytes: 10,
+    published: true,
+    ...(languages ? { languages } : {}),
+  });
+
+  it("gives each document its languages, in the stored order, every language as []", async () => {
+    db.lessons = [row(OWN, { documents: [doc("d1", ["de"]), doc("d2", []), doc("d3", ["el", "en"]), doc("d4")] })];
+    const media = await getLessonMedia(SLUG, OWN);
+    expect(media.documents.map((d) => [d.id, d.languages])).toEqual([
+      ["d1", ["de"]],
+      ["d2", []],
+      ["d3", ["en", "el"]],
+      ["d4", []],
+    ]);
+  });
+});
+
+/*
+ * Release 4, R2 (R4-E6b; narrative.ts asks it by name since 1b3dffb): a
+ * reflection lesson's text is its introduction, and a save over a limit
+ * names it as its editor does ("The introduction … Shorten it."), not as
+ * a block ("Block 1 (Paragraph) … Split it into two blocks."). Any other
+ * lesson's blocks keep their names. A lesson of a course's own is never a
+ * reflection lesson (mainKindOf): its reflection questions are added
+ * content.
+ */
+describe("saveLessonNarrative names a reflection lesson's introduction as its editor does (Release 4)", () => {
+  const long = { title: "R", blocks: [{ kind: "paragraph" as const, text: "x".repeat(10_001) }] };
+
+  it("refuses an introduction over the limit by its name, writing nothing", async () => {
+    expect(await saveLessonNarrative(SLUG, "reflection", "en", long, null)).toEqual({
+      ok: false,
+      error: "invalid",
+      issues: ["The introduction is too long — at most 10,000 characters. Shorten it."],
+    });
+    expect(db.lessons).toEqual([]);
+  });
+
+  it("still names a text lesson's blocks as blocks, a standard one or one of the course's own", async () => {
+    const block = ["Block 1 (Paragraph) is too long — at most 10,000 characters. Split it into two blocks."];
+    expect(await saveLessonNarrative(SLUG, "context", "en", long, null)).toEqual({ ok: false, error: "invalid", issues: block });
+    expect(await saveLessonNarrative(SLUG, OWN, "en", long, null)).toEqual({ ok: false, error: "invalid", issues: block });
+  });
+
+  it("saves an introduction within the limit as before", async () => {
+    const intro = { title: "R", blocks: [{ kind: "paragraph" as const, text: "Think back." }] };
+    expect(await saveLessonNarrative(SLUG, "reflection", "en", intro, null)).toEqual({ ok: true, version: expect.any(String) });
+    expect(db.lessons.find((l) => l.stageKey === "reflection")?.narrative).toEqual({ en: intro });
+  });
+});

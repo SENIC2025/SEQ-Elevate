@@ -364,3 +364,73 @@ describe("video and documents", () => {
     expect(s).not.toHaveProperty("documents");
   });
 });
+
+/*
+ * U11, Release 4 (D107, D108; spec 4.4): whether the lesson is there counts
+ * every published document in every language; what it shows follows the
+ * languages it is shown for (`itemLocales`). A lesson whose only material
+ * is documents for other languages shows them all rather than nothing.
+ * Further reading is drawn, never counted.
+ */
+describe("documents and further reading by language (Release 4)", () => {
+  const doc = (id: string, languages?: Locale[]) => ({
+    id,
+    name: `${id}.pdf`,
+    url: `https://x/${id}.pdf`,
+    mimeType: "application/pdf",
+    sizeBytes: 1,
+    published: true,
+    ...(languages ? { languages } : {}),
+  });
+  const link = (id: string, languages: Locale[] = []) => ({
+    id,
+    title: id,
+    url: `https://example.org/${id}`,
+    kind: "web" as const,
+    description: "",
+    languages,
+    published: true,
+  });
+  const own = { stageKey: "s-abcdefgh", narrative: { en: { title: "T", blocks: [para("Text")] } } };
+  const resolveFor = (row: Record<string, unknown>, itemLocales?: Locale[]) =>
+    resolveSectionStage({
+      section: ownSection(),
+      row: row as never,
+      locale: "en",
+      itemLocales,
+      label: "L",
+      standardTitle: "S",
+      defaults: previewDefaults("en"),
+    });
+
+  it("shows every document and link without languages to show them for (the editor's preview, as before)", () => {
+    const s = resolveFor({ ...own, documents: [doc("de", ["de"]), doc("all")], links: [link("l-de", ["de"])] });
+    expect(s?.documents?.map((d) => d.id)).toEqual(["de", "all"]);
+    expect(s?.links?.map((l) => l.id)).toEqual(["l-de"]);
+  });
+
+  it("shows the documents and links for every language and for the languages given", () => {
+    const row = { ...own, documents: [doc("de", ["de"]), doc("all"), doc("en", ["en"])], links: [link("l-de", ["de"]), link("l-en", ["en"]), link("l-all")] };
+    expect(resolveFor(row, ["en"])?.documents?.map((d) => d.id)).toEqual(["all", "en"]);
+    expect(resolveFor(row, ["en"])?.links?.map((l) => l.id)).toEqual(["l-en", "l-all"]);
+    expect(resolveFor(row, ["en", "de"])?.documents?.map((d) => d.id)).toEqual(["de", "all", "en"]);
+    expect(resolveFor(row, ["de"])?.links?.map((l) => l.id)).toEqual(["l-de", "l-all"]);
+    expect(resolveFor({ ...own, links: [link("l-de", ["de"])] }, ["en"])).not.toHaveProperty("links");
+  });
+
+  it("keeps a lesson whose only material is a German document, and shows that document in every language", () => {
+    const row = { stageKey: "s-abcdefgh", narrative: { en: { title: "Worksheet" } }, documents: [doc("nur", ["de"])] };
+    for (const locales of [["en"], ["el"], ["en", "el"], ["de"]] as Locale[][]) {
+      const s = resolveFor(row, locales);
+      expect(s, locales.join()).not.toBeNull();
+      expect(s?.documents?.map((d) => d.id), locales.join()).toEqual(["nur"]);
+    }
+    // Text (or a video) to show: no fallback, the German document stays German.
+    expect(resolveFor({ ...own, documents: [doc("nur", ["de"])] }, ["en"])).not.toHaveProperty("documents");
+  });
+
+  it("never lets further reading alone make a lesson", () => {
+    expect(resolveFor({ stageKey: "s-abcdefgh", narrative: { en: { title: "Only links" } }, links: [link("l1")] }, ["en"])).toBeNull();
+    expect(resolveFor({ stageKey: "s-abcdefgh", narrative: { en: { title: "Only links" } }, links: [link("l1")] })).toBeNull();
+  });
+});

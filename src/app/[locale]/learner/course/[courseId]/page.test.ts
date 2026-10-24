@@ -28,6 +28,10 @@ vi.mock("@/lib/cms", () => ({ getCourse }));
 vi.mock("@/lib/cms/course-overlay", () => ({ getCourseStatus }));
 vi.mock("@/lib/server-queries", () => ({ getViewerRoles }));
 vi.mock("@/lib/cms/learner-course", () => ({ getLearnerCourse }));
+// Release 4 (D109): whether the course has a references list, and the list itself (never read here).
+const hasCourseReferences = vi.fn(async () => false);
+const getCourseReferences = vi.fn();
+vi.mock("@/lib/cms/course-references", () => ({ hasCourseReferences, getCourseReferences }));
 vi.mock("@/lib/auth-helpers", () => ({ getCurrentUser }));
 vi.mock("@/lib/prisma", () => ({ prisma: { courseEnrollment: { findFirst } } }));
 vi.mock("next-intl/server", () => ({ setRequestLocale: () => {} }));
@@ -96,7 +100,7 @@ describe("course route", () => {
     setup({ status: "published", editor: false });
     const el = await visit({ locale: "de" });
     expect(el.type).toBe(CoursePlayer);
-    expect(getLearnerCourse).toHaveBeenCalledWith("seq-elevate", "speak-up", "de", base, { editor: false });
+    expect(getLearnerCourse).toHaveBeenCalledWith("seq-elevate", "speak-up", "de", base, { editor: false, requested: "de" });
     expect(el.props).toEqual({
       course: flexible,
       draftPreview: false,
@@ -105,6 +109,7 @@ describe("course route", () => {
       initialLesson: undefined,
       editLocale: undefined,
       serverResume: null,
+      hasReferences: false,
     });
   });
 
@@ -165,7 +170,7 @@ describe("course route", () => {
     setup({ status: "draft", editor: true, user: { id: "editor" } });
     for (const lesson of ["s-abcd1234", "concept", "assessment"]) {
       const el = await visit({ locale: "de", lesson, ui: "en" });
-      expect(getLearnerCourse).toHaveBeenLastCalledWith("seq-elevate", "speak-up", "de", base, { editor: true });
+      expect(getLearnerCourse).toHaveBeenLastCalledWith("seq-elevate", "speak-up", "de", base, { editor: true, requested: "de" });
       expect(el.type).toBe(PreviewStateProvider);
       const p = player(el);
       expect(p.type).toBe(CoursePlayer);
@@ -177,6 +182,7 @@ describe("course route", () => {
         initialLesson: lesson,
         editLocale: "en",
         serverResume: null,
+        hasReferences: false,
       });
     }
     // A preview never reads the editor's own progress.
@@ -197,7 +203,7 @@ describe("course route", () => {
     const playing = await visit({ lesson: "concept" });
     expect(playing.type).toBe(CoursePlayer);
     expect(playing.props).toMatchObject({ preview: false, canEdit: true, initialLesson: undefined });
-    expect(getLearnerCourse).toHaveBeenLastCalledWith("seq-elevate", "speak-up", "en", base, { editor: false });
+    expect(getLearnerCourse).toHaveBeenLastCalledWith("seq-elevate", "speak-up", "en", base, { editor: false, requested: "en" });
   });
 
   it("is a 404 for a learner on a draft, as before", async () => {
@@ -264,12 +270,26 @@ describe("which language the course is shown in", () => {
     learnerLocale.value = null;
   });
 
+  // Release 4, R2 (D108, spec 4.4): the lessons are built in the language
+  // shown, and get the documents and links for the page's language too, so
+  // a German learner on a course still shown in English gets German-only
+  // material (marked "In German"). In a preview both are the language asked for.
+  it("gives a learner's lessons the page's language as well as the course's, for documents and links", async () => {
+    setup({ status: "published", editor: false });
+    learnerLocale.value = "en";
+    await visit({ locale: "de" });
+    expect(getLearnerCourse).toHaveBeenLastCalledWith("seq-elevate", "speak-up", "en", base, { editor: false, requested: "de" });
+    learnerLocale.value = null;
+    await visit({ locale: "el" });
+    expect(getLearnerCourse).toHaveBeenLastCalledWith("seq-elevate", "speak-up", "el", base, { editor: false, requested: "el" });
+  });
+
   it("gives a learner on /de the English course, lessons built in English too", async () => {
     setup({ status: "published", editor: false });
     learnerLocale.value = "en";
     const el = await visit({ locale: "de" });
     expect(getCourse).toHaveBeenCalledWith("seq-elevate", "speak-up", "en");
-    expect(getLearnerCourse).toHaveBeenCalledWith("seq-elevate", "speak-up", "en", base, { editor: false });
+    expect(getLearnerCourse).toHaveBeenCalledWith("seq-elevate", "speak-up", "en", base, { editor: false, requested: "de" });
     expect(el.props.languageNotLive).toBeUndefined();
   });
 
@@ -278,7 +298,7 @@ describe("which language the course is shown in", () => {
     learnerLocale.value = "en";
     const el = player(await visit({ locale: "de" }));
     expect(getCourse).toHaveBeenCalledWith("seq-elevate", "speak-up", "de");
-    expect(getLearnerCourse).toHaveBeenCalledWith("seq-elevate", "speak-up", "de", base, { editor: true });
+    expect(getLearnerCourse).toHaveBeenCalledWith("seq-elevate", "speak-up", "de", base, { editor: true, requested: "de" });
     expect(el.props.languageNotLive).toBe("de");
   });
 
@@ -297,5 +317,54 @@ describe("which language the course is shown in", () => {
       searchParams: Promise.resolve({}),
     });
     expect(meta.title).toBe("Speak up (en)");
+  });
+});
+
+/*
+ * Release 4, R2 (D109, spec 5.4): the player links to the course's
+ * references and bibliography when it has a list, as a yes or no worked out
+ * here: the list's text never enters the player's payload. Not when
+ * R4_FURTHER_READING is off (the references page then answers "not
+ * found"), nor for a course without a list or a built-in course
+ * (hasCourseReferences answers false for those, and on any error).
+ */
+describe("the link to the course's references", () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+    vi.unstubAllEnvs();
+    hasCourseReferences.mockResolvedValue(false);
+  });
+
+  it("is offered to a learner on a course with a list, as a yes or no only", async () => {
+    setup({ status: "published", editor: false });
+    hasCourseReferences.mockResolvedValue(true);
+    const el = await visit({ locale: "de" });
+    expect(hasCourseReferences).toHaveBeenCalledWith("seq-elevate", "speak-up");
+    expect(el.props.hasReferences).toBe(true);
+    // Its text is the references page's to read, never the player's.
+    expect(getCourseReferences).not.toHaveBeenCalled();
+    expect(Object.values(el.props).filter((v) => typeof v === "string" && /Author|bibliograph/i.test(v))).toEqual([]);
+  });
+
+  it("is offered in an editor's preview too, the player keeping the preview", async () => {
+    setup({ status: "draft", editor: true });
+    hasCourseReferences.mockResolvedValue(true);
+    const el = player(await visit({ preview: "1" }));
+    expect(el.props.hasReferences).toBe(true);
+    expect(el.props.preview).toBe(true);
+  });
+
+  it("is not offered for a course without a list", async () => {
+    setup({ status: "published", editor: false });
+    expect((await visit()).props.hasReferences).toBe(false);
+    expect(hasCourseReferences).toHaveBeenCalledWith("seq-elevate", "speak-up");
+  });
+
+  it("is not offered, and nothing is read, with R4_FURTHER_READING off", async () => {
+    vi.stubEnv("R4_FURTHER_READING", "off");
+    setup({ status: "published", editor: false });
+    hasCourseReferences.mockResolvedValue(true);
+    expect((await visit()).props.hasReferences).toBe(false);
+    expect(hasCourseReferences).not.toHaveBeenCalled();
   });
 });

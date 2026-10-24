@@ -7,6 +7,8 @@ import { rows as b } from "./b";
 import { rows as d } from "./d";
 import { rows as e } from "./e";
 import { rows as f } from "./f";
+import { rows as r4 } from "./r4";
+import { rows as r4r } from "./r4r";
 import { rowKey, type Row } from "./kit";
 
 /**
@@ -18,7 +20,7 @@ import { rowKey, type Row } from "./kit";
 
 export * from "./kit";
 
-export type Stream = "foundation" | "a" | "b" | "d" | "e" | "f";
+export type Stream = "foundation" | "a" | "b" | "d" | "e" | "f" | "r4" | "r4r";
 
 /** Every row, with the stream whose file holds it. */
 export const TABLE: readonly (Row & { stream: Stream })[] = (
@@ -29,6 +31,12 @@ export const TABLE: readonly (Row & { stream: Stream })[] = (
     ["d", d],
     ["e", e],
     ["f", f],
+    // Release 4's further reading and languages (spec 10.5): their actions
+    // are server actions from R2, the document card calling them.
+    ["r4", r4],
+    // Release 4's references (spec 10.5): their actions are in the sources,
+    // so the table covers them now.
+    ["r4r", r4r],
   ] as const
 ).flatMap(([stream, rows]) => rows.map((row) => ({ ...row, stream })));
 

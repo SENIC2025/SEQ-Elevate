@@ -98,6 +98,8 @@ export type TableName =
   | "Course"
   | "Lesson"
   | "LessonDocument"
+  /** Release 4 (D107): further-reading links; "absent" on Release 3's database. */
+  | "LessonLink"
   | "Badge"
   | "Project"
   | "VerificationToken";
@@ -312,6 +314,12 @@ function filterOf(table: TableName, world: World): { columns: string; where: str
       return {
         columns: all,
         where: `"lessonId" IN (SELECT "id" FROM "Lesson" WHERE "courseSlug" LIKE $1) OR "name" LIKE $1`,
+        params: [like],
+      };
+    case "LessonLink":
+      return {
+        columns: all,
+        where: `"lessonId" IN (SELECT "id" FROM "Lesson" WHERE "courseSlug" LIKE $1) OR "title" LIKE $1`,
         params: [like],
       };
     case "Badge":

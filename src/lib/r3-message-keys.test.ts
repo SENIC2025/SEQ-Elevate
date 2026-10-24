@@ -159,7 +159,8 @@ const SPEC_ENGLISH: Record<string, string> = {
   "coursePlayer.languageFallback": "This course isn't available in your language yet, so it is shown in English.",
   "coursePlayer.languageNotLive": "Learners using {language} get English until {language} is switched on.",
   "dashboard.inEnglish": "In English",
-  "courseManager.languageReady.notChecked": "Coverage counts the main text and exercises only. Check extra content, step names, video questions and documents yourself.",
+  // Release 4 (spec 6.2, R2) names further reading and references too, which coverage doesn't count either.
+  "courseManager.languageReady.notChecked": "Coverage counts the main text and exercises only. Check extra content, step names, video questions, documents, further reading and references yourself.",
   "video.youtubeGate.body": "This video is on YouTube. When you play it, YouTube (Google) receives your IP address and browser details and may set cookies.",
   "video.youtubeGate.play": "Play video (loads YouTube)",
   "video.youtubeGate.privacyLink": "More in our privacy notice",

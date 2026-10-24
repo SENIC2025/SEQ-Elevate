@@ -19,6 +19,7 @@ import type { CourseStatus } from "@/lib/cms/course-status";
 import type { NewOnlyReason } from "@/lib/cms/sections/contract";
 import type { StoredStructure } from "@/lib/cms/structure";
 import type { LessonDocumentRef, Locale, VideoContent } from "@/lib/cms/types";
+import type { StaffLessonLink } from "@/lib/cms/lesson-links";
 
 export interface LessonSectionProps {
   lesson: LessonOutline;
@@ -78,6 +79,11 @@ export interface LessonSectionProps {
   onStructureCleared(): void;
   onVideoSaved(video: VideoContent | null): void;
   onDocumentsChanged(documents: LessonDocumentRef[]): void;
+  /**
+   * Release 4 (D107): the lesson's further-reading links after a change in
+   * its link manager, drafts included, as getLessonLinks read them back.
+   */
+  onLinksChanged(links: StaffLessonLink[]): void;
   /**
    * A structural content action (add, move or remove content) returned the
    * whole course outline, built after it committed: take it in (D39).

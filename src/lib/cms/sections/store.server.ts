@@ -155,6 +155,8 @@ export async function loadLessonFacts(
       parts: true,
       video: true,
       documents: { select: { id: true, url: true, published: true } },
+      // Release 4 (D107): counted only so a key with links isn't free (keyIsFree).
+      links: { select: { id: true } },
     },
   });
   return rows.map((r) => {
@@ -170,6 +172,7 @@ export async function loadLessonFacts(
       documentIds: documents.map((d) => d.id),
       documentUrls: documents.map((d) => d.url),
       publishedDocuments: documents.filter((d) => d.published === true).length,
+      linkCount: (r.links ?? []).length,
     };
   });
 }

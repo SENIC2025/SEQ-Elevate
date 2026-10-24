@@ -846,7 +846,7 @@
       "off": "Not live: learners using {language} get this course in English.",
       "confirmTitle": "Switch {language} on for learners?",
       "confirmBody": "Some of this course isn't in {language} yet. Learners using {language} will see English wherever text is missing.",
-      "notChecked": "Coverage counts the main text and exercises only. Check extra content, step names, video questions and documents yourself.",
+      "notChecked": "Coverage counts the main text and exercises only. Check extra content, step names, video questions, documents, further reading and references yourself.",
       "readOnly": "Only a partner admin or an admin can switch a language on or off for learners.",
       "liveIncomplete": "{language} is live, but some text is missing in it now (usually because the English changed). Learners see English there.",
       "notLive": "Learners using {language} get English until {language} is switched on.",
@@ -1449,5 +1449,43 @@
     "version": "Version {version} · last updated {date}",
     "versionInterim": "Interim version · last updated {date}",
     "poweredBy": "SEQ Elevate · Created and Powered by SENIC"
+  },
+  "furtherReading": {
+    "title": "Further reading",
+    "language": {
+      "en": "In English",
+      "de": "In German",
+      "el": "In Greek"
+    }
+  },
+  "courseReferences": {
+    "title": "References & bibliography",
+    "back": "Back to the course",
+    "closeTab": "Close this tab to return to your lesson.",
+    "shownIn": {
+      "en": "This list is in English.",
+      "de": "This list is in German.",
+      "el": "This list is in Greek."
+    },
+    "metaTitle": "References & bibliography: {course}"
+  },
+  "courseReading": {
+    "references": {
+      "heading": "References & bibliography",
+      "hint": "One entry per paragraph, in APA 7 style; use italics for titles. Learners find the list on its own page, linked from the course. It goes live when you save.",
+      "languageNote": "Learners using German or Greek see the list in their language if you write one here; otherwise they see the English list.",
+      "empty": "No list in this language yet.",
+      "save": "Save list",
+      "saved": "Saved. Learners see it now.",
+      "discard": "Discard changes",
+      "changedElsewhere": "Someone else saved this list since you opened it. Load their version, then make your change again.",
+      "reload": "Load their version"
+    },
+    "read": {
+      "links": "Further reading",
+      "noLinks": "No further reading"
+    },
+    "for": "For: {languages}",
+    "deleteLinks": "{count, plural, one {# further-reading link} other {# further-reading links}}"
   }
 }

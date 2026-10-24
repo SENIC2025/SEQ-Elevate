@@ -8,12 +8,17 @@ import type { DeleteSummary } from "@/lib/cms/sections/contract";
 import type { Locale } from "@/lib/cms/types";
 import { Named } from "./Named";
 
-/** The lines of "This removes:", from what the server counted (deleteSummary). */
+/**
+ * The lines of "This removes:", from what the server counted (deleteSummary).
+ * `linksLine` words the further-reading links (Release 4, D107), which have
+ * their own messages.
+ */
 export function deleteLines(
   summary: DeleteSummary,
   t: (key: string, values?: Record<string, string | number>) => string,
   languageNames: string[],
-  listFormat: (items: string[]) => string
+  listFormat: (items: string[]) => string,
+  linksLine?: (count: number) => string
 ): string[] {
   const lines: string[] = [];
   if (summary.languages.length) {
@@ -23,6 +28,7 @@ export function deleteLines(
   if (summary.questionBlocks) lines.push(t("delete.questions", { count: summary.questionBlocks }));
   if (summary.video) lines.push(t("delete.video"));
   if (summary.documents) lines.push(t("delete.documents", { count: summary.documents }));
+  if (summary.links && linksLine) lines.push(linksLine(summary.links));
   return lines;
 }
 
@@ -62,6 +68,7 @@ export function DeleteConfirm({
   onKeep: () => void;
 }) {
   const t = useTranslations("lessonList");
+  const tReading = useTranslations("courseReading");
   const tLive = useTranslations("liveChanges");
   const tLang = useTranslations("courseManager.languageName");
   const locale = useLocale();
@@ -83,7 +90,8 @@ export function DeleteConfirm({
     summary,
     (k, v) => t(k, v),
     summary.languages.map((l) => tLang(l)),
-    listFormat
+    listFormat,
+    (count) => tReading("deleteLinks", { count })
   );
 
   return (

@@ -95,6 +95,9 @@ import { previewDefaults } from "./sections/defaults";
 import { nameSection, standardName } from "./sections/names";
 import { resolveSectionStage } from "./sections/resolve";
 import { sectionContentVersion } from "./sections/versions";
+import { learnerLink, staffLink, storedLanguages, type StaffLessonLink } from "./lesson-links";
+import type { LessonLinkRef } from "./reading-types";
+import { furtherReadingOn } from "@/lib/r4-switches";
 import {
   deleteSummary,
   hasExtraOrUnreadable,
@@ -149,6 +152,8 @@ export async function getCourseGrid(locale: Locale): Promise<CourseGridEntry[]> 
         outline: true,
         updatedAt: true,
         readyLocales: true,
+        // Its references list's last save is an edit of the course (Release 4, D109).
+        bibliography: { select: { updatedAt: true } },
         ...enrolledLearners,
       },
     }),
@@ -171,6 +176,12 @@ export async function getCourseGrid(locale: Locale): Promise<CourseGridEntry[]> 
         documents: {
           select: { createdAt: true },
           orderBy: { createdAt: "desc" },
+          take: 1,
+        },
+        // And the further-reading link changed last (Release 4, spec 4.7).
+        links: {
+          select: { updatedAt: true },
+          orderBy: { updatedAt: "desc" },
           take: 1,
         },
       },
@@ -221,7 +232,7 @@ export async function getCourseGrid(locale: Locale): Promise<CourseGridEntry[]> 
         lessonKeys
       ),
       ready: readyByLocale(kind, row?.readyLocales),
-      lastEdited: lastEdited(row?.updatedAt ?? null, courseLessons),
+      lastEdited: lastEdited(row?.updatedAt ?? null, courseLessons, row?.bibliography),
     };
   });
 }
@@ -268,14 +279,17 @@ export async function getCourseOutline(
         publishedAt: true,
         updatedAt: true,
         readyLocales: true,
+        // Its references list's last save is an edit of the course (Release 4, D109).
+        bibliography: { select: { updatedAt: true } },
         ...enrolledLearners,
       },
     }),
     prisma.lesson.findMany({
       where: { projectId: PROJECT, courseSlug: slug },
-      // Drafts included: editors manage every document.
+      // Drafts included: editors manage every document and further-reading link.
       include: {
         documents: { orderBy: [{ order: "asc" }, { createdAt: "asc" }] },
+        links: { orderBy: [{ order: "asc" }, { createdAt: "asc" }] },
       },
     }),
     // Built-in wording, for "Built-in: …", and which lessons ship a video
@@ -330,7 +344,7 @@ export async function getCourseOutline(
       publishedAt: row?.publishedAt?.toISOString() ?? null,
       durationMinutes: en.durationMinutes,
       enrolled: row?._count.enrollments ?? 0,
-      lastEdited: lastEdited(row?.updatedAt ?? null, lessons),
+      lastEdited: lastEdited(row?.updatedAt ?? null, lessons, row?.bibliography),
       copy,
       languages: created.languages,
       lessons: created.lessons,
@@ -382,6 +396,7 @@ export async function getCourseOutline(
       // (lesson-overlay.ts: `lesson.video ?? stage.video`).
       builtInVideo: Boolean(baseCopy[0]?.videoStages.includes(key)),
       documents: documentRefs(lesson?.documents),
+      links: staffLinks(lesson?.links),
       updatedAt: lesson?.updatedAt.toISOString() ?? null,
       // A built-in course's lesson list can't change.
       section: null,
@@ -401,7 +416,7 @@ export async function getCourseOutline(
     publishedAt: row?.publishedAt?.toISOString() ?? null,
     durationMinutes: en.durationMinutes,
     enrolled: row?._count.enrollments ?? 0,
-    lastEdited: lastEdited(row?.updatedAt ?? null, lessons),
+    lastEdited: lastEdited(row?.updatedAt ?? null, lessons, row?.bibliography),
     copy,
     languages: languageCoverage(kind, meta, lessons, presentKeys),
     lessons: outlineLessons,
@@ -414,7 +429,7 @@ export async function getCourseOutline(
 
 /* ------------------------- a created course's lessons ------------------------- */
 
-type LessonRow = Prisma.LessonGetPayload<{ include: { documents: true } }>;
+type LessonRow = Prisma.LessonGetPayload<{ include: { documents: true; links: true } }>;
 
 const bodyOf = (kind: MainKind): LessonOutline["body"] =>
   kind === "narrative" || kind === "reflection" ? kind : "interactive";
@@ -429,8 +444,30 @@ function documentRefs(
     mimeType: d.mimeType,
     sizeBytes: d.sizeBytes,
     published: d.published,
+    // Release 4 (D108): the languages it is for, [] = every language.
+    languages: storedLanguages(d.languages),
   }));
 }
+
+/**
+ * Release 4 (D107, spec 4.6): every further-reading link, drafts included,
+ * as staff screens get it: each stored address checked again as it is read
+ * (staffLink: one the check refuses is `unusable`, shown as text).
+ */
+const staffLinks = (links: LessonRow["links"] | undefined): StaffLessonLink[] => (links ?? []).map(staffLink);
+
+/**
+ * The published further-reading links of a lesson as the course page's
+ * preview shows them, as learners get them (learnerLink: an address the
+ * check refuses is left out); none with R4_FURTHER_READING=off.
+ */
+const previewLinks = (links: LessonRow["links"] | undefined): LessonLinkRef[] =>
+  furtherReadingOn()
+    ? (links ?? []).filter((l) => l.published).flatMap((l) => {
+        const link = learnerLink(l);
+        return link ? [link] : [];
+      })
+    : [];
 
 const factsOf = (l: LessonRow): SectionFacts => ({
   stageKey: l.stageKey,
@@ -440,6 +477,8 @@ const factsOf = (l: LessonRow): SectionFacts => ({
   parts: l.parts,
   video: l.video,
   documentCount: l.documents.length,
+  // Release 4 (D107): a key with links isn't free (keyIsFree), and Delete lists them.
+  linkCount: l.links.length,
 });
 
 const isRecord = (v: unknown) => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -530,6 +569,7 @@ function createdCourseLessons(input: {
       video: (lesson?.video ?? null) as VideoContent | null,
       builtInVideo: false,
       documents: documentRefs(lesson?.documents),
+      links: staffLinks(lesson?.links),
       updatedAt: lesson?.updatedAt.toISOString() ?? null,
       section: null,
       parts: null,
@@ -613,8 +653,11 @@ function sectionRow(
     if (ownView) {
       sectioned = resolveSectionStage({
         section: s,
-        row: facts && { ...facts, documents },
+        // Release 4 (spec 4.4): the documents and links for the previewed
+        // language, as a learner reading in it gets them.
+        row: facts && { ...facts, documents, links: previewLinks(lesson?.links) },
         locale: l,
+        itemLocales: [l],
         label: name[l].text,
         standardTitle: s.custom ? name[l].text : standardName(s.id as StageKey, l),
         defaults: previewDefaults(l),
@@ -652,6 +695,7 @@ function sectionRow(
     video: (lesson?.video ?? null) as VideoContent | null,
     builtInVideo: false,
     documents,
+    links: staffLinks(lesson?.links),
     updatedAt: lesson?.updatedAt.toISOString() ?? null,
     section: {
       id: s.id,
@@ -675,6 +719,8 @@ function sectionRow(
             parts: lesson.parts,
             video: lesson.video,
             documentIds: lesson.documents.map((d) => d.id),
+            // Release 4 (D107): counted once there are some, as deleteSection counts them.
+            linkIds: lesson.links.map((k) => k.id),
           }
         : null
     ),

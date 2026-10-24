@@ -40,7 +40,7 @@ const base = () => outlineVersion(resolved());
 const contentBase = (key: string) => {
   const r = db.lessons.find((l) => l.stageKey === key);
   return sectionContentVersion(
-    r ? { ...r, documentIds: r.documents.map((d) => d.id) } : null
+    r ? { ...r, documentIds: r.documents.map((d) => d.id), linkIds: (r.links ?? []).map((k) => k.id) } : null
   );
 };
 const STANDARD = ["context", "concept", "behaviour", "reflection"];
@@ -640,6 +640,31 @@ describe("deleteSection", () => {
       count: 1,
     });
     expect(db.lessons).toHaveLength(1);
+  });
+
+  // Release 4, R2 (D107, spec 4.7): a lesson's further-reading links are
+  // in what the page saw (its content base counts their ids, once there
+  // are some) and in the audit row (how many, never an address).
+  it("refuses a page opened before a further-reading link was added, and counts the links it deletes", async () => {
+    db.lessons = [row("concept", { narrative: { en: { title: "C" } } })];
+    const before = contentBase("concept");
+    db.lessons[0].links = [{ id: "k1" }, { id: "k2" }];
+    expect(await deleteSection(SLUG, "concept", base(), before)).toMatchObject({ ok: false, error: "changed-elsewhere" });
+    expect(db.lessons).toHaveLength(1);
+
+    expect(await deleteSection(SLUG, "concept", base(), contentBase("concept"))).toMatchObject({ ok: true });
+    expect(db.lessons).toEqual([]);
+    expect(db.audit[0]).toMatchObject({ action: "section.deleted", metadata: { sectionId: "concept", links: 2 } });
+    expect(JSON.stringify(db.audit[0].metadata)).not.toContain("k1");
+  });
+
+  it("keeps the base and the audit row of a lesson without links as they were", async () => {
+    db.lessons = [row("concept", { narrative: { en: { title: "C" } } })];
+    const r = db.lessons[0];
+    // The base a page opened before Release 4 holds.
+    const old = sectionContentVersion({ ...r, documentIds: [] });
+    expect(await deleteSection(SLUG, "concept", base(), old)).toMatchObject({ ok: true });
+    expect(db.audit[0].metadata).not.toHaveProperty("links");
   });
 
   it("refuses when the lesson's content changed since the page opened", async () => {

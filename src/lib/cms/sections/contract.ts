@@ -25,6 +25,7 @@ import type {
   VideoContent,
 } from "@/lib/cms/types";
 import type { RichText } from "@/lib/rich-text/types";
+import type { ItemLanguages, LessonLinkRef } from "@/lib/cms/reading-types";
 import type {
   LocalizedText,
   StoredAssessment,
@@ -190,6 +191,12 @@ export interface SectionFacts {
   parts?: unknown;
   video?: unknown;
   documentCount?: number;
+  /**
+   * Release 4 (D107): how many further-reading links the row has, drafts
+   * included. Never content: it only keeps a standard key with links from
+   * being taken over as a free one (keyIsFree).
+   */
+  linkCount?: number;
 }
 
 /* ---------------------------------------------------------------- parts --- */
@@ -420,6 +427,8 @@ export interface DeleteSummary {
   questionBlocks: number;
   video: boolean;
   documents: number;
+  /** Release 4 (D107): further-reading links, drafts included; absent when there are none. */
+  links?: number;
 }
 
 export interface SectionView {
@@ -540,7 +549,10 @@ export interface SectionStage {
   title: string;
   subtitle?: string;
   video?: VideoContent;
-  documents?: LessonDocumentRef[];
+  /** Release 4 (D108): with the languages each is for. */
+  documents?: (LessonDocumentRef & ItemLanguages)[];
+  /** Release 4 (D107): further reading; never content, never counted. */
+  links?: LessonLinkRef[];
   parts: ResolvedPart[];
   /** Parts left out because they are only a draft or not ready (editor-only note). */
   skipped: number;
@@ -617,7 +629,11 @@ export type PartsOrderVersion = (items: readonly StoredPart[]) => string;
 export type PartVersions = (item: StoredPart) => PartBase;
 export type ItemVersion = (item: StoredPart) => string;
 export type TextPartVersion = (item: StoredPart, locale: Locale) => string | null;
-/** Base of deleteSection: narrative, structure, structureDraft, parts, video, sorted document ids. */
+/**
+ * Base of deleteSection: narrative, structure, structureDraft, parts, video,
+ * sorted document ids, and (Release 4, D107) sorted further-reading link ids
+ * when the lesson has any, so a lesson without links keeps its base.
+ */
 export type SectionContentVersion = (
   row: {
     narrative: unknown;
@@ -626,6 +642,7 @@ export type SectionContentVersion = (
     parts: unknown;
     video: unknown;
     documentIds: readonly string[];
+    linkIds?: readonly string[];
   } | null
 ) => string | null;
 
@@ -699,8 +716,21 @@ export type PartIssueField = (issue: PartIssue) => string | null;
 /** resolve.ts — one lesson for the sectioned preview; null when it has nothing to show. */
 export type ResolveSectionStage = (input: {
   section: ResolvedSection;
-  row: (SectionFacts & { video?: unknown; documents?: LessonDocumentRef[] }) | undefined;
+  row:
+    | (SectionFacts & {
+        video?: unknown;
+        documents?: (LessonDocumentRef & ItemLanguages)[];
+        /** Release 4 (D107): the lesson's published further reading, its addresses checked. */
+        links?: LessonLinkRef[];
+      })
+    | undefined;
   locale: Locale;
+  /**
+   * Release 4 (D108): the languages whose documents and links the stage
+   * shows (forLanguage): the effective content language and the requested
+   * one. Absent: every document and link, whatever its languages.
+   */
+  itemLocales?: readonly Locale[];
   label: string;
   standardTitle: string;
   defaults: PartDefaults & { reflectionTitle: string; reflectionIntro: string };

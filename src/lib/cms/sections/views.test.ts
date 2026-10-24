@@ -64,6 +64,19 @@ describe("deleteSummary", () => {
       documents: 0,
     });
   });
+
+  it("counts the further-reading links a delete removes, and says nothing of links when there are none (Release 4)", () => {
+    expect(deleteSummary({ narrative: { en: { title: "T", blocks: [para("x")] } }, linkCount: 3 })).toEqual({
+      languages: ["en"],
+      textBlocks: 1,
+      questionBlocks: 0,
+      video: false,
+      documents: 0,
+      links: 3,
+    });
+    // A lesson without links is summed up exactly as before.
+    expect(deleteSummary({ linkCount: 0 })).not.toHaveProperty("links");
+  });
 });
 
 describe("sectionTitle", () => {

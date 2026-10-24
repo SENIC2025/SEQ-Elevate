@@ -238,6 +238,38 @@ describe("lastEdited", () => {
       ])
     ).toBe("2026-09-05T00:00:00.000Z");
   });
+
+  // Release 4, R2 (spec 4.7): a further-reading link added, changed,
+  // shown or hidden is an edit of the course (links have an updatedAt).
+  it("takes a further-reading link's last change too", () => {
+    expect(
+      lastEdited(new Date("2026-09-01T00:00:00Z"), [
+        {
+          stageKey: "context",
+          updatedAt: new Date("2026-09-03T00:00:00Z"),
+          documents: [{ createdAt: "2026-09-04T00:00:00Z" }],
+          links: [{ updatedAt: "2026-09-02T00:00:00Z" }, { updatedAt: new Date("2026-09-06T00:00:00Z") }],
+        },
+      ])
+    ).toBe("2026-09-06T00:00:00.000Z");
+  });
+
+  // Release 4, R2 on r4r (D109, spec 9.3): a save of the course's references
+  // list is an edit of the course (the list is a row of its own, with an
+  // updatedAt, so the Course row's doesn't move).
+  it("takes the references list's last save too, when it is the latest", () => {
+    const lessons = [{ stageKey: "context", updatedAt: new Date("2026-09-03T00:00:00Z") }];
+    expect(lastEdited(new Date("2026-09-01T00:00:00Z"), lessons, { updatedAt: "2026-09-07T00:00:00Z" })).toBe(
+      "2026-09-07T00:00:00.000Z"
+    );
+    expect(lastEdited(null, [], { updatedAt: new Date("2026-09-08T00:00:00Z") })).toBe("2026-09-08T00:00:00.000Z");
+    // An older save, no list, or a course without its row change nothing.
+    expect(lastEdited(new Date("2026-09-01T00:00:00Z"), lessons, { updatedAt: "2026-08-01T00:00:00Z" })).toBe(
+      "2026-09-03T00:00:00.000Z"
+    );
+    expect(lastEdited(new Date("2026-09-01T00:00:00Z"), lessons, null)).toBe("2026-09-03T00:00:00.000Z");
+    expect(lastEdited(null, [], undefined)).toBeNull();
+  });
 });
 
 /* ------------------------------ publishReadiness ------------------------------ */

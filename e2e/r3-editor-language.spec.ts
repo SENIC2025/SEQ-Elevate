@@ -66,7 +66,9 @@ describe("the English editors of Manage courses and Create courses are marked En
     // The editors' own words: English, marked.
     expect(await langOf(video), "the video editor").toBe("en");
     expect(await langOf(lesson.getByRole("button", { name: "Upload file" })), "the video editor's tabs").toBe("en");
-    expect(await langOf(lesson.getByRole("heading", { name: "Lesson documents" })), "the documents").toBe("en");
+    // Release 4 (spec 4.6): one card for documents and further reading.
+    expect(await langOf(lesson.getByRole("heading", { name: "Documents and further reading" })), "the documents").toBe("en");
+    expect(await langOf(lesson.getByRole("button", { name: "Add a link", exact: true })), "further reading").toBe("en");
     const text = lesson.getByRole("heading", { name: "Lesson text (Greek)" });
     expect(await langOf(text), "the lesson text editor").toBe("en");
     expect(await langOf(lesson.getByRole("button", { name: "Add block", exact: true })), "the content blocks").toBe("en");

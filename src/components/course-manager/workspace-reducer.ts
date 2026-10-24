@@ -32,7 +32,15 @@ import type { CourseStatus } from "@/lib/cms/course-status";
 import type { LabelSource, SectionsMeta } from "@/lib/cms/sections/contract";
 import type { StoredStructure } from "@/lib/cms/structure";
 import type { LessonDocumentRef, Locale, VideoContent } from "@/lib/cms/types";
+import type { StaffLessonLink } from "@/lib/cms/lesson-links";
 import type { LessonSectionProps } from "./lesson-section-props";
+
+/**
+ * A lesson as the page holds it, with its further-reading links (Release 4,
+ * D107): every link, drafts included, for the read view and the link
+ * manager. Absent until the page's data names them.
+ */
+export type LessonWithReading = LessonOutline & { links?: StaffLessonLink[] };
 
 export interface WorkspaceState {
   /**
@@ -99,7 +107,9 @@ export type WorkspaceAction =
   | { type: "draftChanged"; key: string; draft: StoredStructure | null }
   | { type: "structureCleared"; key: string }
   | { type: "videoSaved"; key: string; video: VideoContent | null }
-  | { type: "documentsChanged"; key: string; documents: LessonDocumentRef[] };
+  | { type: "documentsChanged"; key: string; documents: LessonDocumentRef[] }
+  /** Release 4 (D107): the lesson's further-reading links after a change. */
+  | { type: "linksChanged"; key: string; links: StaffLessonLink[] };
 
 /** The content callbacks the page gives each lesson (LessonSectionProps). */
 export type LessonContentCallbacks = Pick<
@@ -111,6 +121,7 @@ export type LessonContentCallbacks = Pick<
   | "onStructureCleared"
   | "onVideoSaved"
   | "onDocumentsChanged"
+  | "onLinksChanged"
 >;
 
 /**
@@ -118,9 +129,10 @@ export type LessonContentCallbacks = Pick<
  * page at once, then re-reads the page. The re-read is what brings the
  * lesson's server-built facts up to date — its content base
  * (`contentVersion`, which deleteSection checks and which counts its
- * documents), what Delete would remove (`deleteSummary`), the publishing
- * warnings and the read views — so every change of content, a document
- * added or removed included, asks for it.
+ * documents and further-reading links), what Delete would remove
+ * (`deleteSummary`), the publishing warnings and the read views — so every
+ * change of content, a document or link added or removed included, asks
+ * for it.
  */
 export function lessonContentCallbacks(
   key: string,
@@ -141,6 +153,7 @@ export function lessonContentCallbacks(
     onStructureCleared: () => then({ type: "structureCleared", key }),
     onVideoSaved: (video) => then({ type: "videoSaved", key, video }),
     onDocumentsChanged: (documents) => then({ type: "documentsChanged", key, documents }),
+    onLinksChanged: (links) => then({ type: "linksChanged", key, links }),
   };
 }
 
@@ -265,6 +278,11 @@ export function workspaceReducer(state: WorkspaceState, action: WorkspaceAction)
         ...l,
         documents: action.documents,
       }));
+    case "linksChanged":
+      return patchLesson(state, action.key, (l) => {
+        const next: LessonWithReading = { ...l, links: action.links };
+        return next;
+      });
   }
 }
 

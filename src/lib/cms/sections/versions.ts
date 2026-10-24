@@ -60,8 +60,13 @@ export const textPartVersion: TextPartVersion = (item, locale: Locale) =>
 
 /**
  * Everything deleting a lesson would remove: its text, exercise, draft,
- * extra content, video and which documents it has (in any order). Null when
- * the lesson has no row. A missing column and a null one are the same.
+ * extra content, video, which documents it has and which further-reading
+ * links (each in any order). Null when the lesson has no row. A missing
+ * column and a null one are the same.
+ *
+ * The links count only when there are some (Release 4, D107): a lesson
+ * without links keeps the base it had before, so a page opened before links
+ * existed can still delete it; one opened before a link was added can't.
  */
 export const sectionContentVersion: SectionContentVersion = (row) =>
   row
@@ -72,5 +77,6 @@ export const sectionContentVersion: SectionContentVersion = (row) =>
         parts: row.parts ?? null,
         video: row.video ?? null,
         documentIds: [...row.documentIds].sort(),
+        ...(row.linkIds?.length ? { linkIds: [...row.linkIds].sort() } : {}),
       })
     : null;

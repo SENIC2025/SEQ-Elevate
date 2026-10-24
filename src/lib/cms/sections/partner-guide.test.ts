@@ -71,3 +71,71 @@ describe("the partner guide", () => {
     expect(line).not.toMatch(/with your first save/);
   });
 });
+
+/*
+ * Release 4, R2 (spec 11): the guide tells partners about links in their
+ * text, further reading, a language per document or link, and references,
+ * in the words the platform uses; and what further reading doesn't do
+ * (make a lesson appear) and what coverage doesn't count. The rule for a
+ * link's words is the narrowed one (D104 as built), with the site box
+ * learners see (D105 as amended).
+ */
+describe("the partner guide on links, further reading and references (Release 4)", () => {
+  it("sums them up in one minute", () => {
+    const summary = section("In one minute");
+    expect(summary).toMatch(/\*\*link words\*\*[^\n]*\*\*Link\*\* button \(Ctrl\+K, ⌘K on Mac\)/);
+    expect(summary).toMatch(/links in text you paste from Word or Google Docs are kept/);
+    expect(summary).toMatch(/\*\*further reading\*\*[^\n]*\*\*References & bibliography\*\*/);
+  });
+
+  it("says further reading never makes a lesson appear", () => {
+    const line = section("The lesson list")
+      .split("\n")
+      .find((l) => l.includes("Learners get this lesson as soon as it has content"));
+    expect(line).toMatch(/Further-reading links never make a lesson appear: a lesson with nothing but links stays out of what learners get\./);
+  });
+
+  it("explains links in text with the site box and the narrowed rule, not the rule it replaced", () => {
+    const links = section("Links in your text");
+    expect(links).toMatch(/Learners see the site each link opens in a small box after its words/);
+    expect(links).toMatch(/"bpb\.de" linked to www\.bpb\.de is fine, but "paypal\.com" linked to another site is refused/);
+    expect(links).not.toMatch(/The words you link must not show a different address than the link opens/);
+    expect(links).toMatch(/Outlook "safe links"/);
+    expect(links).toMatch(/private browser window/);
+    expect(links).toMatch(/team or role address/);
+  });
+
+  it("explains further reading: drafts until shown, up to 30, at the end of the lesson, where the player puts it (spec 4.5)", () => {
+    const reading = section("Further reading");
+    expect(reading).toMatch(/\*\*Add a link\*\* sits next to \*\*Upload document\*\*/);
+    expect(reading).toMatch(/\*\*drafts\*\* until you choose \*\*Show to learners\*\*/);
+    expect(reading).toMatch(/Up to 30 per lesson/);
+    // A lesson drawn piece by piece has the list before its Continue; a
+    // standard lesson's stage ends with its own Continue, and the list
+    // follows it (R4-E9).
+    expect(reading).toMatch(
+      /at the end of the lesson: before \*\*Continue\*\* in a lesson of your own or a lesson you added content to, and after \*\*Continue\*\* in a standard lesson with only its main content/
+    );
+    expect(reading).not.toMatch(/at the end of the lesson, before \*\*Continue\*\*\./);
+  });
+
+  it("explains a language per document or link: items never change which lessons there are", () => {
+    const languages = section("A language for each document or link");
+    expect(languages).toMatch(/all three by default/);
+    expect(languages).toMatch(/marked "In German"/);
+    expect(languages).toMatch(/never change which lessons learners get/);
+  });
+
+  it("explains references & bibliography: per course, APA 7, live on save, English first", () => {
+    const references = section("References & bibliography");
+    expect(references).toMatch(/APA 7/);
+    expect(references).toMatch(/goes live when you save/);
+    expect(references).toMatch(/At most 10,000 characters per language/);
+  });
+
+  it("says coverage doesn't count documents, further reading or references", () => {
+    expect(section("Switching German or Greek on")).toMatch(
+      /Coverage doesn't count documents, further reading or references: check them yourself in Preview as learner\./
+    );
+  });
+});

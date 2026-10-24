@@ -23,7 +23,11 @@ vi.mock("./PlayerAnnouncer", () => ({
   PlayerAnnouncer: ({ children }: { children: unknown }) => children,
   useAnnounce: () => (t: string) => announced.push(t),
 }));
-vi.mock("@/components/ui/button", async () => ({ Button: (await import("./press.test-helpers")).MockButton }));
+vi.mock("@/components/ui/button", async () => ({
+  Button: (await import("./press.test-helpers")).MockButton,
+  // The completion screen's references link is a link styled as a button (Release 4).
+  buttonVariants: (await vi.importActual<typeof import("@/components/ui/button")>("@/components/ui/button")).buttonVariants,
+}));
 vi.mock("next-auth/react", () => ({ useSession: () => ({ status: "unauthenticated", data: null }) }));
 vi.mock("@/app/actions/video", () => ({ recordVideoCueAnswer: vi.fn() }));
 vi.mock("@/app/actions/telemetry", () => ({ recordCourseOpened: vi.fn(), recordStageTime: vi.fn() }));
@@ -257,6 +261,125 @@ describe("CoursePlayer", () => {
     store.stale = true;
     const html = render();
     expect(html).toMatch(/<div role="alert"[^>]*><p[^>]*>A new version is available\. Reload the page to keep saving your answers\.<\/p><button[^>]*>.*Reload<\/button><\/div>/);
+  });
+});
+
+/*
+ * Release 4, R2 (D107, spec 4.5): a standard lesson drawn by its stage
+ * screen ends with its further reading, after the stage (which ends with
+ * its own Continue), so the list is the last thing in the lesson; a stage
+ * lesson without links is drawn exactly as before.
+ */
+describe("CoursePlayer: a standard lesson's further reading (Release 4)", () => {
+  const withLinks: LearnerCourse = {
+    ...course,
+    lessons: course.lessons.map((l) =>
+      l.kind === "stage"
+        ? {
+            ...l,
+            stage: {
+              ...l.stage,
+              links: [
+                { id: "k1", title: "The guide", url: "https://example.org/guide", kind: "web", description: "", languages: [], published: true },
+              ],
+            },
+          }
+        : l
+    ),
+  };
+
+  it("draws the list after the stage screen, its Continue included", () => {
+    const html = renderIn(createElement(CoursePlayer, { course: withLinks, preview: true, initialLesson: "concept" }), "en");
+    const list = html.indexOf(">Further reading</h3>");
+    expect(list).toBeGreaterThan(-1);
+    expect(list).toBeGreaterThan(html.indexOf("Speak early."));
+    expect(html.lastIndexOf(">Continue")).toBeGreaterThan(html.indexOf("Speak early."));
+    expect(list).toBeGreaterThan(html.lastIndexOf(">Continue"));
+    expect(html).toMatch(/<a[^>]*href="https:\/\/example\.org\/guide"[^>]*target="_blank"/);
+  });
+
+  it("draws a stage lesson without links as before", () => {
+    expect(render({ preview: true, initialLesson: "concept" })).not.toContain("Further reading");
+  });
+});
+
+/*
+ * Release 4, R2 (D109, spec 5.4): a course with a references list
+ * (`hasReferences`, a yes or no worked out on the server: the list's text
+ * never reaches the player) links to it from the top bar's left group, in
+ * a new tab (?from=lesson: the page says "Close this tab to return to your
+ * lesson."), so the learner's place and unsent answers stay; the
+ * completion screen links to it in the same tab. In an editor's preview
+ * both keep the preview (?preview=1). A course without a list shows
+ * exactly what it showed before.
+ */
+describe("CoursePlayer: the link to the course's references (Release 4)", () => {
+  const decode = (s: string | undefined) => s?.replace(/&amp;/g, "&");
+  /** The top bar: everything before the step bar. */
+  const topBar = (html: string) => html.slice(0, html.indexOf('aria-label="Course stages"'));
+  const linksIn = (html: string) =>
+    elements(html, "a").map((a) => ({ href: decode(attr(a.attrs, "href")), text: textOf(a.inner), attrs: a.attrs, inner: a.inner }));
+  const referencesLink = (html: string) => linksIn(topBar(html)).find((l) => l.href?.includes("/references"));
+
+  it("is in the top bar's left group, after the way to the dashboard, and opens the list in a new tab", () => {
+    const html = render({ hasReferences: true });
+    const link = referencesLink(html);
+    expect(link, "the top bar's link to the references").toBeDefined();
+    expect(link!.href).toBe("/en/learner/course/speak-up/references?from=lesson");
+    expect(attr(link!.attrs, "target")).toBe("_blank");
+    expect(attr(link!.attrs, "rel")).toBe("noopener noreferrer");
+    // Heard with what it does, in the interface language (D105).
+    expect(link!.text).toBe(`${en.courseReferences.title} ${en.lessonLinks.newTab}`);
+    expect(link!.inner).toMatch(/<span class="sr-only"> \(opens in a new tab\)<\/span>/);
+    // The left group: the dashboard first, then the references; the course's title stays on the right.
+    const bar = linksIn(topBar(html)).map((l) => l.href);
+    expect(bar.indexOf("/en/learner")).toBeGreaterThan(-1);
+    expect(bar.indexOf("/en/learner")).toBeLessThan(bar.indexOf(link!.href));
+    expect(topBar(html).indexOf(link!.inner)).toBeLessThan(topBar(html).indexOf("<h1"));
+  });
+
+  it("speaks the page's language, and is never marked as the course's text", () => {
+    const html = render({ hasReferences: true, course: { ...course, locale: "en" } }, "de");
+    const link = referencesLink(html);
+    expect(link!.href).toBe("/en/learner/course/speak-up/references?from=lesson");
+    expect(link!.text).toBe(`${de.courseReferences.title} ${de.lessonLinks.newTab}`);
+    expect(link!.attrs).not.toMatch(/\slang=/);
+  });
+
+  // A preview opens at a lesson, never on the completion screen: its link
+  // keeping the preview is CompletionStage.test's, and the e2e walks to it
+  // (r4-references.spec.ts).
+  it("keeps an editor's preview", () => {
+    expect(referencesLink(render({ hasReferences: true, preview: true }))!.href).toBe(
+      "/en/learner/course/speak-up/references?from=lesson&preview=1"
+    );
+    expect(referencesLink(render({ hasReferences: true, preview: true, draftPreview: true, canEdit: true }))!.href).toBe(
+      "/en/learner/course/speak-up/references?from=lesson&preview=1"
+    );
+  });
+
+  it("is on the completion screen too, in the same tab, with no ?from (the page then offers the way back)", () => {
+    // The completion screen's animation library wants a real window.
+    vi.unstubAllGlobals();
+    store.over = { courseSlug: "speak-up", completedAt: "2026-11-10T09:00:00.000Z" };
+    const html = render({ hasReferences: true, serverResume: "complete" });
+    expect(textOf(html)).toContain("Course complete");
+    const below = html.slice(html.indexOf('aria-label="Course stages"'));
+    const onScreen = linksIn(below).filter((l) => l.href?.includes("/references"));
+    expect(onScreen.map((l) => l.href)).toEqual(["/en/learner/course/speak-up/references"]);
+    expect(onScreen[0].attrs).not.toMatch(/\starget=/);
+  });
+
+  it("isn't there without a list: the player is as it was, completion screen included", () => {
+    const before = render();
+    expect(before).not.toContain("/references");
+    expect(render({ hasReferences: false })).toBe(before);
+    vi.unstubAllGlobals();
+    store.over = { courseSlug: "speak-up", completedAt: "2026-11-10T09:00:00.000Z" };
+    const done = render({ serverResume: "complete" });
+    expect(textOf(done)).toContain("Course complete");
+    expect(done).not.toContain("/references");
+    expect(render({ serverResume: "complete", hasReferences: false })).toBe(done);
   });
 });
 
