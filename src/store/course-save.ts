@@ -28,7 +28,9 @@
  * course loading again says what the server holds, and ends the doubt.
  *
  * A save is answered, not thrown, when no try can succeed: another
- * account's (dropped, D37), or one the server can't take at all (logged).
+ * account's (dropped, D37), one before the profile step is done (D79: the
+ * page says so, `profileIncomplete`), or one the server can't take at all
+ * (logged).
  * A thrown error is thrown on, so it's tried again (pending-save.ts) —
  * except Next's UnrecognizedActionError, which means this page is from a
  * build the server no longer has (D68): only a reload helps, so what isn't
@@ -143,6 +145,8 @@ export interface CourseSaveDeps {
   again(): void;
   /** Are the refs still the learner's? False once the store has let go of them. */
   current(): boolean;
+  /** The save was refused because the profile step isn't done (D79): the page says so. */
+  profileIncomplete?(): void;
 }
 
 /** JSON with object keys in order, so the same answer reads the same. */
@@ -484,7 +488,8 @@ export async function saveCourse(
   answered();
   if (!deps.current()) return;
   if (!result.ok) {
-    if (result.error !== "other-account") {
+    if (result.error === "profile-incomplete") deps.profileIncomplete?.();
+    else if (result.error !== "other-account") {
       console.error(`The progress of "${slug}" wasn't saved, and can't be: ${result.error}.`);
     }
     return;

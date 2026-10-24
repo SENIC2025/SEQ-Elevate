@@ -38,7 +38,7 @@ import type {
   StoredAnswer,
 } from "@/lib/learner-progress/contract";
 import { completeLesson, withAnswer } from "@/lib/learner-progress/answers";
-import { BEACON_PATH } from "@/lib/learner-progress/beacon";
+import { BEACON_BUDGET_BYTES, BEACON_PATH, fitCardBeacon } from "@/lib/learner-progress/beacon";
 import { EMPTY_PROGRESS, applyPatch, patchSince } from "@/lib/learner-progress/patch";
 import {
   courseAfterLoad,
@@ -49,7 +49,15 @@ import {
   storedGuestState,
 } from "./progress-merge";
 import { guestClaimOf, guestWorkOf, storeAfterClaim, withText, type GuestWork } from "./guest-migration";
-import { cardAfterReread, guestCardOrBadgesChanged, saveCard, savedCardOf, type SavedCard } from "./card-save";
+import {
+  cardAfterReread,
+  cardBeacon,
+  guestCardOrBadgesChanged,
+  saveCard,
+  savedCardOf,
+  type CardSending,
+  type SavedCard,
+} from "./card-save";
 import { courseChanged, courseLoaded, courseSaveRefs, pageHidden, progressBeacons, saveCourse } from "./course-save";
 import { clearEveryOutbox, restoreOutbox } from "./outbox";
 import { pendingSave } from "./pending-save";
@@ -209,8 +217,9 @@ export const DEFAULT_STATE: DemoState = {
 
 /**
  * POST /api/progress/beacon with fetch(keepalive): the browser finishes it
- * after the page has gone (D37 as built; course-save.ts progressBeacons).
- * Nothing waits for its answer, and it never throws.
+ * after the page has gone (D37 as built; card-save.ts cardBeacon,
+ * course-save.ts progressBeacons). Nothing waits for its answer, and it
+ * never throws.
  */
 function sendBeacon(body: string): void {
   try {
@@ -842,6 +851,10 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
   // What the server is known to hold of the Comp Card, and for whom: a
   // save sends only what was changed here from it (card-save.ts).
   const cardSaved = React.useRef<{ forUser: string; card: SavedCard } | null>(null);
+  // The Comp Card saves on their way, for the page's keepalive request as
+  // it goes (card-save.ts cardBeacon). Replaced whole when the store lets
+  // go of the learner's data.
+  const cardSending = React.useRef<CardSending[]>([]);
   // The debounced saves, one waiting at a time each (see pending-save.ts).
   const [courseSave] = React.useState(() => pendingSave(700));
   const [cardSave] = React.useState(() => pendingSave(700));
@@ -925,6 +938,7 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
     courseScheduled.current = null;
     cardScheduled.current = null;
     cardSaved.current = null;
+    cardSending.current = [];
     setDbOwner(null);
     setProfileIncomplete(false);
     setGuestWork(null);
@@ -1329,6 +1343,8 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
           // Not once signing out has gone ahead: an answer then keeps
           // nothing in the tab, and moves nothing on.
           current: () => refs === progressRefs.current && !signingOutRef.current,
+          // Refused before the profile step is done (D79): the page says so.
+          profileIncomplete: () => setProfileIncomplete(true),
         });
       return save;
     },
@@ -1381,6 +1397,9 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
             const latest = cardScheduled.current;
             if (latest) cardSave.schedule(() => save(latest));
           },
+          sending: cardSending,
+          // Refused before the profile step is done (D79): the page says so.
+          profileIncomplete: () => setProfileIncomplete(true),
         });
       return () => save(card);
     },
@@ -1447,9 +1466,11 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
   // brings it back (course-save.ts pageHidden). A page that is left
   // (pagehide) also sends that outside Next's queue, with fetch(keepalive),
   // which the browser finishes after the page has gone (progressBeacons;
-  // POST /api/progress/beacon, D37 as built). Signing out from this page,
-  // the saves were sent first (sign-out.ts), and the page that goes keeps
-  // nothing of the learner in the tab (D68).
+  // POST /api/progress/beacon, D37 as built) — and, first, what it has of
+  // the Comp Card that the server hasn't confirmed, while a card save is
+  // on its way or failed (card-save.ts cardBeacon): the card has no outbox.
+  // Signing out from this page, the saves were sent first (sign-out.ts),
+  // and the page that goes keeps nothing of the learner in the tab (D68).
   React.useEffect(() => {
     const sendWaiting = (left: boolean) => {
       if (signingOutRef.current) {
@@ -1461,7 +1482,15 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
       const forUser = dbOwnerRef.current;
       if (!forUser) return;
       pageHidden(progressRefs.current, forUser, tabStorage());
-      if (left) for (const body of progressBeacons(progressRefs.current, forUser)) sendBeacon(body);
+      if (!left) return;
+      let budget = BEACON_BUDGET_BYTES;
+      const card = cardBeacon(cardScheduled.current, forUser, cardSaved, cardSending.current);
+      const cardBody = card && fitCardBeacon(forUser, card, budget);
+      if (cardBody) {
+        sendBeacon(cardBody.body);
+        budget -= cardBody.bytes;
+      }
+      for (const body of progressBeacons(progressRefs.current, forUser, budget)) sendBeacon(body);
     };
     const onVisibility = () => {
       if (document.visibilityState === "hidden") sendWaiting(false);

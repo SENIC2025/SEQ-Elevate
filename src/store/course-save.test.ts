@@ -340,6 +340,22 @@ describe("saveCourse", () => {
     expect(t.outbox()).toEqual(KEPT);
   });
 
+  it("refused before the profile step is done (D79): the page says so, logs nothing, and tries nothing again", async () => {
+    const t = setup(EMPTY_PROGRESS, state({ stagesCompleted: ["context"] }));
+    const profileIncomplete = vi.fn();
+    t.deps.profileIncomplete = profileIncomplete;
+    t.answerWith(async () => ({ ok: false, error: "profile-incomplete" }));
+    await t.save();
+    expect(profileIncomplete).toHaveBeenCalledTimes(1);
+    expect(console.error).not.toHaveBeenCalled();
+    expect(t.refs.acked.get(SLUG)).toBe(EMPTY_PROGRESS);
+    expect(t.calls).toMatchObject({ again: 0 });
+    // Not once the store has let go of the learner's data.
+    t.letGo();
+    await t.save();
+    expect(profileIncomplete).toHaveBeenCalledTimes(1);
+  });
+
   it("forgets the answer to a save once the store has let go of the learner's data", async () => {
     const t = setup(EMPTY_PROGRESS, state({ stagesCompleted: ["context"] }));
     t.answerWith(async () => {

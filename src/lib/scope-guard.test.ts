@@ -1086,7 +1086,7 @@ const ALLOW: AllowList = {
   "src/app/actions/learner.ts#awardBadgeAction": own("the learner's own badge (SP37)"),
   "src/app/actions/learner.ts#ownProfile": own("the learner's own profile: whether the profile step is done, their organisation and the guardian rule (D79, D80)"),
   "src/app/actions/learner.ts#setCompCardSharing": own("who sees the learner's own Comp Card (SP34, D80)"),
-  "src/app/api/progress/beacon/route.ts#POST": own("a course save sent as the page goes: whether the signed-in learner's own profile step is done (D37, D79)"),
+  "src/app/api/progress/beacon/route.ts#POST": own("a course or Comp Card save sent as the page goes: whether the signed-in learner's own profile step is done (D37, D79)"),
   "src/app/actions/profile.ts#completeProfile": own("the profile step: the person's own profile, name and learner membership (SP34, D78)"),
   "src/app/[locale]/welcome/page.tsx#readStep": own("the profile step's page: the person's own profile (spec 5.4)"),
   "src/app/[locale]/learner/comp-card/page.tsx#sharingContext": own("whom the learner may share their own Comp Card with (D80)"),

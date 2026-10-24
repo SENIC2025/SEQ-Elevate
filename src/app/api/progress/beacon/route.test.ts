@@ -3,21 +3,22 @@ import { currentTermsVersion } from "@/lib/profile";
 
 /*
  * POST /api/progress/beacon (D37 as built, 24 October): a learner's course
- * save the page sends with fetch(keepalive) as it goes. It saves through
- * the save action's own code (saveCourseProgressPatch), and before that it
- * takes only a POST from this site's own pages (Sec-Fetch-Site, Origin),
- * a JSON body of at most 64 KiB, a signed-in person, and (D79) one whose
- * profile step is done. Nothing is read, saved or logged with personal
- * data when it refuses.
+ * or Comp Card save the page sends with fetch(keepalive) as it goes. It
+ * saves through the save action's own code (saveCourseProgressPatch,
+ * saveCompCard), and before that it takes only a POST from this site's own
+ * pages (Sec-Fetch-Site, Origin), a JSON body of at most 64 KiB, a
+ * signed-in person, and (D79) one whose profile step is done. Nothing is
+ * read, saved or logged with personal data when it refuses.
  */
 
 const LEARNER = { id: "user-ana", email: "ana@example.org", name: "Ana" };
 const getCurrentUser = vi.fn();
 const findProfile = vi.fn();
 const saveCourseProgressPatch = vi.fn();
+const saveCompCard = vi.fn();
 vi.mock("@/lib/auth-helpers", () => ({ getCurrentUser }));
 vi.mock("@/lib/prisma", () => ({ prisma: { projectProfile: { findUnique: findProfile } } }));
-vi.mock("@/app/actions/learner", () => ({ saveCourseProgressPatch }));
+vi.mock("@/app/actions/learner", () => ({ saveCourseProgressPatch, saveCompCard }));
 vi.mock("server-only", () => ({}));
 
 const route = await import("./route");
@@ -61,6 +62,7 @@ beforeEach(() => {
   getCurrentUser.mockResolvedValue(LEARNER);
   findProfile.mockResolvedValue(complete());
   saveCourseProgressPatch.mockResolvedValue({ ok: true, refused: [] });
+  saveCompCard.mockResolvedValue({ ok: true });
   vi.spyOn(console, "error").mockImplementation(() => undefined);
 });
 afterEach(() => {
@@ -176,6 +178,7 @@ describe("POST /api/progress/beacon", () => {
 
   it.each([
     ["other-account", 403],
+    ["profile-incomplete", 403],
     ["unknown-course", 404],
     ["bad-input", 400],
     ["too-large", 413],
@@ -196,5 +199,77 @@ describe("POST /api/progress/beacon", () => {
 
   it("serves POST only (Next answers anything else 405)", () => {
     expect(Object.keys(route).filter((k) => /^[A-Z]+$/.test(k))).toEqual(["POST"]);
+  });
+});
+
+describe("POST /api/progress/beacon: the Comp Card's save", () => {
+  const CARD = { wentWell: "W", confidence: 4 };
+  const CARD_BODY = JSON.stringify({ v: 1, forUser: LEARNER.id, card: CARD });
+
+  it("saves through the card's save action, with the fields the page sent, and answers what it answered; never a course save", async () => {
+    const res = await post({ body: CARD_BODY });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toBe("no-store");
+    expect(await res.json()).toEqual({ ok: true });
+    expect(saveCompCard).toHaveBeenCalledTimes(1);
+    expect(saveCompCard).toHaveBeenCalledWith(CARD, LEARNER.id);
+    expect(saveCourseProgressPatch).not.toHaveBeenCalled();
+    expect(findProfile).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { userId_projectId: { userId: LEARNER.id, projectId: "seq-elevate" } } })
+    );
+  });
+
+  it("hands the card's save action what was sent: it reads only the card's fields, and never shares (D80)", async () => {
+    const card = { ...CARD, privacy: "facilitator", sharedAt: "2026-11-21T00:00:00Z" };
+    await post({ body: JSON.stringify({ v: 1, forUser: LEARNER.id, card }) });
+    expect(saveCompCard).toHaveBeenCalledWith(card, LEARNER.id);
+  });
+
+  it.each([
+    ["a course and a card", JSON.stringify({ v: 1, slug: "workplace-conflict", forUser: LEARNER.id, patch: PATCH, card: CARD })],
+    ["a card and a patch", JSON.stringify({ v: 1, forUser: LEARNER.id, patch: PATCH, card: CARD })],
+    ["a card for no one", JSON.stringify({ v: 1, card: CARD })],
+    ["a card in another version", JSON.stringify({ v: 2, forUser: LEARNER.id, card: CARD })],
+  ])("refuses a body with %s (400), saving nothing", async (_, body) => {
+    expect((await post({ body })).status).toBe(400);
+    expect(saveCompCard).not.toHaveBeenCalled();
+    expect(saveCourseProgressPatch).not.toHaveBeenCalled();
+  });
+
+  it("takes only this site's own pages, as for a course (403)", async () => {
+    expect((await post({ body: CARD_BODY, origin: "https://evil.example", site: "cross-site" })).status).toBe(403);
+    expect((await post({ body: CARD_BODY, origin: null, site: null })).status).toBe(403);
+    expect(getCurrentUser).not.toHaveBeenCalled();
+    expect(saveCompCard).not.toHaveBeenCalled();
+  });
+
+  it("refuses with no session (401), and before the profile step is done (D79, 403), saving nothing", async () => {
+    getCurrentUser.mockResolvedValueOnce(null);
+    expect((await post({ body: CARD_BODY })).status).toBe(401);
+    findProfile.mockResolvedValueOnce({ ...complete(), termsVersion: "1999-01-01" });
+    const res = await post({ body: CARD_BODY });
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ ok: false, error: "profile-incomplete" });
+    expect(saveCompCard).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [{ ok: false, error: "other-account" }, 403],
+    [{ ok: false, error: "profile-incomplete" }, 403],
+    [{ ok: false, error: "too-long", field: "wentWell" }, 413],
+    [{ ok: false, error: "bad-input", field: "difficult" }, 400],
+    [{ ok: false, error: "bad-input" }, 400],
+  ] as const)("answers the card's save action's refusal %o as %i", async (refusal, status) => {
+    saveCompCard.mockResolvedValue(refusal);
+    const res = await post({ body: CARD_BODY });
+    expect(res.status).toBe(status);
+    expect(await res.json()).toEqual(refusal);
+  });
+
+  it("answers 503 when the save fails, logging no personal data", async () => {
+    saveCompCard.mockRejectedValue(new Error(`No signed-in learner for ${LEARNER.email}`));
+    expect((await post({ body: CARD_BODY })).status).toBe(503);
+    const logged = JSON.stringify((console.error as unknown as { mock: { calls: unknown[] } }).mock.calls);
+    expect(logged).not.toContain(LEARNER.email);
   });
 });

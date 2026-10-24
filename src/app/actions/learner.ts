@@ -105,7 +105,7 @@ export interface CompCardInput {
 export type SaveCompCardResult =
   | { ok: true }
   | { ok: false; error: "too-long" | "bad-input"; field?: CompCardField }
-  | { ok: false; error: "other-account" };
+  | { ok: false; error: "other-account" | "profile-incomplete" };
 
 /** What a change of the Comp Card's sharing answers (spec 4.3). */
 export type SetSharingResult =
@@ -156,6 +156,14 @@ function isLearner(
  * actions read it: whether the profile step is done (for the rules in
  * force), their organisation, and the guardian rule. Called only with the
  * signed-in learner's id.
+ *
+ * Before the profile step is done nothing of the person's learning is
+ * saved (D79): the course saves and the Comp Card's save refuse
+ * ("profile-incomplete", nothing written), whatever R3_PROFILE_GATE says,
+ * as POST /api/progress/beacon does. A Release 3 page saves nothing before
+ * then anyway (ensureLearnerMembership); the refusal is for a page loaded
+ * before the person's profile stopped being complete (new Terms) or before
+ * Release 3 (a Release 2 page), and for a hand-made call.
  */
 async function ownProfile(userId: string) {
   return prisma.projectProfile.findUnique({
@@ -550,11 +558,13 @@ async function progressInTx(
  * connection) is tried again. Values the rules refuse are refused key by
  * key, and the rest is saved.
  *
- * No role check (D53: staff may play courses). The course's status
- * decides only whether someone not yet enrolled may start it: a course
- * nobody has ever published enrols no one ("unknown-course", as to a
- * learner it doesn't exist); a learner whose course was unpublished
- * mid-session keeps saving, enrolled or not (D62.f).
+ * No role check (D53: staff may play courses), but the profile step must
+ * be done (D79: "profile-incomplete", nothing written; see ownProfile).
+ * The course's status decides only whether someone not yet enrolled may
+ * start it: a course nobody has ever published enrols no one
+ * ("unknown-course", as to a learner it doesn't exist); a learner whose
+ * course was unpublished mid-session keeps saving, enrolled or not
+ * (D62.f).
  */
 export async function saveCourseProgressPatch(
   slug: string,
@@ -563,6 +573,7 @@ export async function saveCourseProgressPatch(
 ): Promise<SaveProgressResult> {
   const user = await requireLearner();
   if (!isLearner(user, forUser)) return { ok: false, error: "other-account" };
+  if (!isProfileComplete(user, await ownProfile(user.id), profileRules())) return { ok: false, error: "profile-incomplete" };
   if (typeof slug !== "string" || !SLUG.test(slug)) return { ok: false, error: "bad-input" };
   const now = new Date();
   const parsed = parseProgressPatch(patch, now);
@@ -600,7 +611,8 @@ export async function saveCourseProgressPatch(
  *     sends null);
  *   - writes the four standard answer columns as it always has;
  *   - never touches Release 2's columns;
- *   - like the new action, enrols no one in a course nobody ever published.
+ *   - like the new action, enrols no one in a course nobody ever published,
+ *     and writes nothing before the profile step is done (D79).
  * A completed course's badge is saved with it (C9).
  */
 export async function saveCourseProgress(
@@ -610,6 +622,7 @@ export async function saveCourseProgress(
 ) {
   const user = await requireLearner();
   if (!isLearner(user, forUser)) return;
+  if (!isProfileComplete(user, await ownProfile(user.id), profileRules())) return;
   // From the browser, so checked: only short texts, and not too many of
   // them. Throws for anything else; null leaves the saved answers alone.
   const assessment = parseAssessmentInput(progress.assessment as unknown);
@@ -661,13 +674,17 @@ export async function saveCourseProgress(
  *   - refuses a text longer than 2,000 characters only when it is longer
  *     than the stored one (an older, longer text can be saved unchanged),
  *     and then the whole save, with the field named;
+ *   - writes nothing before the profile step is done (D79:
+ *     "profile-incomplete"; see ownProfile);
  *   - answers, never throws, a refusal: the store doesn't try it again.
  * Pages from before Release 3 ignore the answer. A guest's card is added
- * to the account by claimGuestWork, not here.
+ * to the account by claimGuestWork, not here. POST /api/progress/beacon
+ * saves a page's card as it goes through this too (D37 as built).
  */
 export async function saveCompCard(input: CompCardInput, forUser: string): Promise<SaveCompCardResult> {
   const user = await requireLearner();
   if (!isLearner(user, forUser)) return { ok: false, error: "other-account" };
+  if (!isProfileComplete(user, await ownProfile(user.id), profileRules())) return { ok: false, error: "profile-incomplete" };
   const stored = await prisma.compCard.findUnique({
     where: { userId_projectId: { userId: user.id, projectId: PROJECT } },
     select: { wentWell: true, difficult: true, improve: true, behaviour: true },

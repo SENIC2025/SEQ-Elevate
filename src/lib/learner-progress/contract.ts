@@ -111,7 +111,7 @@ export interface RefusedKey {
 export type SaveProgressResult =
   /** `kept`, in fill mode: the keys where the account's answer stayed over a different one (merge-server.ts). */
   | { ok: true; refused: RefusedKey[]; kept?: string[] }
-  | { ok: false; error: "other-account" | "unknown-course" | "bad-input" | "too-large" };
+  | { ok: false; error: "other-account" | "profile-incomplete" | "unknown-course" | "bad-input" | "too-large" };
 
 /**
  * One course's progress as the learner store holds it: what a patch is

@@ -1,6 +1,15 @@
 import { describe, it, expect } from "vitest";
 import { RESPONSE_LIMITS, type ProgressPatch } from "./contract";
-import { BEACON_BUDGET_BYTES, BEACON_MAX_BYTES, beaconBody, fitBeacon, readBeaconBody } from "./beacon";
+import {
+  BEACON_BUDGET_BYTES,
+  BEACON_MAX_BYTES,
+  beaconBody,
+  cardBeaconBody,
+  fitBeacon,
+  fitCardBeacon,
+  readBeaconBody,
+  readCardBeaconBody,
+} from "./beacon";
 
 /*
  * A course save sent as the page goes (D37 as built, 24 October): one
@@ -31,6 +40,7 @@ describe("beaconBody and readBeaconBody", () => {
     ["a course that isn't text", { v: 1, slug: 7, forUser: ANA, patch: {} }],
     ["no learner", { v: 1, slug: SLUG, patch: {} }],
     ["no patch", { v: 1, slug: SLUG, forUser: ANA }],
+    ["a course and a Comp Card", { v: 1, slug: SLUG, forUser: ANA, patch: {}, card: {} }],
   ])("read nothing from %s", (_, raw) => {
     expect(readBeaconBody(raw)).toBeNull();
   });
@@ -75,5 +85,51 @@ describe("fitBeacon", () => {
   it("nothing when nothing fits", () => {
     expect(fitBeacon(SLUG, ANA, reflectionPatch({ p1: "x".repeat(4_000) }), 1_000)).toBeNull();
     expect(fitBeacon(SLUG, ANA, reflectionPatch({ p1: "X" }), 10)).toBeNull();
+  });
+});
+
+describe("cardBeaconBody and readCardBeaconBody: the Comp Card's save", () => {
+  it("read back what the page sends", () => {
+    const card = { wentWell: "W", confidence: 4 };
+    expect(readCardBeaconBody(JSON.parse(cardBeaconBody(ANA, card)))).toEqual({ forUser: ANA, card });
+    expect(readBeaconBody(JSON.parse(cardBeaconBody(ANA, card))), "not a course save").toBeNull();
+  });
+
+  it.each([
+    ["null", null],
+    ["another version", { v: 2, forUser: ANA, card: {} }],
+    ["no learner", { v: 1, card: {} }],
+    ["no card", { v: 1, forUser: ANA }],
+    ["a card and a course", { v: 1, forUser: ANA, card: {}, slug: SLUG }],
+    ["a card and a patch", { v: 1, forUser: ANA, card: {}, patch: {} }],
+    ["a course save", JSON.parse(beaconBody(SLUG, ANA, reflectionPatch({ p1: "X" })))],
+  ])("read nothing from %s", (_, raw) => {
+    expect(readCardBeaconBody(raw)).toBeNull();
+  });
+});
+
+describe("fitCardBeacon", () => {
+  it("sends the whole card when it fits", () => {
+    const card = { wentWell: "W", difficult: "D", improve: "I", behaviour: "B", confidence: 2 };
+    const fitted = fitCardBeacon(ANA, card, 1_000);
+    expect(readCardBeaconBody(JSON.parse(fitted!.body))?.card).toEqual(card);
+    expect(fitted?.bytes).toBe(bytes(fitted!.body));
+  });
+
+  it("stays within the bytes given, the confidence first and each text that fits in the card's order", () => {
+    const card = { wentWell: "λ".repeat(2_000), difficult: "short", improve: "ι".repeat(2_000), confidence: 5 };
+    const fitted = fitCardBeacon(ANA, card, 4_500);
+    expect(fitted!.bytes).toBeLessThanOrEqual(4_500);
+    expect(readCardBeaconBody(JSON.parse(fitted!.body))?.card).toEqual({ confidence: 5, wentWell: card.wentWell, difficult: "short" });
+  });
+
+  it("the four texts at their limit fit within the page's budget, in any script", () => {
+    const card = { wentWell: "€".repeat(2_000), difficult: "€".repeat(2_000), improve: "€".repeat(2_000), behaviour: "€".repeat(2_000), confidence: 1 };
+    expect(readCardBeaconBody(JSON.parse(fitCardBeacon(ANA, card, BEACON_BUDGET_BYTES)!.body))?.card).toEqual(card);
+  });
+
+  it("nothing when nothing fits", () => {
+    expect(fitCardBeacon(ANA, { wentWell: "x".repeat(4_000) }, 1_000)).toBeNull();
+    expect(fitCardBeacon(ANA, {}, 1_000)).toBeNull();
   });
 });
