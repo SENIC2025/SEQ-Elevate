@@ -75,6 +75,17 @@ import en from "../src/messages/en.json";
  *           and nothing changes
  *   R4-E6b  a reflection lesson's introduction over the limit is refused
  *           by its name: "Shorten it."
+ *   R4-E7   (guard, its further-reading rows) every stored address the
+ *           check refuses, shown and draft, in a standard lesson and a
+ *           lesson of the course's own: no href outside https, http and
+ *           mailto on the learner's page, in preview, and on the course
+ *           page (read view, in-page preview, link manager), in the HTML
+ *           and its data; learners never get such a row, staff see it as
+ *           text
+ *   R4-E10, R4-E11 (the course page's hints, spec 4.6) the card says what
+ *           learners get: "Further reading alone…" only of a lesson they
+ *           don't get for want of content, "Every language gets this
+ *           lesson…" only where the other languages get the document
  *   10.5    every export of lesson-reading.ts refuses the non-editors and
  *           changes nothing; bad arguments are refused for editors and
  *           partner admins; editors, partner admins and ADMINs can do each
@@ -644,8 +655,25 @@ describe("Release 4: further reading on the screens that place it (Stream R, par
     standard: `e2e-r4-std-${RUN}`,
     stale: `e2e-r4-stale-${RUN}`,
     reflection: `e2e-r4-refl-${RUN}`,
+    hints: `e2e-r4-hint-${RUN}`,
+    hintLinks: `e2e-r4-hintl-${RUN}`,
+    hostile: `e2e-r4-hostile-${RUN}`,
   };
   const STALE = { stay: { id: ownLessonId(), label: { en: "Stay" } }, go: { id: ownLessonId(), label: { en: "Go" } } };
+  /** The hints' courses: lessons of the course's own with nothing but a German-only document, or nothing but further reading. */
+  const HINT = {
+    worksheet: { id: ownLessonId(), label: { en: "Worksheet" } },
+    reading: { id: ownLessonId(), label: { en: "Reading only" } },
+  };
+  const HINT_DOCS = { reflection: `E2E R4 Reflexionsblatt ${RUN}.pdf`, worksheet: `E2E R4 Arbeitsblatt allein ${RUN}.pdf` };
+  const HINT_LINKS = { reflection: `E2E R4 reflection reading ${RUN}`, reading: `E2E R4 reading alone ${RUN}` };
+  const HINTS = {
+    alone: "Further reading alone doesn't make a lesson appear for learners.",
+    everyLanguage: /^Every language gets this lesson/,
+  };
+  /** The hostile rows' course: a standard lesson and a lesson of the course's own, each with every stored address the check refuses. */
+  const HOSTILE_OWN = { id: ownLessonId(), label: { en: "Own lesson" } };
+  const hostileTitles: string[] = [];
   let sectioned: R4Course;
   let staffer: Person;
   let reader: Person;
@@ -691,8 +719,56 @@ describe("Release 4: further reading on the screens that place it (Stream R, par
       status: "draft",
       lessons: [{ id: "context", narrative: text("Context") }, { id: "reflection" }],
     });
+    // The reflection lesson with nothing stored (its standard introduction and questions), and lessons of the course's own with a title only.
+    await seedECourse(prisma, {
+      slug: R2.hints,
+      title: { en: `E2E R4 hints ${RUN}` },
+      lessons: [
+        { id: "context", narrative: text("Context") },
+        { id: "reflection" },
+        { ...HINT.worksheet, narrative: { en: { title: "The worksheet lesson" } } },
+      ],
+    });
+    await seedECourse(prisma, {
+      slug: R2.hintLinks,
+      title: { en: `E2E R4 hints, links ${RUN}` },
+      lessons: [
+        { id: "context", narrative: text("Context") },
+        { id: "reflection" },
+        { ...HINT.reading, narrative: { en: { title: "The reading lesson" } } },
+      ],
+    });
+    await seedECourse(prisma, {
+      slug: R2.hostile,
+      title: { en: `E2E R4 hostile ${RUN}` },
+      lessons: [
+        { id: "context", narrative: text("The standard lesson") },
+        { ...HOSTILE_OWN, narrative: text("The own lesson") },
+      ],
+    });
+    await seedDocuments(prisma, await lessonRowId(R2.hints, "reflection"), [
+      { id: `e2e-r4-fr-${RUN}-hint-reflection`, name: HINT_DOCS.reflection, url: `https://e2e-store.public.blob.vercel-storage.com/${RUN}-hint-r.pdf`, languages: ["de"] },
+    ]);
+    await seedDocuments(prisma, await lessonRowId(R2.hints, HINT.worksheet.id), [
+      { id: `e2e-r4-fr-${RUN}-hint-worksheet`, name: HINT_DOCS.worksheet, url: `https://e2e-store.public.blob.vercel-storage.com/${RUN}-hint-w.pdf`, languages: ["de"] },
+    ]);
     if (r2Tables.links) {
       await addLink(R2.standard, "context", "std", { title: `E2E R4 standard reading ${RUN}`, url: `https://example.org/${RUN}/std` });
+      await addLink(R2.hintLinks, "reflection", "hint-reflection", { title: HINT_LINKS.reflection });
+      await addLink(R2.hintLinks, HINT.reading.id, "hint-reading", { title: HINT_LINKS.reading });
+      // Every stored address the check refuses (a text column holds no NUL), shown and draft, in both kinds of lesson, and one good link each.
+      const storable = STORED_LINK_URLS.filter((row) => !row.url.includes(String.fromCharCode(0)));
+      for (const key of ["context", HOSTILE_OWN.id]) {
+        const kind = key === "context" ? "standard" : "own";
+        for (const published of [true, false]) {
+          for (const [i, row] of storable.entries()) {
+            const title = `E2E R4 hostile ${RUN} ${kind} ${published ? "shown" : "draft"} ${i}`;
+            hostileTitles.push(title);
+            await addLink(R2.hostile, key, `hostile-${kind}-${published ? "shown" : "draft"}-${i}`, { url: row.url, title, published });
+          }
+        }
+        await addLink(R2.hostile, key, `hostile-${kind}-good`, { title: `E2E R4 good ${kind} reading ${RUN}` });
+      }
     }
   });
 
@@ -700,7 +776,7 @@ describe("Release 4: further reading on the screens that place it (Stream R, par
     const ids = [staffer, reader, deReader].filter(Boolean).map((p) => p.userId);
     await prisma.auditLog.deleteMany({ where: { actorId: { in: ids } } });
     await removeR4Course(prisma, R2.sectioned);
-    for (const slug of [R2.standard, R2.stale, R2.reflection]) await removeECourse(prisma, slug);
+    for (const slug of [R2.standard, R2.stale, R2.reflection, R2.hints, R2.hintLinks, R2.hostile]) await removeECourse(prisma, slug);
     await removePeople(prisma, Object.values(people));
   });
 
@@ -709,6 +785,13 @@ describe("Release 4: further reading on the screens that place it (Stream R, par
     await page.goto(`/${locale}/content/courses/${slug}?lesson=${key}`);
     const lesson = page.locator(`#lesson-${key}`).filter({ visible: true });
     await expect(lesson.getByRole("heading", { name: "Documents and further reading" })).toBeVisible({ timeout: 20_000 });
+    return lesson;
+  }
+
+  /** The lesson's section opened, its further-reading list and the hints above it drawn. */
+  async function openReading(page: Page, slug: string, key: string) {
+    const lesson = await openLesson(page, slug, key);
+    await expect(lesson.getByRole("heading", { name: "Further reading", level: 4 })).toBeVisible({ timeout: 20_000 });
     return lesson;
   }
 
@@ -874,6 +957,141 @@ describe("Release 4: further reading on the screens that place it (Stream R, par
       await expect(page.getByText(en.lessonList.delete.changed).filter({ visible: true }).first()).toBeVisible({ timeout: 15_000 });
       expect(await linkCount(R2.stale, STALE.go.id)).toBe(1);
       expect(await prisma.lesson.count({ where: { projectId: PROJECT, courseSlug: R2.stale, stageKey: STALE.go.id } })).toBe(1);
+    } finally {
+      await context.close();
+    }
+  });
+
+  test("R4-E11 (R2): the course page says every language gets a German-only document only of a lesson that shows nothing else, as learners get it: not of the reflection lesson, whose questions are its own", async ({
+    browser,
+  }) => {
+    needsTables();
+    // Several loads of the course page and the learner's.
+    test.setTimeout(180_000);
+    const staff = await as(browser, staffer);
+    const english = await as(browser, reader);
+    const german = await as(browser, deReader);
+    try {
+      // The reflection lesson, nothing stored: learners get its standard introduction and questions, so English learners get it without the German document.
+      const reflection = await openReading(staff.page, R2.hints, "reflection");
+      await expect(reflection.getByText(HINT_DOCS.reflection).first()).toBeVisible();
+      await expect(reflection.getByText(HINTS.everyLanguage)).toHaveCount(0);
+      // A lesson of the course's own whose only material is the German document: every language gets it, with the document.
+      const worksheet = await openReading(staff.page, R2.hints, HINT.worksheet.id);
+      await expect(worksheet.getByText(HINTS.everyLanguage)).toHaveText(
+        "Every language gets this lesson: its only material is for German learners, so others see the German document, marked “In German”."
+      );
+
+      const forEnglish = await served(english.page, `/en/learner/course/${R2.hints}`);
+      expect(forEnglish, "an English learner gets the worksheet lesson's document").toContain(HINT_DOCS.worksheet);
+      expect(forEnglish, "an English learner gets the reflection lesson without the German document").not.toContain(HINT_DOCS.reflection);
+      const forGerman = await served(german.page, `/de/learner/course/${R2.hints}`);
+      expect(forGerman, "a German learner gets the reflection lesson's German document").toContain(HINT_DOCS.reflection);
+    } finally {
+      await staff.context.close();
+      await english.context.close();
+      await german.context.close();
+    }
+  });
+
+  test("R4-E10 (R2): the course page says further reading alone makes no lesson only of a lesson learners don't get: the reflection lesson with nothing but a link reaches learners, link and all", async ({
+    browser,
+  }) => {
+    needsTables();
+    // Several loads of the course page and the learner's.
+    test.setTimeout(180_000);
+    const staff = await as(browser, staffer);
+    const learnerSide = await as(browser, reader);
+    try {
+      const reflection = await openReading(staff.page, R2.hintLinks, "reflection");
+      await expect(reflection.getByText(HINT_LINKS.reflection).first()).toBeVisible();
+      await expect(reflection.getByText(HINTS.alone)).toHaveCount(0);
+      const reading = await openReading(staff.page, R2.hintLinks, HINT.reading.id);
+      await expect(reading.getByText(HINTS.alone)).toBeVisible();
+
+      const html = await served(learnerSide.page, `/en/learner/course/${R2.hintLinks}`);
+      expect(html, "learners get the reflection lesson and its further reading").toContain(HINT_LINKS.reflection);
+      expect(html, "a lesson of nothing but further reading isn't one learners get").not.toContain(HINT_LINKS.reading);
+    } finally {
+      await staff.context.close();
+      await learnerSide.context.close();
+    }
+  });
+
+  /** Every href in a page's HTML and its data (the RSC payload) that is neither relative nor https, http or mailto. */
+  function unsafeHrefs(html: string): string[] {
+    const unsafe: string[] = [];
+    for (const m of html.matchAll(/(?:href=|\\?"href\\?":)\\?"([^"\\]*)/g)) {
+      const value = m[1].trim();
+      if (/^(\/|#|\?)/.test(value)) continue;
+      // The safeguarding box's emergency number (Release 3).
+      if (/^(https?:\/\/|mailto:)/i.test(value) || value === "tel:112") continue;
+      unsafe.push(value === "" ? "(empty)" : value.slice(0, 60));
+    }
+    return unsafe;
+  }
+
+  test("R4-E7 (R2, guard): a stored address the check refuses reaches no learner from a standard lesson or a lesson of the course's own, nor the preview", async ({
+    browser,
+  }) => {
+    test.skip(!r2Tables.links, "Guard: Release 3's build has no further reading to draw (no LessonLink table).");
+    const learnerSide = await as(browser, reader);
+    const staff = await as(browser, staffer);
+    try {
+      const pages = [
+        { page: learnerSide.page, path: `/en/learner/course/${R2.hostile}` },
+        { page: learnerSide.page, path: `/en/learner/course/${R2.hostile}?lesson=${HOSTILE_OWN.id}` },
+        { page: staff.page, path: `/en/learner/course/${R2.hostile}?preview=1&lesson=context` },
+        { page: staff.page, path: `/en/learner/course/${R2.hostile}?preview=1&lesson=${HOSTILE_OWN.id}` },
+      ];
+      for (const { page, path } of pages) {
+        const html = await served(page, path);
+        expect(unsafeHrefs(html), path).toEqual([]);
+        expect(hostileTitles.filter((title) => html.includes(title)), path).toEqual([]);
+        // The good links are there, so the list is drawn and the page rendered.
+        expect(html, path).toContain(`E2E R4 good standard reading ${RUN}`);
+        expect(html, path).toContain(`E2E R4 good own reading ${RUN}`);
+        await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+      }
+    } finally {
+      await learnerSide.context.close();
+      await staff.context.close();
+    }
+  });
+
+  test("R4-E7 (R2, guard): on the course page a stored address the check refuses is text, never a link: the read view, the in-page preview and the link manager", async ({
+    browser,
+  }) => {
+    test.skip(!r2Tables.links, "Guard: Release 3's build has no further reading to draw (no LessonLink table).");
+    const { context, page } = await as(browser, staffer);
+    try {
+      for (const lesson of [null, "context", HOSTILE_OWN.id]) {
+        const path = `/en/content/courses/${R2.hostile}${lesson ? `?lesson=${lesson}` : ""}`;
+        const html = await served(page, path);
+        expect(unsafeHrefs(html), path).toEqual([]);
+        if (lesson) {
+          const card = page.locator(`#lesson-${lesson}`).filter({ visible: true });
+          await expect(card.getByRole("heading", { name: "Documents and further reading" })).toBeVisible({ timeout: 20_000 });
+          // Staff see every row, as text with what to do.
+          const kind = lesson === "context" ? "standard" : "own";
+          await expect(card.getByText(`E2E R4 hostile ${RUN} ${kind} draft 0`, { exact: false }).first()).toBeVisible();
+        } else {
+          await expect(page.getByRole("heading", { level: 1 })).toBeVisible({ timeout: 20_000 });
+        }
+        const inDom = await page.evaluate(
+          (titles) => ({
+            asLinks: titles.filter((t) => [...document.querySelectorAll("a")].some((a) => a.textContent?.includes(t))),
+            shown: titles.filter((t) => document.body.textContent?.includes(t)).length,
+            unsafe: [...document.querySelectorAll("[href]")]
+              .map((a) => a.getAttribute("href") ?? "")
+              .filter((h) => !/^(\/|#|\?|https?:\/\/|mailto:)/i.test(h.trim()) && h.trim() !== "tel:112"),
+          }),
+          hostileTitles
+        );
+        expect(inDom.asLinks, `${path}: drawn as links`).toEqual([]);
+        expect(inDom.unsafe, `${path}: unsafe hrefs in the page`).toEqual([]);
+        if (lesson) expect(inDom.shown, `${path}: rows shown as text`).toBeGreaterThan(0);
+      }
     } finally {
       await context.close();
     }
