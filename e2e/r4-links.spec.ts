@@ -59,6 +59,9 @@ import de from "../src/messages/de.json";
  *          link text D104 no longer refuses (NARROWED_LABELS: a file's name,
  *          a name in capitals), is saved with its link, through both
  *          actions.
+ *   R4-E6b a reflection lesson's introduction over the limit is refused by
+ *          its name, "The introduction is too long … Shorten it.", as its
+ *          editor's problem line says (with R2's saveLessonNarrative).
  *   R4-E7  (guard) hostile links written straight into the database: no page
  *          draws an href outside https, http and mailto, nor one whose text
  *          shows another address; the text of every refused link shows; the
@@ -1037,11 +1040,9 @@ describe("Release 4 — links in lesson text", () => {
   });
 
   // A reflection lesson's introduction is saved by saveLessonNarrative, which
-  // hands its one paragraph to sanitizeNarrativeBlocks as a lesson's blocks;
-  // the introduction's wording (sanitizeNarrativeBlocks(…, "reflection-intro"),
-  // as its editor's problem line says it) comes when R2 may edit
-  // src/app/actions/lesson.ts (Release 3 Stream E's until 13 Nov; spec 9.3).
-  test.fixme("R4-E6b (R2): a reflection lesson's introduction over the limit is refused by its name: \"Shorten it.\"", async ({
+  // asks sanitizeNarrativeBlocks(…, "reflection-intro") for it (R2): a save it
+  // refuses names the introduction as its editor's problem line does.
+  test("R4-E6b (R2): a reflection lesson's introduction over the limit is refused by its name: \"Shorten it.\"", async ({
     request,
   }) => {
     const answer = await callAction(request, {
