@@ -448,17 +448,13 @@ export async function createWorld(
     },
     select: { id: true },
   });
-  const document = await prisma.lessonDocument.create({
-    data: {
-      lessonId: lesson.id,
-      name: `World document ${run}`,
-      url: "/demo/sample.pdf",
-      mimeType: "application/pdf",
-      sizeBytes: 1024,
-      published: true,
-    },
-    select: { id: true },
-  });
+  // The lesson's document, published. Raw SQL naming Release 3's columns
+  // only, so the old build's database (no LessonDocument.languages, D108)
+  // takes it too; on Release 4's it is for every language ([]).
+  const document = { id: `e2e-world-document-${run}` };
+  await prisma.$executeRaw`
+    INSERT INTO "LessonDocument" ("id", "lessonId", "name", "url", "mimeType", "sizeBytes", "published")
+    VALUES (${document.id}, ${lesson.id}, ${`World document ${run}`}, '/demo/sample.pdf', 'application/pdf', 1024, true)`;
   // Release 4 (D107): a further-reading link of the lesson, a draft (hidden
   // from learners), where the database has the table. Raw SQL, so a client
   // generated from Release 3's schema takes it too.
