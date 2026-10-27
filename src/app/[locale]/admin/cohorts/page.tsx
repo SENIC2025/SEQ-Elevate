@@ -3,6 +3,7 @@ import { getAdminOrgs } from "@/lib/admin-queries";
 import { OrgCohortManager } from "@/components/role/OrgCohortManager";
 import { Link } from "@/i18n/navigation";
 import { ChevronLeft, ShieldAlert } from "lucide-react";
+import { SignInPrompt } from "@/components/SignInPrompt";
 
 // Reads the viewer's roles + live data — never prerender.
 export const dynamic = "force-dynamic";
@@ -26,6 +27,7 @@ export default async function Page({
         <p className="mt-2 text-sm text-[var(--muted-foreground)]">
           Sign in with an admin account to manage organisations and cohorts.
         </p>
+        <SignInPrompt lang="en" />
       </div>
     );
   }

@@ -118,6 +118,7 @@
   },
   "dashboard": {
     "greeting": "Καλωσήρθες πίσω",
+    "greetingFirst": "Καλωσήρθες",
     "yourJourney": "Η διαδρομή σου",
     "currentMission": "Τρέχουσα αποστολή",
     "missionFeed": "Τι ακολουθεί",

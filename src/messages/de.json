@@ -118,6 +118,7 @@
   },
   "dashboard": {
     "greeting": "Willkommen zurück",
+    "greetingFirst": "Willkommen",
     "yourJourney": "Deine Reise",
     "currentMission": "Aktuelle Mission",
     "missionFeed": "Was als Nächstes kommt",

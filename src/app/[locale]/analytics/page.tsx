@@ -8,6 +8,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { BarChart3, ArrowRight } from "lucide-react";
 import type { Locale } from "@/lib/cms/types";
+import { SignInPrompt } from "@/components/SignInPrompt";
 
 // Reads the viewer's roles + live data — never prerender.
 export const dynamic = "force-dynamic";
@@ -39,6 +40,7 @@ export default async function Page({
             ? "This dashboard is for facilitators and admins. Ask your project administrator to grant you access."
             : "This dashboard is for facilitators and admins. On this test copy, use test sign-in and pick a facilitator or admin account."}
         </p>
+        <SignInPrompt lang="en" />
         {production ? null : (
           <Card className="mt-5">
             <CardContent className="p-4">

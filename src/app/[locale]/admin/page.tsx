@@ -17,7 +17,7 @@ export default async function Page({
   // The project overview is for admins only — decide before counting anything.
   if (!(await isAdmin())) {
     return (
-      <AccessNotice title="Admins only">
+      <AccessNotice lang="en" title="Admins only">
         Sign in with an admin account to see the project overview.
       </AccessNotice>
     );

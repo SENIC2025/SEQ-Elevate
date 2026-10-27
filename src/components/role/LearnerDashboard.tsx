@@ -14,7 +14,7 @@ import {
   courseStageKeys,
   overallProgress,
 } from "@/lib/course-progress";
-import { hasCourseProgress } from "@/store/progress-merge";
+import { guestHasWork, hasCourseProgress } from "@/store/progress-merge";
 import {
   MessageCircle,
   Shield,
@@ -148,8 +148,10 @@ export function LearnerDashboard({
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8">
+      {/* A guest whose browser holds nothing of theirs yet is welcomed, not
+          welcomed back; a learner signed in, or a guest with work here, is. */}
       <h1 className="mb-2 text-2xl sm:text-3xl font-bold tracking-tight">
-        {t("greeting")}
+        {enrollments || guestHasWork(state) ? t("greeting") : t("greetingFirst")}
       </h1>
 
       {/* Overall completion across the whole programme */}

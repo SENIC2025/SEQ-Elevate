@@ -1,5 +1,6 @@
 import { useTranslations } from "next-intl";
 import { Users } from "lucide-react";
+import { SignInPrompt } from "@/components/SignInPrompt";
 
 /**
  * The facilitator workspace for someone who isn't a facilitator or admin.
@@ -18,6 +19,7 @@ export function FacilitatorWorkspace() {
       <p className="mt-2 text-sm text-[var(--muted-foreground)]">
         {t("staffOnly")}
       </p>
+      <SignInPrompt />
     </div>
   );
 }
