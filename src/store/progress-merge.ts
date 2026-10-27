@@ -110,6 +110,24 @@ export function hasCourseProgress(course: CourseProgress): boolean {
 }
 
 /**
+ * Does a guest store hold any of the guest's work: progress in its course
+ * (hasCourseProgress), a badge, or a Comp Card answer (more than
+ * whitespace in one of its four texts; the confidence or the sharing alone
+ * is no answer)? The learner dashboard greets a guest whose store holds
+ * none with "Welcome", and one whose store holds some with "Welcome back".
+ */
+export function guestHasWork(store: Pick<DemoState, "course" | "badges" | "compCard">): boolean {
+  const card = store.compCard;
+  return (
+    (!!store.course.courseSlug && hasCourseProgress(store.course)) ||
+    (store.badges ?? []).length > 0 ||
+    [card.wentWell, card.difficult, card.improve, card.behaviour].some(
+      (text) => typeof text === "string" && answered(text)
+    )
+  );
+}
+
+/**
  * One course's progress from both sides. Only for the same course: for a
  * different courseSlug there is nothing to merge and `local` comes back.
  *

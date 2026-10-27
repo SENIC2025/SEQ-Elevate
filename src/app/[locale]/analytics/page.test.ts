@@ -24,6 +24,8 @@ vi.mock("@/lib/scope", () => ({ getViewer: () => viewer() }));
 vi.mock("@/lib/analytics-real", () => ({ buildRealAnalytics }));
 vi.mock("@/lib/server-queries", () => ({ scopeOrganisationName }));
 vi.mock("next-intl/server", () => ({ setRequestLocale: () => {} }));
+// The notice's sign-in link reads the session (SignInPrompt.test.ts).
+vi.mock("@/components/SignInPrompt", () => ({ SignInPrompt: () => null }));
 vi.mock("@/i18n/navigation", async () => {
   const { createElement: h } = await import("react");
   return {

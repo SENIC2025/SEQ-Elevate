@@ -5,6 +5,7 @@ import { canManagePeople, grantableRoles, seesWholeProject } from "@/lib/permiss
 import { PeopleManager } from "@/components/role/PeopleManager";
 import { Link } from "@/i18n/navigation";
 import { ChevronLeft, ShieldAlert } from "lucide-react";
+import { SignInPrompt } from "@/components/SignInPrompt";
 
 // Reads the viewer's roles + live data — never prerender.
 export const dynamic = "force-dynamic";
@@ -42,6 +43,7 @@ export default async function Page({
             ? "Your profile isn't complete, or your account isn't linked to an organisation yet, so no people are shown. Ask DIESIS if this doesn't change."
             : "Sign in with an admin account to manage people."}
         </p>
+        <SignInPrompt lang="en" />
       </div>
     );
   }
