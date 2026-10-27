@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   courseAfterLoad,
   courseAfterMigration,
+  guestHasWork,
   guestStateAfterHydrate,
   hasCourseProgress,
   mergeBadges,
@@ -860,5 +861,48 @@ describe("storedGuestState", () => {
   it("is the empty store for something that isn't a stored copy", () => {
     expect(storedGuestState("nonsense", blank)).toEqual(blank);
     expect(storedGuestState(null, blank)).toEqual(blank);
+  });
+});
+
+/*
+ * The learner dashboard's greeting: "Welcome" for a guest whose browser
+ * holds nothing of theirs yet, "Welcome back" for one whose guest store
+ * holds their work: progress in its course, a badge, or a Comp Card answer.
+ */
+describe("guestHasWork", () => {
+  const blankCard: CompCardData = {
+    wentWell: "",
+    difficult: "",
+    improve: "",
+    behaviour: "",
+    confidence: 3,
+    sharing: "onlyMe",
+    updatedAt: null,
+  };
+  const store = (patch: Partial<Pick<DemoState, "course" | "badges" | "compCard">> = {}) => ({
+    course: { ...progress(), courseSlug: null },
+    badges: [] as string[],
+    compCard: blankCard,
+    ...patch,
+  });
+
+  it("is false for an empty store, and for a course only opened", () => {
+    expect(guestHasWork(store())).toBe(false);
+    expect(guestHasWork(store({ course: progress() }))).toBe(false);
+    // The confidence moved, or the card's sharing chosen, with nothing written: no work.
+    expect(guestHasWork(store({ compCard: { ...blankCard, confidence: 5, updatedAt: "2026-10-27T08:00:00.000Z" } }))).toBe(false);
+    expect(guestHasWork(store({ compCard: { ...blankCard, wentWell: "   ", updatedAt: "2026-10-27T08:00:00.000Z" } }))).toBe(false);
+  });
+
+  it("is true for progress in the course: a lesson, an answer, a lesson of its own", () => {
+    expect(guestHasWork(store({ course: progress({ stagesCompleted: ["context"] }) }))).toBe(true);
+    expect(guestHasWork(store({ course: progress({ reflection: { p1: "Mine", p2: "", p3: "" } }) }))).toBe(true);
+    expect(guestHasWork(store({ course: progress({ sectionsCompleted: [OWN] }) }))).toBe(true);
+    expect(guestHasWork(store({ course: walked }))).toBe(true);
+  });
+
+  it("is true for a badge, or a Comp Card answer", () => {
+    expect(guestHasWork(store({ badges: ["conflict-navigator"] }))).toBe(true);
+    expect(guestHasWork(store({ compCard: { ...blankCard, behaviour: "Ask first", updatedAt: "2026-10-27T08:00:00.000Z" } }))).toBe(true);
   });
 });

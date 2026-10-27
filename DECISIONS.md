@@ -403,6 +403,7 @@ Single source of truth for decisions made, decisions still open, and the rationa
 - *As built:* `r2` was merged into `r3` again at `828e647` on 23 Oct (`a630a94`): what a page hidden or left keeps of a course save on its way (D68's 23 October line), with Release 3's read again after guest work moved into a course kept as it was.
 - *As built:* `r2` was merged into `r3` again at `919063a` on 24 Oct (`296ef63`): signing out sends the course and Comp Card saves waiting first, and keeps nothing of the learner in the tab (D68's 24 October line).
 - *As built:* `r2` was merged into `r3` again at `b883ac5` on 24 Oct (`12482f2`): Release 2 keeps D37's 13 October rule for course and Comp Card saves as a known limit (the integrator's decision (a), D37's 24 October lines).
+- *As built:* `r2` was merged into `r3` again at `67466b0` on 27 Oct: a staff page's access notice offers a visitor who is signed out the way to sign in, back to the page, in the notice's language (English, marked so, on Release 3's English-only staff notices, D99); a guest whose browser holds nothing of theirs yet is welcomed, not welcomed back.
 - *Changed by the owner (21 Oct):* Release 4 started on 21 Oct on branches of its own, not after 13 Nov. It asks nothing of Release 3 and rebases on `r3`; it follows D100 too.
 
 ### D72 · One profile row per person per project

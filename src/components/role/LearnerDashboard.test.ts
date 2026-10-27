@@ -32,10 +32,13 @@ const guest = {
 };
 // The badges the learner has, as the store holds them.
 const earned = { badges: [] as string[] };
+// The guest's Comp Card, as the store holds it.
+const guestCard = { wentWell: "", difficult: "", improve: "", behaviour: "", confidence: 3, sharing: "onlyMe", updatedAt: null as string | null };
 vi.mock("@/store/demo-state", () => ({
   useDemoState: () => ({
     state: {
       badges: earned.badges,
+      compCard: guestCard,
       course: {
         courseTitle: null,
         simulation: null,
@@ -134,6 +137,38 @@ beforeEach(() => {
   guest.stagesCompleted = [];
   guest.sectionsCompleted = [];
   guest.completedAt = null;
+  Object.assign(guestCard, { wentWell: "", updatedAt: null });
+});
+
+/** The page's heading: the greeting. */
+const greeting = (html: string) => html.match(/<h1[^>]*>([^<]*)<\/h1>/)?.[1];
+
+describe("LearnerDashboard's greeting", () => {
+  it("welcomes a guest whose browser holds nothing of theirs yet", () => {
+    expect(greeting(render([BUILT_IN], null))).toBe("Welcome");
+    // A course only opened is no work.
+    guest.courseSlug = BUILT_IN.slug;
+    expect(greeting(render([BUILT_IN], null))).toBe("Welcome");
+  });
+
+  it("welcomes back a guest with progress, a badge or a Comp Card answer in this browser", () => {
+    guest.courseSlug = BUILT_IN.slug;
+    guest.stagesCompleted = ["context"];
+    expect(greeting(render([BUILT_IN], null))).toBe("Welcome back");
+    guest.stagesCompleted = [];
+    earned.badges = ["conflict-navigator"];
+    expect(greeting(render([BUILT_IN], null))).toBe("Welcome back");
+    earned.badges = [];
+    Object.assign(guestCard, { wentWell: "I asked first.", updatedAt: "2026-10-27T08:00:00.000Z" });
+    expect(greeting(render([BUILT_IN], null))).toBe("Welcome back");
+  });
+
+  it("welcomes back a learner signed in, with or without progress", () => {
+    expect(greeting(render([BUILT_IN], []))).toBe("Welcome back");
+    expect(
+      greeting(render([BUILT_IN], [{ slug: BUILT_IN.slug, stages: ["context"], stagesCompleted: 1, completed: false }]))
+    ).toBe("Welcome back");
+  });
 });
 
 describe("LearnerDashboard progress", () => {

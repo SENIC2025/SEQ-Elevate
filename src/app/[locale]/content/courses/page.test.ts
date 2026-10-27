@@ -10,6 +10,8 @@ vi.mock("@/lib/cms/course-admin", () => ({ getCourseGrid }));
 vi.mock("@/components/course-manager/CourseGrid", () => ({
   CourseGrid: () => null,
 }));
+// The notice's sign-in link reads the session (SignInPrompt.test.ts).
+vi.mock("@/components/SignInPrompt", () => ({ SignInPrompt: () => null }));
 vi.mock("next-intl/server", () => ({
   setRequestLocale: () => {},
   getTranslations: async () => (key: string) => `courseManager.editorsOnly.${key}`,

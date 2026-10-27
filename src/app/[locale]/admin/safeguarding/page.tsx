@@ -28,7 +28,7 @@ export default async function Page({ params }: { params: Promise<{ locale: strin
   if (!admin) {
     return (
       <div lang="en">
-        <AccessNotice title="Admins only">
+        <AccessNotice lang="en" title="Admins only">
           Sign in with an admin account to edit the safeguarding contacts.
         </AccessNotice>
       </div>

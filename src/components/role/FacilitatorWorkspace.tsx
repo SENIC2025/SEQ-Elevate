@@ -1,5 +1,6 @@
 import { useTranslations } from "next-intl";
 import { Users } from "lucide-react";
+import { SignInPrompt } from "@/components/SignInPrompt";
 
 /**
  * The facilitator workspace for someone who sees no learners: not a
@@ -23,6 +24,7 @@ export function FacilitatorWorkspace({ noOrganisation = false }: { noOrganisatio
       {noOrganisation ? (
         <p className="mt-2 text-sm text-[var(--muted-foreground)]">{t("noOrganisation")}</p>
       ) : null}
+      <SignInPrompt />
     </div>
   );
 }

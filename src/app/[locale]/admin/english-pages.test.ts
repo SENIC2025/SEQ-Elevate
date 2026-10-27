@@ -61,6 +61,8 @@ vi.mock("@/components/role/CountryMappingPanel", () => ({
   CountryMappingPanel: () => createElement("p", null, "Country mapping panel"),
 }));
 vi.mock("@/components/role/DataTools", () => ({ DataTools: () => createElement("p", null, "Data tools") }));
+// The notice's sign-in link reads the session; its language is SignInPrompt.test.ts's.
+vi.mock("@/components/SignInPrompt", () => ({ SignInPrompt: () => null }));
 
 const { default: Overview } = await import("./page");
 const { default: People } = await import("./people/page");

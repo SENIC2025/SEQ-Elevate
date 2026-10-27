@@ -1226,3 +1226,56 @@ On `r3` after `652e29c`. Nothing pushed (D100).
   - `db-backed-progress` on one worker: **57/57**;
   - `r3-scoping` **9/9**; `r3-actions` **513/513**;
   - the server logged only the known kinds: 18 "No signed-in learner", 4 "No signed-in user", 2 `AccessDenied`, three writes for accounts a test had just removed (two activity records, `AuditLog_actorId_fkey`; a learner membership after D-E1's erasure, `Membership_userId_fkey`), the `BLOB_PUBLIC_HOST` notice and the `output: standalone` warning.
+
+### Release 2 — a staff page's notice offers the way to sign in to a visitor who is signed out; a guest's first visit is welcomed (2026-10-27)
+On `r2` after `b883ac5`. Nothing pushed (D100).
+- `[FIX]` **A staff page's access notice offers a visitor who is signed out "Sign in"**: to `/<locale>/signin`, with the page's own path as `callbackUrl`, so the email's link brings them back to the page. It is on "Admins only" (the project overview, Manage people, organisations and cohorts), "Editors only" (Create courses, Manage courses, a course's page), and the facilitator workspace's and the statistics' "for facilitators and admins" (`src/components/SignInPrompt.tsx`, `SignInHereLink.tsx`; `AccessNotice`).
+  - The way back is only ever a path of this site, as the sign-in page takes it (Auth.js lands on a path, or on an address of its own origin). Anything else is left out, and the sign-in page lands on the language's home page (`src/lib/sign-in-link.ts`).
+  - The link is in the notice's language, in the sign-in page's own words (`auth.signIn`: "Sign in", "Anmelden", "Σύνδεση"). On the editors' and facilitators' notices that is the page's language. On the English-only admin and statistics notices it is English, marked `lang="en"` under `/de` and `/el`.
+  - Anyone signed in without the role sees the notice as before, with no link.
+- `[FIX]` **The learner dashboard greets a guest whose browser holds nothing of theirs yet with "Welcome"** ("Willkommen", "Καλωσήρθες"; `dashboard.greetingFirst`). It keeps "Welcome back" for a learner signed in, and for a guest whose browser holds their work: progress in a course, a badge or a Comp Card answer (`guestHasWork`, `src/store/progress-merge.ts`). Until the browser's store has been read, the page greets as for a guest with nothing saved.
+- `[TEST]` `e2e/r2-staff-sign-in.spec.ts`:
+  - SI-E1: signed out, eleven staff pages in their languages, each with its link back to the page.
+  - SI-E2: the link opens the sign-in page with the page as its way back, and the email's link lands there (database).
+  - SI-E3 (guard): a learner signed in sees each notice with no link.
+- `[TEST]` `e2e/r2-dashboard-greeting.spec.ts`:
+  - DG-E1: a first-time guest is welcomed in the three languages.
+  - DG-E2 (guard): a guest with progress, a badge or a Comp Card answer is welcomed back.
+  - DG-E3 (guard): a learner signed in is welcomed back.
+- `[TEST]` Unit tests: `sign-in-link.test.ts` (the way back, and what is left out), `SignInPrompt.test.ts`, `guestHasWork` in `progress-merge.test.ts`, and the greeting in `LearnerDashboard.test.ts`, whose store now has a Comp Card as every store has. `content/courses/page.test.ts` stands in for the notice's link, which reads the session.
+- `[TEST]` Red first, on `b883ac5`:
+  - the new specs on b883ac5's build: SI-E1 and SI-E2 red (no "Sign in" link on the notice), DG-E1 red ("Welcome back" for a first-time guest); SI-E3, DG-E2 and DG-E3 (guards) green there;
+  - the new unit tests against b883ac5's code: `sign-in-link.test.ts` and `SignInPrompt.test.ts` red (no such module), `guestHasWork` 3 of 3 red, the dashboard's first greeting test red ("Welcome back"); the guards green.
+- `[NOTE]` Release 2's recorded walk is a signed-in learner's walk through the course player and records no dashboard: its recording and its expectations are unchanged.
+- `[VERIFY]` On the local Postgres `seq_r2i_v3`:
+  - tsc ✓ eslint ✓ **3,790 unit** ✓ (159 files);
+  - production build ✓ (through the build lock), no warnings;
+  - affected specs `r2-staff-sign-in`, `r2-dashboard-greeting`, `accessibility`, `learner-journey`, `staff-screens`, `workspace-hub`, `course-grid`, `r0-accounts`, `r2-consumers`, `header-reflow`, `invitations` and `a11y-prefs`: **70/70**;
+  - **full E2E 285/285** in 5.9 min on two workers, exit 0 (chromium 282, cutoff 3);
+  - `db-backed-progress` on one worker: **57/57**;
+  - Release 2's recorded walk on one worker: **7/7**;
+  - the server logged only the known kinds: 13 "No signed-in learner", 2 "No signed-in user", 2 refused sign-ins (`AccessDenied`), and the `output: standalone` warning.
+
+### Release 3 — Release 2's way to sign in on a staff page's notice, and its first-visit greeting, merged (2026-10-27)
+On `r3` after `e62b943`. Nothing pushed (D100).
+- `[MERGE]` `r2` at `67466b0` (Release 2's entry above), by its hash. Each conflict was resolved keeping Release 3's behaviour, with Release 2's added:
+  - `AccessNotice`: Release 3's `lang` on the notice (WCAG 3.1.2), with Release 2's sign-in link in the notice's language;
+  - `FacilitatorWorkspace`: Release 3's note for staff whose account isn't linked to an organisation, then the link;
+  - `LearnerDashboard.test.ts`: Release 3's badges in the store, with Release 2's Comp Card;
+  - this log: Release 3's entries, then Release 2's.
+  The rest merged without a conflict. The admin screens' and the statistics' notices are Release 3's, English and marked so, with the link in English. The overview's and the people screens' "Nothing to show yet" are for staff signed in, who get no link.
+- `[MERGE]` Release 3's own staff notices take the link too: Data (English, `lang="en"`) and Safeguarding contacts, whose notice now names its language (`lang="en"`), so its link is English like its text.
+- `[TEST]` On Release 3:
+  - `r2-staff-sign-in` and `r2-dashboard-greeting` make their people through the people fixture (`createPerson`, `signIn`; FD-U19), and the guest store's Comp Card is Release 3's (`sharing`);
+  - SI-E1 covers the Safeguarding contacts and Data notices too (13 pages);
+  - the unit tests that draw a staff page with its notice (`admin/english-pages.test.ts`, `analytics/page.test.ts`) stand in for the link, which reads the session;
+  - `guestHasWork`'s card is Release 3's.
+- `[DOCS]` D71: `r2` merged into `r3` again at `67466b0`.
+- `[VERIFY]` On the local Postgres `seq_r3`:
+  - tsc ✓ eslint ✓ **5,178 unit** ✓ (221 files, one skipped; 4 tests skipped: the `r3-check` database tests);
+  - production build ✓ (through the build lock), no warnings;
+  - affected specs `r2-staff-sign-in`, `r2-dashboard-greeting`, `accessibility`, `learner-journey`, `staff-screens`, `workspace-hub`, `course-grid`, `r0-accounts`, `r2-consumers`, `header-reflow`, `invitations`, `a11y-prefs`, `r3-statistics`, `r3-guest-claim` and `r3-profile`: **107/107**;
+  - **full E2E 976 passed, 2 skipped** (F-E1a and F-E1b, by design) in 9.0 min on two workers, exit 0. By project: chromium 963, cutoff 3, switches 5, last 5;
+  - `db-backed-progress` on one worker: **57/57**;
+  - `r3-scoping` **9/9**; `r3-actions` **513/513**;
+  - the server logged only the known kinds: 20 "No signed-in learner", 5 "No signed-in user", 2 `AccessDenied`, 3 `transformAlgorithm`, three audit writes for accounts a test had just removed (`AuditLog_actorId_fkey`), one `SessionTokenError` (a session whose account a test had just removed), once `[progress-beacon] the save failed` (a page closed at a test's end for a learner its clean-up had removed), the `BLOB_PUBLIC_HOST` notice and the `output: standalone` warning.
