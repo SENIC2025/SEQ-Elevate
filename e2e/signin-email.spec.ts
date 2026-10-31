@@ -99,7 +99,8 @@ describe("sign-in emails (D116)", () => {
     await page.goto("/en/signin");
     await page.getByLabel("Email").fill(`  E2E-SE-${RUN}-Plain@Example.ORG  `);
     await page.getByRole("button", { name: "Send me a link" }).click();
-    await expect(page).toHaveURL(/\/en\/signin\/check-email/);
+    // The form follows Auth.js to its "check your email" step, which shows our page.
+    await expect(page.getByRole("heading", { name: "Check your email" })).toBeVisible();
     const made = await prisma.verificationToken.findMany({
       where: { identifier: { contains: `${RUN}-plain`, mode: "insensitive" } },
       select: { identifier: true },
