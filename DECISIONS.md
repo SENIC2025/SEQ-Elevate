@@ -730,6 +730,21 @@ Single source of truth for decisions made, decisions still open, and the rationa
 - Rollback: the kill switches first; a Vercel instant rollback to the Release 1 deployment only while no `PARTNER_ADMIN` membership exists and no real learner has signed in, and it is not rehearsed; after that, fix forward.
 - *Depends on:* no real participant signing in before 1 December.
 
+### D116 · Sign-in addresses are plain ASCII, normalised before they are checked; sign-in emails are capped per client and per hour
+**Decided**: 31 October 2026 · *Decider: SENIC principal, via the integrator*
+- **The address rule.** Every email address the site sends a sign-in link or an invitation to, or stores for an account, is normalised first: surrounding white space trimmed, Unicode compatibility forms folded (NFKC), lower-cased. Then it is checked: plain printable ASCII in the grammar of the browser's own email field (WHATWG HTML), so no white space, control character, quote, comma or bracket; exactly one `@`, the plain one, with a local part before it and a host name with a dot after it; at most 254 characters. A character that only folds into `@` is refused. What passes is the one address that is looked up, stored, counted and handed to the email service.
+- **Where it applies.** One function (`src/lib/signin-address.ts`): both Auth.js email providers (`normalizeIdentifier`, so the rule holds whatever the library's own normaliser does), the sign-in form's action, invitations and adding people on Manage people. An address that can't sign in can't be stored either.
+- **What people see.** The sign-in form: "Enter a valid email address, such as name@example.org." (English, German, Greek). Manage people: "That doesn't look like a valid email.", as before; an invitation to a stored address outside the rule isn't sent, and the screen says so. Auth.js's own endpoint answers with its error page.
+- **Sign-in email limits**, checked in Auth.js's `signIn` callback before a link is made or sent, in this order (a request refused by one isn't counted by the next, so the hourly cap counts only emails about to be sent):
+  1. per client: `SIGNIN_EMAILS_PER_IP_15MIN`, default **30** in 15 minutes, keyed by the first `x-forwarded-for` value (an IPv6 address by its /64), else one fixed bucket;
+  2. per address: 5 in 15 minutes (D96, unchanged);
+  3. for the whole site: `SIGNIN_EMAILS_PER_HOUR`, default **200** in an hour.
+  Over any of them no link is made, and the form says "Too many sign-in link requests. Please wait a few minutes and try again." in the page's language. A setting that isn't a whole number of at least 1 means its default, logged once without the value. Invitations keep their own limits (D27) and aren't counted here.
+- **Why these numbers.** The pilot is about 120 learners (D24). A group signing in together in one room behind one shared address, and the whole pilot signing in within the same hour, stay under the defaults; one client can take at most 120 of the site's 200 an hour.
+- **When the limiter can't count**, the three limits allow, with a log line each (D96's rule for sign-in links, extended to the two new keys): a fault in the limiter must never stop sign-in for everyone, and with the database down Auth.js can't look the address up or store a link, so nothing is sent anyway. As soon as it counts again, they refuse over the limit.
+- **Data.** The per-client count is stored under a keyed hash of the client's network address (D96), never the address itself, and the row goes within two hours.
+- *Depends on:* the host setting `x-forwarded-for` to the address the request came from (Vercel does).
+
 ---
 
 ## 🟡 Open — must close before kickoff or Week 1
