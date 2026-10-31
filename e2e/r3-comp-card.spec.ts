@@ -17,6 +17,7 @@ import {
 import { callAction } from "./fixtures/server-action";
 import { completeProfileStep } from "./fixtures/profile-step";
 import { slowActions } from "./fixtures/slow-actions";
+import { rscPath } from "./fixtures/rsc";
 
 /**
  * Release 3 (spec 4, 18.2, B-E6 to B-E10): the Comp Card, learner side.
@@ -58,7 +59,7 @@ async function payload(request: APIRequestContext, person: Person, path: string)
   const cookie = { Cookie: `authjs.session-token=${person.sessionToken}` };
   const html = await request.get(path, { headers: cookie, maxRedirects: 0 });
   expect(html.status(), `${path} as ${person.email}`).toBe(200);
-  const rsc = await request.get(path, { headers: { ...cookie, RSC: "1" }, maxRedirects: 0 });
+  const rsc = await request.get(rscPath(path), { headers: { ...cookie, RSC: "1" }, maxRedirects: 0 });
   expect(rsc.status(), `${path}'s payload as ${person.email}`).toBe(200);
   return `${await html.text()}\n${await rsc.text()}`;
 }

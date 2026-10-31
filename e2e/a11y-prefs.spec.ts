@@ -189,12 +189,19 @@ function actionId(filename: string, exportedName: string): string {
   ) as {
     node?: Record<
       string,
-      { workers: Record<string, { filename: string; exportedName: string }> }
+      {
+        workers: Record<string, { filename?: string; exportedName?: string }>;
+        // Next 16.4 names them on the entry rather than per worker.
+        filename?: string;
+        exportedName?: string;
+      }
     >;
   };
   for (const [id, entry] of Object.entries(manifest.node ?? {})) {
     const worker = Object.values(entry.workers)[0];
-    if (worker?.filename === filename && worker.exportedName === exportedName) {
+    const file = entry.filename ?? worker?.filename;
+    const name = entry.exportedName ?? worker?.exportedName;
+    if (file === filename && name === exportedName) {
       return id;
     }
   }

@@ -197,6 +197,41 @@ async function standInYouTube(page: Page): Promise<string[]> {
   return asked;
 }
 
+/**
+ * Waits until the page has had no request open for 500 ms (the rule of
+ * Playwright's "networkidle"), counted from the page's own request events.
+ * Used once the player's frame has been removed: Playwright fires its own
+ * "networkidle" again only when a later request ends, and after a frame has
+ * come and gone with no later request (Next 16.4's router makes none here)
+ * it waits for one that never comes.
+ */
+async function networkQuiet(page: Page, quietMs = 500, timeoutMs = 10_000) {
+  let open = 0;
+  let last = Date.now();
+  const started = () => {
+    open += 1;
+    last = Date.now();
+  };
+  const ended = () => {
+    open = Math.max(0, open - 1);
+    last = Date.now();
+  };
+  page.on("request", started);
+  page.on("requestfinished", ended);
+  page.on("requestfailed", ended);
+  try {
+    const deadline = Date.now() + timeoutMs;
+    while (open > 0 || Date.now() - last < quietMs) {
+      if (Date.now() > deadline) throw new Error("the page's requests didn't settle");
+      await page.waitForTimeout(50);
+    }
+  } finally {
+    page.off("request", started);
+    page.off("requestfinished", ended);
+    page.off("requestfailed", ended);
+  }
+}
+
 /** Routes `host` to a stand-in and answers the requests the page made to it. */
 async function standIn(page: Page, host: string, contentType: string): Promise<string[]> {
   const asked: string[] = [];
@@ -318,7 +353,7 @@ describe("Release 3: lesson media from our own store, YouTube on request (D91, D
       `https://www.youtube.com/watch?v=${THIRD_VIDEO_ID}`
     );
     await expect(playerFrame(page)).toHaveCount(0);
-    await page.waitForLoadState("networkidle");
+    await networkQuiet(page);
     expect(asked.filter((url) => url.includes(THIRD_VIDEO_ID)), "nothing asked of YouTube for the new link").toEqual([]);
     // Back to the link played before: asked again too.
     const playedBefore = asked.length;
@@ -328,7 +363,7 @@ describe("Release 3: lesson media from our own store, YouTube on request (D91, D
       `https://www.youtube.com/watch?v=${OTHER_VIDEO_ID}`
     );
     await expect(playerFrame(page)).toHaveCount(0);
-    await page.waitForLoadState("networkidle");
+    await networkQuiet(page);
     expect(asked.length, "nothing asked of YouTube until the next press").toBe(playedBefore);
   });
 

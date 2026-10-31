@@ -4,6 +4,7 @@ import { PrismaClient, type Country } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PROJECT, createPerson, hasProfiles, removePeople, runId, signIn, type Person } from "./fixtures/people";
 import { completeProfileStep } from "./fixtures/profile-step";
+import { rscPath } from "./fixtures/rsc";
 
 /**
  * Release 3 integration, I-E2 (spec 18.5): the partner story, end to end,
@@ -55,7 +56,7 @@ async function payload(request: APIRequestContext, person: Pick<Person, "email" 
   const cookie = { Cookie: `authjs.session-token=${person.sessionToken}` };
   const html = await request.get(path, { headers: cookie, maxRedirects: 0 });
   expect(html.status(), `${path} as ${person.email}`).toBe(200);
-  const rsc = await request.get(path, { headers: { ...cookie, RSC: "1" }, maxRedirects: 0 });
+  const rsc = await request.get(rscPath(path), { headers: { ...cookie, RSC: "1" }, maxRedirects: 0 });
   expect(rsc.status(), `${path}'s payload as ${person.email}`).toBe(200);
   return `${await html.text()}\n${await rsc.text()}`;
 }

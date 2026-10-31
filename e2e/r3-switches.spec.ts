@@ -2,6 +2,7 @@ import { test, expect, type APIRequestContext } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { createPerson, createWorld, removeWorld, runId, type Person, type World, type WorldKey } from "./fixtures/people";
+import { rscPath } from "./fixtures/rsc";
 import { DEFAULT_STATS_FROM } from "../src/lib/stats-from";
 
 /**
@@ -40,7 +41,7 @@ async function payload(request: APIRequestContext, person: Person, path: string)
   const cookie = { Cookie: `authjs.session-token=${person.sessionToken}` };
   const html = await request.get(path, { headers: cookie, maxRedirects: 0 });
   expect(html.status(), `${path} as ${person.email}`).toBe(200);
-  const rsc = await request.get(path, { headers: { ...cookie, RSC: "1" }, maxRedirects: 0 });
+  const rsc = await request.get(rscPath(path), { headers: { ...cookie, RSC: "1" }, maxRedirects: 0 });
   expect(rsc.status(), `${path}'s payload as ${person.email}`).toBe(200);
   return `${await html.text()}\n${await rsc.text()}`;
 }
