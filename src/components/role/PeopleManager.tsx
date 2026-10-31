@@ -249,6 +249,11 @@ function inviteNotice(
         kind: "ok",
         text: `${added}. No invitation was sent — you can send one from the list below.`,
       };
+    case "bad-email":
+      return {
+        kind: "warn",
+        text: `${added ? `${added}, but n` : "N"}o invitation was sent: ${email} isn't an address a sign-in link can be sent to.`,
+      };
     case "rate-limited":
       return {
         kind: "warn",

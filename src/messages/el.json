@@ -70,6 +70,8 @@
     "emailPlaceholder": "esy@paradeigma.gr",
     "sendLink": "Στείλε μου σύνδεσμο",
     "sending": "Αποστολή…",
+    "invalidEmail": "Γράψε μια έγκυρη διεύθυνση email, π.χ. onoma@paradeigma.gr.",
+    "tooManyRequests": "Πάρα πολλά αιτήματα για σύνδεσμο σύνδεσης. Περίμενε λίγα λεπτά και δοκίμασε ξανά.",
     "magicLinkNote": "Ο σύνδεσμος σε συνδέει με ένα κλικ και λήγει σύντομα. Ασφαλές και χωρίς κωδικό.",
     "backToHome": "Πίσω στην αρχική",
     "checkEmailTitle": "Έλεγξε το email σου",

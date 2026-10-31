@@ -70,6 +70,8 @@
     "emailPlaceholder": "you@example.com",
     "sendLink": "Send me a link",
     "sending": "Sending…",
+    "invalidEmail": "Enter a valid email address, such as name@example.org.",
+    "tooManyRequests": "Too many sign-in link requests. Please wait a few minutes and try again.",
     "magicLinkNote": "The link signs you in with one click and expires shortly. Safe and password-free.",
     "backToHome": "Back to home",
     "checkEmailTitle": "Check your email",

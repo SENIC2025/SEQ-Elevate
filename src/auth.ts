@@ -14,13 +14,16 @@
  */
 
 import NextAuth from "next-auth";
+import { headers } from "next/headers";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import Resend from "next-auth/providers/resend";
 import { prisma } from "@/lib/prisma";
 import { DEMO_PROFILES } from "@/lib/demo-profiles";
 import { demoLoginAllowed } from "@/lib/demo-gate";
 import { refusingDemoSessions } from "@/lib/demo-session";
-import { checkRateLimit, hashKey } from "@/lib/rate-limit";
+import { normalizeIdentifier } from "@/lib/signin-address";
+import { checkSignInEmail } from "@/lib/signin-email-limits";
+import { SIGN_IN_EMAIL_LIMITED } from "@/lib/signin-result";
 import {
   BOOTSTRAP_PROJECT,
   BOOTSTRAP_ROLES,
@@ -35,11 +38,7 @@ import {
 import { renderInviteEmail, renderSignInEmail } from "@/lib/invite-email";
 import type { Role } from "@prisma/client";
 
-// Cap magic-link requests per email so the endpoint can't be used to
-// email-bomb a victim's inbox. Generous enough that a real user retrying
-// never hits it; abuse does.
-const MAGIC_LINK_LIMIT = 5;
-const MAGIC_LINK_WINDOW_MS = 15 * 60 * 1000;
+const SIGN_IN_PAGE = "/en/signin";
 
 const EMAIL_FROM = process.env.EMAIL_FROM ?? "SEQ Elevate <no-reply@senic.world>";
 
@@ -54,6 +53,20 @@ const hasRealResendKey =
 const isLiveSite = process.env.VERCEL_ENV === "production";
 const EMAIL_NOT_CONFIGURED =
   "Email sending is not set up on this site (RESEND_API_KEY is missing).";
+
+/**
+ * The request's x-forwarded-for header, for the per-client sign-in email
+ * limit (D116). Auth.js runs inside a request (its route, or the sign-in
+ * form's server action); outside one there is none, and the request counts
+ * in the limit's fixed bucket.
+ */
+async function forwardedFor(): Promise<string | null> {
+  try {
+    return (await headers()).get("x-forwarded-for");
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Send one transactional email through Resend (sign-in links, invitations).
@@ -89,27 +102,19 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   trustHost: true,
   session: { strategy: "database" },
   pages: {
-    signIn: "/en/signin",
+    signIn: SIGN_IN_PAGE,
     verifyRequest: "/en/signin/check-email",
   },
   providers: [
     Resend({
       apiKey: process.env.RESEND_API_KEY ?? "re_placeholder",
       from: EMAIL_FROM,
+      // The sign-in address rule (D116): normalised, then checked; anything
+      // else is refused before it is looked up, stored or mailed.
+      normalizeIdentifier,
+      // The sign-in email limits (per client, per address, per hour; D116)
+      // are checked in the signIn callback below, before a link is made.
       async sendVerificationRequest({ identifier, url }) {
-        // Abuse guard: cap how often a link can be requested for one email, so
-        // the endpoint can't be turned into an inbox-flooding tool. Keyed by a
-        // hash of the email — no address is stored in the limiter.
-        const rl = await checkRateLimit(hashKey("magiclink", identifier), {
-          limit: MAGIC_LINK_LIMIT,
-          windowMs: MAGIC_LINK_WINDOW_MS,
-        });
-        if (!rl.ok) {
-          throw new Error(
-            "Too many sign-in link requests. Please wait a few minutes and try again."
-          );
-        }
-
         // Dev / no-key fallback: log the magic link so auth is testable
         // without email delivery configured. Never on the live site.
         if (!hasRealResendKey) {
@@ -137,6 +142,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       apiKey: process.env.RESEND_API_KEY ?? "re_placeholder",
       from: EMAIL_FROM,
       maxAge: INVITE_VALID_DAYS * 24 * 60 * 60,
+      // The same address rule as sign-in (D116).
+      normalizeIdentifier,
       async sendVerificationRequest({ identifier, url }) {
         const intent = currentInviteIntent();
         // Defence in depth: the signIn callback has already refused anything
@@ -169,10 +176,26 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     // admin's server action is inviting exactly this address in this very
     // async context (withInviteIntent). Clicking the link later is not a
     // verificationRequest, so joining still works.
+    //
+    // Sign-in emails (D116): the per-client, per-address and hourly limits,
+    // checked here so that over any of them no link is made and nothing is
+    // sent. The request is sent to the sign-in page with error=rate-limited,
+    // which the sign-in form (and page) say in the reader's language. The
+    // address is Auth.js's, already normalised by normalizeIdentifier.
     async signIn({ user, account, email }) {
       if (account?.provider === INVITE_PROVIDER && email?.verificationRequest) {
         const intent = currentInviteIntent();
         return !!intent && intent.email === user.email?.trim().toLowerCase();
+      }
+      if (account?.provider === "resend" && email?.verificationRequest) {
+        const verdict = await checkSignInEmail({
+          address: account.providerAccountId,
+          forwardedFor: await forwardedFor(),
+        });
+        if (!verdict.ok) {
+          console.warn(`[auth] sign-in email refused: over the ${verdict.limit} limit`);
+          return `${SIGN_IN_PAGE}?error=${SIGN_IN_EMAIL_LIMITED}`;
+        }
       }
       return true;
     },

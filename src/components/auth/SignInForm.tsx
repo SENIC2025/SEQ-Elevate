@@ -5,15 +5,24 @@ import { useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { signInWithEmail } from "@/app/actions/auth";
+import { signInWithEmail, type SignInFormError } from "@/app/actions/auth";
 import { BrandLogo } from "@/components/BrandLogo";
-import { Mail, ArrowRight, Loader2 } from "lucide-react";
+import { Mail, ArrowRight, Loader2, AlertTriangle } from "lucide-react";
+
+/** What the form says when no link was sent (D116). */
+const ERROR_KEY: Record<SignInFormError, "invalidEmail" | "tooManyRequests"> = {
+  "invalid-email": "invalidEmail",
+  "rate-limited": "tooManyRequests",
+};
 
 export function SignInForm({
   callbackUrl,
   demoEnabled = false,
+  initialError = null,
 }: {
   callbackUrl: string;
+  /** Set when Auth.js sent the visitor here over a sign-in email limit (D116). */
+  initialError?: SignInFormError | null;
   /** Server-derived: show the demo/client-access link only where demo
    * sign-in is allowed (demoLoginAllowed, D98). Elsewhere, production
    * always, it would be a dead end. */
@@ -21,6 +30,7 @@ export function SignInForm({
 }) {
   const t = useTranslations("auth");
   const [pending, setPending] = useState(false);
+  const [error, setError] = useState<SignInFormError | null>(initialError);
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-[var(--background)] px-4">
@@ -38,7 +48,13 @@ export function SignInForm({
           <form
             action={async (formData) => {
               setPending(true);
-              await signInWithEmail(formData);
+              setError(null);
+              const result = await signInWithEmail(formData);
+              // A link was asked for: the page moves on. Otherwise, say why not.
+              if (result?.error) {
+                setError(result.error);
+                setPending(false);
+              }
             }}
             className="mt-6 space-y-3"
           >
@@ -56,10 +72,22 @@ export function SignInForm({
                   required
                   autoComplete="email"
                   placeholder={t("emailPlaceholder")}
+                  aria-invalid={error === "invalid-email" ? true : undefined}
+                  aria-describedby={error ? "signin-error" : undefined}
                   className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] pl-9 pr-3 py-2.5 text-base focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
                 />
               </div>
             </div>
+            {error ? (
+              <p
+                id="signin-error"
+                role="alert"
+                className="text-sm text-[var(--danger)] flex items-start gap-1.5"
+              >
+                <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" aria-hidden="true" />
+                {t(ERROR_KEY[error])}
+              </p>
+            ) : null}
             <Button type="submit" size="lg" className="w-full" disabled={pending}>
               {pending ? (
                 <>

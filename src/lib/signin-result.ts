@@ -31,3 +31,10 @@ export function signInErrorType(result: unknown): string | null {
     return null;
   }
 }
+
+/**
+ * The error a sign-in email refused by its limits is answered with (D116):
+ * Auth.js sends the form to the sign-in page with `?error=rate-limited`, and
+ * the sign-in form's action tells the form instead.
+ */
+export const SIGN_IN_EMAIL_LIMITED = "rate-limited";

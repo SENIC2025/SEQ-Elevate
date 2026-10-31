@@ -79,3 +79,36 @@ describe("an invitation's copy", () => {
     ]);
   });
 });
+
+describe("the address an invitation goes to (D116)", () => {
+  const inviteTo = (email: string) =>
+    sendInvitation({
+      email,
+      name: null,
+      roles: ["LEARNER"] as never,
+      locale: "en",
+      inviter: { id: "admin-1", name: "Ada", email: "ada@example.org" },
+    });
+
+  it("is refused, sending and counting nothing, when the sign-in rule refuses it", async () => {
+    const { signIn } = await import("@/auth");
+    const { checkRateLimit } = await import("@/lib/rate-limit");
+    vi.mocked(signIn).mockClear();
+    vi.mocked(checkRateLimit).mockClear();
+    for (const email of ["victim@example.org﹫evil.example", "jörg@example.org", "ana\u0000@example.org"]) {
+      await expect(inviteTo(email), JSON.stringify(email)).resolves.toEqual({ ok: false, error: "bad-email" });
+    }
+    expect(signIn).not.toHaveBeenCalled();
+    expect(checkRateLimit).not.toHaveBeenCalled();
+  });
+
+  it("is the normalised address, for the link and its counter", async () => {
+    const { signIn } = await import("@/auth");
+    const { checkRateLimit } = await import("@/lib/rate-limit");
+    vi.mocked(signIn).mockClear();
+    vi.mocked(checkRateLimit).mockClear();
+    await expect(inviteTo("  ＮＥＷ@Example.ORG ")).resolves.toEqual({ ok: true });
+    expect(signIn).toHaveBeenCalledWith("invite", expect.objectContaining({ email: "new@example.org" }));
+    expect(checkRateLimit).toHaveBeenCalledWith("invite:new@example.org", expect.anything());
+  });
+});

@@ -549,6 +549,31 @@ describe("addMember (SP19)", () => {
     expect(seen).toEqual(["user:true", "membership:true", "organisation:true"]);
   });
 
+  it("refuses an address the sign-in rule refuses, before anyone is looked up (D116)", async () => {
+    asPartnerAdmin();
+    for (const email of [
+      "victim@example.org﹫evil.example",
+      "victim@example.org＠evil.example",
+      "jörg@example.org",
+      "ana\u0007@example.org",
+      '"ana"@example.org',
+      `${"a".repeat(250)}@example.org`,
+    ]) {
+      await expect(addMember(email, "LEARNER"), JSON.stringify(email)).resolves.toEqual({ ok: false, error: "bad-email" });
+    }
+    expect(db.user.findFirst).not.toHaveBeenCalled();
+    expect(changedAnything()).toBe(false);
+  });
+
+  it("stores the address as the sign-in rule normalises it (D116)", async () => {
+    asPartnerAdmin();
+    await addMember("  ＮＥＷ@Example.ORG ", "LEARNER");
+    expect(db.user.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { email: { equals: "new@example.org", mode: "insensitive" } } })
+    );
+    expect(db.user.create).toHaveBeenCalledWith({ data: { email: "new@example.org", name: null }, select: { id: true } });
+  });
+
   it("caps a name at the profile step's 50 characters, and refuses one with a line break", async () => {
     await expect(addMember("new@example.org", "LEARNER", "x".repeat(51))).resolves.toEqual({ ok: false, error: "bad-name" });
     await expect(addMember("new@example.org", "LEARNER", "Ana\nBeth")).resolves.toEqual({ ok: false, error: "bad-name" });

@@ -13,7 +13,9 @@ import { createHash, createHmac } from "node:crypto";
  *   long-window counter.
  * - When the limiter can't count, the key's prefix decides: staff-only
  *   callers (upload-, invite-by:, invite:, add-by:) and unknown prefixes are
- *   refused; sign-in links (magiclink:) are allowed, with one log line.
+ *   refused; sign-in links' limits (magiclink: per address, and D116's
+ *   magiclink-ip: per client and magiclink-all: per hour) are allowed, with
+ *   one log line.
  * - The keys of one person (for erasure) are the ones the callers make.
  */
 
@@ -178,6 +180,18 @@ describe("when the limiter can't count", () => {
     expect(log).toHaveBeenCalledTimes(1);
     expect(String(log.mock.calls[0][0])).not.toMatch(/ana|example/);
   });
+
+  it.each(["magiclink-ip:203.0.113.7", "magiclink-all:site"])(
+    "allows a sign-in email cap's count (%s, D116), with one log line and no address",
+    async (key) => {
+      failing = true;
+      const log = vi.spyOn(console, "error").mockImplementation(() => {});
+      expect((await checkRateLimit(key, opts)).ok).toBe(true);
+      expect(log).toHaveBeenCalledTimes(1);
+      expect(String(log.mock.calls[0][0])).toContain("allowed");
+      expect(String(log.mock.calls[0][0])).not.toContain("203.0.113.7");
+    }
+  );
 
   it("refuses when there is no secret to make the key with, except a sign-in link", async () => {
     vi.stubEnv("AUTH_SECRET", "");
