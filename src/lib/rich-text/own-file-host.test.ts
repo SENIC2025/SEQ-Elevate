@@ -35,3 +35,28 @@ describe("ownFileHost", () => {
     expect(ownFileHost()).toBeNull();
   });
 });
+
+describe("next.config.ts (spec 3.2)", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  /** next.config.ts as the build reads it, with the environment as it is now. */
+  const built = async () => {
+    vi.resetModules();
+    return (await import("../../../next.config")).default;
+  };
+
+  it("gives the browser the server's BLOB_PUBLIC_HOST as NEXT_PUBLIC_BLOB_PUBLIC_HOST when the site is built, blank while it isn't set", async () => {
+    vi.stubEnv("BLOB_PUBLIC_HOST", "e.public.blob.vercel-storage.com");
+    const config = await built();
+    expect(config.env).toEqual({ NEXT_PUBLIC_BLOB_PUBLIC_HOST: "e.public.blob.vercel-storage.com" });
+    expect(ownFileHost(config.env)).toBe("e.public.blob.vercel-storage.com");
+
+    vi.stubEnv("BLOB_PUBLIC_HOST", undefined);
+    const unset = await built();
+    expect(unset.env).toEqual({ NEXT_PUBLIC_BLOB_PUBLIC_HOST: "" });
+    expect(ownFileHost(unset.env)).toBeNull();
+  });
+});

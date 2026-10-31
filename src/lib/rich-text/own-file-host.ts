@@ -2,11 +2,13 @@
  * The exact host of our own file store, for checkLinkHref's `ownFile`
  * (link-url.ts; D103), or null while it isn't known.
  *
- * On the server it is BLOB_PUBLIC_HOST (Release 3's setting: the host our
- * uploads are served from; not a secret), read when it is asked for. In the
- * browser only a NEXT_PUBLIC_ variable exists, which next.config.ts fills
- * from BLOB_PUBLIC_HOST when the site is built. While neither is set,
- * checkLinkHref counts every Vercel Blob store as ours.
+ * It is BLOB_PUBLIC_HOST (Release 3's setting: the host our uploads are
+ * served from; not a secret). In the browser only a NEXT_PUBLIC_ variable
+ * exists, which next.config.ts fills from BLOB_PUBLIC_HOST when the site is
+ * built; the build writes it into the server's code too, so the server
+ * reads its own BLOB_PUBLIC_HOST, when it is asked for, only if the site
+ * was built without one. While neither is set, checkLinkHref counts every
+ * Vercel Blob store as ours.
  *
  * Every caller that refuses links to our own files passes
  * `{ ownFileHost: ownFileHost() }`.

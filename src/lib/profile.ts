@@ -1,6 +1,6 @@
 /**
  * Release 3 (D78, spec 5.2): the profile step's rules. Every signed-in
- * person completes it once: a first name or nickname, the country they take
+ * person completes it once: their full name, the country they take
  * part from, the Terms of use (version and time stored), the age rule, and,
  * only when PROFILE_CONSENT asks for it, a separate consent. A new English
  * Terms version asks for the Terms again, nothing else.

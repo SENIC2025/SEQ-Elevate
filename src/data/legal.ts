@@ -172,7 +172,7 @@ const LEGACY: Partial<Record<LegalDocId, LegacyText>> = {
         heading: "What we collect",
         list: [
           "Your email address. We send your one-time sign-in links to it (there is no password), and the staff who support you see it beside your progress.",
-          "What you tell us the first time you sign in: a first name or nickname, the country you take part from, when you accepted the Terms of use, and your confirmation of the age rule.",
+          "What you tell us the first time you sign in: your full name, the country you take part from, when you accepted the Terms of use, and your confirmation of the age rule.",
           "Your course progress: the lessons you finished, your answers in exercises and quizzes, and what you write in reflections.",
           "Your Comp Card. It is private to you ('Only me') unless you choose to share it with the facilitators at your organisation, and you can switch back to 'Only me' at any time.",
           "Your reading help: the text size, easy-read font and contrast your account keeps, so they follow you to your other devices. They include settings you chose before signing in, if your account still had the standard settings. They are in your data download.",

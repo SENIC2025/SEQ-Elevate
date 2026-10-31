@@ -710,6 +710,26 @@ Single source of truth for decisions made, decisions still open, and the rationa
 - **Moving to another major version** is a decision of its own: the link tests, the corpus tests and the Node-against-Chrome comparison are run again on it first, and the line and the project's setting change in one step.
 - *Depends on:* Vercel supporting Node 22 for builds and functions.
 
+### D114 · The consortium's answers of 27 October (amends D78's name field)
+**Decided**: 27 October 2026 (DIESIS's answers to the reply of 20 October); recorded 31 October 2026 · *Decider: the consortium (DIESIS)*
+- **Q17, full name.** The profile step asks for the person's full name (first and last name), because partners match learners with their own records. The rule stays 1–50 characters with no line breaks or hidden characters; the privacy text says "your full name". Amends D78's "first name or nickname".
+- **Defaults confirmed:** Q2, Q4–Q8 (the two built-in courses are archived), Q16 (learning under public-interest education or contract; consent only for optional sharing: `PROFILE_CONSENT` stays off, and Comp Card sharing is the consent record, D80), Q18 (16; `AGE_RULE` unset), Q19, Q20, Q24, Q25, Q26, Q28, Q29.
+- **Q27:** videos are uploaded and subtitled; DIESIS works in English, the other partners translate.
+- **Q12:** no 1–5 confidence question at the end of every course; partners add confidence to a self-assessment section of their own. The per-course Comp Card sections (December–January) carry no confidence line.
+- **Q10, Q11:** the per-course Comp Card sections are approved with every section, quiz included; the learner can tick to put quiz scores on the printed card. December–January work, in neither Release 3 nor Release 4.
+- **Q14:** two lists: the sources used to create a course (Release 4's references) and reading material for learners (Release 4's further reading); any citation style, each item with its link.
+- **Q21–Q23:** an account inactive for 12 months is deleted after warnings; staff accounts on leaving or at the end of the five-year period; the platform stays available until five years after the funder's final payment (expected September–December 2027). Replaces the 1 July 2028 proposal. Not built yet: no account can fall due before October 2027.
+- **Q9, Q13, Q15** came back as questions; their defaults apply and are explained to the consortium.
+- *Depends on:* nothing further.
+
+### D115 · Releases 2, 3 and 4 go live together (amends D71's and D102's dates)
+**Decided**: 31 October 2026 · *Decider: SENIC principal*
+- Releases 2, 3 and 4 deploy together as soon as the release check and the rehearsal pass: `main` is fast-forwarded to the tested `r4` commit. The dates of 10, 20 and 26 November are replaced, so partners test every feature on the live site before the pilot.
+- Before the push: an on-demand backup is green; all six migrations are rehearsed together on a Neon branch of production with `backfill-course-badges.mjs` and the three checks (`r2-progress-check`, `r3-check`, `r4-check`); `BLOB_PUBLIC_HOST` is set on production; production has no demo sign-in variables.
+- Release 3's production security review and Release 4's independent security review run on the live code before any real participant signs in (pilot 1 December). Until Release 3's review passes, `R3_PARTNER_ACCESS` stays off and no partner admin is invited (D77); partner staff work as editors, and as learners with test accounts.
+- Rollback: the kill switches first; a Vercel instant rollback to the Release 1 deployment only while no `PARTNER_ADMIN` membership exists and no real learner has signed in, and it is not rehearsed; after that, fix forward.
+- *Depends on:* no real participant signing in before 1 December.
+
 ---
 
 ## 🟡 Open — must close before kickoff or Week 1

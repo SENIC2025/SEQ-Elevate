@@ -1351,9 +1351,9 @@
     "title": "Before you start",
     "intro": "We need a few details, once.",
     "name": {
-      "label": "First name or nickname",
-      "hint": "A first name or a nickname is enough.",
-      "empty": "Enter a first name or nickname.",
+      "label": "Full name",
+      "hint": "Your first and last name, as your partner organisation knows you.",
+      "empty": "Enter your full name.",
       "tooLong": "Use {max} characters or fewer.",
       "invalid": "A name can't contain line breaks, tabs or other hidden characters."
     },

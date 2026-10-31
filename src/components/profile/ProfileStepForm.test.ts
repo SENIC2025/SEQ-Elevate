@@ -63,10 +63,10 @@ describe("the profile step's form (UB5)", () => {
     const html = render(first());
     const t = text(html);
     const at = (s: string) => t.indexOf(s);
-    for (const s of ["First name or nickname", "Where are you taking part?", "I am 16 or older.", "I accept the Terms of use", "How we use your data", "Continue"]) {
+    for (const s of ["Full name", "Where are you taking part?", "I am 16 or older.", "I accept the Terms of use", "How we use your data", "Continue"]) {
       expect(at(s), s).toBeGreaterThan(-1);
     }
-    expect(at("First name or nickname")).toBeLessThan(at("Where are you taking part?"));
+    expect(at("Full name")).toBeLessThan(at("Where are you taking part?"));
     expect(at("Where are you taking part?")).toBeLessThan(at("I am 16 or older."));
     expect(at("I am 16 or older.")).toBeLessThan(at("I accept the Terms of use"));
     expect(at("I accept the Terms of use")).toBeLessThan(at("How we use your data"));
@@ -80,10 +80,10 @@ describe("the profile step's form (UB5)", () => {
 
   it("asks for a name whenever none is stored, also after a completion (no loop); never when one is", () => {
     const named = render(first({ nameRequired: false }));
-    expect(text(named)).not.toContain("First name or nickname");
+    expect(text(named)).not.toContain("Full name");
     const blankAfter = render(first({ completed: true, nameRequired: true }));
     const t = text(blankAfter);
-    expect(t).toContain("First name or nickname");
+    expect(t).toContain("Full name");
     expect(t).not.toContain("Where are you taking part?");
     expect(t).not.toContain("I accept the Terms of use");
   });
@@ -92,7 +92,7 @@ describe("the profile step's form (UB5)", () => {
     const t = text(render(first({ completed: true, termsChanged: true, nameRequired: false })));
     expect(t).toContain("Our Terms of use have changed.");
     expect(t).toContain("I accept the Terms of use");
-    for (const gone of ["First name or nickname", "Where are you taking part?", "or older", "We need a few details, once."]) {
+    for (const gone of ["Full name", "Where are you taking part?", "or older", "We need a few details, once."]) {
       expect(t).not.toContain(gone);
     }
   });

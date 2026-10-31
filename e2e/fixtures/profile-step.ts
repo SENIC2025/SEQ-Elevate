@@ -27,7 +27,7 @@ const COUNTRIES: CountryName[] = ["Germany", "Cyprus", "Belgium", "Greece", "Oth
 /** Fills in what the form asks for, without sending it. */
 export async function fillProfileStep(page: Page, answers: ProfileAnswers = {}) {
   const form = page.getByRole("main");
-  const name = form.getByLabel("First name or nickname", { exact: true });
+  const name = form.getByLabel("Full name", { exact: true });
   if (await name.count()) {
     await name.fill("");
     await name.fill(answers.name ?? "E2E learner");
