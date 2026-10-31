@@ -367,7 +367,7 @@ describe("Release 3 profile step", () => {
     await expect(main.getByText("Our Terms of use have changed. Please read them and accept them again.")).toBeVisible();
     await expect(main.getByRole("checkbox")).toHaveCount(1);
     await expect(main.getByRole("radio")).toHaveCount(0);
-    await expect(main.getByLabel("First name or nickname")).toHaveCount(0);
+    await expect(main.getByLabel("Full name")).toHaveCount(0);
     await completeProfileStep(page);
     const after = await profileOf(person.userId);
     expect(after).toMatchObject({
@@ -477,7 +477,7 @@ describe("Release 3 profile step", () => {
     await page.goto("/en");
     await expect(page).toHaveURL(/\/en\/welcome$/);
     const main = page.getByRole("main");
-    await expect(main.getByLabel("First name or nickname")).toBeVisible();
+    await expect(main.getByLabel("Full name")).toBeVisible();
     await expect(main.getByRole("radio")).toHaveCount(0);
     await expect(main.getByRole("checkbox")).toHaveCount(0);
     await completeProfileStep(page, { name: "Robin" });

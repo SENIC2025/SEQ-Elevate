@@ -1279,3 +1279,16 @@ On `r3` after `e62b943`. Nothing pushed (D100).
   - `db-backed-progress` on one worker: **57/57**;
   - `r3-scoping` **9/9**; `r3-actions` **513/513**;
   - the server logged only the known kinds: 20 "No signed-in learner", 5 "No signed-in user", 2 `AccessDenied`, 3 `transformAlgorithm`, three audit writes for accounts a test had just removed (`AuditLog_actorId_fkey`), one `SessionTokenError` (a session whose account a test had just removed), once `[progress-beacon] the save failed` (a page closed at a test's end for a learner its clean-up had removed), the `BLOB_PUBLIC_HOST` notice and the `output: standalone` warning.
+
+### Release 3 — the profile step asks for the full name (2026-10-31)
+On `r3` after `9440461`. Nothing pushed (D100).
+- `[BUILD]` **The profile step asks for the person's full name** (D114, the consortium's answer to Q17; amends D78's "first name or nickname"): "Full name", with the hint "Your first and last name, as your partner organisation knows you." and, when it is left empty, "Enter your full name." ("Vollständiger Name", "Ονοματεπώνυμο"; `profile.name.label`, `.hint`, `.empty` in English, German and Greek). The rule is unchanged: 1–50 characters on one line, no line breaks or hidden characters, asked for while no name is stored.
+- `[BUILD]` The privacy text says what the step collects: "your full name" (`src/data/legal.ts`). The data download labels an organisation recorded on a membership before Release 3 as recorded "before profiles were introduced" (`src/lib/gdpr-export.ts`).
+- `[TEST]` The unit tests that name the field or the note (`ProfileStepForm.test.ts`, `r3-message-keys.test.ts`'s spec English, `gdpr-export.test.ts`), the end-to-end fixture that completes the step (`e2e/fixtures/profile-step.ts`) and `r3-profile.spec.ts` find the field by "Full name". Red first: on `9440461`'s code, 4 of the 43 tests of the three unit files red (the form's field 2, the English keys, the download's note); the rest green there.
+- `[DOCS]` D114: the consortium's answers of 27 October (DIESIS) — Q17, the full name; the defaults confirmed (Q2, Q4–Q8, Q16, Q18, Q19, Q20, Q24–Q26, Q28, Q29); Q27, Q12, Q10–Q11, Q14 and Q21–Q23 as answered; Q9, Q13 and Q15 on their defaults.
+- `[VERIFY]` On the local Postgres `seq_r3`:
+  - tsc ✓ eslint ✓ **5,178 unit** ✓ (221 files, one skipped; 4 tests skipped: the `r3-check` database tests);
+  - production build ✓ (through the build lock), no warnings;
+  - the specs that complete the profile step through its fixture, `r3-profile`, `r3-people`, `r3-comp-card`, `invitations`, `r0-accounts` and `workspace-hub`: **65/65** on two workers; `r3-integration-last` on its own: **1/1**;
+  - the server logged only the known kinds: 2 `AccessDenied`, 2 `transformAlgorithm` and the `output: standalone` warning;
+  - secret scan 0/0/0 before the commit.

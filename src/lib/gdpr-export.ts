@@ -60,7 +60,7 @@ const AUTHOR = {
 
 /** What an organisation recorded on a membership before Release 3 is (D72): kept, labelled, not used. */
 const EARLIER_ORGANISATION_NOTE =
-  "Recorded on this membership before 20 November 2026 and no longer used: your organisation is the one in your profile.";
+  "Recorded on this membership before profiles were introduced and no longer used: your organisation is the one in your profile.";
 
 export async function collectUserData(userId: string) {
   const user = await prisma.user.findUnique({

@@ -1350,9 +1350,9 @@
     "title": "Bevor es losgeht",
     "intro": "Wir brauchen einmalig ein paar Angaben.",
     "name": {
-      "label": "Vorname oder Spitzname",
-      "hint": "Ein Vorname oder Spitzname reicht.",
-      "empty": "Gib einen Vornamen oder Spitznamen ein.",
+      "label": "Vollständiger Name",
+      "hint": "Dein Vor- und Nachname, so wie deine Partnerorganisation dich kennt.",
+      "empty": "Gib deinen vollständigen Namen ein.",
       "tooLong": "Höchstens {max} Zeichen.",
       "invalid": "Der Name darf keine Zeilenumbrüche, Tabulatoren oder andere unsichtbare Zeichen enthalten."
     },

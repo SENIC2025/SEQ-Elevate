@@ -313,7 +313,7 @@ describe("collectUserData: what Release 3 adds (UD2)", () => {
 
 /*
  * The file says what each value is (Art. 15): an organisation recorded on
- * a membership before 20 November 2026 is labelled as such, not given as
+ * a membership before profiles were introduced is labelled as such, not given as
  * the person's organisation; a note is signed with its author's
  * organisation only while the author hasn't moved since writing it; a
  * shared card carries the version of the wording the learner shared under.
@@ -339,7 +339,7 @@ describe("collectUserData: what each value is", () => {
       role: "LEARNER",
       earlierOrganisation: {
         name: "Synthesis",
-        note: expect.stringMatching(/before 20 November 2026.*no longer used.*profile/),
+        note: expect.stringMatching(/before profiles were introduced.*no longer used.*profile/),
       },
     });
     expect(data?.memberships[1]).toMatchObject({ role: "FACILITATOR", earlierOrganisation: null });
