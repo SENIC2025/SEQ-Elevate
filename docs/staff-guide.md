@@ -1,6 +1,6 @@
 # Staff guide — people, learners and statistics
 
-This guide is for staff of DIESIS, Pro Arbeit, Synthesis and University of Macedonia. This is version 3. It describes the staff areas as they work from **Friday 20 November 2026** (Release 3), before the pilot starts on 1 December. What changed on 10 November (Release 2) and on 20 November (Release 3) is summed up at the end. Where Release 2 changed what a screen shows, the text says **From 10 November**. How to build courses is in the *Lesson editor partner guide*. How data requests are handled is in the *Data management guide* (`docs/data-management.md`).
+This guide is for staff of DIESIS, Pro Arbeit, Synthesis and University of Macedonia. This is version 4. It describes the staff areas as they work since **Saturday 31 October 2026**, when Releases 2, 3 and 4 went live together, before the pilot starts on 1 December. What changed on 31 October is summed up at the end. How to build courses is in the *Lesson editor partner guide*. How data requests are handled is in the *Data management guide* (`docs/data-management.md`).
 
 ## Sign in
 
@@ -17,7 +17,7 @@ An invitation email has a **Join SEQ Elevate** button that signs you in directly
 
 ### The first time: "Before you start"
 
-The first time you sign in from 20 November, you see **Before you start**. Everyone answers it once, staff too: your first name or nickname, the country you take part from, the Terms of use, and your age. Then you go on to your workspaces.
+The first time you sign in, you see **Before you start**. Everyone answers it once, staff too: your full name, the country you take part from, the Terms of use, and your age. Then you go on to your workspaces.
 
 - Your country doesn't change your organisation, or whose learners you see. DIESIS sets your organisation.
 - When the Terms of use change, you are asked to accept them again.
@@ -39,7 +39,7 @@ With two roles you see both sets. The menu in the top bar switches workspace. Ro
 
 ## Whose learners you see
 
-From 20 November, each partner sees only its own learners.
+Each partner sees only its own learners, once partner access is switched on (*When partner staff start*, below).
 
 - **Admins** (DIESIS, and SENIC for support) see every learner in the project, including learners who have no organisation yet.
 - **Partner admins and facilitators** see the learners of their own organisation: all its cohorts. A DIESIS facilitator sees DIESIS's learners (Belgium and other countries).
@@ -48,7 +48,7 @@ From 20 November, each partner sees only its own learners.
 
 **A learner's organisation** comes from the country they give: Germany → Pro Arbeit, Cyprus → Synthesis, Greece → University of Macedonia, Belgium and any other country → DIESIS. A learner your organisation adds belongs to your organisation. Only an admin changes a learner's organisation.
 
-**When partner staff start.** Partner staff see learners only after a security check of this rule on the live site. The check starts on Monday 23 November with test accounts. If it passes, DIESIS links real staff to their organisations and partner admins are invited from Wednesday 25 November.
+**When partner staff start.** Partner staff see learners only after DIESIS's security check of this rule on the live site, before the pilot starts on 1 December. Until it has passed, partner staff see no learners: they work as editors, and as learners with test accounts. Once it has passed, DIESIS links real staff to their organisations and partner admins are invited.
 
 ## The partner admin role
 
@@ -168,7 +168,7 @@ A few admins are named in a server setting that SENIC manages. They always have 
 
 ### Before partner staff get Facilitator or Partner admin
 
-An admin first links them to their organisation (**Change details**), and gives the role only from Wednesday 25 November, once the security check has passed (*Whose learners you see*).
+An admin first links them to their organisation (**Change details**), and gives the role only once the security check has passed (*Whose learners you see*).
 
 ## Support learners
 
@@ -179,7 +179,7 @@ An admin first links them to their organisation (**Change details**), and gives 
 ### The figures at the top
 
 - **Cohort completion**: the average progress of all learners in the list, and how many finished every course they started. Learners who haven't started count as 0%.
-- **Active in the last 24h**: until 10 November, despite its name, this counts learners who have made any progress at any time. To see recent activity, use **Last active** or Statistics. **From 10 November**: learners whose **Last active** is within the 24 hours before you opened the page. A learner who opened a course but saved nothing new isn't counted; Statistics, which also counts opening a course, can show them as seen more recently.
+- **Active in the last 24h**: learners whose **Last active** is within the 24 hours before you opened the page. A learner who opened a course but saved nothing new isn't counted; Statistics, which also counts opening a course, can show them as seen more recently.
 - **Comp Cards shared with you**: learners who have shared their Comp Card with your organisation.
 - **Needs attention**: learners who have started, are below 50% and haven't finished. It doesn't look at when they were last active.
 
@@ -189,7 +189,7 @@ Press **Open learner** on a row to see details.
 
 - Name, email, and progress across the courses they started.
 - **Activity & performance**: **Currently on** (the next lesson in their latest course), **Time on task**, **Last active**, and time per lesson.
-  - **From 10 November**, **Currently on** shows the name the course gives that step, following the course's own order and its own lessons, and "—" when there is no lesson to name. Time per lesson lists the seven standard lessons, plus **Other lessons** for time spent in lessons a course added of its own, so the rows add up to the time on task.
+  - **Currently on** shows the name the course gives that step, following the course's own order and its own lessons, and "—" when there is no lesson to name. Time per lesson lists the seven standard lessons, plus **Other lessons** for time spent in lessons a course added of its own, so the rows add up to the time on task.
 - Results as right/total: **Assessment** (quick checks), **Practice** (guided practice) and **Video** (questions inside videos).
 - **Choice in the applied scenario**: the choice they made in the course's scenario, under Activity.
 - Their **Comp Card**, if they shared it with your organisation (below). You don't see their answers to reflection questions in courses.
@@ -198,9 +198,9 @@ Learners are told that, whatever they choose for their Comp Card, their organisa
 
 ### The Comp Card
 
-From 20 November, a learner's Comp Card is private unless the learner shares it.
+A learner's Comp Card is private unless the learner shares it.
 
-- A learner chooses **Only me** (the default) or **Me and the facilitators at ‹organisation›**. On 20 November every card goes back to **Only me**: learners who want to share choose again.
+- A learner chooses **Only me** (the default) or **Me and the facilitators at ‹organisation›**. On 31 October every card went back to **Only me**: learners who want to share choose again.
 - If the card is shared with your organisation, you see all of it. If not, you see "Nothing shared with you."
 - A learner can switch back to **Only me** at any time, from the Comp Card or their account page. If a learner moves to another organisation, their card goes back to **Only me**.
 - A learner under 16 who was invited with a guardian's permission can share only if their organisation recorded that the permission covers sharing.
@@ -226,7 +226,7 @@ From 20 November, a learner's Comp Card is private unless the learner shares it.
 
 **Statistics** opens **Learner statistics**, which is in English only.
 
-**Who counts, from 20 November:** learners who have started a course **since 1 December 2026**. Nobody who holds or ever held a staff role, and no account marked as a test account, is counted. Partner staff see their own organisation's learners only. The page says what it counts: "Counting from 1 December 2026. Staff, former staff and test accounts are left out." Until then it says "Counting starts on 1 December 2026." Each learner is measured on the course they used most recently.
+**Who counts:** learners who have started a course **since 1 December 2026**. Nobody who holds or ever held a staff role, and no account marked as a test account, is counted. Partner staff see their own organisation's learners only. The page says what it counts: "Counting from 1 December 2026. Staff, former staff and test accounts are left out." Until then it says "Counting starts on 1 December 2026." Each learner is measured on the course they used most recently.
 
 | Figure | Meaning |
 |---|---|
@@ -239,7 +239,7 @@ From 20 November, a learner's Comp Card is private unless the learner shares it.
 
 The charts use the standard lesson names. "Simulation" is guided practice, and "Assessment" is the quick check.
 
-**From 10 November**, a learner who is on one of a course's own lessons is counted in an extra **Other lessons** bar of the funnel and shows as "Other lesson" under **Currently on**; time in such lessons is an **Other lessons** column in **Time per lesson**. The funnel still counts them on the standard lessons they finished. Figures for each lesson of a course's own come later.
+A learner who is on one of a course's own lessons is counted in an extra **Other lessons** bar of the funnel and shows as "Other lesson" under **Currently on**; time in such lessons is an **Other lessons** column in **Time per lesson**. The funnel still counts them on the standard lessons they finished. Figures for each lesson of a course's own come later.
 
 - **Course progress funnel**: how many learners reached each of the seven standard lessons, and how many finished. "biggest drop-off" marks the step where the number falls most from the step before.
 - **Where they get stuck**: that drop-off, the slowest lesson, and how many learners are part-way through a course and haven't been active for 3 days or more.
@@ -285,10 +285,10 @@ The contacts come from **Admin → Safeguarding contacts**, where an admin enter
 
 ## German and Greek
 
-From 20 November, each course you create has a German and a Greek switch on its course page in **Manage courses**.
+Each course you create has a German and a Greek switch on its course page in **Manage courses**.
 
 - Until a language is switched on, learners using German or Greek get the course in English, with a note saying so.
-- A partner admin (or an admin) switches a language on once its translation is checked: Pro Arbeit for German, Synthesis or University of Macedonia for Greek. Until partner admins are invited on 25 November, ask DIESIS or SENIC in writing to switch it on for you.
+- A partner admin (or an admin) switches a language on once its translation is checked: Pro Arbeit for German, Synthesis or University of Macedonia for Greek. Until partner admins are invited (*When partner staff start*), ask DIESIS or SENIC in writing to switch it on for you.
 - Built-in courses are always in all three languages.
 - Write the English first: a course you create can't be published for the first time until its English is complete.
 - The *Lesson editor partner guide* has the details (*Switching German or Greek on*).
@@ -318,34 +318,29 @@ A partner admin can correct a typing mistake in the name of a learner they added
 
 ## My learning for staff
 
-Every staff member has **My learning**, with courses, badges and a Comp Card saved to your account. Since 13 October, your progress doesn't appear in Support learners or Statistics, and nobody can write notes about you. From 20 November, Statistics never count anyone who has held a staff role, even after their staff roles are removed.
+Every staff member has **My learning**, with courses, badges and a Comp Card saved to your account. Since 13 October, your progress doesn't appear in Support learners or Statistics, and nobody can write notes about you. Statistics never count anyone who has held a staff role, even after their staff roles are removed.
 
 **Your account** (the person icon in the top bar) has **Download my data** and **Delete my account**. If you delete a staff account, the notes you wrote stay, without your name.
 
-## What changes on 10 November (Release 2)
+## What changed on 31 October (Releases 2, 3 and 4)
 
-These apply from the Release 2 deploy, planned for Tue 10 November 2026.
+These apply since Releases 2, 3 and 4 went live together on Saturday 31 October 2026.
 
 - **Courses as built:** learners get a created course as its editors built it: its own lessons and step names, its order, the content added to lessons. Hidden lessons are left out. **Preview as learner** shows exactly this.
 - **Progress** counts each course's lessons as learners get them. A finished lesson that is later hidden still counts, so hiding never lowers anyone's progress. A finished course stays at 100%.
 - **Learners carry on where they stopped:** a signed-in learner opens a course at the first lesson they haven't done, with their practice and scenario answers kept.
-- **Support learners and Statistics:** the new meaning of **Active in the last 24h**, step names under **Currently on**, and **Other lessons** for the lessons a course added of its own, as described above.
 - **Courses with learners:** an editor confirms changes to a course people are taking, and from 1 December its lessons and content can no longer be added, moved or removed. The *Lesson editor partner guide* has the details.
-
-## What changes on 20 November (Release 3)
-
-These apply from the Release 3 deploy on Fri 20 November 2026.
-
-- **Before you start:** everyone who signs in answers a one-time screen: first name or nickname, country, Terms of use, age. Learners get the Learner role only once they have answered it.
+- **Before you start:** everyone who signs in answers a one-time screen: full name, country, Terms of use, age. Learners get the Learner role only once they have answered it.
 - **Partner admin:** a new role for each partner organisation (*The partner admin role*).
-- **Own organisation only:** partner admins and facilitators see only their own organisation's learners, from the security check on 23–25 November (*Whose learners you see*). Admins set the country mapping and people's organisations.
-- **Comp Card:** private unless the learner shares it with their organisation's facilitators; every card starts as "Only me" again.
-- **Statistics:** counting starts on 1 December; staff, former staff and test accounts are left out.
+- **Own organisation only:** partner admins and facilitators see only their own organisation's learners, once the security check has passed (*Whose learners you see*). Admins set the country mapping and people's organisations.
+- **Comp Card:** private unless the learner shares it with their organisation's facilitators; every card started as "Only me" again.
+- **Support learners and Statistics:** **Active in the last 24h** counts the learners active in the 24 hours before you opened the page, **Currently on** shows the course's own step names, and **Other lessons** counts the lessons a course added of its own, as described above. Statistics count from 1 December; staff, former staff and test accounts are left out.
 - **Test accounts:** admins mark, reset and erase them; marked accounts are erased on 30 November.
 - **The Data page:** admins handle data requests and the go-live clean-up there.
 - **Safeguarding:** contacts per country, the help page and a help line beside reflections.
 - **German and Greek:** a switch per course; learners get English until it is on.
 - **Videos:** a YouTube video loads only when the learner presses play. Videos, captions and documents come from the platform's own storage.
+- **Links and reading:** editors can link words in lesson text, add further-reading links next to a lesson's documents, give each document or link the languages it is for, and keep a course's references list. The *Lesson editor partner guide* has the details.
 
 ## Good practice with learners' data
 

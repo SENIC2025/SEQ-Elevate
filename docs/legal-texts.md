@@ -87,7 +87,7 @@ DIESIS decides how and why your data is used.
 4. Open the page in each language (`/en/legal/<document>`, `/de/…`, `/el/…`) and
    check the headings, lists, tables and links.
 5. Commit with a message that says which text is added, and open a pull request.
-   After the Release 3 deploy, these are content-only commits: they touch only
+   Since the go-live of 31 October 2026, these are content-only commits: they touch only
    `src/content/legal/**` (and, with the last English text, step 6).
 
 ## 4. The last English text

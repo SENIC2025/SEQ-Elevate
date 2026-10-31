@@ -53,9 +53,9 @@ async function versionLine(locale: string, doc: string): Promise<string> {
 describe("legal page: the version line", () => {
   it("calls a text written before counsel's an interim text, in the page's language, never by its stored version", async () => {
     for (const [locale, line] of [
-      ["en", "Interim version · last updated 21 October 2026"],
-      ["de", "Vorläufige Fassung · zuletzt aktualisiert am 21. Oktober 2026"],
-      ["el", "Προσωρινή έκδοση · τελευταία ενημέρωση 21 Οκτωβρίου 2026"],
+      ["en", "Interim version · last updated 31 October 2026"],
+      ["de", "Vorläufige Fassung · zuletzt aktualisiert am 31. Oktober 2026"],
+      ["el", "Προσωρινή έκδοση · τελευταία ενημέρωση 31 Οκτωβρίου 2026"],
     ] as const) {
       for (const doc of ["privacy", "cookies", "accessibility"]) {
         const shown = await versionLine(locale, doc);

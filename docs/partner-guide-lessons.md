@@ -1,18 +1,18 @@
 # Building a course's lessons — partner guide
 
-For course editors in the SEQ Elevate consortium. It covers the lesson editor that has been live since 13 October, and what changes from 10 November: learners get courses exactly as you build them, and a course people are taking can still be changed, with a few rules that protect their work. Everything here happens on a course's own page: **Manage courses**, then open the course.
+For course editors in the SEQ Elevate consortium. It covers the lesson editor as it works since 31 October, when Releases 2, 3 and 4 went live together: learners get courses exactly as you build them, and a course people are taking can still be changed, with a few rules that protect their work. Everything here happens on a course's own page: **Manage courses**, then open the course.
 
 ## In one minute
 
 - Each course you create has a **lesson list** (the two courses that came with the platform keep their fixed layout). You can add lessons, give them your own names in each language, move them, hide them and delete them.
 - Inside each lesson you can **add content** around the lesson's main content: text, a practice question, a branching scenario, a quick check, reflection questions, or a 1–5 self-assessment.
 - **Preview as learner** shows what learners get, at any time.
-- From 10 November, **learners get the course as you built it**: your own lessons and names, your order, the content you added. Hidden lessons are left out. A course publishes as long as learners would see at least one lesson.
+- **Learners get the course as you built it**: your own lessons and names, your order, the content you added. Hidden lessons are left out. A course publishes as long as learners would see at least one lesson.
 - **Once people are taking a course**, adding, moving, hiding or showing lessons, and adding, moving or removing content, first tell you how many learners it affects and ask you to confirm. On a published course with learners, no lesson can be deleted: hide it instead. On a course that isn't published, only a lesson no learner has anything in can be deleted, until 1 December. A question learners may have answered can't be removed while they are there; you can still edit it.
 - **From 1 December**, a course with learners keeps its shape, published or not: lessons and content can no longer be added, moved or removed. Hiding and showing lessons, renaming, and editing text and questions stay open.
 - Nothing you wrote before 13 October moves or changes. Existing courses look and work as they did.
-- **From 20 November, German and Greek are switched on per course.** Write the course in English first; learners using German or Greek get it in English until their language is switched on (see *Switching German or Greek on*).
-- From 26 November you can **link words** in your text with the **Link** button (Ctrl+K, ⌘K on Mac), and links in text you paste from Word or Google Docs are kept.
+- **German and Greek are switched on per course.** Write the course in English first; learners using German or Greek get it in English until their language is switched on (see *Switching German or Greek on*).
+- You can **link words** in your text with the **Link** button (Ctrl+K, ⌘K on Mac), and links in text you paste from Word or Google Docs are kept.
 - Each lesson can list **further reading** next to its documents, and each course a **References & bibliography** list.
 
 ## The lesson list
@@ -67,7 +67,7 @@ Added text saves per language. If a colleague saved the same content while you w
 
 ## Further reading
 
-**Add a link** sits next to **Upload document** in each lesson: a title, the web address, a short description (optional) and the languages it is for. New links are **drafts** until you choose **Show to learners**. Up to 30 per lesson. The title must not show a different address than the link opens. Learners see them under "Further reading" at the end of the lesson: before **Continue** in a lesson of your own or a lesson you added content to, and after **Continue** in a standard lesson with only its main content (as in every lesson of the two courses that came with the platform). If you wrote a "Further reading" list at the end of a lesson's text (as we advised before 26 November), move it into links, so learners don't see it twice.
+**Add a link** sits next to **Upload document** in each lesson: a title, the web address, a short description (optional) and the languages it is for. New links are **drafts** until you choose **Show to learners**. Up to 30 per lesson. The title must not show a different address than the link opens. Learners see them under "Further reading" at the end of the lesson: before **Continue** in a lesson of your own or a lesson you added content to, and after **Continue** in a standard lesson with only its main content (as in every lesson of the two courses that came with the platform). If you wrote a "Further reading" list at the end of a lesson's text (as we advised before 31 October), move it into links, so learners don't see it twice.
 
 ## A language for each document or link
 
@@ -86,21 +86,21 @@ On the course page, below the title and subtitle (courses you created). One entr
 
 ## Publishing
 
-From 10 November a course you created can be published with lessons of your own, hidden or deleted standard lessons, a new order and added content. **Publish** refuses only when learners couldn't take the course:
+A course you created can be published with lessons of your own, hidden or deleted standard lessons, a new order and added content. **Publish** refuses only when learners couldn't take the course:
 
 - **no lesson has anything learners can see** (every lesson is hidden or empty), or
 - **something can't be read** (the lesson list, or a lesson's content). The page names the lesson. Contact the platform team, who can repair it.
-- **the English isn't complete**, the first time a course you created is published (from 20 November). English is the source language: the page lists what has no English yet. On a course already published, the same thing is a warning and nothing is unpublished.
+- **the English isn't complete**, the first time a course you created is published. English is the source language: the page lists what has no English yet. On a course already published, the same thing is a warning and nothing is unpublished.
 
 On a published course, hiding or deleting the last lesson learners can see is refused. Removing a lesson's last content isn't: that lesson then leaves what learners get (until it has content again), and if it was the last one, learners find a course with no lessons yet. Check with **Preview as learner**.
 
 ## Switching German or Greek on
 
-From 20 November, a course you created reaches learners in German or Greek only once that language is **switched on** for it. Until then, learners using German or Greek get the whole course in English, with a note saying so, rather than a mix of languages. The two courses that came with the platform are in every language already and have no switch.
+A course you created reaches learners in German or Greek only once that language is **switched on** for it. Until then, learners using German or Greek get the whole course in English, with a note saying so, rather than a mix of languages. The two courses that came with the platform are in every language already and have no switch.
 
 1. **Write the course in English first.** English is the source language: a course is first published only when its English is complete, and English is what learners get wherever a translation is missing.
 2. **Translate it.** Switch the content language at the top of the course page to German or Greek, and write each lesson's text and exercises in it. **Preview as learner** in that language shows the translation as learners will get it, with a banner while the language isn't switched on yet.
-3. **Have it signed off and switched on.** Under **Publish**, the panel **Languages for learners** has one switch per language, with how much of the course is written in it. German is signed off by Pro Arbeit's partner admin, Greek by the partner admin of a Greek-speaking partner (Synthesis or the University of Macedonia), whoever built the course. Until partner admins are invited (25 November), email DIESIS or SENIC to switch a language on; they do it at your written request, and the platform records who did.
+3. **Have it signed off and switched on.** Under **Publish**, the panel **Languages for learners** has one switch per language, with how much of the course is written in it. German is signed off by Pro Arbeit's partner admin, Greek by the partner admin of a Greek-speaking partner (Synthesis or the University of Macedonia), whoever built the course. Until partner admins are invited (once DIESIS's security check has passed, before the pilot starts on 1 December), email DIESIS or SENIC to switch a language on; they do it at your written request, and the platform records who did.
 
 What the switch's coverage checks, and what it doesn't:
 
@@ -147,7 +147,7 @@ A course nobody has started yet can be restructured as before.
 ## Questions partners have asked
 
 - **Will my existing course change?** No. Its text, exercises, drafts, video and documents stay exactly where they are. The list shows the same lessons in the same order.
-- **Can I publish my course with a lesson of my own?** Yes, from 10 November. Use Preview as learner to check it first.
+- **Can I publish my course with a lesson of my own?** Yes. Use Preview as learner to check it first.
 - **I need to restructure a course after 1 December.** Hide what learners shouldn't see. For anything more, talk to the platform team.
 - **Can two of us edit at once?** Yes. If you both change the same thing, the second save is refused with a message, and the page shows the other person's version.
 - **Translations:** each lesson name and text is per language. Until German or Greek is switched on for a course, its learners get it in English; once it is on, they get English wherever a translation is missing.

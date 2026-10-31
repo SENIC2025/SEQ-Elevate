@@ -42,7 +42,7 @@ export interface LegalText {
 /** The version of every text written before counsel's (spec 12.2). */
 export const LEGACY_VERSION = "pre-counsel";
 /** When the legacy texts were last made true to the platform. */
-const LEGACY_UPDATED = "2026-10-21";
+const LEGACY_UPDATED = "2026-10-31";
 
 /** A section of a legacy text. */
 export interface LegalSection {

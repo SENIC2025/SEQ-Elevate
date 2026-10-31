@@ -3,9 +3,10 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 /*
- * The runbooks say what Release 3 needs on deploy day and after it (spec
- * 15, 17.6; D77). They are read by whoever deploys, rolls back or answers a
- * data request, often under pressure, so what they must say is pinned here.
+ * The runbooks say what the live release needs (Releases 2, 3 and 4, live
+ * together since 31 October 2026: D115; spec 15, 17.6; D77). They are read
+ * by whoever deploys, rolls back or answers a data request, often under
+ * pressure, so what they must say is pinned here.
  */
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
@@ -19,10 +20,17 @@ function section(doc: string, number: string): string {
   return next < 0 ? doc.slice(start) : doc.slice(start, start + 3 + next);
 }
 
+/** Each of `steps` is in `text`, in this order. */
+function inOrder(text: string, steps: string[]) {
+  const at = steps.map((s) => text.indexOf(s));
+  expect(at.every((i) => i >= 0), JSON.stringify(steps.filter((_, i) => at[i] < 0))).toBe(true);
+  expect([...at].sort((a, b) => a - b)).toEqual(at);
+}
+
 const goLive = read("GO-LIVE.md");
 
-describe("GO-LIVE.md: Release 3's settings (§1)", () => {
-  it("names every setting Release 3 reads, with what production starts with", () => {
+describe("GO-LIVE.md: the settings (§1)", () => {
+  it("names every setting the live code reads, with what production starts with", () => {
     const settings = section(goLive, "1");
     for (const name of [
       "R3_PARTNER_ACCESS",
@@ -32,58 +40,84 @@ describe("GO-LIVE.md: Release 3's settings (§1)", () => {
       "R3_PROFILE_GATE",
       "R3_LANGUAGE_READY",
       "R3_BLOB_DELETE",
+      "R2_LEARNER_PLAYER",
+      "R4_FURTHER_READING",
+      "R4_ITEM_LANGUAGE",
     ]) {
       expect(settings, name).toMatch(new RegExp(`\\| \`${name}\` \\|`));
     }
-    // Partner access stays off until the production security review starts.
-    expect(settings).toMatch(/`R3_PARTNER_ACCESS` \| \*\(unset\)\*[^\n]*23 Nov/);
+    // Partner access stays off until Release 3's security review passes (D115).
+    expect(settings).toMatch(/`R3_PARTNER_ACCESS` \| \*\(unset\)\* until Release 3's security review passes/);
+    // The Release 1 deployment, the one rollback target, reads it.
+    expect(settings).toMatch(/`DEMO_LOGIN_DISABLED` \| `true` \|[^\n]*Release 1 deployment/);
   });
 });
 
-describe("GO-LIVE.md: deploying Release 3", () => {
-  const deploy = { toString: () => section(goLive, "1a") };
-  const text = () => String(deploy);
+describe("GO-LIVE.md: the go-live of Releases 2, 3 and 4 (§1a, D115)", () => {
+  const text = () => section(goLive, "1a");
 
-  it("has the deploy day's steps in order: settings and backup, the deploy, the check, the ADMIN's first steps, the smoke test, the review switch", () => {
-    const steps = ["BLOB_PUBLIC_HOST", "r3-check", "country mapping", "Smoke", "R3_PARTNER_ACCESS=on"];
-    const at = steps.map((s) => text().indexOf(s));
-    expect(at.every((i) => i >= 0), JSON.stringify(steps.filter((_, i) => at[i] < 0))).toBe(true);
-    expect([...at].sort((a, b) => a - b)).toEqual(at);
+  it("records what was done on 31 October, then what is still to come before the pilot, in order", () => {
+    inOrder(text(), [
+      "Sat 31 Oct 2026",
+      "BLOB_PUBLIC_HOST",
+      "fast-forwarded",
+      "country mapping",
+      "Still to come",
+      "Release 3's production security review",
+      "R3_PARTNER_ACCESS=on",
+      "Mon 30 Nov",
+      "the pilot starts",
+    ]);
   });
 
-  it("says what to do when a migration fails: which ones apply nothing, which may be partly applied, and how to resolve", () => {
-    expect(text()).toMatch(/20261120090100_r3_people_privacy_content[^\n]*one transaction/);
-    expect(text()).toMatch(/20261120090200_r3_course_project_columns[^\n]*may be partly applied/);
-    expect(text()).toMatch(/20261120090300_r3_sharing_and_guardian_triggers/);
+  it("keeps partner access off, and invites no partner admin, until Release 3's review passes; names the reviews and who runs them", () => {
+    expect(text()).toMatch(/`R3_PARTNER_ACCESS` stays unset and no partner admin is invited/);
+    expect(text()).toContain("Release 4's independent security review");
+    expect(text()).toContain("Daniele Tappa (DIESIS)");
+    expect(text()).toMatch(/switches German or Greek on for a course at the partner's written request/);
+  });
+
+  it("names the six migrations it applied", () => {
+    for (const migration of [
+      "20261021120000_enrollment_sections_responses",
+      "20261120090000_r3_role_partner_admin",
+      "20261120090100_r3_people_privacy_content",
+      "20261120090200_r3_course_project_columns",
+      "20261120090300_r3_sharing_and_guardian_triggers",
+      "20261126090000_r4_further_reading",
+    ]) {
+      expect(text(), migration).toContain(migration);
+    }
+  });
+
+  it("says what to do when a migration fails: whether it applied nothing or may be partly applied, and how to resolve", () => {
+    expect(text()).toMatch(/applied nothing or may be partly applied/);
     expect(text()).toContain("npx prisma migrate resolve --rolled-back");
     expect(text()).toContain("DIRECT");
   });
 });
 
-describe("GO-LIVE.md: rollback (§11, D77)", () => {
+describe("GO-LIVE.md: rollback (§11, D115)", () => {
   const rollback = () => section(goLive, "11");
 
-  it("puts Release 3's switches first, then Release 2 only up to Wed 25 Nov and only after the pre-rollback step, then fix forward only", () => {
-    const switches = rollback().indexOf("R3_PROFILE_GATE=off");
-    const release2 = rollback().search(/Release 2 deployment/);
+  it("puts the switches first, then the Release 1 deployment only while no partner admin exists and no real learner has signed in, then fix forward only", () => {
+    const switches = ["R3_PROFILE_GATE=off", "R4_FURTHER_READING=off", "R2_LEARNER_PLAYER=off"].map((s) => rollback().indexOf(s));
+    const release1 = rollback().search(/The Release 1 deployment/);
     const fixForward = rollback().search(/fix forward only/i);
-    expect(switches).toBeGreaterThan(-1);
-    expect(release2).toBeGreaterThan(switches);
-    expect(fixForward).toBeGreaterThan(release2);
-    expect(rollback()).toMatch(/Wed(nesday)? 25 Nov/);
-    expect(rollback()).toMatch(/pre-rollback step/i);
-    expect(rollback()).toMatch(/r3-check[^\n]*0 `?PARTNER_ADMIN`? memberships|no `?PARTNER_ADMIN`? membership/);
+    for (const at of switches) {
+      expect(at).toBeGreaterThan(-1);
+      expect(release1).toBeGreaterThan(at);
+    }
+    expect(fixForward).toBeGreaterThan(release1);
+    expect(rollback()).toMatch(/no `PARTNER_ADMIN` membership exists/);
+    expect(rollback()).toMatch(/no real learner has signed in/);
+    expect(rollback()).toMatch(/not rehearsed/);
+    expect(rollback()).toMatch(/`DEMO_LOGIN_DISABLED` stays `true`/);
   });
 
-  it("says what Release 2 does on Release 3's data, and what rolling forward again needs", () => {
-    expect(rollback()).toMatch(/every facilitator/);
-    expect(rollback()).toMatch(/roll(ing)? forward/i);
-    expect(rollback()).toContain("member.cohort_changed");
-  });
-
-  it("never offers an older deployment without those limits, nor Release 1 once Release 3 is live", () => {
+  it("never offers a Release 2 deployment (none served production), nor an older deployment without those limits", () => {
+    expect(rollback()).not.toMatch(/Release 2 deployment/);
     expect(rollback()).not.toMatch(/\*\*Promote\*\* a previous good deployment to roll back instantly/);
-    expect(rollback()).toMatch(/never promote (a |the )?Release 1/i);
   });
 });
 
@@ -117,6 +151,16 @@ describe("the data-protection documents describe Release 3 as built", () => {
   it.each(["DATA-PROTECTION.md", "DPA-TEMPLATE.md"])("%s describes nothing of Release 3 as planned", (file) => {
     expect(read(file)).not.toMatch(/Planned from 20 November|planned from 20 November/);
     expect(read(file)).not.toMatch(/Measures planned before the pilot/);
+  });
+
+  it.each(["DATA-PROTECTION.md", "DPA-TEMPLATE.md", "docs/staff-guide.md"])("%s names the full name the profile step asks for (D114)", (file) => {
+    expect(read(file)).not.toMatch(/nickname/i);
+    expect(read(file)).toMatch(/full name/);
+  });
+
+  it.each(["DATA-PROTECTION.md", "DPA-TEMPLATE.md"])("%s describes the platform as live since 31 October 2026, not by the dated plan (D115)", (file) => {
+    expect(read(file)).toMatch(/since 31 Oct(ober)? 2026/);
+    expect(read(file)).not.toMatch(/\b(10|20|26) Nov(ember)?\b/);
   });
 
   it("DPA-TEMPLATE.md says the log records lesson document changes", () => {

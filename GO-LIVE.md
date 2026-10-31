@@ -26,18 +26,21 @@ Legend: **[SENIC]** engineering can do · **[Dashboard]** set in Vercel/Resend U
 | `RESEND_API_KEY` | `re_…` restricted **sending** key | From Resend. Sending-only scope. |
 | `EMAIL_FROM` | `SEQ Elevate <no-reply@your-domain>` | Must be on a **verified** Resend domain (see §4). |
 | `DEMO_LOGIN_ENABLED`, `DEMO_ACCESS_CODE` | **unset on production** | One-click demo sign-in is opt-in (D98): it runs only where `DEMO_LOGIN_ENABLED=true` **and** a private `DEMO_ACCESS_CODE` of 12 or more characters are set, and never on the production deployment (`VERCEL_ENV=production`), whatever they say. Set them only on a showcase preview with a database of its own (§2). |
-| `DEMO_LOGIN_DISABLED` | `true` | No longer read by Release 3. Keep it on production: a rollback to a Release 2 deployment needs it. |
+| `DEMO_LOGIN_DISABLED` | `true` | No longer read by the live code (D98). Keep it on production: the Release 1 deployment, the one rollback target (§11), reads it. |
 | `RATE_LIMIT_SECRET` | *(optional)* | Key for the rate limiter's keyed hashes (D96). Unset: a key derived from `AUTH_SECRET` is used. Changing either starts every counter again (harmless). |
 | `BLOB_READ_WRITE_TOKEN` | auto-set by Vercel Blob | Present once a Blob store is connected. **Use a Frankfurt (`fra1`) store — see §5.** |
 | `BLOB_PUBLIC_HOST` | the Blob store's public host, e.g. `abc123xyz.public.blob.vercel-storage.com` (no `https://`, no path) | **Required on production** (Release 3, D91): the one store lesson videos, captions, posters and documents may come from, and the one the content security policy admits. Without it no upload can be attached on production. **Read when the site is built** for the policy (below). |
 | `R3_CSP` | *(unset)* | `report-only` makes the content security policy report instead of block (a Release 3 rollback switch, §11). **Read when the site is built** (below). |
-| `R3_PARTNER_ACCESS` | *(unset)* until Mon 23 Nov | `on` lets partner admins and partner facilitators see their own organisation's learners (D77). Set by the owner, with a redeploy, at the start of the production security review (§1a step 6), while only the review's marked test accounts hold those roles with an organisation. Unset again if the review fails or a scoping problem appears (§11). |
+| `R3_PARTNER_ACCESS` | *(unset)* until Release 3's security review passes | `on` lets partner admins and partner facilitators see their own organisation's learners (D77). Set by the owner, with a redeploy, once Release 3's production security review has passed (D115, §1a step 6); until then no partner admin is invited. Unset again if a scoping problem appears (§11). |
 | `STATS_FROM` | *(unset)* | When statistics start counting: unset is 1 Dec 2026, 00:00 Brussels; an ISO date that moment; `off` no date. Only a preview for QA sets a past date. |
-| `PROFILE_CONSENT` | per the lawful basis decided on 30 Oct (unset = `off`) | `optional` or `required` shows the separate consent box on the profile step (Q16), but only once the consent text is final: while its version (`profile.consent.version` in the messages) starts with `draft-`, the box stays off and the log says so once. Any other value means `off`, logged once without the value. |
+| `PROFILE_CONSENT` | *(unset)* = `off` (Q16, confirmed on 27 Oct: D114) | `optional` or `required` shows the separate consent box on the profile step (Q16), but only once the consent text is final: while its version (`profile.consent.version` in the messages) starts with `draft-`, the box stays off and the log says so once. Any other value means `off`, logged once without the value. |
 | `AGE_RULE` | *(unset)* = 16 | The minimum age to sign up alone: a number of 13 or more, or `digital-consent` (Belgium 13, Cyprus 14, Greece 15, Germany 16, other 16), per the lawful basis (Q18). Anything else means 16, logged once without the value. |
 | `R3_PROFILE_GATE` | *(unset)* | `off`: nobody is sent to the profile step, and nothing of anyone without a complete profile is saved (they are told). A rollback switch (§11). |
 | `R3_LANGUAGE_READY` | *(unset)* | `off`: every language counts as switched on (Release 2's field-by-field mix). A rollback switch (§11). |
 | `R3_BLOB_DELETE` | *(unset)* | `off`: the clean-up run keeps the course files waiting to be deleted (they stay queued). A rollback switch (§11). |
+| `R2_LEARNER_PLAYER` | *(unset)* | `off`: learners get every course as Release 1 showed it, its standard lessons (Release 2's rollback switch, §11). |
+| `R4_FURTHER_READING` | *(unset)* | `off`: learners and the preview get no further-reading list and no references link, and the references page answers "not found"; editors keep editing and nothing is deleted (D111). A rollback switch (§11). |
+| `R4_ITEM_LANGUAGE` | *(unset)* | `off`: every published document and further-reading link shows in every language, as documents did before Release 4 (D111). A rollback switch (§11). |
 | `NEXT_PUBLIC_PLAUSIBLE_DOMAIN` | your domain | Enables cookieless analytics. Optional. **Read when the site is built** (below). |
 | `CMS_SOURCE` | *(unset = `local`)* | Leave unset; the in-app DB CMS is the content source. Only set to `strapi` if Strapi is ever adopted. |
 | `SENTRY_DSN` / `NEXT_PUBLIC_SENTRY_DSN` | *(paste DSN to activate)* | Sentry is already wired + inert; set both to your DSN and redeploy. See §6. |
@@ -48,37 +51,42 @@ Legend: **[SENIC]** engineering can do · **[Dashboard]** set in Vercel/Resend U
 
 ---
 
-## 1a. Deploying Release 3 (Fri 20 Nov 2026)  **[Owner] + [SENIC]**  *(Decisions D71, D77)*
+## 1a. The go-live of Releases 2, 3 and 4 (Sat 31 Oct 2026)  **[Owner] + [SENIC]**  *(Decisions D115, D77)*
 
-The owner (or the named deputy) runs every database step; the build never connects to anything but the database Vercel gives it.
+Releases 2, 3 and 4 went live together on Sat 31 Oct 2026 (D115), in place of the dated plan of 10, 20 and 26 November, so partners test every feature on the live site before the pilot. BUILDLOG's go-live entry records each step. The owner (or the named deputy) runs every database step; the build never connects to anything but the database Vercel gives it.
 
-1. **Thu 19 Nov — backup and settings.** The rehearsal (§1b) passed, and the commit to deploy is the one it rehearsed. An on-demand backup is green (BACKUP.md). On production (§1): `BLOB_PUBLIC_HOST` set (required: without it no upload can be attached); `PROFILE_CONSENT` and `AGE_RULE` per the lawful basis; `R3_PARTNER_ACCESS`, `STATS_FROM`, `R3_PROFILE_GATE`, `R3_LANGUAGE_READY`, `R3_BLOB_DELETE` and `R3_CSP` unset; neither `DEMO_LOGIN_ENABLED` nor `DEMO_ACCESS_CODE`.
-2. **Fri 20 Nov, morning — the deploy.** `main` is fast-forwarded to the tested Release 3 commit. `vercel-build` applies the migrations (`20261120090000_r3_role_partner_admin`, `20261120090100_r3_people_privacy_content`, `20261120090200_r3_course_project_columns`, `20261120090300_r3_sharing_and_guardian_triggers`), back-fills badges, skips the demo seed and builds.
-3. **If a migration fails**, the build fails and Release 2 keeps serving. The build log's `[migrate-deploy]` lines name the migration and say which case it is:
-   - `20261120090100_r3_people_privacy_content` is one transaction: nothing of it was applied (a read-only query finds no `ProjectProfile` table);
-   - `20261120090000_r3_role_partner_admin` adds one value if it isn't there; `20261120090200_r3_course_project_columns` and `20261120090300_r3_sharing_and_guardian_triggers` commit statement by statement, so either may be partly applied. Every statement of them can run again as it stands.
+**Done on 31 Oct**
 
-   When migration B fails, `migrate-deploy.mjs` runs it once more inside a transaction it rolls back, under the same 5-second lock timeout, only to print the database's own error; nothing of it stays.
+1. **Before the push.** The rehearsal (§1b) passed on the commit deployed, and an on-demand backup was green (BACKUP.md). On production (§1): `BLOB_PUBLIC_HOST` set (without it no upload can be attached); neither `DEMO_LOGIN_ENABLED` nor `DEMO_ACCESS_CODE`; Node.js 22.x (D113). `PROFILE_CONSENT`, `AGE_RULE`, `R3_PARTNER_ACCESS`, `STATS_FROM` and every rollback switch stay unset (§1).
+2. **The deploy.** `main` was fast-forwarded to the tested `r4` commit and pushed. `vercel-build` applied the six migrations (Release 2's `20261021120000_enrollment_sections_responses`; Release 3's `20261120090000_r3_role_partner_admin`, `20261120090100_r3_people_privacy_content`, `20261120090200_r3_course_project_columns` and `20261120090300_r3_sharing_and_guardian_triggers`; Release 4's `20261126090000_r4_further_reading`), back-filled badges, skipped the demo seed and built.
+3. **Checks signed out:** the security headers on every page (`curl -sI https://seq-elevate.eu/en`), the policy admitting the Blob host; `/en`, `/de`, `/el`, sign-in, `/en/help` (shows 112), the privacy page (it says "your full name") and the terms answer; the data download answers 401; `/en/demo` shows "not found"; `/en/welcome` sends a visitor who is signed out to sign-in; sign-in links are built on `seq-elevate.eu`.
+4. **An ADMIN, before anyone else completes a profile:** completed their own profile; checked the five rows of the country mapping on Organisations & cohorts; marked the three showcase accounts as test accounts (Admin → Data); in a draft course, attached an uploaded PDF (`BLOB_PUBLIC_HOST` works), added a further-reading link (Preview as learner shows it with its site's box), and saw the YouTube gate before any YouTube load.
 
-   In every case Prisma records the migration as failed, and every later build (a retry, a revert, a fix) fails with P3009 until it is resolved. The owner runs `npx prisma migrate resolve --rolled-back <the failed migration's folder name>` against the **DIRECT** endpoint, notes it in BUILDLOG, removes the cause (a lock timeout: deploy again at a quieter moment) and deploys again.
-4. **The check.** The owner runs `scripts/r3-check.ts` against production (counts only, never personal data). Every check must hold.
-5. **An ADMIN (DIESIS or SENIC), before anyone else completes a profile:** completes their own profile; checks or sets the five rows of the country mapping on Organisations & cohorts (if production's organisations don't have the seeded ids, sets all five now); enters safeguarding contacts as they arrive; switches German or Greek on for the courses partners listed on 18 Nov; marks known test accounts. Real staff organisations are not set yet.
-6. **Smoke test:** the security headers (`curl -sI https://seq-elevate.eu/en`); a second admin signs in → the profile step → completes it → the hub; Support learners shows learners and no Comp Card text; Statistics says counting starts on 1 December; a Comp Card says "Only me"; `/en/help` shows 112; the legal pages open; Manage people shows organisations; an upload attaches in a draft lesson (`BLOB_PUBLIC_HOST` works); `/en/demo` shows "not found". Then the clean-up's step 0 (§2b).
-7. **Mon 23 Nov:** the owner sets `R3_PARTNER_ACCESS=on` with a redeploy; an ADMIN creates the security review's test accounts (marked as test accounts: a partner admin and a facilitator in each of two real organisations). **Wed 25 Nov**, if the review passed: an ADMIN sets the organisations of real staff, and partner admins are invited. If it failed: unset the switch, redeploy, fix.
+**Still to come, before the pilot on Tue 1 Dec**
 
-## 1b. The rehearsal before the deploy (Tue 17 Nov 2026)  **[Owner] + [SENIC]**  *(Decisions D71, D77)*
+5. **The security reviews**, on the live code, by Daniele Tappa (DIESIS): Release 3's production security review and Release 4's independent security review, both before 1 Dec (D115). Until Release 3's has passed, `R3_PARTNER_ACCESS` stays unset and no partner admin is invited (D77): partner staff work as editors, and as learners with test accounts marked as such (§2b).
+6. **Once Release 3's review has passed:** the owner sets `R3_PARTNER_ACCESS=on` with a redeploy; an ADMIN sets the organisations of real staff; partner admins are invited. If it fails: fix, and review again; the switch stays unset.
+7. **Until partner admins are invited:** an ADMIN (DIESIS or SENIC) switches German or Greek on for a course at the partner's written request, and enters safeguarding contacts as they arrive.
+8. **Partner QA** on the live site, with test accounts marked as such: every feature, the guest-work walk of §1b step 3 among them.
+9. **Mon 30 Nov:** the go-live clean-up run (§2b, step 4) and the go/no-go.
+10. **Tue 1 Dec:** the pilot starts; statistics count from then (`STATS_FROM` unset).
 
-On a Neon **branch** of production, which by then has Release 2's migration. The build never connects to production.
+**If a migration fails** on a deploy, the build fails and the deployment before it keeps serving. The build log's `[migrate-deploy]` lines name the migration and say whether it applied nothing or may be partly applied. Prisma records the migration as failed, and every later build (a retry, a revert, a fix) fails with P3009 until it is resolved: the owner runs `npx prisma migrate resolve --rolled-back <the failed migration's folder name>` against the **DIRECT** endpoint, notes it in BUILDLOG, removes the cause (a lock timeout: deploy again at a quieter moment) and deploys again.
 
-1. **The migrations, timed.** With the branch's `DATABASE_URL` and `DIRECT_URL`: `node prisma/migrate-deploy.mjs` (note how long it takes in BUILDLOG; migration B from its Part 4 on must take under a second), then `node prisma/backfill-course-badges.mjs`, then `npx tsx scripts/r3-check.ts`. Stop on any check that doesn't hold.
-2. **A Release 3 preview of the branch,** deployed from the local Release 3 worktree with the Vercel CLI, with the branch's `DATABASE_URL` and `DIRECT_URL` given explicitly for both the build and the run (never the Preview defaults: the build migrates whatever database it is given), `STATS_FROM=2020-01-01T00:00:00Z`, `R3_PARTNER_ACCESS=on`, `BLOB_PUBLIC_HOST`, neither `DEMO_LOGIN_ENABLED` nor `DEMO_ACCESS_CODE`, and Vercel Deployment Protection on. Through it: a smoke walk; the profile step; Comp Card sharing; two test organisations; the YouTube gate with a real video (by hand, once); `curl -sI` on `/en`, `/en/legal/privacy` and `/api/me/export`. An ADMIN gives Partner admin to a test account with an organisation, and makes a staff test account that writes a note about a test learner and is then erased (so a note has no author). The security review of 18 Nov uses this preview.
-3. **Guest work, by hand, on the same preview** (D79), each in a fresh browser profile:
+## 1b. The rehearsal before a deploy with migrations  **[Owner] + [SENIC]**  *(Decisions D115, D71, D77)*
+
+On a Neon **branch** of production. The build never connects to production.
+
+Before the go-live of 31 Oct 2026, the six migrations were rehearsed together on a branch of production (`golive-rehearsal`, deleted after a day): `migrate-deploy.mjs` applied them in 4.7 s, then `backfill-course-badges.mjs` ran and `r2-progress-check`, `r3-check` and `r4-check` each held (BUILDLOG). A later deploy that adds a migration is rehearsed the same way, on a fresh branch:
+
+1. **The migrations, timed.** With the branch's `DATABASE_URL` and `DIRECT_URL`: `node prisma/migrate-deploy.mjs` (note how long it takes in BUILDLOG), then `node prisma/backfill-course-badges.mjs`, then the checks: `npx tsx scripts/r2-progress-check.ts`, `npx tsx scripts/r3-check.ts` and `npx tsx scripts/r4-check.ts`. Stop on any check that doesn't hold.
+2. **A preview of the branch,** when the change needs walks by hand: deployed from the local worktree with the Vercel CLI, with the branch's `DATABASE_URL` and `DIRECT_URL` given explicitly for both the build and the run (never the Preview defaults: the build migrates whatever database it is given), `BLOB_PUBLIC_HOST`, neither `DEMO_LOGIN_ENABLED` nor `DEMO_ACCESS_CODE`, and Vercel Deployment Protection on.
+3. **Guest work, by hand** (D79), on that preview or, before the pilot, on the live site with test accounts marked as such, each in a fresh browser profile:
    - **guest, sign-up, Add:** as a guest, play a course part way, write a reflection answer and a Comp Card answer; sign up with a new test address (the email link opens in another tab) and complete the profile step; the offer names the course, the Comp Card and the badges and says to add them first. "Add it to my account" says "Added to your account."; the course, the Comp Card ("Only me") and any badge are in the account; reloaded, nothing is offered;
    - **a tab kept the guest's:** keep the guest's tab open while signing in in the other one; it says it stays the guest's. Open the Comp Card from its dashboard: the page loads in full as the account's, which offers the work. In a second try, add the work in the signed-in tab while the guest's tab is still open: the guest's tab says the work was changed in another tab, and finishing a lesson there brings nothing back into the offer;
    - **an account that already has work:** sign in as a test account with progress in the course and an answer on its Comp Card, after playing that course and writing a Comp Card answer as a guest in this browser. "Add" says the account keeps its own progress and its own Comp Card, the badge (if any) is added, and nothing of the account's changes; "Remove it from this browser" clears what stays.
    Note each outcome in BUILDLOG; the server log's `[guest-claim]` lines count them.
-4. **The Release 2 build (`main`) against the same branch:** a learner's save; a Comp Card save through Release 2's page with "facilitator" chosen (the card must stay unshared for Release 3); a course page; Support learners; Statistics; Manage people (it reads the Partner admin row); the data download of the learner whose note has no author; deleting an organisation. Record each outcome in BUILDLOG; a failure goes into §11's list of what a rollback to Release 2 does.
-5. The branch is deleted on Thu 19 Nov, once the review no longer needs it. If `main` gains a migration, or migration B changes, after the rehearsal, it is repeated on a fresh branch before the deploy.
+4. The branch is deleted once nothing needs it. If `main` gains a migration after the rehearsal, it is repeated on a fresh branch before the deploy.
 
 ---
 
@@ -97,8 +105,8 @@ deployment (`VERCEL_ENV=production`), whatever the variables say
   review previews included): they set neither variable.
 - No demo profile uses a real person's address (the admin profile is
   `demo-admin@seq-elevate.eu`).
-- Keep `DEMO_LOGIN_DISABLED=true` on production anyway: Release 3 doesn't read
-  it, but a rollback to a Release 2 deployment does.
+- Keep `DEMO_LOGIN_DISABLED=true` on production anyway: the live code doesn't
+  read it, but the Release 1 deployment, the one rollback target (§11), does.
 
 ---
 
@@ -143,7 +151,7 @@ runbook is [docs/data-management.md](docs/data-management.md); in short:
 
 | Step | Who | When |
 |---|---|---|
-| 0. **End the showcase sign-in sessions.** A dry run on production must show **0** marked test accounts and **0** course files to delete; then run it with `ERASE 0 TEST ACCOUNTS`. It erases no account and deletes no file: it ends every showcase sign-in session and purges expired sessions and sign-in links. The owner's `r3-check` then counts no `demo-` session. Because it erases nothing, it needs no rehearsal. | SENIC (an ADMIN); the owner runs `r3-check` | Deploy day (Fri 20 Nov), right after the smoke test, **before anyone marks an account** |
+| 0. **End the showcase sign-in sessions.** A dry run on production must show **0** marked test accounts and **0** course files to delete; then run it with `ERASE 0 TEST ACCOUNTS`. It erases no account and deletes no file: it ends every showcase sign-in session and purges expired sessions and sign-in links. The owner's `r3-check` then counts no `demo-` session. Because it erases nothing, it needs no rehearsal. | SENIC (an ADMIN); the owner runs `r3-check` | Deploy day (Sat 31 Oct), right after the smoke test, **before anyone marks an account** |
 | 1. **Mark** test accounts (one at a time, or ticked on the review lists) | SENIC or DIESIS | During partner QA |
 | 2. **Dry run** on production: counts per table of what a run would delete, each account it would erase with its roles (a staff role is pointed out), the accounts it would leave and why, and the trial courses still live | SENIC, DIESIS watching | After partner QA (Fri 27 Nov) |
 | 3. **Rehearsal**: the same run for real on a fresh Neon branch of production, through a preview deployed against that branch (never production's own deployment) | The owner (database steps) and SENIC | The same day |
@@ -278,7 +286,7 @@ Sign-in **is** sign-up (passwordless: the first magic-link click creates the acc
 - [x] Legal-page render surface + footer — **done**
 - [x] Rate-limiting on sign-in + uploads — **done**
 - [x] Sentry wiring — **done**; activate by setting the DSN env vars (§6)
-- [ ] Security review pass of the recent server actions / upload routes
+- [ ] Security reviews on the live code before 1 Dec (§1a step 5): Release 3's production security review and Release 4's independent security review (D115)
 - [x] **Daily off-site DB backups, 30-day retention** — `.github/workflows/db-backup.yml` (see [BACKUP.md](BACKUP.md)); active since 20 Oct 2026 (Scaleway Paris, D61; first verified run that day). Neon point-in-time restore is the second layer: 1 day by default on Launch — set the History window to 7 days (BACKUP.md, B1); the Free plan is fixed at 6 hours.
 - [ ] **Hosting substitution approved** by the consortium (Vercel/Neon vs the proposal's Hetzner) — send [HOSTING-SUBSTITUTION.md](HOSTING-SUBSTITUTION.md). Needed for a clean Item 2 invoice.
 - [ ] (Optional) external WCAG 2.2 AA audit — internal audit passes today *(O5)*
@@ -299,30 +307,17 @@ Sign-in **is** sign-up (passwordless: the first magic-link click creates the acc
 
 ## 11. Rollback
 
-Vercel keeps every deployment, and **Promote** puts an older one back at once. The database migrations are additive, so putting code back needs no database change. Which deployment may be put back, and until when, depends on the release that is live.
+Vercel keeps every deployment, and **Promote** (an instant rollback) puts an older one back at once. The database migrations are additive, so putting code back needs no database change.
 
-### Release 3 (live from Fri 20 Nov), in this order  *(Decision D77)*
+### Releases 2, 3 and 4 (live since Sat 31 Oct 2026), in this order  *(Decisions D115, D77, D111)*
 
-1. **Release 3's switches first**, with a redeploy of the same code (they are read on every request): `R3_PROFILE_GATE=off` for a loop at the profile step; `R3_LANGUAGE_READY=off` for a broken language choice; `R3_BLOB_DELETE=off` if deletions misfire; `R3_PARTNER_ACCESS` unset if partner staff see what they shouldn't (they then see no learner). `R3_CSP=report-only` is read when the site is built (§1): its redeploy must build again, and a promoted older deployment keeps the policy it was built with.
-2. **The Release 2 deployment**, only **up to Wed 25 Nov** — before any real partner staff member holds Facilitator or Partner admin and before any real learner — and only after the **pre-rollback step**: erase the security review's test accounts on Admin → Data (until 25 Nov only they hold Partner admin), then `scripts/r3-check.ts` must report **0 `PARTNER_ADMIN` memberships**. Then promote the Release 2 deployment (`DEMO_LOGIN_DISABLED` stays `true`: Release 2 reads it). What Release 2 then does on Release 3's data:
-   - it ignores profiles, organisations and Comp Card sharing: every facilitator sees every learner, and the "what went well", "what I'll try next time" and confidence of every Comp Card (test cards only, before 25 Nov);
-   - its data download of a learner with a note whose author was erased, and deleting an organisation people belong to, behave as the 17 Nov rehearsal recorded them (BUILDLOG);
-   - everything Release 3 added stays in the database.
-3. **From Wed 25 Nov: fix forward only.** The switches of step 1, then a fix deployed the normal way. Never a deployment older than Release 3.
-
-**Never promote Release 1** once Release 3 is deployed: the Release 2 steps further down applied only while Release 2 was the live release.
-
-**Rolling forward after a rollback to Release 2** (promote or redeploy the Release 3 deployment):
-- **Comp Cards:** Release 2's save writes a card's privacy alone, which shares nothing for Release 3 (and a card set to "Only me" under Release 2 stays unshared). A learner who wants to share does so again.
-- **Organisations:** Release 2's cohort assignment set only the membership's organisation, which Release 3 doesn't read. The cohorts an ADMIN assigned during the rollback are logged as `member.cohort_changed`: for each of those people, the ADMIN sets the organisation with **Change country or organisation** on Manage people and assigns the cohort again.
-- **People added or changed under Release 2:** check them on Manage people ("No organisation", "Country doesn't match organisation").
-
-### Release 2 (live from Tue 10 Nov until Release 3)
-
-- Demo sign-in never runs on production (§2). A rollback to a Release 2 deployment reads `DEMO_LOGIN_DISABLED`: keep it `true` there.
-- **Release 2 (learners get courses as built), in this order:**
-  1. Set `R2_LEARNER_PLAYER=off` and redeploy the same build. Learners then get every course as Release 1 showed it: its standard lessons. A course whose lessons that view doesn't hold (lessons of its own, or none left to show) can't be finished under the switch: its completion and badge wait until the learner has done its real lessons, once the switch is unset again.
-  2. Only if that isn't enough: promote the Release 1 deployment. Release 1 can't hold that back — it lets learners finish such a course by going through its standard lessons, and the database keeps a completion for good (it never clears one). **Before promoting it, unpublish every published course with lessons of its own** (Manage courses), and publish them again after rolling forward; or accept that learners may finish them in Release 1's view. Answers saved meanwhile are kept either way.
+1. **The switches first**, with a redeploy of the same code (they are read on every request):
+   - `R3_PROFILE_GATE=off` for a loop at the profile step; `R3_LANGUAGE_READY=off` for a broken language choice; `R3_BLOB_DELETE=off` if deletions misfire; `R3_PARTNER_ACCESS` unset if partner staff see what they shouldn't (they then see no learner);
+   - `R4_FURTHER_READING=off` for further reading or references; `R4_ITEM_LANGUAGE=off` for documents' and links' languages. Nothing switches off the address check, the draft filter or links hidden until shown (D111);
+   - `R2_LEARNER_PLAYER=off` for courses as built: learners then get every course as Release 1 showed it, its standard lessons. A course whose lessons that view doesn't hold (lessons of its own, or none left to show) can't be finished under the switch: its completion and badge wait until the learner has done its real lessons, once the switch is unset again;
+   - `R3_CSP=report-only` is read when the site is built (§1): its redeploy must build again, and a promoted older deployment keeps the policy it was built with.
+2. **The Release 1 deployment** (instant rollback to the deployment that served before 31 Oct), only while **no `PARTNER_ADMIN` membership exists** (`scripts/r3-check.ts` counts them) **and no real learner has signed in**. It is not rehearsed. `DEMO_LOGIN_DISABLED` stays `true` (Release 1 reads it). What Releases 2–4 added stays in the database. Release 1 lets learners finish a course with lessons of its own by going through its standard lessons, and the database keeps a completion for good: before promoting it, unpublish every published course with lessons of its own (Manage courses), and publish them again after rolling forward.
+3. **After that: fix forward only.** The switches of step 1, then a fix deployed the normal way. Never a deployment older than the live one.
 
 ---
 
