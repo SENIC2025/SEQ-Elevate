@@ -42,6 +42,7 @@ export function DemoAccess({
     const res = await demoSignIn(id, code);
     if (res.ok) {
       // Full reload so the new session cookie is picked up server-side.
+      // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- a full page load, on purpose
       window.location.assign(`/${locale}${res.landing}`);
     } else {
       setError(

@@ -130,6 +130,7 @@ export function AccountView({
       }
       // Account + session cookie are gone (cleared by the action). Full-reload
       // to the localised home page, now as a guest.
+      // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- a full page load, on purpose
       window.location.href = `/${locale}`;
     } catch {
       setError(t("deleteError"));
@@ -307,6 +308,7 @@ export function AccountView({
               // A real navigation to the download endpoint — the
               // Content-Disposition header turns it into a file download
               // without leaving the page.
+              // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- a file download, not a page
               window.location.href = "/api/me/export";
             }}
           >

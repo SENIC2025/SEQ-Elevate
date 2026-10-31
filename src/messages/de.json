@@ -70,6 +70,8 @@
     "emailPlaceholder": "du@beispiel.de",
     "sendLink": "Link senden",
     "sending": "Wird gesendet…",
+    "invalidEmail": "Gib eine gültige E-Mail-Adresse ein, zum Beispiel name@beispiel.de.",
+    "tooManyRequests": "Zu viele Anfragen für einen Anmeldelink. Bitte warte ein paar Minuten und versuche es dann noch einmal.",
     "magicLinkNote": "Der Link meldet dich mit einem Klick an und läuft bald ab. Sicher und ohne Passwort.",
     "backToHome": "Zurück zur Startseite",
     "checkEmailTitle": "Prüfe deine E-Mails",

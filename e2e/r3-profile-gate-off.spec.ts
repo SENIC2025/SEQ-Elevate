@@ -2,6 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PROJECT, createPerson, removePeople, runId, signIn } from "./fixtures/people";
+import { rscPath } from "./fixtures/rsc";
 
 /**
  * Release 3 (spec 5.9, 15, B-E11): the profile gate's kill switch,
@@ -100,13 +101,13 @@ describe("Release 3 switches: the profile gate off", () => {
     const admin = await createPerson(prisma, { email: address("admin"), roles: ["ADMIN"], profile: "none" });
     const cookie = { Cookie: `authjs.session-token=${admin.sessionToken}` };
 
-    const here = await request.get("/en/facilitator", { headers: { ...cookie, RSC: "1" }, maxRedirects: 0 });
+    const here = await request.get(rscPath("/en/facilitator"), { headers: { ...cookie, RSC: "1" }, maxRedirects: 0 });
     expect(here.status()).toBe(200);
     expect(await here.text(), "the roster on this server holds the learner").toContain(marker);
 
     // The control: where the gate is on, the same ADMIN is sent to the
     // profile step, and the roster holds no one.
-    const main = await request.get(`${MAIN}/en/facilitator`, { headers: { ...cookie, RSC: "1" }, maxRedirects: 0 });
+    const main = await request.get(rscPath(`${MAIN}/en/facilitator`), { headers: { ...cookie, RSC: "1" }, maxRedirects: 0 });
     const sent = await main.text();
     expect(sent, "the main server sends them to the profile step").toContain("/en/welcome");
     expect(sent, "the main server's roster holds no one").not.toContain(marker);

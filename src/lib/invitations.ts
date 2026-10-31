@@ -18,6 +18,7 @@ import { createTranslator } from "next-intl";
 import type { Role } from "@prisma/client";
 import { signIn } from "@/auth";
 import { checkRateLimit, hashKey } from "@/lib/rate-limit";
+import { signInAddress } from "@/lib/signin-address";
 import {
   INVITE_PROVIDER,
   INVITE_VALID_DAYS,
@@ -33,7 +34,7 @@ export type InviteResult =
   | { ok: true }
   | {
       ok: false;
-      error: "rate-limited" | "send-failed";
+      error: "bad-email" | "rate-limited" | "send-failed";
       /** The email service's own explanation, when it gave one. */
       reason?: string;
     };
@@ -43,6 +44,7 @@ export type InviteOutcome =
   | "sent"
   | "already-joined"
   | "not-requested"
+  | "bad-email"
   | "rate-limited"
   | "send-failed";
 
@@ -66,7 +68,10 @@ export async function sendInvitation(opts: {
   locale: Locale;
   inviter: { id: string; name: string | null; email: string };
 }): Promise<InviteResult> {
-  const email = opts.email.trim().toLowerCase();
+  // The sign-in address rule (D116): an address that can't sign in gets no
+  // invitation, and nothing is counted for it.
+  const email = signInAddress(opts.email);
+  if (email === null) return { ok: false, error: "bad-email" };
   const [perAddress, perAdmin] = await Promise.all([
     checkRateLimit(hashKey("invite", email), PER_ADDRESS),
     checkRateLimit(`invite-by:${opts.inviter.id}`, PER_ADMIN),

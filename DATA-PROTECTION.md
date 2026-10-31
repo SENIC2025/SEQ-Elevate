@@ -188,7 +188,9 @@ Framework.]
 
 The personal data actually stored is deliberately minimal.
 - The platform's own database stores no passwords (sign-in is a one-time email
-  link), IP addresses, geolocation or biometric data.
+  link), IP addresses, geolocation or biometric data. (The sign-in email limit
+  keeps only a keyed hash of the address a request came from, for at most two
+  hours; row 13.)
 - IP addresses do reach Vercel's request logs, and they reach Google where a
   lesson embeds a YouTube video (see §1).
 - The platform sets no advertising cookies. Where a lesson uses a YouTube
@@ -217,7 +219,7 @@ The personal data actually stored is deliberately minimal.
 | 10 | **Invitation email** | An admin, or a partner admin for its own organisation, adds someone and (by default) emails them a one-click join link: their email, optional name, role, and the inviter's name (or email), sent via Resend. Only they can trigger it; the link expires after 7 days | Transmission |
 | 11 | **Staff notes and competence validations** | A facilitator's free-text note about a learner (up to 2000 characters), and the validation of a skill area with free-text evidence (`src/app/actions/facilitator.ts:51-117`). Learners cannot see these in the app, only in their export, where they are signed "a facilitator at ‹organisation›" (while the author is still in that organisation; otherwise "a member of staff"), never by name. There is no screen for reading notes. When the author's account is erased, their notes stay, unsigned (D89). | Storage, retrieval |
 | 12 | **Guest use (no account)** | Progress, reflections and Comp Card text are kept only in the browser's local storage, with no expiry. When someone signs in on that browser and has completed the sign-up step, the platform asks whether the guest work is theirs: "Add it to my account" moves each part into the account only where the account has none of its own (a course it has progress in, and a Comp Card with answers of its own, are kept, and so is a card it shares; the browser keeps the rest), "Remove it from this browser" deletes it, and nothing moves unasked (D79; `src/components/learner/GuestWorkPrompt.tsx`). A guest's Comp Card is always "Only me". | Storage, linking |
-| 13 | **Sign-in, sessions and abuse protection** | Session records (token and expiry; no IP or browser), valid for 30 days and renewed on use. Sign-in token records holding the email address, valid 24 hours for sign-in and 7 days for invitations; used tokens are deleted; expired ones, and expired sessions, are deleted by the ADMIN clean-up run. Rate-limit records are stored under a keyed hash (HMAC with a server secret) of the email address or the internal user id, so neither can be read back from them; rows older than two hours are deleted as new ones are written (`src/lib/rate-limit.ts`). | Storage, deletion |
+| 13 | **Sign-in, sessions and abuse protection** | Session records (token and expiry; no IP or browser), valid for 30 days and renewed on use. Sign-in token records holding the email address, valid 24 hours for sign-in and 7 days for invitations; used tokens are deleted; expired ones, and expired sessions, are deleted by the ADMIN clean-up run. Rate-limit records are stored under a keyed hash (HMAC with a server secret) of the email address, the internal user id, or, for sign-in emails, the network address the request came from (an IPv6 address by its first 64 bits; D116), so none can be read back from them; rows older than two hours are deleted as new ones are written (`src/lib/rate-limit.ts`). | Storage, deletion |
 | 14 | **Audit log of staff actions** | Records who added, invited, removed or changed the role of whom; organisation and cohort changes; that a note or validation was created (not about whom); exports and deletions; content saves, and lesson documents added, removed, published and withdrawn. It stores user ids, not names. ADMINs read its data and account records (exports and erasures, resets and test marks, organisation and country changes, clean-up runs) on Admin → Data, with the admin's address and never a learner's name. It has no retention limit. It does **not** record sign-ins, failed sign-ins or staff viewing learner data. | Storage |
 
 Retention note:
@@ -404,8 +406,8 @@ unless marked _planned_.
   - Comp Card text is filtered on the server by the learner's sharing choice (D80, D81).
   - Partner staff see learners only once `R3_PARTNER_ACCESS` is on (after Release 3's production security review has passed, before 1 Dec 2026).
 - Server-side authorisation on all data-mutating operations and file-upload token issuance.
-- Rate limits on sign-in, invitations, adding people and uploads (`src/lib/rate-limit.ts`).
-  - Every key is stored as a keyed hash (HMAC with a server secret) of the email address or the internal user id.
+- Rate limits on sign-in, invitations, adding people and uploads (`src/lib/rate-limit.ts`); sign-in emails also per client and per hour (D116).
+  - Every key is stored as a keyed hash (HMAC with a server secret) of the email address, the internal user id, or the network address a sign-in email was asked for from.
   - When the limiter can't count, sign-in links are allowed (so learners can still sign in) and every staff-only limit refuses.
 
 **Data minimisation & privacy by design**

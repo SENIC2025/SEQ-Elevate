@@ -163,6 +163,8 @@ export function ProfileStepForm({ view }: { view: ProfileStepView }) {
         ...(askConsent ? { consent } : {}),
       });
       if (answer.ok) {
+        // A full navigation: the session and the learner store start again.
+        // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- a full page load, on purpose
         window.location.assign(`/${locale}`);
         return;
       }

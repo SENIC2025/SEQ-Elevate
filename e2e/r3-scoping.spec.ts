@@ -13,6 +13,7 @@ import {
   type WorldKey,
 } from "./fixtures/people";
 import { callAction } from "./fixtures/server-action";
+import { rscPath } from "./fixtures/rsc";
 
 /**
  * Release 3 (spec 18.2, FD-E1 to FD-E9): what the server lets each person
@@ -73,7 +74,7 @@ async function payload(request: APIRequestContext, person: Person, path: string)
   const cookie = { Cookie: `authjs.session-token=${person.sessionToken}` };
   const html = await request.get(path, { headers: cookie, maxRedirects: 0 });
   expect(html.status(), `${path} as ${person.email}`).toBe(200);
-  const rsc = await request.get(path, { headers: { ...cookie, RSC: "1" }, maxRedirects: 0 });
+  const rsc = await request.get(rscPath(path), { headers: { ...cookie, RSC: "1" }, maxRedirects: 0 });
   expect(rsc.status(), `${path}'s payload as ${person.email}`).toBe(200);
   expect(rsc.headers()["content-type"]).toContain("text/x-component");
   return `${await html.text()}\n${await rsc.text()}`;

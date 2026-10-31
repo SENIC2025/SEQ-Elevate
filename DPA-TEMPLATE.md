@@ -148,7 +148,7 @@ governing law and courts. The Controller is established in Belgium.]`
 
 **Not collected by the platform (by design), and its limits:**
 - Not collected by the platform: passwords (sign-in is a one-time email link), geolocation, biometric data.
-- IP addresses are not stored in the platform database. They do appear in hosting-provider request logs. They also reach YouTube once a learner presses play on a YouTube video (nothing from YouTube loads before).
+- IP addresses are not stored in the platform database (the sign-in email limit keeps only a keyed hash of the address a request came from, for at most two hours). They do appear in hosting-provider request logs. They also reach YouTube once a learner presses play on a YouTube video (nothing from YouTube loads before).
 - **Special categories of data (Art. 9)** are not asked for, but the free-text fields (learner reflections and Comp Card, staff notes and evidence) cannot technically exclude them. The DPIA addresses this.
 - Learners write their own reflections; staff write the notes and evidence.
 
@@ -183,7 +183,7 @@ place is marked as planned.*
 
 **Access control & authentication**
 - Passwordless sign-in via one-time email link; **no passwords stored**.
-- Rate limits on sign-in, invitations, adding people and file uploads (abuse mitigation). Every key is stored as a keyed hash (HMAC with a server secret) of the email address or the internal user id.
+- Rate limits on sign-in, invitations, adding people and file uploads (abuse mitigation). Every key is stored as a keyed hash (HMAC with a server secret) of the email address, the internal user id, or the network address a sign-in email was asked for from.
 - Project-scoped **role-based access control** (Learner / Facilitator / Content-Editor / Partner admin / Admin), checked **server-side**, scoped to the project, on every data operation and file-upload authorisation.
 - **Organisation scoping:** partner admins and facilitators see only their own organisation's learners, decided on the server by one module that refuses when in doubt (partner staff once the production security review has passed, before 1 December 2026). The Comp Card's text is filtered on the server by the learner's sharing choice.
 

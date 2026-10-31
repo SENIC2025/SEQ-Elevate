@@ -11,6 +11,7 @@ import {
   type Person,
   type World,
 } from "./fixtures/people";
+import { rscPath } from "./fixtures/rsc";
 
 /**
  * Release 3 (spec 7, 4.5; 18.2: C-E1 to C-E4): who the statistics count,
@@ -88,7 +89,7 @@ async function payload(request: APIRequestContext, person: Person, path: string)
   const cookie = { Cookie: `authjs.session-token=${person.sessionToken}` };
   const html = await request.get(path, { headers: cookie, maxRedirects: 0 });
   expect(html.status(), `${path} as ${person.email}`).toBe(200);
-  const rsc = await request.get(path, { headers: { ...cookie, RSC: "1" }, maxRedirects: 0 });
+  const rsc = await request.get(rscPath(path), { headers: { ...cookie, RSC: "1" }, maxRedirects: 0 });
   expect(rsc.status(), `${path}'s payload as ${person.email}`).toBe(200);
   return `${await html.text()}\n${await rsc.text()}`;
 }

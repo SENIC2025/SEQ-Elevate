@@ -55,6 +55,10 @@ const LAST_SPEC = /r3-(data|integration)-last\.spec\.ts$/;
 // Release 3 (spec 17.2): organisation-scoped staff see their organisation
 // (R3_PARTNER_ACCESS), and statistics count from 2020 (STATS_FROM), so the
 // specs see what partner staff will see once the switch is on.
+// The site's hourly cap on sign-in emails (D116) is raised, so several runs
+// against one database within the same hour don't reach it (the cap itself
+// is unit-tested; signin-email.spec.ts tests the per-client limit, at its
+// default).
 const SERVER_ENV = {
   ...process.env,
   DEMO_LOGIN_ENABLED: "true",
@@ -63,6 +67,7 @@ const SERVER_ENV = {
   RESEND_API_KEY: "re_placeholder",
   R3_PARTNER_ACCESS: "on",
   STATS_FROM: "2020-01-01T00:00:00Z",
+  SIGNIN_EMAILS_PER_HOUR: "10000",
 };
 // The switches server: neither of the two settings above (blank reads as
 // unset; Playwright puts this shell's environment under a server's), the

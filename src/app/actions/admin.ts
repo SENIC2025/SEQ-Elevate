@@ -43,6 +43,7 @@ import { releaseIfCountryElsewhere, setPersonOrganisation, type OrganisationSour
 import { canManagePeople, grantableRoles, seesWholeProject } from "@/lib/permissions";
 import { parseProfileInput } from "@/lib/profile";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { signInAddress } from "@/lib/signin-address";
 import {
   cohortInScope,
   getViewer,
@@ -516,8 +517,10 @@ export async function addMember(
   });
   if (refusedThisHour >= ADD_REFUSALS.limit) return refuseAdd(m, "rate-limited");
 
-  const clean = typeof email === "string" ? email.trim().toLowerCase() : "";
-  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(clean)) return refuseAdd(m, "bad-email");
+  // The sign-in address rule (D116): an address that can't sign in is never
+  // stored; one that can is stored as it normalises it.
+  const clean = signInAddress(email);
+  if (clean === null) return refuseAdd(m, "bad-email");
   if (!isRole(role) || !m.grantable.includes(role)) return refuseAdd(m, "bad-role");
   const typedName = typeof name === "string" && name.trim() ? name : null;
   const newName = typedName === null ? null : cleanName(typedName);

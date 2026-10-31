@@ -15,11 +15,12 @@ import "server-only";
  *   window started more than two hours ago (the longest window is one hour),
  *   so a short-window caller never removes a long-window counter.
  * - **Failing is decided by the key's prefix**, so no caller changes:
- *   sign-in links (`magiclink:`) are allowed when the limiter can't count (a
- *   database hiccup must never lock a learner out of signing in), with one
- *   log line; everything else — the staff-only callers (`upload-…`,
- *   `invite-by:`, `invite:`, `add-by:`) and any prefix this file doesn't
- *   know — is refused.
+ *   sign-in links' limits (per address `magiclink:`, and D116's per client
+ *   `magiclink-ip:` and per hour `magiclink-all:`) allow when the limiter
+ *   can't count (a database hiccup must never lock learners out of signing
+ *   in; src/lib/signin-email-limits.ts says why), with one log line;
+ *   everything else — the staff-only callers (`upload-…`, `invite-by:`,
+ *   `invite:`, `add-by:`) and any prefix this file doesn't know — is refused.
  */
 
 import { createHmac } from "node:crypto";
@@ -39,8 +40,8 @@ const KEEP_SECONDS = 2 * 60 * 60;
 /** What the key derived from AUTH_SECRET is made for (changing it resets every counter). */
 const DERIVATION_LABEL = "seq-elevate rate-limit keys v1";
 
-/** The only prefix allowed through when the limiter can't count: sign-in links. */
-const FAIL_OPEN_PREFIX = "magiclink";
+/** The only prefixes allowed through when the limiter can't count: sign-in links' limits (D96, D116). */
+const FAIL_OPEN_PREFIXES: ReadonlySet<string> = new Set(["magiclink", "magiclink-ip", "magiclink-all"]);
 
 /** The HMAC key: RATE_LIMIT_SECRET, else one derived from AUTH_SECRET. Throws when neither is set. */
 function limiterKey(env: Env): Buffer {
@@ -84,7 +85,7 @@ export function rateLimitKeysOf(person: { id: string; email: string }, env: Env 
 /**
  * Count this request against `key` in the current time window. Returns ok=false
  * once the count exceeds `limit` within `windowMs` (at most an hour), and when
- * the limiter can't count, except for sign-in links (see the top of this file).
+ * the limiter can't count, except for sign-in links' limits (see the top of this file).
  */
 export async function checkRateLimit(
   key: string,
@@ -108,7 +109,7 @@ export async function checkRateLimit(
 
     return { ok: row.count <= limit, count: row.count, limit };
   } catch (e) {
-    const open = prefixOf(key) === FAIL_OPEN_PREFIX;
+    const open = FAIL_OPEN_PREFIXES.has(prefixOf(key));
     // The kind of key and of failure only: never the key itself.
     console.error(
       `[rate-limit] couldn't count a "${prefixOf(key) || "(no prefix)"}" request (${e instanceof Error ? e.name : "error"}); ${open ? "allowed" : "refused"}`
