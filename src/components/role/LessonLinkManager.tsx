@@ -491,7 +491,7 @@ export function LessonLinkManager({
                 />
               ) : removing === l.id ? (
                 <InlineConfirm
-                  title={`Remove “${l.title}” from this lesson?`}
+                  title={<span className="wrap-anywhere">{`Remove “${l.title}” from this lesson?`}</span>}
                   confirmLabel="Remove"
                   keepLabel="Keep it"
                   busy={busy}
@@ -537,11 +537,12 @@ export function LessonLinkManager({
         </ol>
       )}
 
-      <p role="status" aria-live="polite" className={notice ? "text-xs text-[var(--muted-foreground)]" : "sr-only"}>
+      {/* What they say names a link by its title: they wrap as its row does. */}
+      <p role="status" aria-live="polite" className={notice ? "text-xs text-[var(--muted-foreground)] wrap-anywhere" : "sr-only"}>
         {notice}
       </p>
       {listError ? (
-        <p role="alert" className="flex items-start gap-1.5 text-xs text-[var(--danger)]">
+        <p role="alert" className="flex items-start gap-1.5 text-xs text-[var(--danger)] wrap-anywhere">
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" aria-hidden />
           {listError}
         </p>
@@ -560,6 +561,10 @@ export function LessonLinkManager({
  * (aria-disabled) and does nothing, but stays focusable, so focus stays
  * where the keyboard left it. Only the arrows at either end are disabled.
  * Each arrow is a 24 × 24 pixel target (WCAG 2.5.8).
+ *
+ * A title wraps anywhere, inside its column (wrap-anywhere): one long word,
+ * as a file's name pasted for a title, wraps there rather than running over
+ * the badges and buttons, or past the screen's edge on a phone.
  */
 export function LinkRow({
   link: l,
@@ -616,7 +621,7 @@ export function LinkRow({
           <ChevronDown className="h-3.5 w-3.5" aria-hidden />
         </button>
       </div>
-      <div className="min-w-[10rem] flex-1">
+      <div className="min-w-[10rem] flex-1 wrap-anywhere">
         {l.unusable ? (
           <>
             <span lang={lang} className="font-medium">

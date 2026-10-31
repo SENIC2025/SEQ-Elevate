@@ -677,12 +677,13 @@ export function LessonDocumentManager({
               Use the arrows to set the order learners see (1, 2, 3…).
             </p>
           ) : null}
+          {/* They name a document by its file name, which may be one long word: they wrap anywhere, as the upload's notice does. */}
           <p
             role="status"
             aria-live="polite"
             className={
               listNotice
-                ? "mt-2 text-xs text-[var(--muted-foreground)]"
+                ? "mt-2 text-xs text-[var(--muted-foreground)] wrap-anywhere"
                 : "sr-only"
             }
           >
@@ -691,7 +692,7 @@ export function LessonDocumentManager({
           {listError ? (
             <p
               role="alert"
-              className="mt-2 text-xs text-[var(--danger)] flex items-start gap-1.5"
+              className="mt-2 text-xs text-[var(--danger)] flex items-start gap-1.5 wrap-anywhere"
             >
               <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
               {listError}
