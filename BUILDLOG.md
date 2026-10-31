@@ -1598,3 +1598,14 @@ On `hotfix-auth`, from `b33b82a` (the live commit). Nothing pushed.
   - **Not yet done: a full run with every project green, and `db-backed-progress` on one worker.** The run for it (09:10) stopped at 218 tests when the machine's shared Docker engine (OrbStack), and with it the local Postgres of every worktree, stopped answering under memory pressure; it is to be run once the engine is back.
   - The servers logged only the known kinds (19 "No signed-in learner", 5 "No signed-in user", 2 `AccessDenied`, two audit writes for accounts a test had just removed, the `BLOB_PUBLIC_HOST` notice and the `output: standalone` warning) and the new ones SE-E2 and SE-E4 ask for: four addresses refused by the rule, two requests over the per-client limit.
   - The seven frozen link blobs unchanged: `link-text.ts` `d052f64`, `link-site.ts` `a270085`, `link-url.ts` `ff9e778`, `top-level-domains.ts` `b738589`, `link-text.corpus.test.ts` `0a4d55e`, `link-text.corpus.json` `5093324`, `link-host.ts` `2ab2988`. Secret scan 0/0/0 before each commit.
+
+### The go-live documents and the hotfix together, on `r4` (2026-10-31)
+`hotfix-auth` merged into `r4` (`53dd73b`), on top of the after-go-live batch; one deploy for both.
+- `[TEST]` R4-E14 (the link list by keyboard) waits until the row's buttons are available again before the second press: the status line comes when a change is saved, and the list is then read back, during which every row's button ignores a press by design (LinkRow). On Next 16.4 the read-back can still be running when the status line shows. The rule is unchanged.
+- `[VERIFY]` On the local Postgres `seq_r4`:
+  - tsc ✓ eslint ✓ **6,053 unit** passed, 15 skipped (265 files);
+  - production build ✓ on Next 16.4.3, through the build lock;
+  - full E2E on two workers: 1,171 passed, 7 skipped by design, 1 red (R4-E14, the timing above), so `last` (5) did not run; after the test change: R4-E14 8 of 8 (`--repeat-each=8`), `r4-further-reading` and `r4-long-titles` 76/76, and the `last` project on its own 5/5;
+  - `db-backed-progress` on one worker: **57/57**;
+  - the seven frozen link blobs unchanged; secret scan 0/0/0.
+- This also completes the hotfix entry's two runs still to do (the full suite with `last`, and `db-backed-progress` on one worker).

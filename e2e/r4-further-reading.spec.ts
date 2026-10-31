@@ -1185,6 +1185,9 @@ describe("Release 4: further reading on the screens that place it (Stream R, par
       }).toPass({ timeout: 20_000 });
       await expect(lesson.getByRole("button", { name: `Move “${sectioned.links!.shown.title}” down` })).toBeFocused();
       const show = lesson.getByRole("button", { name: `Show to learners: E2E R4 keyboard one ${RUN}` });
+      // The status line comes when the move is saved; the list is then read back,
+      // and until it is, every row's button is unavailable and ignores a press (LinkRow).
+      await expect(show).not.toHaveAttribute("aria-disabled", "true");
       await show.focus();
       await staff.page.keyboard.press("Enter");
       await expect(lesson.getByText(`“E2E R4 keyboard one ${RUN}” is shown to learners.`)).toBeVisible();
