@@ -22,13 +22,14 @@ import "server-only";
  *     learner (activityAllowed). A call over it writes nothing and is
  *     answered as any other input the rules ignore.
  *   - A record is written by one call at a time (oneAtATime), so the rules
- *     hold however many calls arrive together.
+ *     hold however many calls arrive together; a call for an account
+ *     removed meanwhile writes nothing (recordInTransaction).
  *
  * Guests and people whose profile step isn't done (D79) never get this
  * far: the actions answer them first.
  */
 
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { getBaseVideoCues } from "@/lib/cms";
@@ -196,4 +197,21 @@ export function creditedSeconds(seconds: number, lastAddedAt: unknown, now: Date
  */
 export async function oneAtATime(tx: Prisma.TransactionClient, record: string): Promise<void> {
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${record}, 0))`;
+}
+
+/**
+ * One record's read and write, in a transaction (the caller takes the
+ * record's lock first, oneAtATime). An account removed while the call is on
+ * its way (its erasure, between the session's read and the write) leaves
+ * nothing to record: the record's link to the account refuses the write
+ * (P2003), and that is the answer, not an error. Any other failure is
+ * thrown, as before.
+ */
+export async function recordInTransaction(write: (tx: Prisma.TransactionClient) => Promise<void>): Promise<void> {
+  try {
+    await prisma.$transaction(write);
+  } catch (e) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2003") return;
+    throw e;
+  }
 }

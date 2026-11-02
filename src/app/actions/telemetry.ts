@@ -25,7 +25,6 @@
  */
 
 import { getCurrentUser } from "@/lib/auth-helpers";
-import { prisma } from "@/lib/prisma";
 import { profileStepDone } from "@/lib/profile-step";
 import { isSectionId } from "@/lib/cms/sections/contract";
 import { SLUG } from "@/lib/cms/sections/store.server";
@@ -37,6 +36,7 @@ import {
   isLessonOf,
   oneAtATime,
   opensToLearners,
+  recordInTransaction,
   takesActivity,
 } from "@/lib/learner-activity";
 
@@ -61,7 +61,7 @@ export async function recordCourseOpened(courseSlug: string): Promise<"profile-i
   const course = await activityCourse(courseSlug);
   if (!course || !opensToLearners(course)) return;
 
-  await prisma.$transaction(async (tx) => {
+  await recordInTransaction(async (tx) => {
     await oneAtATime(tx, `course.opened:${user.id}:${courseSlug}`);
     const already = await tx.auditLog.findFirst({
       where: { actorId: user.id, action: "course.opened", entityId: courseSlug, createdAt: { gte: hourOf(now) } },
@@ -116,7 +116,7 @@ export async function recordStageTime(input: {
   const projectId = user.lastProjectId ?? PROJECT;
   const entityId = `${input.courseSlug}:${input.stage}`;
 
-  await prisma.$transaction(async (tx) => {
+  await recordInTransaction(async (tx) => {
     await oneAtATime(tx, `stage.time:${user.id}:${entityId}`);
     const existing = await tx.auditLog.findFirst({
       where: { actorId: user.id, action: "stage.time", entityId },

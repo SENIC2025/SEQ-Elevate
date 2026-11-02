@@ -24,7 +24,6 @@
  */
 
 import { getCurrentUser } from "@/lib/auth-helpers";
-import { prisma } from "@/lib/prisma";
 import { profileStepDone } from "@/lib/profile-step";
 import { isSectionId } from "@/lib/cms/sections/contract";
 import { SLUG } from "@/lib/cms/sections/store.server";
@@ -33,6 +32,7 @@ import {
   activityCourse,
   lessonsWithCue,
   oneAtATime,
+  recordInTransaction,
   takesActivity,
 } from "@/lib/learner-activity";
 
@@ -90,7 +90,7 @@ export async function recordVideoCueAnswer(input: {
 
   // One event per (learner, cue): update if it exists, else create — one
   // call at a time for the same cue (D117).
-  await prisma.$transaction(async (tx) => {
+  await recordInTransaction(async (tx) => {
     await oneAtATime(tx, `video.cue_answered:${user.id}:${cueId}`);
     const existing = await tx.auditLog.findFirst({
       where: {

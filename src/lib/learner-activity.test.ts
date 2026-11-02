@@ -21,7 +21,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 vi.mock("server-only", () => ({}));
 const course = { findUnique: vi.fn() };
 const lesson = { findUnique: vi.fn(), findMany: vi.fn() };
-vi.mock("@/lib/prisma", () => ({ prisma: { course, lesson } }));
+const $transaction = vi.fn();
+vi.mock("@/lib/prisma", () => ({ prisma: { course, lesson, $transaction } }));
 const checkRateLimit = vi.fn();
 vi.mock("@/lib/rate-limit", () => ({ checkRateLimit }));
 
@@ -36,8 +37,10 @@ const {
   lessonsWithCue,
   oneAtATime,
   opensToLearners,
+  recordInTransaction,
   takesActivity,
 } = await import("./learner-activity");
+const { Prisma } = await import("@prisma/client");
 type Course = Parameters<typeof isLessonOf>[0];
 
 /** A course created in the CMS, published, with the stored lesson list `sections`. */
@@ -222,5 +225,29 @@ describe("oneAtATime", () => {
     const [sql, ...values] = $executeRaw.mock.calls[0];
     expect((sql as string[]).join("?")).toBe("SELECT pg_advisory_xact_lock(hashtextextended(?, 0))");
     expect(values).toEqual(["stage.time:u1:speaking-up:context"]);
+  });
+});
+
+describe("recordInTransaction", () => {
+  const refused = (code: string) => new Prisma.PrismaClientKnownRequestError("refused", { code, clientVersion: "test" });
+
+  it("runs the write in a transaction", async () => {
+    const tx = { marker: true };
+    $transaction.mockImplementationOnce(async (fn: (t: unknown) => Promise<void>) => fn(tx));
+    const write = vi.fn(async () => {});
+    await recordInTransaction(write);
+    expect(write).toHaveBeenCalledWith(tx);
+  });
+
+  it("writes nothing, and answers nothing, for an account removed meanwhile (the link to it refuses)", async () => {
+    $transaction.mockRejectedValueOnce(refused("P2003"));
+    await expect(recordInTransaction(async () => {})).resolves.toBeUndefined();
+  });
+
+  it("throws any other failure, as before", async () => {
+    $transaction.mockRejectedValueOnce(refused("P2002"));
+    await expect(recordInTransaction(async () => {})).rejects.toThrow("refused");
+    $transaction.mockRejectedValueOnce(new Error("connection lost"));
+    await expect(recordInTransaction(async () => {})).rejects.toThrow("connection lost");
   });
 });
