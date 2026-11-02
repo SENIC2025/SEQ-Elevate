@@ -16,3 +16,7 @@ allowBuilds:
   prisma: true
   sharp: true
   unrs-resolver: true
+overrides:
+  # @vercel/blob asks for undici ^6.23.0; the server's Blob calls run on the
+  # patched 6.x line (6.29.1 or later).
+  'undici@6': ^6.29.1
