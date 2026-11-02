@@ -4,6 +4,7 @@ import * as React from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { itemLanguageMark } from "@/lib/cms/lesson-links";
+import { DOCUMENT_UPLOAD, typeOfAddress } from "@/lib/uploads";
 import type { LessonDocumentRef, Locale } from "@/lib/cms/types";
 import { useContentLang } from "./CourseText";
 import {
@@ -170,7 +171,11 @@ function DocPreview({
     // eslint-disable-next-line @next/next/no-img-element
     return <img src={doc.url} alt={doc.name} lang={lang} className="h-full w-full object-contain" />;
   }
-  if (doc.mimeType === "application/pdf") {
+  // A frame only for a PDF whose address names a PDF: an upload is stored
+  // only as the type its name implies (D119), so the frame holds what the
+  // browser's PDF viewer shows. (A sandboxed frame would show no PDF in
+  // Chrome, so the type rule is what holds here.)
+  if (doc.mimeType === "application/pdf" && typeOfAddress(doc.url, DOCUMENT_UPLOAD) === "application/pdf") {
     return (
       <iframe
         src={doc.url}

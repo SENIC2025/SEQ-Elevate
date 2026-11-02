@@ -34,6 +34,7 @@ import {
   type NarrativeText,
 } from "@/lib/rich-text/narrative";
 import { storedLanguages } from "@/lib/cms/lesson-links";
+import { DOCUMENT_UPLOAD, typeOfAddress } from "@/lib/uploads";
 import type {
   VideoContent,
   LessonDocumentRef,
@@ -188,6 +189,26 @@ export async function clearLessonVideo(courseSlug: string, stageKey: string) {
   return { ok: true as const };
 }
 
+/**
+ * A document as the editor's upload makes it (D119): a name, a type that is
+ * the one its address's file name implies — the upload route stores a file
+ * only as that type, so the type kept is the type the file is served as and
+ * the lesson shows it as what it is — and a whole number of bytes within
+ * the upload limit.
+ */
+function documentFits(doc: { name: unknown; url: string; mimeType: unknown; sizeBytes: unknown }): boolean {
+  return (
+    typeof doc.name === "string" &&
+    doc.name.trim() !== "" &&
+    typeof doc.mimeType === "string" &&
+    doc.mimeType === typeOfAddress(doc.url.trim(), DOCUMENT_UPLOAD) &&
+    typeof doc.sizeBytes === "number" &&
+    Number.isInteger(doc.sizeBytes) &&
+    doc.sizeBytes >= 0 &&
+    doc.sizeBytes <= DOCUMENT_UPLOAD.maxBytes
+  );
+}
+
 export async function addLessonDocument(
   courseSlug: string,
   stageKey: string,
@@ -200,6 +221,7 @@ export async function addLessonDocument(
   // Our own files only (D91): an upload, or a bundled sample.
   const host = mediaHostProblem(doc?.url, serverAppOrigin());
   if (host) return { ok: false as const, error: host, message: hostProblemMessage(host, "document") };
+  if (!documentFits(doc)) return { ok: false as const, error: "bad-input" as const };
   const lesson = await prisma.lesson.upsert({
     where: lessonKey(courseSlug, stageKey),
     create: { projectId: PROJECT, courseSlug, stageKey },

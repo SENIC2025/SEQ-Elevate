@@ -233,6 +233,23 @@ describe("the media actions: our own files and YouTube only", () => {
     expect(db.lessons).toEqual([]);
   });
 
+  it("keeps a document only as the type its address names, with a size within the limit (D119)", async () => {
+    const svgAsPdf = { ...DOC, url: `https://${STORE}/picture.svg` };
+    expect(await addLessonDocument(SLUG, "context", svgAsPdf)).toEqual({ ok: false, error: "bad-input" });
+    expect(await addLessonDocument(SLUG, "context", { ...DOC, url: `https://${STORE}/handout` })).toEqual({ ok: false, error: "bad-input" });
+    expect(await addLessonDocument(SLUG, "context", { ...DOC, mimeType: "text/html" })).toEqual({ ok: false, error: "bad-input" });
+    expect(await addLessonDocument(SLUG, "context", { ...DOC, sizeBytes: 51 * 1024 * 1024 })).toEqual({ ok: false, error: "bad-input" });
+    expect(await addLessonDocument(SLUG, "context", { ...DOC, sizeBytes: 1.5 })).toEqual({ ok: false, error: "bad-input" });
+    expect(await addLessonDocument(SLUG, "context", { ...DOC, sizeBytes: -1 })).toEqual({ ok: false, error: "bad-input" });
+    expect(await addLessonDocument(SLUG, "context", { ...DOC, name: "  " })).toEqual({ ok: false, error: "bad-input" });
+    expect(
+      await addLessonDocument(SLUG, "context", { ...DOC, name: 7 } as unknown as typeof DOC)
+    ).toEqual({ ok: false, error: "bad-input" });
+    expect(db.lessons).toEqual([]);
+    // The same picture as what it is: kept.
+    expect(await addLessonDocument(SLUG, "context", { ...svgAsPdf, mimeType: "image/svg+xml" })).toEqual({ ok: true, id: "doc-1" });
+  });
+
   it("accepts our own store's files and the bundled samples", async () => {
     expect(await saveLessonVideo(SLUG, "context", { provider: "file", src: "/demo/sample-lesson.webm" })).toEqual({ ok: true });
     expect(await addLessonDocument(SLUG, "context", DOC)).toEqual({ ok: true, id: "doc-1" });

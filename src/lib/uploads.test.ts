@@ -8,6 +8,9 @@ import {
   formatSize,
   refusalResponse,
   UploadRefusedError,
+  typeForName,
+  typeOfAddress,
+  UPLOAD_FAILED,
 } from "./uploads";
 
 const MB = 1024 * 1024;
@@ -114,6 +117,50 @@ describe("checkFile", () => {
       message:
         "This file is 63.2 MB — the limit is 50 MB. Try compressing it, or split it into smaller files.",
     });
+  });
+});
+
+/*
+ * D119: a document is stored only as the type its name implies, so the
+ * address it is kept under says what it is served as.
+ */
+describe("a document's type comes from its name", () => {
+  const doc = (name: string, type: string) => checkFile({ name, size: MB, type }, DOCUMENT_UPLOAD);
+
+  it("sends the type the extension implies, whatever the browser says", () => {
+    expect(doc("Handout.PDF", "image/svg+xml")).toEqual({ ok: true, contentType: "application/pdf" });
+    // Windows calls a CSV file an Excel one: it is stored as what its name says.
+    expect(doc("marks.csv", "application/vnd.ms-excel")).toEqual({ ok: true, contentType: "text/csv" });
+    expect(doc("diagram.svg", "image/svg+xml")).toEqual({ ok: true, contentType: "image/svg+xml" });
+  });
+
+  it("refuses a name without one of the listed extensions, even of an allowed type", () => {
+    expect(doc("handout", "application/pdf").ok).toBe(false);
+    expect(doc("handout.pdf.exe", "application/pdf").ok).toBe(false);
+    expect(doc("constructor", "").ok).toBe(false);
+  });
+
+  it("leaves videos and captions as they were: the browser's type when allowed", () => {
+    expect(checkFile({ name: "talk", size: MB, type: "video/mp4" }, VIDEO_UPLOAD)).toEqual({ ok: true, contentType: "video/mp4" });
+    expect(VIDEO_UPLOAD.typeFromName).toBeUndefined();
+    expect(CAPTION_UPLOAD.typeFromName).toBeUndefined();
+  });
+
+  it("reads the type an address names from its path's last part", () => {
+    expect(typeForName("a.b.PDF", DOCUMENT_UPLOAD)).toBe("application/pdf");
+    expect(typeForName("toString", DOCUMENT_UPLOAD)).toBeNull();
+    expect(typeForName(".__proto__", DOCUMENT_UPLOAD)).toBeNull();
+    expect(typeOfAddress("https://store1.public.blob.vercel-storage.com/run/handout-Ab12.pdf", DOCUMENT_UPLOAD)).toBe("application/pdf");
+    expect(typeOfAddress("/demo/sample.pdf", DOCUMENT_UPLOAD)).toBe("application/pdf");
+    expect(typeOfAddress("https://store1.public.blob.vercel-storage.com/pic.svg?x=.pdf", DOCUMENT_UPLOAD)).toBe("image/svg+xml");
+    expect(typeOfAddress("https://store1.public.blob.vercel-storage.com/pic.svg#.pdf", DOCUMENT_UPLOAD)).toBe("image/svg+xml");
+    expect(typeOfAddress("https://store1.public.blob.vercel-storage.com/a.pdf/", DOCUMENT_UPLOAD)).toBeNull();
+    expect(typeOfAddress("https://store1.public.blob.vercel-storage.com/a%2Epdf", DOCUMENT_UPLOAD)).toBeNull();
+    expect(typeOfAddress("https://[::1", DOCUMENT_UPLOAD)).toBeNull();
+  });
+
+  it("answers a failed token request in the same words whatever went wrong", () => {
+    expect(UPLOAD_FAILED).toEqual({ error: "The upload couldn't be started", code: "failed" });
   });
 });
 

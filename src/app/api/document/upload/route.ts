@@ -2,7 +2,10 @@
  * POST /api/document/upload — Vercel Blob client-upload token for lesson
  * documents (PDF, Office, images, text). Gated to signed-in staff who can edit
  * content (Editor, or Admin which includes it); restricted to the document
- * allowlist and size in DOCUMENT_UPLOAD. Mirrors the video upload route,
+ * allowlist and size in DOCUMENT_UPLOAD. A file is stored only as the type
+ * its name's extension implies (D119): a name without one of the list's
+ * extensions is refused ("file-type"), so the address a document is kept
+ * under says what it is served as. Mirrors the video upload route,
  * including its `{ error, code }` refusals.
  */
 
@@ -15,6 +18,8 @@ import {
   DOCUMENT_UPLOAD,
   UploadRefusedError,
   refusalResponse,
+  typeForName,
+  UPLOAD_FAILED,
 } from "@/lib/uploads";
 
 const PROJECT = "seq-elevate";
@@ -28,7 +33,7 @@ export async function POST(request: Request): Promise<Response> {
       token,
       body,
       request,
-      onBeforeGenerateToken: async () => {
+      onBeforeGenerateToken: async (pathname) => {
         const user = await getCurrentUser();
         if (!user) throw new UploadRefusedError("signed-out");
         const roles = (await getProjectMemberships(PROJECT)).map((m) => m.role);
@@ -38,8 +43,10 @@ export async function POST(request: Request): Promise<Response> {
           windowMs: 60_000,
         });
         if (!rl.ok) throw new UploadRefusedError("rate-limited");
+        const contentType = typeForName(pathname, DOCUMENT_UPLOAD);
+        if (!contentType) throw new UploadRefusedError("file-type");
         return {
-          allowedContentTypes: [...DOCUMENT_UPLOAD.contentTypes],
+          allowedContentTypes: [contentType],
           maximumSizeInBytes: DOCUMENT_UPLOAD.maxBytes,
           addRandomSuffix: true,
           tokenPayload: JSON.stringify({ userId: user.id }),
@@ -51,9 +58,6 @@ export async function POST(request: Request): Promise<Response> {
   } catch (error) {
     if (error instanceof UploadRefusedError) return refusalResponse(error.code);
     console.error("[upload] document token request failed", error);
-    return Response.json(
-      { error: (error as Error).message, code: "failed" },
-      { status: 400 }
-    );
+    return Response.json(UPLOAD_FAILED, { status: 400 });
   }
 }

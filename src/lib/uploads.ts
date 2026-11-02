@@ -25,6 +25,13 @@ export interface UploadRules {
   formats: string;
   /** Advice after "this file is too large". */
   tooLargeTip: string;
+  /**
+   * A file's type is the one its name's extension implies, never the
+   * browser's, and a name without one of `extensions` is refused. The route
+   * then lets the file be stored as that type only, so the address a file
+   * is kept under says what it is served as (D119).
+   */
+  typeFromName?: boolean;
 }
 
 export const VIDEO_UPLOAD: UploadRules = {
@@ -95,6 +102,7 @@ export const DOCUMENT_UPLOAD: UploadRules = {
   formats:
     "PDF, Word, PowerPoint, Excel, plain text, CSV or an image (PNG, JPG, GIF, WebP or SVG)",
   tooLargeTip: "Try compressing it, or split it into smaller files.",
+  typeFromName: true,
 };
 
 /** The file picker's `accept` attribute for a set of rules. */
@@ -114,6 +122,26 @@ function extensionOf(name: string): string {
   return dot === -1 ? "" : name.slice(dot).toLowerCase();
 }
 
+/** The type a file name's extension implies under `rules`; null for a name without one of them. */
+export function typeForName(name: string, rules: UploadRules): string | null {
+  return Object.hasOwn(rules.extensions, extensionOf(name)) ? rules.extensions[extensionOf(name)] : null;
+}
+
+/**
+ * The type the file at `url` is named as (its path's extension), for an
+ * address of our own: an upload's, or a bundled sample's path. Null when
+ * the path has no extension of `rules`, or the address can't be read.
+ */
+export function typeOfAddress(url: string, rules: UploadRules): string | null {
+  let path: string;
+  try {
+    path = new URL(url, "https://app.invalid").pathname;
+  } catch {
+    return null;
+  }
+  return typeForName(path.slice(path.lastIndexOf("/") + 1), rules);
+}
+
 export type FileCheck =
   | { ok: true; contentType: string }
   | { ok: false; message: string };
@@ -121,15 +149,18 @@ export type FileCheck =
 /**
  * Can this file be uploaded under `rules`? On success, the content type to
  * send: the browser's when it's allowed, otherwise the one its extension
- * implies (browsers leave `type` empty, or use an odd alias, for some files).
+ * implies (browsers leave `type` empty, or use an odd alias, for some files);
+ * under `typeFromName`, always the one its extension implies.
  */
 export function checkFile(
   file: { name: string; size: number; type: string },
   rules: UploadRules
 ): FileCheck {
-  const contentType = rules.contentTypes.includes(file.type)
-    ? file.type
-    : rules.extensions[extensionOf(file.name)];
+  const contentType = rules.typeFromName
+    ? typeForName(file.name, rules)
+    : rules.contentTypes.includes(file.type)
+      ? file.type
+      : rules.extensions[extensionOf(file.name)];
   if (!contentType) {
     return {
       ok: false,
@@ -157,7 +188,8 @@ export type UploadRefusalCode =
   | "storage-missing"
   | "signed-out"
   | "not-editor"
-  | "rate-limited";
+  | "rate-limited"
+  | "file-type";
 
 const REFUSALS: Record<UploadRefusalCode, { status: number; error: string }> =
   {
@@ -168,7 +200,14 @@ const REFUSALS: Record<UploadRefusalCode, { status: number; error: string }> =
       status: 429,
       error: "Too many uploads — please slow down.",
     },
+    "file-type": { status: 400, error: "This file type isn't supported" },
   };
+
+/**
+ * What an upload route answers when a token request fails for any other
+ * reason: the same words whatever went wrong (the route logs the cause).
+ */
+export const UPLOAD_FAILED = { error: "The upload couldn't be started", code: "failed" } as const;
 
 /** Thrown from onBeforeGenerateToken; the route turns it into its response. */
 export class UploadRefusedError extends Error {

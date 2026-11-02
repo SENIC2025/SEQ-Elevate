@@ -26,6 +26,7 @@ import {
   VIDEO_UPLOAD,
   UploadRefusedError,
   refusalResponse,
+  UPLOAD_FAILED,
 } from "@/lib/uploads";
 
 const PROJECT = "seq-elevate";
@@ -68,9 +69,6 @@ export async function POST(request: Request): Promise<Response> {
   } catch (error) {
     if (error instanceof UploadRefusedError) return refusalResponse(error.code);
     console.error("[upload] video token request failed", error);
-    return Response.json(
-      { error: (error as Error).message, code: "failed" },
-      { status: 400 }
-    );
+    return Response.json(UPLOAD_FAILED, { status: 400 });
   }
 }
