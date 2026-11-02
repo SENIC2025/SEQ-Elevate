@@ -59,8 +59,8 @@ export const LEGACY_PROMPT_IDS = ["p1", "p2", "p3"] as const;
 
 /**
  * A save: only what changed since the last save the server confirmed
- * (patchSince, patch.ts). Unknown to Release 1's action, which is kept for
- * pages loaded before the deploy (saveCourseProgress).
+ * (patchSince, patch.ts). Unknown to Release 1's action
+ * (saveCourseProgress), which is kept by name and writes nothing (D118).
  */
 export interface ProgressPatch {
   v: 2;

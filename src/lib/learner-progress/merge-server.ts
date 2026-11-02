@@ -7,7 +7,13 @@
  *     stagesCompleted (upper case, the StageKey enum), the course's own to
  *     sectionsCompleted — up to a limit per row, past which each is
  *     refused for itself (`row-full`).
- *   - completedAt: the stored one, else the patch's. Never null again.
+ *   - completedAt: the stored one, else the patch's, but only when the
+ *     finished lessons, once the patch is in, cover every lesson the
+ *     learner's player gives the course (`completion.lessons`: never for a
+ *     course with none, nor when they aren't known), at the patch's time
+ *     held between the enrolment's start and now (D118). Never null again.
+ *     A completion the lessons don't cover is left out; the rest of the
+ *     patch is taken as it would be.
  *   - The four standard answers keep their columns (D56): a practice and a
  *     scenario are replaced whole (a new root clears the follow-up, as the
  *     store does), the standard reflection merges p1–p3 one by one, and the
@@ -41,6 +47,7 @@ import {
   type PatchAnswer,
   type RefusedKey,
 } from "./contract";
+import { completedLessonIds } from "./enrolment-read";
 import { readAnswer } from "./parse";
 import type { ParsedPatch } from "./parse";
 
@@ -73,6 +80,37 @@ export const EMPTY_ENROLLMENT: EnrollmentProgress = Object.freeze({
   responses: null,
   completedAt: null,
 }) as EnrollmentProgress;
+
+/**
+ * What a completion needs (D118), worked out by the action that saves:
+ * the lessons the learner's player gives the course, in its spelling
+ * (standard ones lower case, the course's own "s-…": lessonPlanOf's ids),
+ * and when the enrolment started (its enrolledAt; a new one starts now).
+ */
+export interface CompletionRule {
+  lessons: readonly string[];
+  startedAt: Date;
+}
+
+/**
+ * Do the finished lessons of `row` cover every lesson of `lessons`? Never
+ * for a course with no lessons: a completion of nothing gives no badge.
+ */
+export function finishesCourse(row: Pick<EnrollmentProgress, "stagesCompleted" | "sectionsCompleted">, lessons: readonly string[]): boolean {
+  if (!lessons.length) return false;
+  const done = new Set(completedLessonIds(row));
+  return lessons.every((id) => done.has(id));
+}
+
+/**
+ * A completion's time, held between the enrolment's start and now. The
+ * start is the database's clock (enrolledAt's default) and now the
+ * server's: should the database be a moment ahead, the start wins, so a
+ * course is never completed before it was started.
+ */
+export function completionTime(at: Date, startedAt: Date, now: Date): Date {
+  return new Date(Math.max(Math.min(at.getTime(), now.getTime()), startedAt.getTime()));
+}
 
 export interface MergeResult {
   /** The enrolment after the patch. */
@@ -205,10 +243,17 @@ function storedItems(raw: unknown): Rec | null {
   return null;
 }
 
+/**
+ * `patch` merged into `row` (null: no enrolment yet) at the server's time
+ * `now`. `completion` says what completing the course takes (D118); null
+ * (or none given) when that isn't known, and then the patch completes
+ * nothing.
+ */
 export function mergeIntoEnrollment(
   row: EnrollmentProgress | null,
   patch: ParsedPatch,
-  now: Date
+  now: Date,
+  completion: CompletionRule | null
 ): MergeResult {
   const before = row ?? EMPTY_ENROLLMENT;
   const next: EnrollmentProgress = { ...before };
@@ -319,7 +364,16 @@ export function mergeIntoEnrollment(
   if (items !== null && itemsChanged) next.responses = { v: 1, items };
 
   /* -------------------------------------------------------- completion */
-  if (before.completedAt === null && patch.completedAt !== null) next.completedAt = patch.completedAt;
+  // Only once every lesson of the course is finished, this patch's
+  // included (D118); the time no earlier than the enrolment's start.
+  if (
+    before.completedAt === null &&
+    patch.completedAt !== null &&
+    completion != null &&
+    finishesCourse(next, completion.lessons)
+  ) {
+    next.completedAt = completionTime(patch.completedAt, completion.startedAt, now);
+  }
 
   const changed = (Object.keys(next) as ProgressColumn[]).filter((c) => !same(before[c], next[c]));
   return {

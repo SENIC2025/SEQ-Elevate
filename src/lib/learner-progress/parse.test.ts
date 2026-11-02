@@ -106,16 +106,16 @@ describe("parseProgressPatch: finished lessons", () => {
 });
 
 describe("parseProgressPatch: completedAt", () => {
-  it("keeps the client's time when it is the past or the next five minutes", () => {
+  it("keeps the client's time when it is the past or now (the merge holds it to the enrolment's start)", () => {
     expect(ok({ v: 2, completedAt: "2026-11-10T08:30:00.000Z" }).completedAt?.toISOString()).toBe(
       "2026-11-10T08:30:00.000Z"
     );
-    expect(ok({ v: 2, completedAt: "2026-11-10T09:04:59.000Z" }).completedAt?.toISOString()).toBe(
-      "2026-11-10T09:04:59.000Z"
-    );
+    expect(ok({ v: 2, completedAt: NOW.toISOString() }).completedAt).toEqual(NOW);
   });
 
-  it("uses the server's time for a time further ahead, or one it can't read", () => {
+  it("uses the server's time for any time ahead of it (D118: never later than now), or one it can't read", () => {
+    expect(ok({ v: 2, completedAt: "2026-11-10T09:00:00.001Z" }).completedAt).toEqual(NOW);
+    expect(ok({ v: 2, completedAt: "2026-11-10T09:04:59.000Z" }).completedAt).toEqual(NOW);
     expect(ok({ v: 2, completedAt: "2026-11-10T09:05:01.000Z" }).completedAt).toEqual(NOW);
     expect(ok({ v: 2, completedAt: "yesterday-ish" }).completedAt).toEqual(NOW);
   });

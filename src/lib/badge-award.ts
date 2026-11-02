@@ -5,8 +5,9 @@
  * connection, a session lookup that failed) may go away, so the learner
  * store and the guest migration try the award again (retry.ts). A refusal
  * can't: the project has no Badge row for the slug, the award was meant
- * for another account than the one signed in, or the person's profile step
- * isn't done (D79). Trying that again only holds up the learner's data for
+ * for another account than the one signed in, the person's profile step
+ * isn't done (D79), or the learner hasn't completed the badge's course
+ * (D118). Trying that again only holds up the learner's data for
  * about 15 s, so it's answered, not thrown, and the callers leave the badge
  * unsaved: they log it once, or, before the profile step is done, the page
  * says so, as for a refused save.
@@ -17,9 +18,9 @@
 export type BadgeAwardResult =
   | { ok: true }
   /**
-   * not-finished: under R2_LEARNER_PLAYER=off, the badge of a course whose
-   * lessons the Release 1 view doesn't hold, which the learner hasn't
-   * finished as the server counts it (learner.ts completionStands).
+   * not-finished: the learner hasn't completed, as the server holds it, a
+   * course whose badge it is (D118, learner.ts badgeEarned). The save
+   * that completes the course gives its badge itself.
    * profile-incomplete: the person's profile step isn't done (D79; a page
    * loaded before the Terms changed or before Release 3).
    */

@@ -9,8 +9,13 @@
  * Release 2 (D62): progress is saved as patches (saveCourseProgressPatch),
  * merged into the enrolment under its row lock, so a stale tab can't
  * un-complete a course or overwrite an answer it never changed. Release 1's
- * whole-progress save stays for pages loaded before the deploy, filtered to
- * the standard lessons.
+ * whole-progress save keeps its name and writes nothing (D118).
+ *
+ * D118: a course's completion, its date and its badge follow from what the
+ * learner did. A save completes a course only once every lesson the
+ * learner's player gives it is finished; the date is held between the
+ * enrolment's start and now; a badge is given only for a course the
+ * learner has completed.
  */
 
 import { getCurrentUser, getProjectMemberships } from "@/lib/auth-helpers";
@@ -42,24 +47,17 @@ import { getCourse } from "@/lib/cms";
 import { learnerContentLocale } from "@/lib/cms/language-ready";
 import { normaliseStatus } from "@/lib/cms/course-status";
 import { ensureCourseBadge } from "@/lib/cms/ensure-course-badge";
-import { isLegacySectionId } from "@/lib/cms/sections/contract";
 import { lessonPlanOf } from "@/lib/cms/sections/learner-path";
 import { SLUG, loadLessonFacts, planFacts } from "@/lib/cms/sections/store.server";
-import { learnerPlayerOff } from "@/lib/cms/sections/switches";
 import type { Locale } from "@/lib/cms/types";
-import {
-  parseAssessmentInput,
-  readAssessment,
-  type AssessmentProgress,
-} from "@/lib/assessment-progress";
+import { readAssessment, type AssessmentProgress } from "@/lib/assessment-progress";
 import type { RefusedKey, SaveProgressResult } from "@/lib/learner-progress/contract";
 import { completedLessonIds, enrolmentHasProgress } from "@/lib/learner-progress/enrolment-read";
 import {
-  EMPTY_ENROLLMENT,
   mergeIntoEnrollment,
+  type CompletionRule,
   type EnrollmentProgress,
   type MergeResult,
-  type ProgressColumn,
 } from "@/lib/learner-progress/merge-server";
 import { parseProgressPatch, readIds, readResponses, type ParsedPatch } from "@/lib/learner-progress/parse";
 import { Prisma, type StageKey } from "@prisma/client";
@@ -371,56 +369,39 @@ interface ProgressCourse {
 type Reader = Pick<Prisma.TransactionClient, "course" | "lesson">;
 
 /**
- * Under R2_LEARNER_PLAYER=off (spec 3.4) learners play a created course as
- * Release 1 did: its standard lessons (presentStageKeys). Null when that
- * view holds every lesson Release 2's player gives the course — a course
- * in the standard layout, renamed or reordered — and otherwise those
- * lessons (none, for a course left with nothing to show). Null off the
- * switch, and for a built-in course.
+ * A save's merge into the enrolment as read under its lock (null: none
+ * yet), given what completing the course takes (see saveProgress). It may
+ * be called twice, the second time with a row another tab made meanwhile.
  */
-async function lessonsTheSwitchHides(
-  client: Reader,
-  course: Pick<ProgressCourse, "id" | "slug" | "meta">
-): Promise<string[] | null> {
-  if (!learnerPlayerOff() || course.meta == null) return null;
-  const row = await client.course.findUnique({ where: { id: course.id }, select: { outline: true } });
-  const facts = (await loadLessonFacts(client as Prisma.TransactionClient, course.slug)).map(planFacts);
-  const ids = (legacyOnly: boolean) =>
-    lessonPlanOf("cms", row?.outline ?? null, facts, "en", { legacyOnly }).lessons.map((l) => l.id as string);
-  const plan = ids(false);
-  const view = new Set(ids(true));
-  return plan.length > 0 && plan.every((id) => view.has(id)) ? null : plan;
-}
+type MergeWith = (row: EnrollmentProgress | null, completion: CompletionRule | null) => MergeResult;
 
 /**
- * Does a completion of `course` stand, with the lessons `done`? Always,
- * but under the switch for a course whose lessons the Release 1 view
- * doesn't hold (finding 2 of the integration review): going through that
- * view's standard lessons — four presses of Continue for a course made of
- * its own lessons — would finish it, badge and all, and the trigger keeps
- * a completion for good. There it stands only once the learner has done
- * every lesson Release 2's player gives the course (never for a course
- * with none). The rest of the save is kept either way.
+ * What completing `course` takes (D118): every lesson the learner's player
+ * gives it. For a course created here, Release 2's lesson plan
+ * (lessonPlanOf, D64): its lessons in order, less hidden ones and ones with
+ * nothing to show (`unseen`, not needed: a finished one still counts). For
+ * a built-in course, its seven standard lessons. Ids as the players spell
+ * them (completedLessonIds). None for a course left with nothing to show,
+ * which no save completes.
+ *
+ * Whatever R2_LEARNER_PLAYER says: under the switch (spec 3.4) learners
+ * play a created course as Release 1 did, its standard lessons, and a
+ * course whose plan that view doesn't hold (say, only lessons of its own)
+ * is completed only once every lesson of the plan is done, as since the
+ * integration review's finding 2. A course the view holds whole loses
+ * nothing by it: its learners finish the plan's lessons on the way.
+ *
+ * Read in the save's transaction, after the Course row's lock, which a
+ * change of the course's lesson list waits for (store.server.ts lockCourse).
  */
-async function completionStands(
+async function lessonsToFinish(
   client: Reader,
-  course: Pick<ProgressCourse, "id" | "slug" | "meta">,
-  done: readonly string[]
-): Promise<boolean> {
-  const hidden = await lessonsTheSwitchHides(client, course);
-  if (hidden === null) return true;
-  const finished = new Set(done);
-  return hidden.length > 0 && hidden.every((id) => finished.has(id));
-}
-
-/** `m` with the course's completion left out: the enrolment stays as `before` had it. */
-function withoutCompletion(m: MergeResult, before: EnrollmentProgress): MergeResult {
-  return {
-    ...m,
-    next: { ...m.next, completedAt: before.completedAt },
-    changed: m.changed.filter((c) => c !== "completedAt"),
-    completedNow: false,
-  };
+  course: Pick<ProgressCourse, "id" | "slug" | "meta">
+): Promise<string[]> {
+  if (course.meta == null) return lessonPlanOf("bundled", null, [], "en").lessons.map((l) => l.id as string);
+  const row = await client.course.findUnique({ where: { id: course.id }, select: { outline: true } });
+  const facts = (await loadLessonFacts(client as Prisma.TransactionClient, course.slug)).map(planFacts);
+  return lessonPlanOf("cms", row?.outline ?? null, facts, "en").lessons.map((l) => l.id as string);
 }
 
 /**
@@ -478,14 +459,19 @@ function columnsOf(m: MergeResult): Prisma.CourseEnrollmentUpdateInput {
  * saves its badge in the same transaction, as an insert that leaves a row
  * already there (the award action, another tab) alone: an upsert there
  * failed the whole save on the unique key when they met. Never a Lesson
- * row; not audited
+ * row is locked (one that may complete the course reads the lessons,
+ * lessonsToFinish); not audited
  * (learner saves never were, and audit rows outlive erasure, D62.g).
+ *
+ * `merge` is handed what completing the course takes (D118): the lessons
+ * to finish, for a save that may complete it (`mayComplete`: it carries a
+ * completion), else null; and when the enrolment started, a new one now.
  */
 async function saveProgress(
   userId: string,
   course: ProgressCourse,
   mayComplete: boolean,
-  merge: (row: EnrollmentProgress | null) => MergeResult
+  merge: MergeWith
 ): Promise<RefusedKey[] | "not-open"> {
   return prisma.$transaction((tx) => progressInTx(tx, userId, course, mayComplete, merge));
 }
@@ -503,7 +489,7 @@ async function progressInTx(
   userId: string,
   course: ProgressCourse,
   mayComplete: boolean,
-  merge: (row: EnrollmentProgress | null) => MergeResult,
+  merge: MergeWith,
   badgeLater?: (badgeId: string) => void
 ): Promise<RefusedKey[] | "not-open"> {
   let badgeId = course.badgeId;
@@ -512,18 +498,14 @@ async function progressInTx(
   } else {
     await tx.$queryRaw`SELECT id FROM "Course" WHERE "id" = ${course.id} FOR KEY SHARE`;
   }
+  // The lessons a completion needs, read once under the Course row's lock.
+  const lessons = mayComplete ? await lessonsToFinish(tx, course) : null;
+  const completion = (startedAt: Date): CompletionRule | null => (lessons ? { lessons, startedAt } : null);
 
   const where = { userId_courseId: { userId, courseId: course.id } };
   const lockRow = async () => {
     await tx.$queryRaw`SELECT id FROM "CourseEnrollment" WHERE "userId" = ${userId} AND "courseId" = ${course.id} FOR UPDATE`;
-    return tx.courseEnrollment.findUnique({ where, select: PROGRESS_SELECT });
-  };
-  // A completion this save makes, checked once (the kill switch only).
-  let stands: Promise<boolean> | null = null;
-  const checked = async (m: MergeResult, before: EnrollmentProgress) => {
-    if (!m.completedNow) return m;
-    stands ??= completionStands(tx, course, completedLessonIds(m.next));
-    return (await stands) ? m : withoutCompletion(m, before);
+    return tx.courseEnrollment.findUnique({ where, select: { ...PROGRESS_SELECT, enrolledAt: true } });
   };
 
   let row = await lockRow();
@@ -531,14 +513,16 @@ async function progressInTx(
     // Nobody is enrolled in a course no learner could ever open; one
     // already enrolled keeps saving whatever its status (D62.f).
     if (!takesLearners(course)) return "not-open";
-    const fresh = await checked(merge(null), EMPTY_ENROLLMENT);
+    // A new enrolment starts now: a completion that would make it is dated now.
+    const fresh = merge(null, completion(new Date()));
     if (!fresh.changed.length) return fresh.refused;
     await tx.courseEnrollment.createMany({ data: [{ userId, courseId: course.id }], skipDuplicates: true });
     row = await lockRow();
     if (!row) throw new Error("The enrolment just created can't be read");
   }
 
-  const merged = await checked(merge(row), row);
+  const { enrolledAt, ...stored } = row;
+  const merged = merge(stored, completion(enrolledAt));
   if (merged.changed.length) {
     await tx.courseEnrollment.update({ where, data: columnsOf(merged) });
   }
@@ -558,6 +542,14 @@ async function progressInTx(
  * the store doesn't try it again; a thrown error (no session, a dropped
  * connection) is tried again. Values the rules refuse are refused key by
  * key, and the rest is saved.
+ *
+ * The patch's completion stands only once every lesson the learner's
+ * player gives the course is finished, this patch's lessons included
+ * (D118, lessonsToFinish), dated no later than now and no earlier than the
+ * enrolment's start; the course's badge is saved with it. Without them the
+ * rest of the patch is saved, and the course stays open: the player takes
+ * the learner to the lesson still to do when they come back (nextLesson).
+ * It is answered as any save, with nothing refused.
  *
  * No role check (D53: staff may play courses), but the profile step must
  * be done (D79: "profile-incomplete", nothing written; see ownProfile).
@@ -591,8 +583,8 @@ export async function saveCourseProgressPatch(
   // In fill mode, where the account's answers stayed over the guest's, as
   // the merge that was written found them.
   let kept: string[] = [];
-  const refused = await saveProgress(user.id, course, p.completedAt !== null, (row) => {
-    const merged = mergeIntoEnrollment(row, p, now);
+  const refused = await saveProgress(user.id, course, p.completedAt !== null, (row, completion) => {
+    const merged = mergeIntoEnrollment(row, p, now, completion);
     kept = merged.kept;
     return merged;
   });
@@ -602,65 +594,29 @@ export async function saveCourseProgressPatch(
 }
 
 /**
- * Release 1's save of a course's whole progress, kept for pages loaded
- * before the deploy (D62.e, D68: the same name and signature, so their
- * action id still resolves). It runs through saveCourseProgressPatch's
- * transaction and locks, and:
- *   - keeps only the standard lessons of stagesCompleted, so it never casts
- *     an "s-…" id to the enum, and adds them to what is stored;
- *   - keeps a stored completedAt (a page that hasn't seen the completion
- *     sends null);
- *   - writes the four standard answer columns as it always has;
- *   - never touches Release 2's columns;
- *   - like the new action, enrols no one in a course nobody ever published,
- *     and writes nothing before the profile step is done (D79).
- * A completed course's badge is saved with it (C9).
+ * Release 1's save of a course's whole progress: retired (D118, amending
+ * D62.e and D68). It keeps its name and signature, so a page that still
+ * calls it by its action id is answered rather than told the action is
+ * gone, and writes nothing.
+ *
+ * It was kept for pages loaded before the Release 2 deploy (31 October,
+ * 07:01); the pilot's learners start on 1 December, so none of them has
+ * such a page. Nothing in this build calls it: the learner store, POST
+ * /api/progress/beacon and "Add it to my account" save through
+ * saveCourseProgressPatch and claimGuestWork, under their rules. The store
+ * only names it, so that Next goes on building it (kept-actions.test.ts).
+ * Without a signed-in learner it fails, as it always did; otherwise it
+ * answers nothing, as it always did.
  */
 export async function saveCourseProgress(
   slug: string,
   progress: CourseProgressInput,
   forUser: string
-) {
-  const user = await requireLearner();
-  if (!isLearner(user, forUser)) return;
-  if (!isProfileComplete(user, await ownProfile(user.id), profileRules())) return;
-  // From the browser, so checked: only short texts, and not too many of
-  // them. Throws for anything else; null leaves the saved answers alone.
-  const assessment = parseAssessmentInput(progress.assessment as unknown);
-  const course = await prisma.course.findUnique({
-    where: { projectId_slug: { projectId: PROJECT, slug } },
-  });
-  if (!course) return;
-
-  const stages = progress.stagesCompleted
-    .filter(isLegacySectionId)
-    .map((s) => s.toUpperCase() as StageKey);
-  const completedAt = progress.completedAt ? new Date(progress.completedAt) : null;
-  await saveProgress(user.id, course, completedAt !== null, (row) => {
-    const before = row ?? EMPTY_ENROLLMENT;
-    const next: EnrollmentProgress = {
-      ...before,
-      stagesCompleted: [...before.stagesCompleted, ...stages.filter((s) => !before.stagesCompleted.includes(s))],
-      simulationChoice: progress.simulation?.choice ?? null,
-      simulationCorrect: progress.simulation?.correct ?? null,
-      scenarioRoot: progress.scenario.root,
-      scenarioFollowup: progress.scenario.followup,
-      reflection: progress.reflection,
-      // Null: the column keeps what it holds, {} for a new enrollment.
-      assessment: assessment ?? before.assessment,
-      completedAt: before.completedAt ?? completedAt,
-    };
-    const changed = (Object.keys(next) as ProgressColumn[]).filter(
-      (c) => JSON.stringify(before[c]) !== JSON.stringify(next[c])
-    );
-    return {
-      next,
-      changed,
-      refused: [],
-      completedNow: before.completedAt === null && next.completedAt !== null,
-      kept: [],
-    };
-  });
+): Promise<void> {
+  await requireLearner();
+  void slug;
+  void progress;
+  void forUser;
 }
 
 /**
@@ -766,35 +722,33 @@ export async function setCompCardSharing(choice: Sharing, forUser: string): Prom
 }
 
 /**
- * May the badge `badgeId` be given to `userId`? Always, but under the kill
- * switch, where a created course's badge whose lessons the Release 1 view
- * doesn't hold follows the completion the server holds (completionStands):
- * the save that completes the course writes the badge too.
+ * Has `userId` earned the badge `badgeId`: completed, as the server holds
+ * it, a course whose badge it is (D118)? The save that completes a course
+ * writes its badge with it, so this gives nothing that completion hasn't.
  */
-async function badgeMayBeGiven(
-  client: Pick<Prisma.TransactionClient, "course" | "lesson" | "courseEnrollment">,
+async function badgeEarned(
+  client: Pick<Prisma.TransactionClient, "courseEnrollment">,
   userId: string,
   badgeId: string
 ): Promise<boolean> {
-  if (!learnerPlayerOff()) return true;
-  const courses = await client.course.findMany({
-    where: { projectId: PROJECT, badgeId, NOT: { meta: { equals: Prisma.DbNull } } },
-    select: { id: true, slug: true, meta: true },
+  const completed = await client.courseEnrollment.findFirst({
+    where: { userId, completedAt: { not: null }, course: { projectId: PROJECT, badgeId } },
+    select: { id: true },
   });
-  for (const c of courses) {
-    if ((await lessonsTheSwitchHides(client, c)) === null) continue;
-    const enrolled = await client.courseEnrollment.findUnique({
-      where: { userId_courseId: { userId, courseId: c.id } },
-      select: { completedAt: true },
-    });
-    if (!enrolled?.completedAt) return false;
-  }
-  return true;
+  return completed !== null;
 }
 
 /**
  * Award a badge to the current user (idempotent); they must be `forUser`
- * (isLearner). A badge with no Badge row is refused rather than answered as
+ * (isLearner). Keeps its name and arguments (D68: pages call it by its
+ * id). A badge is a course's (D118): it is given only to a learner with a
+ * completed enrolment in a course whose badge it is, and otherwise
+ * refused ("not-finished"). The save that completes a course writes the
+ * badge itself, in the same transaction, so the completion screen's
+ * award, sent after that save, finds it given; one that reaches the
+ * server first is refused, and the save gives the badge a moment later.
+ *
+ * A badge with no Badge row is refused rather than answered as
  * if it were saved: the learner would lose the badge on the next reload
  * without anyone knowing (C9). It is answered, not thrown, because a thrown
  * award is tried again as if the connection had dropped, and this one can
@@ -821,7 +775,7 @@ export async function awardBadgeAction(
     where: { projectId_slug: { projectId: PROJECT, slug } },
   });
   if (!badge) return { ok: false, reason: "no-badge" };
-  if (!(await badgeMayBeGiven(prisma, user.id, badge.id))) return { ok: false, reason: "not-finished" };
+  if (!(await badgeEarned(prisma, user.id, badge.id))) return { ok: false, reason: "not-finished" };
   await prisma.userBadge.createMany({
     data: [{ userId: user.id, badgeId: badge.id }],
     skipDuplicates: true,
@@ -849,8 +803,10 @@ const CLAIM_CARD_SELECT = {
  * is then (src/lib/guest-claim.ts says what each answer means):
  *
  *   - the course only into an account with no progress in it, through the
- *     same transaction as a save (progressInTx: its completion, the
- *     kill switch's rule for it, and its badge); an account with progress
+ *     same transaction as a save (progressInTx: its completion as a save's,
+ *     standing only once the guest finished every lesson of the course and
+ *     dated when it is added to an account it creates the enrolment in,
+ *     D118; and its badge); an account with progress
  *     in it gets nothing, and is told apart as already holding all of the
  *     guest's ("already": the fill merge, read only, changes nothing and
  *     keeps nothing of its own over it) or not ("kept"); a course nobody
@@ -859,8 +815,11 @@ const CLAIM_CARD_SELECT = {
  *   - the Comp Card only into no card or a blank one ("blank": no answer,
  *     the confidence untouched) that isn't shared, written as "Only me";
  *     never shares (D80);
- *   - badges as a union, each as the award action gives it (no badge row,
- *     the kill switch: refused).
+ *   - badges as a union, each as the award action gives it: a course's
+ *     badge only into an account that has completed that course, the
+ *     claim's own course included (D118); refused otherwise, or with no
+ *     badge row. A refused badge stays in the browser (storeAfterClaim),
+ *     and the page says it couldn't be added.
  *
  * The locks, in this order, so it can't deadlock with a save, the award,
  * the sharing choice or an erasure: the User row (KEY SHARE: an erasure
@@ -959,14 +918,14 @@ async function claimCourse(
     userId,
     course,
     patch.completedAt !== null,
-    (row) => {
+    (row, completion) => {
       if (row && enrolmentHasProgress(row)) {
-        const fill = mergeIntoEnrollment(row, { ...patch, fill: true }, now);
+        const fill = mergeIntoEnrollment(row, { ...patch, fill: true }, now, completion);
         outcome = fill.changed.length === 0 && fill.kept.length === 0 ? "already" : "kept";
         return { next: row, changed: [], refused: [], completedNow: false, kept: [] };
       }
       outcome = "moved";
-      return mergeIntoEnrollment(row, { ...patch, fill: false }, now);
+      return mergeIntoEnrollment(row, { ...patch, fill: false }, now, completion);
     },
     badgeLater
   );
@@ -1015,9 +974,10 @@ async function claimCard(
 }
 
 /**
- * The claim's badges: a union, each as the award action gives it, and the
- * badge of the course the claim finished (`courseBadges`), all inserted
- * unless there (see claimGuestWork).
+ * The claim's badges: a union, each as the award action gives it (a badge
+ * the account has earned, badgeEarned), and the badge of the course the
+ * claim finished (`courseBadges`), all inserted unless there (see
+ * claimGuestWork).
  */
 async function claimBadges(
   tx: Prisma.TransactionClient,
@@ -1038,7 +998,7 @@ async function claimBadges(
       const row = rows.find((r) => r.slug === slug);
       if (!row) out.refused.push(slug);
       else if (held.has(row.id)) out.already.push(slug);
-      else if (give.has(row.id) || (await badgeMayBeGiven(tx, userId, row.id))) {
+      else if (give.has(row.id) || (await badgeEarned(tx, userId, row.id))) {
         give.add(row.id);
         out.moved.push(slug);
       } else out.refused.push(slug);

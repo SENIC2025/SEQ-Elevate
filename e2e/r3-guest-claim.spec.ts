@@ -17,7 +17,8 @@ import { guestCourseCompleted } from "./fixtures/guest-work";
  *   - the Comp Card moves only where the account has none, or a blank one
  *     not shared, and as "Only me"; a card with answers of its own keeps
  *     them, and a shared one gets nothing (moving never shares);
- *   - badges are a union;
+ *   - badges are a union, each only into an account that has completed
+ *     the badge's course (D118): the course added with them counts;
  *   - a text too long to add means nothing is written, and the offer shows
  *     it to be shortened; another account signed in means nothing is
  *     written and the browser keeps all of it.
@@ -59,6 +60,7 @@ const CARD_KEPT = "Your Comp Card wasn't added: your account already has a Comp 
 const CARD_SHARED =
   "Your Comp Card wasn't added: your account's Comp Card is shared with your facilitators, and adding never shares it. To add it, set your Comp Card to “Only me” first.";
 const BADGE_IN = "Your badge is in your account.";
+const BADGE_REFUSED = "One badge couldn't be added to your account.";
 const UNCONFIRMED = "We couldn't confirm that it was added: the connection failed. It's still on this browser: try again.";
 
 const next = (page: Page) => page.getByRole("button", { name: /^continue$/i });
@@ -192,6 +194,19 @@ async function putGuestCard(page: Page, card: { wentWell: string; difficult: str
   );
 }
 
+/** The account completed the built-in course elsewhere: its badge may go into it (D118). */
+async function completedBuiltIn(userId: string) {
+  const course = await prisma.course.findFirstOrThrow({ where: { slug: BUILT_IN } });
+  await prisma.courseEnrollment.create({
+    data: {
+      userId,
+      courseId: course.id,
+      stagesCompleted: ["CONTEXT", "CONCEPT", "BEHAVIOUR", "SIMULATION", "SCENARIO", "REFLECTION", "ASSESSMENT"],
+      completedAt: new Date(),
+    },
+  });
+}
+
 const setCookie = (context: BrowserContext, sessionToken: string) =>
   context.addCookies([
     { name: "authjs.session-token", value: sessionToken, domain: "localhost", path: "/", httpOnly: true, sameSite: "Lax" },
@@ -269,7 +284,7 @@ describe("Release 3: guest work added to an account, part by part", () => {
     await expect(region(page)).toHaveCount(0);
   });
 
-  test("an account with its own progress in the course keeps it; the Comp Card and the badge move, and the course stays in this browser", async ({
+  test("an account with its own progress in the course keeps it; the Comp Card moves, and the course and its badge stay in this browser", async ({
     page,
     context,
   }) => {
@@ -284,6 +299,7 @@ describe("Release 3: guest work added to an account, part by part", () => {
     await page.goto("/en/learner");
     await addButton(page).click({ timeout: 20_000 });
     const said = await outcome(page);
+    // The account hasn't completed the course, so the course's badge isn't added either (D118).
     expect(await account(person.userId), "the account's own progress, as it was").toEqual({
       enrolled: true,
       completed: false,
@@ -291,20 +307,20 @@ describe("Release 3: guest work added to an account, part by part", () => {
       scenarioRoot: null,
       p1: ACCOUNT_P1,
       p2: null,
-      badges: [BADGE],
+      badges: [],
     });
     expect(await cardOf(person.userId)).toMatchObject({ difficult: GUEST_D, privacy: "SELF" });
-    expect(await guestStore(page), "the course alone stays in this browser").toMatchObject({
+    expect(await guestStore(page), "the course and its badge stay in this browser").toMatchObject({
       course: BUILT_IN,
       completed: true,
       p2: GUEST_P2,
       difficult: "",
-      badges: [],
+      badges: [BADGE],
     });
-    expect(said).toBe(`${COURSE_KEPT} ${CARD_ADDED} ${BADGE_IN} ${STAYS}`);
-    // Offered again as what it is: the course alone; removing it is the way on.
+    expect(said).toBe(`${COURSE_KEPT} ${CARD_ADDED} ${BADGE_REFUSED} ${STAYS}`);
+    // Offered again as what it is: the course and its badge; removing it is the way on.
     await page.reload();
-    await expect(region(page)).toContainText(`${TITLE}. Comp Card: no. Badges: 0.`, { timeout: 20_000 });
+    await expect(region(page)).toContainText(`${TITLE}. Comp Card: no. Badges: 1.`, { timeout: 20_000 });
     await region(page).getByRole("button", { name: "Remove it from this browser" }).click();
     expect(await guestStore(page)).toBeNull();
   });
@@ -343,6 +359,7 @@ describe("Release 3: guest work added to an account, part by part", () => {
     context,
   }) => {
     const person = await createPerson(prisma, { email: address("own-card") });
+    await completedBuiltIn(person.userId);
     await prisma.compCard.create({ data: { userId: person.userId, projectId: "seq-elevate", wentWell: ACCOUNT_P1 } });
     await guestCard(page, { wentWell: "", difficult: GUEST_D, confidence: 4 }, [BADGE]);
     await signIn(context, person.sessionToken);
@@ -357,6 +374,7 @@ describe("Release 3: guest work added to an account, part by part", () => {
 
   test("a shared Comp Card gets nothing from this browser; once it is Only me, the guest's card moves", async ({ page, context }) => {
     const person = await createPerson(prisma, { email: address("shared") });
+    await completedBuiltIn(person.userId);
     await prisma.compCard.create({
       data: {
         userId: person.userId,
@@ -506,10 +524,11 @@ describe("Release 3: guest work added to an account, part by part", () => {
     await page.waitForTimeout(3000);
     expect(blocked, "the guest's work waited for the other device's save").toBe(true);
     // What the account saved stays (D37, D69): its lesson, and its card whole.
-    expect(await account(person.userId)).toMatchObject({ completed: false, lessons: 1, p1: null, badges: [BADGE] });
+    // The course isn't completed there, so its badge stays in the browser too (D118).
+    expect(await account(person.userId)).toMatchObject({ completed: false, lessons: 1, p1: null, badges: [] });
     expect(await cardOf(person.userId)).toMatchObject({ wentWell: NEW, difficult: "" });
-    expect(await guestStore(page)).toMatchObject({ completed: true, wentWell: GUEST_W, difficult: GUEST_D, badges: [] });
-    expect(said).toBe(`${COURSE_KEPT} ${CARD_KEPT} ${BADGE_IN} ${STAYS}`);
+    expect(await guestStore(page)).toMatchObject({ completed: true, wentWell: GUEST_W, difficult: GUEST_D, badges: [BADGE] });
+    expect(said).toBe(`${COURSE_KEPT} ${CARD_KEPT} ${BADGE_REFUSED} ${STAYS}`);
   });
 
   test("another account signing in on this browser while the work is added: nothing goes to the first, the browser keeps it, and it is offered to whoever is signed in", async ({
@@ -518,6 +537,9 @@ describe("Release 3: guest work added to an account, part by part", () => {
   }) => {
     const a = await createPerson(prisma, { email: address("first") });
     const b = await createPerson(prisma, { email: address("second") });
+    // Both completed the badge's course, so it could go into either (D118); it goes only into the one signed in.
+    await completedBuiltIn(a.userId);
+    await completedBuiltIn(b.userId);
     await guestCard(page, { wentWell: "", difficult: GUEST_D, confidence: 3 }, [BADGE]);
     await signIn(context, a.sessionToken);
     // The work's request waits while B signs in on this browser (another
@@ -662,8 +684,9 @@ describe("Release 3: guest work added to an account, part by part", () => {
     const said = await outcome(page);
     // Past the page's save debounce.
     await page.waitForTimeout(4000);
-    expect(await account(person.userId)).toMatchObject({ completed: false, lessons: 1, p1: ACCOUNT_P1, p2: PHONE_P2, badges: [BADGE] });
-    expect(said).toBe(`${COURSE_KEPT} ${BADGE_IN} ${STAYS}`);
+    // The course isn't completed in the account, so its badge isn't added (D118).
+    expect(await account(person.userId)).toMatchObject({ completed: false, lessons: 1, p1: ACCOUNT_P1, p2: PHONE_P2, badges: [] });
+    expect(said).toBe(`${COURSE_KEPT} ${BADGE_REFUSED} ${STAYS}`);
   });
 
   for (const way of ["page", "link"] as const) {
@@ -758,7 +781,7 @@ describe("Release 3: guest work added to an account, part by part", () => {
     expect(await cardOf(person.userId)).toMatchObject({ wentWell: GUEST_W, difficult: GUEST_D, confidence: 4 });
   });
 
-  test("a course that can't be opened any more isn't added, and stays in this browser; the rest moves", async ({ page, context }) => {
+  test("a course that can't be opened any more isn't added, and stays in this browser; the Comp Card moves", async ({ page, context }) => {
     const person = await createPerson(prisma, { email: address("gone") });
     const GONE = `e2e-gone-${RUN}`;
     await guestCard(page, { wentWell: GUEST_W, difficult: "", confidence: 3 }, [BADGE]);
@@ -789,10 +812,11 @@ describe("Release 3: guest work added to an account, part by part", () => {
     const said = await outcome(page);
     expect(await prisma.courseEnrollment.count({ where: { userId: person.userId } })).toBe(0);
     expect(await cardOf(person.userId)).toMatchObject({ wentWell: GUEST_W });
-    expect((await account(person.userId)).badges).toEqual([BADGE]);
-    expect(await guestStore(page), "the course stays in this browser").toMatchObject({ course: GONE, lessons: 1, wentWell: "", badges: [] });
+    // No course completed in the account: the badge isn't added, and stays in the browser (D118).
+    expect((await account(person.userId)).badges).toEqual([]);
+    expect(await guestStore(page), "the course stays in this browser").toMatchObject({ course: GONE, lessons: 1, wentWell: "", badges: [BADGE] });
     expect(said).toBe(
-      `Your progress in A course since deleted wasn't added: the course isn't available any more. ${CARD_ADDED} ${BADGE_IN} ${STAYS}`
+      `Your progress in A course since deleted wasn't added: the course isn't available any more. ${CARD_ADDED} ${BADGE_REFUSED} ${STAYS}`
     );
   });
 });

@@ -56,12 +56,13 @@ describe("parseGuestClaim", () => {
     expect(parsed.ok && parsed.claim.course?.patch.answers).toEqual([["concept/main", { type: "quiz", answers: {}, checked: true }]]);
   });
 
-  it("takes the completion's time when it is believable, else the server's", () => {
+  it("takes the completion's time when it is past, else the server's (D118: never later than now)", () => {
     const at = (completedAt: string) => {
       const parsed = parseGuestClaim({ claim: 1, course: { slug: "c", patch: { v: 2, completedAt } } }, NOW);
       return parsed.ok ? parsed.claim.course?.patch.completedAt : null;
     };
     expect(at("2026-11-20T09:00:00.000Z")).toEqual(new Date("2026-11-20T09:00:00.000Z"));
+    expect(at("2026-11-21T10:01:00.000Z")).toEqual(NOW);
     expect(at("2027-01-01T00:00:00.000Z")).toEqual(NOW);
     expect(at("not a date")).toEqual(NOW);
   });

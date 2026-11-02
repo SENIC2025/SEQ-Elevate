@@ -1,6 +1,13 @@
 import { describe, it, expect } from "vitest";
 import { RESPONSE_LIMITS, type ProgressPatch } from "./contract";
-import { EMPTY_ENROLLMENT, mergeIntoEnrollment, type EnrollmentProgress } from "./merge-server";
+import {
+  EMPTY_ENROLLMENT,
+  completionTime,
+  finishesCourse,
+  mergeIntoEnrollment,
+  type CompletionRule,
+  type EnrollmentProgress,
+} from "./merge-server";
 import { parseProgressPatch } from "./parse";
 
 /*
@@ -23,8 +30,16 @@ function patch(p: Omit<ProgressPatch, "v">, now = NOW) {
   return r.patch;
 }
 const row = (cols: Partial<EnrollmentProgress> = {}): EnrollmentProgress => ({ ...EMPTY_ENROLLMENT, ...cols });
-const merge = (r: EnrollmentProgress | null, p: Omit<ProgressPatch, "v">, now = NOW) =>
-  mergeIntoEnrollment(r, patch(p, now), now);
+/** When the enrolments here started, unless a test says otherwise: before every time they use. */
+const STARTED = new Date("2026-11-01T00:00:00.000Z");
+/** A course of one lesson, "context", as most tests here need it: the completion tests (D118) say otherwise. */
+const ONE_LESSON: CompletionRule = { lessons: ["context"], startedAt: STARTED };
+const merge = (
+  r: EnrollmentProgress | null,
+  p: Omit<ProgressPatch, "v">,
+  now = NOW,
+  completion: CompletionRule | null = ONE_LESSON
+) => mergeIntoEnrollment(r, patch(p, now), now, completion);
 const items = (v: unknown) => (v as { items: Record<string, unknown> }).items;
 
 describe("mergeIntoEnrollment: finished lessons", () => {
@@ -71,7 +86,7 @@ describe("mergeIntoEnrollment: finished lessons", () => {
 
 describe("mergeIntoEnrollment: completedAt", () => {
   it("is set once, from the patch, and the course counts as finished now", () => {
-    const m = merge(row(), { completedAt: "2026-11-10T08:59:00.000Z" });
+    const m = merge(row({ stagesCompleted: ["CONTEXT"] }), { completedAt: "2026-11-10T08:59:00.000Z" });
     expect(m.next.completedAt?.toISOString()).toBe("2026-11-10T08:59:00.000Z");
     expect(m.completedNow).toBe(true);
     expect(m.changed).toEqual(["completedAt"]);
@@ -84,6 +99,118 @@ describe("mergeIntoEnrollment: completedAt", () => {
     expect(again.next.completedAt).toBe(first);
     expect(again.completedNow).toBe(false);
     expect(again.changed).toEqual([]);
+  });
+});
+
+/*
+ * D118: a course's completion and its date follow from what the learner
+ * did. The patch's completion is taken only once every lesson the
+ * learner's player gives the course is finished, the patch's own lessons
+ * included, and its time is held between the enrolment's start and now.
+ * The rest of the patch is taken either way.
+ */
+describe("mergeIntoEnrollment: completing a course (D118)", () => {
+  const PLAN: CompletionRule = { lessons: ["context", "concept", OWN], startedAt: STARTED };
+
+  it("completes only once every lesson of the course is finished, stored ones and the patch's alike", () => {
+    const stored = row({ stagesCompleted: ["CONTEXT"] });
+    const early = merge(stored, { completed: ["concept"], completedAt: "2026-11-10T08:00:00.000Z" }, NOW, PLAN);
+    expect(early.next.completedAt).toBeNull();
+    expect(early.completedNow).toBe(false);
+    expect(early.changed).toEqual(["stagesCompleted"]);
+    expect(early.next.stagesCompleted).toEqual(["CONTEXT", "CONCEPT"]);
+    const done = merge(early.next, { completed: [OWN], completedAt: "2026-11-10T08:00:00.000Z" }, NOW, PLAN);
+    expect(done.next.completedAt?.toISOString()).toBe("2026-11-10T08:00:00.000Z");
+    expect(done.completedNow).toBe(true);
+    expect(done.changed.sort()).toEqual(["completedAt", "sectionsCompleted"]);
+  });
+
+  it("a patch with no finished lesson completes nothing, back-dated or not, and the rest of it is kept", () => {
+    const m = merge(
+      null,
+      { completed: [], answers: { "reflection/main": { type: "reflection", text: { p1: "Mine" } } }, completedAt: "2020-01-01T00:00:00Z" },
+      NOW,
+      { lessons: ["context"], startedAt: NOW }
+    );
+    expect(m.next.completedAt).toBeNull();
+    expect(m.completedNow).toBe(false);
+    expect(m.changed).toEqual(["reflection"]);
+    // With nothing else in it, nothing changes at all: no enrolment is made for it.
+    const bare = merge(null, { completed: [], answers: {}, completedAt: "2020-01-01T00:00:00Z" }, NOW, { lessons: ["context"], startedAt: NOW });
+    expect(bare.changed).toEqual([]);
+    expect(bare.completedNow).toBe(false);
+  });
+
+  it("finished lessons the course doesn't have don't stand in for one it has", () => {
+    const m = merge(row(), { completed: ["context", "behaviour", "s-00000009"], completedAt: "2026-11-10T08:00:00.000Z" }, NOW, PLAN);
+    expect(m.next.completedAt).toBeNull();
+  });
+
+  it("a course with no lessons is never completed by a save", () => {
+    const m = merge(row({ stagesCompleted: ["CONTEXT"] }), { completed: ["concept"], completedAt: "2026-11-10T08:00:00.000Z" }, NOW, {
+      lessons: [],
+      startedAt: STARTED,
+    });
+    expect(m.next.completedAt).toBeNull();
+    expect(m.completedNow).toBe(false);
+  });
+
+  it("without the course's lessons (null), a patch completes nothing", () => {
+    const m = merge(row({ stagesCompleted: ["CONTEXT"] }), { completedAt: "2026-11-10T08:00:00.000Z" }, NOW, null);
+    expect(m.next.completedAt).toBeNull();
+    expect(m.changed).toEqual([]);
+  });
+
+  it("a guest's course moving into an account completes it by the same rule", () => {
+    const guest = { fill: true as const, completed: ["context", "concept"], completedAt: "2026-11-10T08:00:00.000Z" };
+    expect(merge(null, guest, NOW, PLAN).completedNow).toBe(false);
+    expect(merge(null, { ...guest, completed: ["context", "concept", OWN] }, NOW, PLAN).completedNow).toBe(true);
+  });
+
+  it("is dated no earlier than the enrolment's start: a time before it is the start", () => {
+    const started = new Date("2026-11-05T12:00:00.000Z");
+    const m = merge(row({ stagesCompleted: ["CONTEXT"] }), { completedAt: "2020-01-01T00:00:00Z" }, NOW, {
+      lessons: ["context"],
+      startedAt: started,
+    });
+    expect(m.next.completedAt).toEqual(started);
+  });
+
+  it("a completion that makes the enrolment is dated now, the time a new enrolment starts", () => {
+    const m = merge(null, { completed: ["context"], completedAt: "2026-10-01T00:00:00Z" }, NOW, { lessons: ["context"], startedAt: NOW });
+    expect(m.next.completedAt).toEqual(NOW);
+  });
+
+  it("is dated no later than now", () => {
+    // parse.ts already takes a time ahead as now; the merge holds it too.
+    const ahead = {
+      completed: ["context" as const],
+      answers: [],
+      completedAt: new Date(NOW.getTime() + 60_000),
+      fill: false,
+      refused: [],
+    };
+    expect(mergeIntoEnrollment(null, ahead, NOW, ONE_LESSON).next.completedAt).toEqual(NOW);
+  });
+});
+
+describe("finishesCourse and completionTime", () => {
+  it("finishesCourse reads both lists, standard lessons in either case, and needs at least one lesson", () => {
+    const r = { stagesCompleted: ["CONTEXT"], sectionsCompleted: [OWN, 42] };
+    expect(finishesCourse(r, ["context", OWN])).toBe(true);
+    expect(finishesCourse(r, ["context", OWN, "concept"])).toBe(false);
+    expect(finishesCourse(r, [])).toBe(false);
+    expect(finishesCourse({ stagesCompleted: [], sectionsCompleted: { broken: true } }, [OWN])).toBe(false);
+  });
+
+  it("completionTime keeps a time between the start and now, and holds one outside to the nearer end", () => {
+    const start = new Date("2026-11-05T00:00:00.000Z");
+    expect(completionTime(new Date("2026-11-06T00:00:00.000Z"), start, NOW)).toEqual(new Date("2026-11-06T00:00:00.000Z"));
+    expect(completionTime(new Date("2020-01-01T00:00:00.000Z"), start, NOW)).toEqual(start);
+    expect(completionTime(LATER, start, NOW)).toEqual(NOW);
+    // The database's clock a moment ahead of the server's: never before the start.
+    const ahead = new Date(NOW.getTime() + 50);
+    expect(completionTime(NOW, ahead, NOW)).toEqual(ahead);
   });
 });
 
@@ -414,12 +541,17 @@ describe("mergeIntoEnrollment: fill mode (a guest's progress moving into the acc
   });
 
   it("moves everything into an account that has nothing", () => {
-    const m = merge(null, {
-      fill: true,
-      completed: [OWN],
-      answers: { "simulation/main": { type: "practice", optionId: "g", correct: true } },
-      completedAt: "2026-11-10T08:00:00.000Z",
-    });
+    const m = merge(
+      null,
+      {
+        fill: true,
+        completed: [OWN],
+        answers: { "simulation/main": { type: "practice", optionId: "g", correct: true } },
+        completedAt: "2026-11-10T08:00:00.000Z",
+      },
+      NOW,
+      { lessons: [OWN], startedAt: STARTED }
+    );
     expect(m.next).toMatchObject({ sectionsCompleted: [OWN], simulationChoice: "g", simulationCorrect: true });
     expect(m.completedNow).toBe(true);
   });
@@ -472,7 +604,8 @@ describe("mergeIntoEnrollment: as a whole", () => {
     const m = mergeIntoEnrollment(
       row(),
       { completed: [], answers: [], completedAt: null, fill: false, refused: [{ key: "x", reason: "invalid" }] },
-      NOW
+      NOW,
+      ONE_LESSON
     );
     expect(m.refused).toEqual([{ key: "x", reason: "invalid" }]);
   });

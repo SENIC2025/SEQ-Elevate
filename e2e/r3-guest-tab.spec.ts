@@ -384,17 +384,18 @@ describe("Release 3: a guest's page kept the guest's while the work is added in 
       expect(await storedCourse(page)).toEqual({ completed: true, lessons: 7, badges: [BADGE] });
       await expect(prompt).toContainText("Handling a small workplace conflict. Comp Card: no. Badges: 1.");
 
-      // Offered again: the account now has its own progress in the course, which it keeps; the badge moves.
+      // Offered again: the account now has its own progress in the course, which it keeps. It
+      // hasn't completed the course, so the course's badge isn't added either (D118): both stay
+      // in the browser, as they were.
       await prompt.getByRole("button", { name: "Add it to my account" }).click();
       await expect(prompt.getByRole("status")).not.toHaveText(/^(|Saving…)$/, { timeout: 45_000 });
       expect((await prompt.getByRole("status").textContent())?.replace(/\s+/g, " ").trim()).toBe(
-        "Your progress in Handling a small workplace conflict wasn't added: your account already has progress in this course, which it keeps. Your badge is in your account. What wasn't added stays on this browser until you remove it."
+        "Your progress in Handling a small workplace conflict wasn't added: your account already has progress in this course, which it keeps. One badge couldn't be added to your account. What wasn't added stays on this browser until you remove it."
       );
       expect(await enrolment(person.userId)).toEqual({ completed: false, stages: 6 });
       const badges = await prisma.userBadge.findMany({ where: { userId: person.userId, badge: { slug: BADGE } } });
-      expect(badges).toHaveLength(1);
-      // The guest's page heard the browser's copy change, and saves no more.
-      await expect(page.getByRole("status").filter({ hasText: CHANGED_ELSEWHERE })).toBeVisible({ timeout: 15_000 });
+      expect(badges).toHaveLength(0);
+      expect(await storedCourse(page)).toEqual({ completed: true, lessons: 7, badges: [BADGE] });
     } finally {
       release();
     }
