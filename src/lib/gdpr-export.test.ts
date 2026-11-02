@@ -123,6 +123,13 @@ const ACTIVITY = [
     metadata: { courseSlug: "saying-no", stage: "s-abcdefgh", seconds: 95 },
     createdAt: day(6),
   },
+  // D117: a record keeps when time was last added to it.
+  {
+    action: "stage.time",
+    entityId: "saying-no:context",
+    metadata: { courseSlug: "saying-no", stage: "context", seconds: 40, lastAddedAt: "2026-11-07T09:30:00.000Z" },
+    createdAt: day(7),
+  },
   {
     action: "video.cue_answered",
     entityId: "cue-7",
@@ -239,7 +246,7 @@ describe("collectUserData: what Release 3 adds (UD2)", () => {
     expect(c).toMatchObject({ sharing: "onlyMe", sharedWith: null });
   });
 
-  it("holds the activity records: courses opened, time on lessons, video answers", async () => {
+  it("holds the activity records: courses opened, time on lessons (and when time was last added, D117), video answers", async () => {
     reset();
     const data = await collectUserData("u1");
     expect(auditLog.findMany).toHaveBeenCalledWith(
@@ -249,7 +256,10 @@ describe("collectUserData: what Release 3 adds (UD2)", () => {
     );
     expect(data?.activity).toEqual({
       coursesOpened: [{ course: "saying-no", at: "2026-11-06T00:00:00.000Z" }],
-      timeOnLessons: [{ course: "saying-no", lesson: "s-abcdefgh", seconds: 95, since: "2026-11-06T00:00:00.000Z" }],
+      timeOnLessons: [
+        { course: "saying-no", lesson: "s-abcdefgh", seconds: 95, since: "2026-11-06T00:00:00.000Z" },
+        { course: "saying-no", lesson: "context", seconds: 40, since: "2026-11-07T00:00:00.000Z", until: "2026-11-07T09:30:00.000Z" },
+      ],
       videoAnswers: [{ course: "saying-no", lesson: "s-abcdefgh", cue: "cue-7", correct: true, at: "2026-11-07T00:00:00.000Z" }],
     });
   });
