@@ -12,10 +12,10 @@ import { createHash, createHmac } from "node:crypto";
  *   more than two hours ago: a short-window call never deletes a
  *   long-window counter.
  * - When the limiter can't count, the key's prefix decides: staff-only
- *   callers (upload-, invite-by:, invite:, add-by:) and unknown prefixes are
- *   refused; sign-in links' limits (magiclink: per address, and D116's
- *   magiclink-ip: per client and magiclink-all: per hour) are allowed, with
- *   one log line.
+ *   callers (upload-, invite-by:, invite:, add-by:), the activity records
+ *   (activity:, D117) and unknown prefixes are refused; sign-in links'
+ *   limits (magiclink: per address, and D116's magiclink-ip: per client and
+ *   magiclink-all: per hour) are allowed, with one log line.
  * - The keys of one person (for erasure) are the ones the callers make.
  */
 
@@ -157,9 +157,10 @@ describe("when the limiter can't count", () => {
     "upload-caption:u1",
     "invite-by:admin-1",
     "add-by:admin-1",
+    "activity:u1",
     "something-new:u1",
     "no-prefix",
-  ])("refuses %s (staff-only callers and unknown prefixes fail closed)", async (key) => {
+  ])("refuses %s (staff-only callers, the activity records and unknown prefixes fail closed)", async (key) => {
     failing = true;
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
     expect((await checkRateLimit(key, opts)).ok).toBe(false);
@@ -206,7 +207,8 @@ describe("rateLimitKeysOf (erasure)", () => {
   it("are the stored keys every caller makes from the person's id and address", async () => {
     const person = { id: "user-9", email: "Ana@Example.org" };
     const opts = { limit: 100, windowMs: 60_000 };
-    // What the callers pass (auth.ts, invitations.ts, the three upload routes, addMember).
+    // What the callers pass (auth.ts, invitations.ts, the three upload routes,
+    // addMember, and the activity records: learner-activity.ts, D117).
     for (const key of [
       hashKey("magiclink", "ana@example.org"),
       hashKey("invite", "ana@example.org"),
@@ -215,11 +217,12 @@ describe("rateLimitKeysOf (erasure)", () => {
       "upload-caption:user-9",
       "invite-by:user-9",
       "add-by:user-9",
+      "activity:user-9",
     ]) {
       await checkRateLimit(key, opts);
     }
     expect(rateLimitKeysOf(person).sort()).toEqual(rows.map((r) => r.key).sort());
-    expect(rateLimitKeysOf(person)).toHaveLength(7);
+    expect(rateLimitKeysOf(person)).toHaveLength(8);
     // Someone else's keys are not among them.
     expect(rateLimitKeysOf(person)).not.toContain(storedKey("upload-doc:user-90"));
   });

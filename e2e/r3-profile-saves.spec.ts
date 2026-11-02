@@ -162,12 +162,13 @@ describe("Release 3: nothing of a person's learning is saved before the profile 
     )?.badge?.slug;
     expect(badge, "the course's badge").toBeTruthy();
     const player = `/en/learner/course/${SLUG}`;
-    const activity = (who: { userId: string }) =>
-      [
-        [TELEMETRY_FILE, "recordCourseOpened", [SLUG]],
-        [TELEMETRY_FILE, "recordStageTime", [{ courseSlug: SLUG, stage: "context", seconds: 30 }]],
-        [VIDEO_FILE, "recordVideoCueAnswer", [{ courseSlug: SLUG, cueId: `cue-ps4-${who.userId}`, correct: true, lessonId: "context" }]],
-      ] as const;
+    const activity = [
+      [TELEMETRY_FILE, "recordCourseOpened", [SLUG]],
+      [TELEMETRY_FILE, "recordStageTime", [{ courseSlug: SLUG, stage: "context", seconds: 30 }]],
+      // The question the hero course's video asks: an answer is kept only to
+      // one of the course's own questions (D117).
+      [VIDEO_FILE, "recordVideoCueAnswer", [{ courseSlug: SLUG, cueId: "concept-check", correct: true, lessonId: "concept" }]],
+    ] as const;
     const call = (who: { sessionToken: string }, file: string, name: string, args: readonly unknown[]) =>
       callAction(request, { as: { sessionToken: who.sessionToken }, page: player, file, name, args: [...args] });
 
@@ -178,7 +179,7 @@ describe("Release 3: nothing of a person's learning is saved before the profile 
       // Another account's: whose it is is answered first, as before.
       const others = await call(who, LEARNER_FILE, "awardBadgeAction", [badge, done.userId]);
       expect.soft(others.result, "another account's award").toEqual({ ok: false, reason: "other-account" });
-      for (const [file, name, args] of activity(who)) {
+      for (const [file, name, args] of activity) {
         const answer = await call(who, file, name, args);
         expect.soft(answer.result, name).toBe("profile-incomplete");
         expect.soft(answer.error, `${name}: answered, never thrown`).toBeUndefined();
@@ -192,7 +193,7 @@ describe("Release 3: nothing of a person's learning is saved before the profile 
     // The control: a complete profile's badge and activity are written.
     const award = await call(done, LEARNER_FILE, "awardBadgeAction", [badge, done.userId]);
     expect(award.result, "a complete profile's award").toEqual({ ok: true });
-    for (const [file, name, args] of activity(done)) {
+    for (const [file, name, args] of activity) {
       const answer = await call(done, file, name, args);
       expect.soft(answer.result, name).toBeUndefined();
       expect.soft(answer.error, name).toBeUndefined();

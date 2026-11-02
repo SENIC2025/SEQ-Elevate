@@ -95,6 +95,23 @@ export async function getBaseCourseCopy(
 }
 
 /**
+ * The in-video questions a bundled course ships, by lesson: the cue ids of
+ * each lesson's video, which are the same in every language. Empty for a
+ * course the provider doesn't have (one created in the CMS). The activity
+ * records take an answer only to one of these or to a question of a video
+ * an editor attached (src/lib/learner-activity.ts, D117).
+ */
+export async function getBaseVideoCues(
+  projectId: string,
+  slug: string
+): Promise<{ lesson: StageKey; cueIds: string[] }[]> {
+  const c = await provider().getCourse(projectId, slug, "en");
+  return (c?.stages ?? []).flatMap((s) =>
+    s.video?.cues?.length ? [{ lesson: s.key, cueIds: s.video.cues.map((q) => q.id) }] : []
+  );
+}
+
+/**
  * The bundled template with NO editor override applied. The template editor
  * needs this: the effective template omits hidden fields, so editing from it
  * alone would make a hidden field impossible to bring back.
