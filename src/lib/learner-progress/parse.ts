@@ -150,7 +150,11 @@ export interface ParsedPatch {
   completed: SectionId[];
   /** The answers that passed, in the patch's order. */
   answers: [PartKey, PatchAnswer][];
-  /** The client's time when it is believable, else the server's; null when the patch has none. */
+  /**
+   * The client's time, never later than the server's (D118), or the
+   * server's when it can't be read; null when the patch has none. The
+   * merge holds it no earlier than the enrolment's start too.
+   */
   completedAt: Date | null;
   fill: boolean;
   /** What wasn't taken, key by key. */
@@ -162,8 +166,6 @@ export type ParseResult =
   | { ok: false; error: "bad-input" | "too-large" };
 
 const PATCH_FIELDS = ["v", "completed", "answers", "completedAt", "fill"];
-/** A completion time further ahead than this is the client's clock, not the learner. */
-const FUTURE_SLACK_MS = 5 * 60 * 1000;
 
 /** The JSON's length, or null when it can't be written as JSON. */
 function jsonLength(v: unknown): number | null {
@@ -215,7 +217,7 @@ export function parseProgressPatch(raw: unknown, now: Date): ParseResult {
   let at: Date | null = null;
   if (typeof completedAt === "string") {
     const t = Date.parse(completedAt);
-    at = Number.isFinite(t) && t <= now.getTime() + FUTURE_SLACK_MS ? new Date(t) : now;
+    at = Number.isFinite(t) ? new Date(Math.min(t, now.getTime())) : now;
   }
   return { ok: true, patch: { completed: done, answers: taken, completedAt: at, fill: fill === true, refused } };
 }

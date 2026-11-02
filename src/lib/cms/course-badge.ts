@@ -3,7 +3,7 @@
  *
  * A bundled course's Badge row comes from the seed. A created course needs
  * one too: the learner's award (awardBadgeAction) and the completed-course
- * save (saveCourseProgress) both write a UserBadge pointing at a Badge row,
+ * save (saveCourseProgressPatch) both write a UserBadge pointing at a Badge row,
  * and without one the badge showed on the completion screen but was gone
  * after a reload. createCourse makes it with the course and links it
  * through Course.badgeId; the migration 20261013120000_created_course_badges

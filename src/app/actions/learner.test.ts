@@ -17,7 +17,7 @@ vi.mock("@/lib/admin-bootstrap", () => ({ isBootstrapAdmin }));
 const badge = { findUnique: vi.fn(), findMany: vi.fn(), create: vi.fn() };
 const userBadge = { upsert: vi.fn(), createMany: vi.fn(), findMany: vi.fn() };
 const course = { findUnique: vi.fn(), findMany: vi.fn(async (): Promise<unknown[]> => []), update: vi.fn() };
-/** The course's lessons, as loadLessonFacts reads them (the kill switch's completion check). */
+/** The course's lessons, as loadLessonFacts reads them (what completing the course takes, D118). */
 let lessons: Record<string, unknown>[] = [];
 const lesson = { findMany: vi.fn(async () => lessons) };
 
@@ -26,7 +26,10 @@ const lesson = { findMany: vi.fn(async () => lessons) };
  * like the table, so a save's merge can be checked by what it wrote.
  */
 let enrolment: Record<string, unknown> | null = null;
+/** When the enrolments the tests start with began: before every completion time they use. */
+const ENROLLED = new Date("2026-09-01T00:00:00.000Z");
 const EMPTY_ROW = {
+  enrolledAt: ENROLLED,
   stagesCompleted: [],
   sectionsCompleted: null,
   simulationChoice: null,
@@ -42,8 +45,11 @@ const courseEnrollment = {
   upsert: vi.fn(),
   findMany: vi.fn(),
   findUnique: vi.fn(async () => (enrolment ? { ...enrolment } : null)),
+  /** A completed enrolment, as the badge award asks for one (any course: the tests hold one). */
+  findFirst: vi.fn(async () => (enrolment?.completedAt ? { id: "enrolment-1" } : null)),
+  // A new row starts now, as the column's default makes it.
   createMany: vi.fn(async () => {
-    enrolment ??= { ...EMPTY_ROW };
+    enrolment ??= { ...EMPTY_ROW, enrolledAt: new Date() };
     return { count: 1 };
   }),
   update: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
@@ -244,7 +250,14 @@ const UNIQUE_VIOLATION = Object.assign(new Error("Unique constraint failed on th
 });
 
 describe("awardBadgeAction", () => {
-  afterEach(() => vi.clearAllMocks());
+  afterEach(() => {
+    vi.clearAllMocks();
+    enrolment = null;
+  });
+  /** The learner has completed the badge's course, as the server holds it. */
+  const completed = () => {
+    enrolment = { ...EMPTY_ROW, stagesCompleted: ["CONTEXT"], completedAt: new Date("2026-10-01T00:00:00.000Z") };
+  };
 
   // Not thrown: the store and the guest migration try a thrown award again
   // for 15 s, as if the connection had dropped, and this one can't succeed.
@@ -258,14 +271,38 @@ describe("awardBadgeAction", () => {
     expect(userBadge.createMany).not.toHaveBeenCalled();
   });
 
-  it("saves the badge for the learner", async () => {
+  it("saves the badge for the learner who completed its course", async () => {
     getCurrentUser.mockResolvedValue(USER);
     badge.findUnique.mockResolvedValue({ id: "b1", slug: "x-complete" });
     userBadge.createMany.mockResolvedValue({ count: 1 });
+    completed();
     await expect(awardBadgeAction("x-complete", "u1")).resolves.toEqual({ ok: true });
     expect(userBadge.createMany).toHaveBeenCalledWith({
       data: [{ userId: "u1", badgeId: "b1" }],
       skipDuplicates: true,
+    });
+  });
+
+  // D118: a badge is a course's, and follows its completion.
+  it("refuses (not-finished) the badge of a course the learner hasn't completed, and gives nothing", async () => {
+    getCurrentUser.mockResolvedValue(USER);
+    badge.findUnique.mockResolvedValue({ id: "b1", slug: "x-complete" });
+    for (const row of [null, { ...EMPTY_ROW, stagesCompleted: ["CONTEXT", "CONCEPT"] }]) {
+      enrolment = row;
+      await expect(awardBadgeAction("x-complete", "u1")).resolves.toEqual({ ok: false, reason: "not-finished" });
+    }
+    expect(userBadge.createMany).not.toHaveBeenCalled();
+    expect(userBadge.upsert).not.toHaveBeenCalled();
+  });
+
+  it("asks for the learner's own completed enrolment in a course of the project whose badge it is", async () => {
+    getCurrentUser.mockResolvedValue(USER);
+    badge.findUnique.mockResolvedValue({ id: "b1", slug: "x-complete" });
+    completed();
+    await awardBadgeAction("x-complete", "u1");
+    expect(courseEnrollment.findFirst).toHaveBeenCalledWith({
+      where: { userId: "u1", completedAt: { not: null }, course: { projectId: "seq-elevate", badgeId: "b1" } },
+      select: { id: true },
     });
   });
 
@@ -279,6 +316,7 @@ describe("awardBadgeAction", () => {
     badge.findUnique.mockResolvedValue({ id: "b1", slug: "x-complete" });
     userBadge.upsert.mockRejectedValue(UNIQUE_VIOLATION);
     userBadge.createMany.mockResolvedValue({ count: 0 });
+    completed();
     await expect(awardBadgeAction("x-complete", "u1")).resolves.toEqual({ ok: true });
   });
 
@@ -293,7 +331,7 @@ describe("awardBadgeAction", () => {
   });
 });
 
-describe("saveCourseProgress on a created course without a badge", () => {
+describe("saveCourseProgressPatch on a created course without a badge", () => {
   afterEach(() => {
     vi.clearAllMocks();
     enrolment = null;
@@ -307,14 +345,13 @@ describe("saveCourseProgress on a created course without a badge", () => {
     meta: { en: { title: "Speaking up", tagline: "Say it", clusterLabel: "Communication" } },
     badgeId: null as string | null,
   };
+  /** Every lesson of the course (its four text lessons: no lesson list, no exercise saved) and its completion. */
   const COMPLETED = {
-    stagesCompleted: ["context", "concept", "behaviour", "reflection"],
-    simulation: null,
-    scenario: { root: null, followup: null },
-    reflection: { p1: "", p2: "", p3: "" },
-    assessment: { answers: {}, checked: false },
+    v: 2,
+    completed: ["context", "concept", "behaviour", "reflection"],
     completedAt: "2026-10-13T10:00:00.000Z",
   };
+  const SEVEN = ["context", "concept", "behaviour", "simulation", "scenario", "reflection", "assessment"];
 
   function badgelessCourse(row = ROW) {
     getCurrentUser.mockResolvedValue(USER);
@@ -331,7 +368,8 @@ describe("saveCourseProgress on a created course without a badge", () => {
   // a word, so the learner lost it on the next reload (C9).
   it("gives the course its badge and saves it for the learner who finished it", async () => {
     badgelessCourse();
-    await saveCourseProgress("speaking-up", COMPLETED, "u1");
+    const before = Date.now();
+    await saveCourseProgressPatch("speaking-up", COMPLETED, "u1");
     expect(badge.create.mock.calls[0][0].data).toEqual({
       projectId: "seq-elevate",
       slug: "speaking-up-complete",
@@ -344,7 +382,10 @@ describe("saveCourseProgress on a created course without a badge", () => {
       data: { badgeId: "badge-new" },
     });
     expect(courseEnrollment.createMany).toHaveBeenCalledTimes(1);
-    expect(enrolment?.completedAt).toEqual(new Date(COMPLETED.completedAt));
+    // The save made the enrolment, which starts now: the completion is dated then (D118).
+    const at = (enrolment?.completedAt as Date).getTime();
+    expect(at).toBeGreaterThanOrEqual(before);
+    expect(at).toBeLessThanOrEqual(Date.now());
     expect(userBadge.createMany).toHaveBeenCalledWith({
       data: [{ userId: "u1", badgeId: "badge-new" }],
       skipDuplicates: true,
@@ -353,7 +394,7 @@ describe("saveCourseProgress on a created course without a badge", () => {
 
   it("makes no badge while the course isn't finished", async () => {
     badgelessCourse();
-    await saveCourseProgress("speaking-up", { ...COMPLETED, completedAt: null }, "u1");
+    await saveCourseProgressPatch("speaking-up", { v: 2, completed: COMPLETED.completed }, "u1");
     expect(badge.create).not.toHaveBeenCalled();
     expect(userBadge.createMany).not.toHaveBeenCalled();
     expect(enrolment?.stagesCompleted).toEqual(["CONTEXT", "CONCEPT", "BEHAVIOUR", "REFLECTION"]);
@@ -361,7 +402,8 @@ describe("saveCourseProgress on a created course without a badge", () => {
 
   it("makes no badge for a built-in course, whose badge comes from the seed", async () => {
     badgelessCourse({ ...ROW, meta: null } as unknown as typeof ROW);
-    await saveCourseProgress("speaking-up", COMPLETED, "u1");
+    enrolment = { ...EMPTY_ROW };
+    await saveCourseProgressPatch("speaking-up", { ...COMPLETED, completed: SEVEN }, "u1");
     expect(badge.create).not.toHaveBeenCalled();
     expect(userBadge.createMany).not.toHaveBeenCalled();
     expect(enrolment?.completedAt).toEqual(new Date(COMPLETED.completedAt));
@@ -369,7 +411,7 @@ describe("saveCourseProgress on a created course without a badge", () => {
 
   it("saves the badge a created course already has, without making another", async () => {
     badgelessCourse({ ...ROW, badgeId: "badge-1" });
-    await saveCourseProgress("speaking-up", COMPLETED, "u1");
+    await saveCourseProgressPatch("speaking-up", COMPLETED, "u1");
     expect(badge.create).not.toHaveBeenCalled();
     expect(userBadge.createMany).toHaveBeenCalledWith(
       expect.objectContaining({ data: [{ userId: "u1", badgeId: "badge-1" }] })
@@ -387,6 +429,8 @@ describe("saveCourseProgress on a created course without a badge", () => {
 describe("the save actions' transaction", () => {
   const ROW = { id: "course-1", projectId: "seq-elevate", slug: "speaking-up", meta: { en: {} }, badgeId: "badge-1" };
   const OWN = "s-abcdefgh";
+  /** The course's lessons: its four text lessons (no lesson list, no exercise saved). */
+  const NARRATIVE = ["context", "concept", "behaviour", "reflection"];
 
   beforeEach(() => {
     getCurrentUser.mockResolvedValue(USER);
@@ -415,7 +459,7 @@ describe("the save actions' transaction", () => {
     userBadge.upsert.mockRejectedValue(UNIQUE_VIOLATION);
     userBadge.createMany.mockResolvedValue({ count: 0 });
     await expect(
-      saveCourseProgressPatch("speaking-up", { v: 2, completedAt: "2026-10-01T00:00:00.000Z" }, "u1")
+      saveCourseProgressPatch("speaking-up", { v: 2, completed: NARRATIVE, completedAt: "2026-10-01T00:00:00.000Z" }, "u1")
     ).resolves.toEqual({ ok: true, refused: [] });
     expect(enrolment?.completedAt).toEqual(new Date("2026-10-01T00:00:00.000Z"));
   });
@@ -439,7 +483,7 @@ describe("the save actions' transaction", () => {
     badge.create.mockImplementation(async ({ data }) => ({ id: "badge-new", ...data }));
     courseEnrollment.findMany.mockResolvedValue([]);
     enrolment = { ...EMPTY_ROW };
-    await saveCourseProgressPatch("speaking-up", { v: 2, completedAt: "2026-10-01T00:00:00.000Z" }, "u1");
+    await saveCourseProgressPatch("speaking-up", { v: 2, completed: NARRATIVE, completedAt: "2026-10-01T00:00:00.000Z" }, "u1");
     expect(sql[0]).toBe('SELECT id FROM "Course" WHERE "id" = ? FOR UPDATE');
     expect(sql).not.toContain('SELECT id FROM "Course" WHERE "id" = ? FOR KEY SHARE');
     expect(sql.at(-1)).toMatch(/"CourseEnrollment".*FOR UPDATE$/);
@@ -448,13 +492,31 @@ describe("the save actions' transaction", () => {
     );
   });
 
-  it("the old action takes the same locks", async () => {
-    enrolment = { ...EMPTY_ROW };
-    await saveCourseProgress("speaking-up", OLD_PROGRESS, "u1");
-    expect(sql).toEqual([
-      'SELECT id FROM "Course" WHERE "id" = ? FOR KEY SHARE',
-      'SELECT id FROM "CourseEnrollment" WHERE "userId" = ? AND "courseId" = ? FOR UPDATE',
-    ]);
+  // D118: Release 1's action keeps its name and signature (D68) and writes nothing.
+  it("the old action reads and writes nothing, and answers nothing, whatever it is sent", async () => {
+    enrolment = { ...EMPTY_ROW, stagesCompleted: ["CONTEXT"] };
+    const stored = { ...enrolment };
+    for (const progress of [
+      { ...OLD_PROGRESS, stagesCompleted: [...NARRATIVE, OWN], completedAt: "2020-01-01T00:00:00.000Z" },
+      { ...OLD_PROGRESS, reflection: { p1: { not: "text" } }, simulation: { choice: 42, correct: "yes" } },
+      { ...OLD_PROGRESS, scenario: { root: "x".repeat(10_000), followup: null } },
+    ]) {
+      await expect(saveCourseProgress("speaking-up", progress as never, "u1")).resolves.toBeUndefined();
+    }
+    expect(course.findUnique).not.toHaveBeenCalled();
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(sql).toEqual([]);
+    expect(courseEnrollment.createMany).not.toHaveBeenCalled();
+    expect(courseEnrollment.update).not.toHaveBeenCalled();
+    expect(userBadge.createMany).not.toHaveBeenCalled();
+    expect(enrolment).toEqual(stored);
+  });
+
+  it("the old action still needs a signed-in learner (thrown, as before), and answers another account's call the same", async () => {
+    await expect(saveCourseProgress("speaking-up", OLD_PROGRESS, "someone-else")).resolves.toBeUndefined();
+    getCurrentUser.mockResolvedValue(null);
+    await expect(saveCourseProgress("speaking-up", OLD_PROGRESS, "u1")).rejects.toThrow();
+    expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
   it("never casts an s- id to the enum: the new action keeps it apart", async () => {
@@ -462,43 +524,6 @@ describe("the save actions' transaction", () => {
     expect(enrolment).toMatchObject({ stagesCompleted: ["CONTEXT"], sectionsCompleted: [OWN] });
   });
 
-  it("never casts an s- id to the enum: the old action leaves it out", async () => {
-    await saveCourseProgress("speaking-up", { ...OLD_PROGRESS, stagesCompleted: ["context", OWN] }, "u1");
-    expect(enrolment?.stagesCompleted).toEqual(["CONTEXT"]);
-    expect(enrolment?.sectionsCompleted).toBeNull();
-  });
-
-  it("the old action keeps a stored completion and stored lessons a stale page doesn't have", async () => {
-    const done = new Date("2026-10-01T00:00:00.000Z");
-    enrolment = { ...EMPTY_ROW, stagesCompleted: ["CONTEXT", "CONCEPT"], completedAt: done };
-    await saveCourseProgress("speaking-up", { ...OLD_PROGRESS, stagesCompleted: ["behaviour"] }, "u1");
-    expect(enrolment).toMatchObject({ completedAt: done, stagesCompleted: ["CONTEXT", "CONCEPT", "BEHAVIOUR"] });
-    const data = courseEnrollment.update.mock.calls[0][0].data as Record<string, unknown>;
-    expect("completedAt" in data).toBe(false);
-    expect("sectionsCompleted" in data || "responses" in data).toBe(false);
-  });
-
-  it("the old action writes the four standard answers as it always has", async () => {
-    await saveCourseProgress(
-      "speaking-up",
-      {
-        ...OLD_PROGRESS,
-        simulation: { choice: "a", correct: true },
-        scenario: { root: "c1", followup: "f1" },
-        reflection: { p1: "One", p2: "", p3: "" },
-        assessment: { answers: { q1: "x" }, checked: true },
-      },
-      "u1"
-    );
-    expect(enrolment).toMatchObject({
-      simulationChoice: "a",
-      simulationCorrect: true,
-      scenarioRoot: "c1",
-      scenarioFollowup: "f1",
-      reflection: { p1: "One", p2: "", p3: "" },
-      assessment: { answers: { q1: "x" }, checked: true },
-    });
-  });
 
   it("answers a save meant for another account, without touching the database", async () => {
     await expect(
@@ -580,10 +605,149 @@ describe("the save actions' transaction", () => {
 
   it("saves the badge once, when the course is finished by this save", async () => {
     enrolment = { ...EMPTY_ROW };
-    await saveCourseProgressPatch("speaking-up", { v: 2, completedAt: "2026-10-01T00:00:00.000Z" }, "u1");
+    await saveCourseProgressPatch("speaking-up", { v: 2, completed: NARRATIVE, completedAt: "2026-10-01T00:00:00.000Z" }, "u1");
     await saveCourseProgressPatch("speaking-up", { v: 2, completedAt: "2026-10-02T00:00:00.000Z" }, "u1");
     expect(userBadge.createMany).toHaveBeenCalledTimes(1);
     expect(enrolment?.completedAt).toEqual(new Date("2026-10-01T00:00:00.000Z"));
+  });
+
+  /*
+   * D118: a save completes the course only once every lesson the learner's
+   * player gives it is finished, and dates the completion between the
+   * enrolment's start and now. The rest of the save is kept either way.
+   */
+  describe("completing the course (D118)", () => {
+    const ONE = "2026-10-01T00:00:00.000Z";
+
+    it("a patch with no finished lesson completes nothing, back-dated or not: no enrolment, no badge", async () => {
+      await expect(
+        saveCourseProgressPatch("speaking-up", { v: 2, completed: [], answers: {}, completedAt: "2020-01-01T00:00:00Z" }, "u1")
+      ).resolves.toEqual({ ok: true, refused: [] });
+      expect(courseEnrollment.createMany).not.toHaveBeenCalled();
+      expect(enrolment).toBeNull();
+      expect(userBadge.createMany).not.toHaveBeenCalled();
+    });
+
+    it("completes once every lesson is finished, stored ones counting; until then the rest of the save is kept", async () => {
+      enrolment = { ...EMPTY_ROW, stagesCompleted: ["CONTEXT", "CONCEPT"] };
+      const answers = { "reflection/main": { type: "reflection", text: { p1: "Mine" } } };
+      await expect(
+        saveCourseProgressPatch("speaking-up", { v: 2, completed: ["behaviour"], answers, completedAt: ONE }, "u1")
+      ).resolves.toEqual({ ok: true, refused: [] });
+      expect(enrolment).toMatchObject({
+        stagesCompleted: ["CONTEXT", "CONCEPT", "BEHAVIOUR"],
+        reflection: { p1: "Mine" },
+        completedAt: null,
+      });
+      expect(Object.keys(courseEnrollment.update.mock.calls[0][0].data).sort()).toEqual(["reflection", "stagesCompleted"]);
+      expect(userBadge.createMany).not.toHaveBeenCalled();
+      await saveCourseProgressPatch("speaking-up", { v: 2, completed: ["reflection"], completedAt: ONE }, "u1");
+      expect(enrolment?.completedAt).toEqual(new Date(ONE));
+      expect(userBadge.createMany).toHaveBeenCalledWith({ data: [{ userId: "u1", badgeId: "badge-1" }], skipDuplicates: true });
+    });
+
+    it("needs the course's own lessons, and not those learners don't get (hidden, or with nothing in them)", async () => {
+      const OWN2 = "s-00000002";
+      course.findUnique.mockResolvedValue({
+        ...ROW,
+        outline: {
+          v: 1,
+          sections: [
+            { id: "context", template: "context" },
+            { id: OWN, template: "text" },
+            { id: "concept", template: "concept", hidden: true },
+            { id: OWN2, template: "text" },
+            { id: "behaviour", template: "behaviour" },
+            { id: "reflection", template: "reflection" },
+          ],
+        },
+      });
+      lessons = [
+        {
+          stageKey: OWN,
+          narrative: { en: { title: "Own", blocks: [{ kind: "paragraph", text: "Mine" }] } },
+          structure: null,
+          structureDraft: null,
+          parts: null,
+          video: null,
+          documents: [],
+        },
+      ];
+      try {
+        enrolment = { ...EMPTY_ROW };
+        await saveCourseProgressPatch("speaking-up", { v: 2, completed: ["context", "behaviour", "reflection"], completedAt: ONE }, "u1");
+        expect(enrolment?.completedAt).toBeNull();
+        await saveCourseProgressPatch("speaking-up", { v: 2, completed: [OWN], completedAt: ONE }, "u1");
+        expect(enrolment?.completedAt).toEqual(new Date(ONE));
+        // Read for the save that carried a completion, not locked.
+        expect(lesson.findMany).toHaveBeenCalled();
+        expect(sql.join(" ")).not.toMatch(/"Lesson"/);
+      } finally {
+        lessons = [];
+      }
+    });
+
+    it("a built-in course needs its seven standard lessons", async () => {
+      course.findUnique.mockResolvedValue({ ...ROW, meta: null });
+      enrolment = { ...EMPTY_ROW };
+      const six = ["context", "concept", "behaviour", "simulation", "scenario", "reflection"];
+      await saveCourseProgressPatch("speaking-up", { v: 2, completed: six, completedAt: ONE }, "u1");
+      expect(enrolment?.completedAt).toBeNull();
+      await saveCourseProgressPatch("speaking-up", { v: 2, completed: ["assessment"], completedAt: ONE }, "u1");
+      expect(enrolment?.completedAt).toEqual(new Date(ONE));
+      expect(lesson.findMany).not.toHaveBeenCalled();
+    });
+
+    it("a course left with no lesson to show is never completed by a save", async () => {
+      course.findUnique.mockResolvedValue({
+        ...ROW,
+        outline: { v: 1, sections: [{ id: OWN, template: "text" }], removed: NARRATIVE },
+      });
+      enrolment = { ...EMPTY_ROW };
+      await saveCourseProgressPatch("speaking-up", { v: 2, completed: [OWN, ...NARRATIVE], completedAt: ONE }, "u1");
+      expect(enrolment).toMatchObject({ sectionsCompleted: [OWN], completedAt: null });
+      expect(userBadge.createMany).not.toHaveBeenCalled();
+    });
+
+    it("dates a completion no earlier than the enrolment's start", async () => {
+      const started = new Date("2026-10-05T08:00:00.000Z");
+      enrolment = { ...EMPTY_ROW, enrolledAt: started, stagesCompleted: ["CONTEXT", "CONCEPT", "BEHAVIOUR"] };
+      await saveCourseProgressPatch("speaking-up", { v: 2, completed: ["reflection"], completedAt: "2020-01-01T00:00:00.000Z" }, "u1");
+      expect(enrolment?.completedAt).toEqual(started);
+    });
+
+    it("dates a completion that makes the enrolment now, when the enrolment starts", async () => {
+      const before = Date.now();
+      await saveCourseProgressPatch("speaking-up", { v: 2, completed: NARRATIVE, completedAt: "2020-01-01T00:00:00.000Z" }, "u1");
+      expect(courseEnrollment.createMany).toHaveBeenCalledTimes(1);
+      const at = (enrolment?.completedAt as Date).getTime();
+      expect(at).toBeGreaterThanOrEqual(before);
+      expect(at).toBeLessThanOrEqual(Date.now());
+      expect(at).toBeGreaterThanOrEqual((enrolment?.enrolledAt as Date).getTime());
+    });
+
+    it("dates a completion sent ahead of the server's clock no later than now", async () => {
+      enrolment = { ...EMPTY_ROW };
+      await saveCourseProgressPatch("speaking-up", { v: 2, completed: NARRATIVE, completedAt: "2099-01-01T00:00:00.000Z" }, "u1");
+      expect((enrolment?.completedAt as Date).getTime()).toBeLessThanOrEqual(Date.now());
+    });
+
+    it("reads the course's lessons only for a save that carries a completion", async () => {
+      enrolment = { ...EMPTY_ROW };
+      await saveCourseProgressPatch("speaking-up", { v: 2, completed: NARRATIVE }, "u1");
+      expect(lesson.findMany).not.toHaveBeenCalled();
+      expect(course.findUnique).toHaveBeenCalledTimes(1);
+    });
+
+    it("counts the lessons another tab saved in the row it made meanwhile", async () => {
+      courseEnrollment.createMany.mockImplementationOnce(async () => {
+        enrolment = { ...EMPTY_ROW, stagesCompleted: ["CONTEXT", "CONCEPT", "BEHAVIOUR"] };
+        return { count: 0 };
+      });
+      await saveCourseProgressPatch("speaking-up", { v: 2, completed: ["reflection"], completedAt: ONE }, "u1");
+      expect(enrolment?.completedAt).toEqual(new Date(ONE));
+      expect(userBadge.createMany).toHaveBeenCalledTimes(1);
+    });
   });
 
   // Found at integration review (finding 3): neither action looked at the
@@ -603,7 +767,7 @@ describe("the save actions' transaction", () => {
       expect(enrolment).toBeNull();
     });
 
-    it("the old action enrols no one in it either", async () => {
+    it("the old action enrols no one in it either (it writes nothing at all, D118)", async () => {
       course.findUnique.mockResolvedValue({ ...DRAFT, status: "archived" });
       await saveCourseProgress("speaking-up", OLD_PROGRESS, "u1");
       expect(courseEnrollment.createMany).not.toHaveBeenCalled();
@@ -625,7 +789,7 @@ describe("the save actions' transaction", () => {
       await expect(
         saveCourseProgressPatch("speaking-up", { v: 2, completed: ["context"] }, "u1")
       ).resolves.toEqual({ ok: true, refused: [] });
-      await saveCourseProgress("speaking-up", { ...OLD_PROGRESS, stagesCompleted: ["concept"] }, "u1");
+      await saveCourseProgressPatch("speaking-up", { v: 2, completed: ["concept"] }, "u1");
       expect(enrolment).toMatchObject({ stagesCompleted: ["CONTEXT", "CONCEPT"] });
     });
 
@@ -635,7 +799,7 @@ describe("the save actions' transaction", () => {
       await expect(
         saveCourseProgressPatch("speaking-up", { v: 2, completed: ["concept"] }, "u1")
       ).resolves.toEqual({ ok: true, refused: [] });
-      await saveCourseProgress("speaking-up", { ...OLD_PROGRESS, stagesCompleted: ["behaviour"] }, "u1");
+      await saveCourseProgressPatch("speaking-up", { v: 2, completed: ["behaviour"] }, "u1");
       expect(enrolment).toMatchObject({ stagesCompleted: ["CONTEXT", "CONCEPT", "BEHAVIOUR"] });
       expect(courseEnrollment.createMany).not.toHaveBeenCalled();
     });
@@ -724,9 +888,9 @@ describe("under R2_LEARNER_PLAYER=off, a course the Release 1 view doesn't hold"
     expect(userBadge.createMany).not.toHaveBeenCalled();
   });
 
-  it("nor through the old action", async () => {
+  it("nor through the old action, which writes nothing (D118)", async () => {
     await saveCourseProgress("speaking-up", OLD, "u1");
-    expect(enrolment?.completedAt).toBeNull();
+    expect(enrolment).toBeNull();
     expect(userBadge.createMany).not.toHaveBeenCalled();
   });
 
@@ -739,6 +903,7 @@ describe("under R2_LEARNER_PLAYER=off, a course the Release 1 view doesn't hold"
   });
 
   it("guard: finishing the course's own lessons finishes it, badge and all", async () => {
+    enrolment = { ...EMPTY_ROW };
     await saveCourseProgressPatch("speaking-up", { v: 2, completed: [...NARRATIVE, OWN], completedAt: done }, "u1");
     expect(enrolment?.completedAt).toEqual(new Date(done));
     expect(userBadge.createMany).toHaveBeenCalledTimes(1);
@@ -748,16 +913,19 @@ describe("under R2_LEARNER_PLAYER=off, a course the Release 1 view doesn't hold"
     course.findUnique.mockResolvedValue({ ...OWN_ONLY, outline: null });
     course.findMany.mockResolvedValue([{ ...OWN_ONLY, outline: null }]);
     lessons = [];
-    await saveCourseProgress("speaking-up", OLD, "u1");
+    enrolment = { ...EMPTY_ROW };
+    await saveCourseProgressPatch("speaking-up", { v: 2, completed: NARRATIVE, completedAt: done }, "u1");
     expect(enrolment?.completedAt).toEqual(new Date(done));
     await expect(awardBadgeAction("speaking-up", "u1")).resolves.toEqual({ ok: true });
   });
 
-  it("guard: with the switch unset, a completion is trusted as before", async () => {
+  it("with the switch unset, the same rule (D118): four standard lessons don't finish it either", async () => {
     vi.unstubAllEnvs();
     await saveCourseProgressPatch("speaking-up", { v: 2, completed: NARRATIVE, completedAt: done }, "u1");
-    expect(enrolment?.completedAt).toEqual(new Date(done));
-    expect(lesson.findMany).not.toHaveBeenCalled();
+    expect(enrolment?.completedAt).toBeNull();
+    expect(lesson.findMany).toHaveBeenCalled();
+    expect(userBadge.createMany).not.toHaveBeenCalled();
+    await expect(awardBadgeAction("speaking-up", "u1")).resolves.toEqual({ ok: false, reason: "not-finished" });
   });
 });
 
@@ -906,10 +1074,15 @@ describe("the learner's place waits for the profile step (D79)", () => {
     });
   });
 
-  it("the badge award gives a complete profile's badge", async () => {
+  it("the badge award gives a complete profile's badge, of a course they completed", async () => {
     badge.findUnique.mockResolvedValue({ id: "b1", slug: "x-complete" });
     userBadge.createMany.mockResolvedValue({ count: 1 });
-    await expect(awardBadgeAction("x-complete", "u1")).resolves.toEqual({ ok: true });
+    enrolment = { ...EMPTY_ROW, completedAt: new Date("2026-10-01T00:00:00.000Z") };
+    try {
+      await expect(awardBadgeAction("x-complete", "u1")).resolves.toEqual({ ok: true });
+    } finally {
+      enrolment = null;
+    }
     expect(userBadge.createMany).toHaveBeenCalledWith({ data: [{ userId: "u1", badgeId: "b1" }], skipDuplicates: true });
   });
 
@@ -1198,7 +1371,9 @@ describe("loadCourseProgress reads the course in the language the learner gets i
  * account is under its locks: the course only into an account with no
  * progress in it, the Comp Card only into none or a blank one not shared
  * (as "Only me"), badges as a union. Nothing is written for another
- * account, an incomplete profile, or a text too long to add.
+ * account, an incomplete profile, or a text too long to add. D118: the
+ * course completes as a save would, only with every lesson finished, and
+ * a badge goes only into an account that has completed its course.
  */
 describe("claimGuestWork (D37, D69, D79, D80)", () => {
   const COURSE_ROW = {
@@ -1223,6 +1398,9 @@ describe("claimGuestWork (D37, D69, D79, D80)", () => {
     completedAt: DONE,
     ...over,
   });
+  /** The course's four lessons (its text lessons: no lesson list, no exercise saved), every one done. */
+  const FINISHED = ["context", "concept", "behaviour", "reflection"];
+  const finishedCourse = { slug: "speaking-up", patch: coursePatch({ completed: FINISHED }) };
   const guestCard = { wentWell: "Guest went", difficult: "", improve: "", behaviour: "", confidence: 4 };
   const claim = (over: Record<string, unknown> = {}) => ({
     claim: 1,
@@ -1282,7 +1460,8 @@ describe("claimGuestWork (D37, D69, D79, D80)", () => {
   }
 
   it("an account with nothing in it gets the course, the Comp Card as Only me and the badge, in one transaction", async () => {
-    const answer = await claimGuestWork(claim(), "u1");
+    const before = Date.now();
+    const answer = await claimGuestWork(claim({ course: finishedCourse }), "u1");
     expect(answer).toEqual({
       ok: true,
       course: "moved",
@@ -1299,17 +1478,20 @@ describe("claimGuestWork (D37, D69, D79, D80)", () => {
       accountBadges: [COURSE_BADGE.slug],
     });
     expect(enrolment).toMatchObject({
-      stagesCompleted: ["CONTEXT", "CONCEPT"],
+      stagesCompleted: ["CONTEXT", "CONCEPT", "BEHAVIOUR", "REFLECTION"],
       reflection: { p1: "Guest p1" },
-      completedAt: new Date(DONE),
     });
+    // The claim made the enrolment, which starts now: the course is completed when it is added (D118).
+    const at = (enrolment?.completedAt as Date).getTime();
+    expect(at).toBeGreaterThanOrEqual(before);
+    expect(at).toBeLessThanOrEqual(Date.now());
     expect(storedCard).toMatchObject({ wentWell: "Guest went", confidence: 4, privacy: "SELF" });
     expect(held).toEqual([COURSE_BADGE.id]);
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
   });
 
   it("takes its locks in one order: the User row, the Course row, the enrolment, the Comp Card, the badges", async () => {
-    await claimGuestWork(claim(), "u1");
+    await claimGuestWork(claim({ course: finishedCourse }), "u1");
     expect(order()).toEqual([
       'SELECT id FROM "User" WHERE "id" = ? FOR KEY SHARE',
       'SELECT id FROM "Course" WHERE "id" = ? FOR KEY SHARE',
@@ -1330,7 +1512,7 @@ describe("claimGuestWork (D37, D69, D79, D80)", () => {
     course.update.mockResolvedValue({});
     courseEnrollment.findMany.mockResolvedValue([]);
     badge.create.mockImplementation(async ({ data }) => ({ id: "badge-new", ...data }));
-    const answer = await claimGuestWork(claim({ badges: [] }), "u1");
+    const answer = await claimGuestWork(claim({ course: finishedCourse, badges: [] }), "u1");
     expect(answer).toMatchObject({ ok: true, course: "moved" });
     expect(order().slice(0, 3)).toEqual([
       'SELECT id FROM "User" WHERE "id" = ? FOR KEY SHARE',
@@ -1343,8 +1525,15 @@ describe("claimGuestWork (D37, D69, D79, D80)", () => {
 
   it("the course: an account with progress of its own in it keeps it, and nothing of the course is written", async () => {
     enrolment = { ...EMPTY_ROW, stagesCompleted: ["CONTEXT"], reflection: { p1: "The account's" } };
-    const answer = await claimGuestWork(claim(), "u1");
-    expect(answer).toMatchObject({ ok: true, course: "kept", compCard: "moved", badges: { moved: [COURSE_BADGE.slug] } });
+    const answer = await claimGuestWork(claim({ course: finishedCourse }), "u1");
+    // D118: the account hasn't completed the course, so its badge isn't given; it stays in the browser.
+    expect(answer).toMatchObject({
+      ok: true,
+      course: "kept",
+      compCard: "moved",
+      badges: { moved: [], already: [], refused: [COURSE_BADGE.slug] },
+    });
+    expect(held).toEqual([]);
     expect(courseEnrollment.update).not.toHaveBeenCalled();
     expect(courseEnrollment.createMany).not.toHaveBeenCalled();
     expect(enrolment).toMatchObject({ stagesCompleted: ["CONTEXT"], reflection: { p1: "The account's" }, completedAt: null });
@@ -1372,11 +1561,28 @@ describe("claimGuestWork (D37, D69, D79, D80)", () => {
 
   it("the course: an enrolment with nothing in it is no progress: the guest's course goes in", async () => {
     enrolment = { ...EMPTY_ROW };
-    await expect(claimGuestWork(claim({ compCard: undefined, badges: [] }), "u1")).resolves.toMatchObject({
+    await expect(claimGuestWork(claim({ course: finishedCourse, compCard: undefined, badges: [] }), "u1")).resolves.toMatchObject({
       ok: true,
       course: "moved",
     });
-    expect(enrolment).toMatchObject({ stagesCompleted: ["CONTEXT", "CONCEPT"], completedAt: new Date(DONE) });
+    // An enrolment started before the guest's time keeps it.
+    expect(enrolment).toMatchObject({ stagesCompleted: ["CONTEXT", "CONCEPT", "BEHAVIOUR", "REFLECTION"], completedAt: new Date(DONE) });
+  });
+
+  // D118: the guest's course completes as a save would.
+  it("the course: a guest's course moves without its completion, or its badge, while a lesson of it isn't done", async () => {
+    const answer = await claimGuestWork(claim({ compCard: undefined }), "u1");
+    expect(answer).toMatchObject({ ok: true, course: "moved", badges: { moved: [], refused: [COURSE_BADGE.slug] } });
+    expect(enrolment).toMatchObject({ stagesCompleted: ["CONTEXT", "CONCEPT"], reflection: { p1: "Guest p1" }, completedAt: null });
+    expect(held).toEqual([]);
+  });
+
+  it("the course: a guest's back-dated completion, into an enrolment that started later, is dated from that start", async () => {
+    const started = new Date("2026-11-15T00:00:00.000Z");
+    enrolment = { ...EMPTY_ROW, enrolledAt: started };
+    const course = { slug: "speaking-up", patch: coursePatch({ completed: FINISHED, completedAt: "2020-01-01T00:00:00.000Z" }) };
+    await expect(claimGuestWork(claim({ course, compCard: undefined, badges: [] }), "u1")).resolves.toMatchObject({ course: "moved" });
+    expect(enrolment?.completedAt).toEqual(started);
   });
 
   it("the course: another device's first save, there once the enrolment is inserted, is decided on as read under the lock", async () => {
@@ -1438,11 +1644,26 @@ describe("claimGuestWork (D37, D69, D79, D80)", () => {
 
   it("badges: a union, each as the award gives it: there already, added, or not given (no such badge)", async () => {
     held = [OTHER_BADGE.id];
+    // The account has completed the course whose badge it is (D118).
+    enrolment = { ...EMPTY_ROW, completedAt: new Date("2026-10-01T00:00:00.000Z") };
     const answer = await claimGuestWork(claim({ course: undefined, compCard: undefined, badges: [OTHER_BADGE.slug, COURSE_BADGE.slug, "gone-badge"] }), "u1");
     expect(answer).toEqual({
       ok: true,
       badges: { moved: [COURSE_BADGE.slug], already: [OTHER_BADGE.slug], refused: ["gone-badge"] },
       accountBadges: [OTHER_BADGE.slug, COURSE_BADGE.slug],
+    });
+  });
+
+  it("badges: one of a course the account hasn't completed isn't given (D118)", async () => {
+    for (const row of [null, { ...EMPTY_ROW, stagesCompleted: ["CONTEXT"] }]) {
+      enrolment = row;
+      const answer = await claimGuestWork(claim({ course: undefined, compCard: undefined, badges: [COURSE_BADGE.slug] }), "u1");
+      expect(answer).toEqual({ ok: true, badges: { moved: [], already: [], refused: [COURSE_BADGE.slug] }, accountBadges: [] });
+    }
+    expect(held).toEqual([]);
+    expect(courseEnrollment.findFirst).toHaveBeenCalledWith({
+      where: { userId: "u1", completedAt: { not: null }, course: { projectId: "seq-elevate", badgeId: COURSE_BADGE.id } },
+      select: { id: true },
     });
   });
 
@@ -1521,7 +1742,7 @@ describe("claimGuestWork (D37, D69, D79, D80)", () => {
     await claimGuestWork(claim({ compCard: { ...guestCard, difficult: "x".repeat(2001) } }), "u1");
     const lines = (console.info as unknown as { mock: { calls: unknown[][] } }).mock.calls.map((c) => String(c[0]));
     expect(lines).toEqual([
-      '[guest-claim] {"course":"kept","compCard":"moved","badgesMoved":1,"badgesAlready":0,"badgesRefused":0,"unreadable":0}',
+      '[guest-claim] {"course":"kept","compCard":"moved","badgesMoved":0,"badgesAlready":0,"badgesRefused":1,"unreadable":0}',
       '[guest-claim] {"refused":"too-long","texts":1}',
     ]);
     expect(lines.join(" ")).not.toMatch(/u1|person@|speaking-up|Guest/);

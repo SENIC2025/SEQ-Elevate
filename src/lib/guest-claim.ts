@@ -125,8 +125,6 @@ export type ParseClaimResult =
 
 const CLAIM_FIELDS = ["claim", "course", "compCard", "badges"];
 const PATCH_FIELDS = ["v", "completed", "answers", "completedAt"];
-/** A completion time further ahead than this is the client's clock, not the learner (as parse.ts). */
-const FUTURE_SLACK_MS = 5 * 60 * 1000;
 
 /** The JSON's length, or null when it can't be written as JSON. */
 function jsonLength(v: unknown): number | null {
@@ -190,7 +188,10 @@ function parseCoursePatch(raw: unknown, now: Date): { patch: ParsedPatch; unread
   let at: Date | null = null;
   if (typeof completedAt === "string") {
     const t = Date.parse(completedAt);
-    at = Number.isFinite(t) && t <= now.getTime() + FUTURE_SLACK_MS ? new Date(t) : now;
+    // Never later than now, as parse.ts takes it (D118); the merge holds
+    // it no earlier than the enrolment's start, so a course moving into
+    // an account without it is completed when it is added.
+    at = Number.isFinite(t) ? new Date(Math.min(t, now.getTime())) : now;
   }
   return { patch: { completed: done, answers: taken, completedAt: at, fill: false, refused: [] }, unreadable };
 }

@@ -137,7 +137,8 @@ export interface CourseProgress {
 }
 
 // Release 1's save of a course's whole progress is never called by this
-// build, but pages loaded before the deploy still call it (D62.e, D68). Next
+// build, and writes nothing (D118); it keeps its name, so a page loaded
+// before the Release 2 deploy that calls it is answered (D62.e, D68). Next
 // builds only the server actions client code refers to — an action no page
 // refers to answers "not found" — so it is referred to here, and stays.
 void saveCourseProgress;
@@ -1423,7 +1424,10 @@ export function DemoStateProvider({ children }: { children: React.ReactNode }) {
   // it) is logged once and not sent again this visit: no retry can fix it
   // (badge-award.ts). Refused before the profile step is done (D79), the
   // page says so, as for a refused save. A completed course's badge is also
-  // saved with the course itself (see saveCourseProgress).
+  // saved with the course itself (see saveCourseProgressPatch); the server
+  // gives a badge only for a course it holds as completed (D118), so an
+  // award that reaches it before that save is refused, and the save gives
+  // the badge.
   React.useEffect(() => {
     if (!authed || !dbOwner) return;
     const sent = persistedBadges.current;

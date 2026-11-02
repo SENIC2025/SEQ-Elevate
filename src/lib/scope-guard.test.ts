@@ -1078,7 +1078,7 @@ const ALLOW: AllowList = {
   "src/app/actions/learner.ts#loadCourseProgress": own("the learner's own progress in a course (SP37)"),
   "src/app/actions/learner.ts#progressInTx": own("the learner's own progress save, in its transaction (SP37)"),
   "src/app/actions/learner.ts#lockRow": own("locks the learner's own enrolment row in a save (SP37)"),
-  "src/app/actions/learner.ts#badgeMayBeGiven": own("whether the learner's own course is finished, for its badge (SP37)"),
+  "src/app/actions/learner.ts#badgeEarned": own("whether the learner has completed a course whose badge it is, for its badge (SP37, D118)"),
   "src/app/actions/learner.ts#claimGuestWork": own("the browser's guest work added to the learner's own account (D79, SP37)"),
   "src/app/actions/learner.ts#claimCard": own("the guest's Comp Card added to the learner's own (D79, D80, SP37)"),
   "src/app/actions/learner.ts#claimBadges": own("the guest's badges added to the learner's own (D79, SP37)"),
