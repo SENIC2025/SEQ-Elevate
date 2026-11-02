@@ -191,7 +191,8 @@ describe("eraseAccount", () => {
     await eraseAccount(tx as never, PERSON.id, { by: "self" });
     const keys = (call("tx.rateLimit.deleteMany")?.args as { where: { key: { in: string[] } } }).where.key.in;
     expect(keys).toEqual(rateLimitKeysOf(PERSON));
-    expect(keys).toHaveLength(7);
+    // Six by the id (the activity records' since D117), two by the address.
+    expect(keys).toHaveLength(8);
   });
 
   it("keeps the notes the person wrote (their author becomes null with the user row)", async () => {

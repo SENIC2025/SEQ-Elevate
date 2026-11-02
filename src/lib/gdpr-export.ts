@@ -241,12 +241,16 @@ export async function collectUserData(userId: string) {
         .filter((a) => a.action === "stage.time")
         .map((a) => {
           const md = metadataOf(a.metadata);
+          const until = text(md.lastAddedAt);
           return {
             course: text(md.courseSlug),
             lesson: text(md.stage),
             seconds: typeof md.seconds === "number" ? md.seconds : null,
             // A running total: counted since this first record.
             since: a.createdAt.toISOString(),
+            // D117: when time was last added to it (a record from before
+            // D117 doesn't say).
+            ...(until ? { until } : {}),
           };
         }),
       videoAnswers: activity

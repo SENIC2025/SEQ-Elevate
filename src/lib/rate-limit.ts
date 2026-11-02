@@ -20,7 +20,9 @@ import "server-only";
  *   can't count (a database hiccup must never lock learners out of signing
  *   in; src/lib/signin-email-limits.ts says why), with one log line;
  *   everything else — the staff-only callers (`upload-…`, `invite-by:`,
- *   `invite:`, `add-by:`) and any prefix this file doesn't know — is refused.
+ *   `invite:`, `add-by:`), a learner's activity records (`activity:`, D117:
+ *   nothing is recorded then) and any prefix this file doesn't know — is
+ *   refused.
  */
 
 import { createHmac } from "node:crypto";
@@ -68,7 +70,7 @@ export function storedKey(key: string, env: Env = process.env): string {
 }
 
 /** The prefixes callers key by a person's id, and by their email address (through hashKey). */
-const ID_PREFIXES = ["upload-video", "upload-doc", "upload-caption", "invite-by", "add-by"] as const;
+const ID_PREFIXES = ["upload-video", "upload-doc", "upload-caption", "invite-by", "add-by", "activity"] as const;
 const EMAIL_PREFIXES = ["magiclink", "invite"] as const;
 
 /**
