@@ -7,6 +7,7 @@ import { GuestWorkPrompt } from "@/components/learner/GuestWorkPrompt";
 import { getCurrentUser, getProjectMemberships, requireCompleteProfile } from "@/lib/auth-helpers";
 import { workspacesFor } from "@/lib/workspaces";
 import { demoLoginAllowed } from "@/lib/demo-gate";
+import { siteLocale } from "@/i18n/routing";
 
 export default async function Page({
   params,
@@ -33,7 +34,7 @@ export default async function Page({
     const workspaces = workspacesFor(roles.map((m) => m.role));
     // Most learners have exactly one workspace — skip a menu of one.
     // (Outside the try: redirect() works by throwing.)
-    if (workspaces.length === 1) redirect(`/${locale}${workspaces[0].href}`);
+    if (workspaces.length === 1) redirect(`/${siteLocale(locale)}${workspaces[0].href}`);
     return (
       <WorkspaceHub
         workspaces={workspaces}

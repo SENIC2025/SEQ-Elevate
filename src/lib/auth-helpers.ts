@@ -23,6 +23,7 @@ import { ensureProjectRoles } from "@/lib/role-grants";
 import { isProfileComplete, profileRules } from "@/lib/profile";
 import { profileGateOn } from "@/lib/r3-switches";
 import type { Role } from "@prisma/client";
+import { siteLocale } from "@/i18n/routing";
 
 /** The authenticated user record, or null. Cached per request. */
 export const getCurrentUser = cache(async () => {
@@ -34,7 +35,7 @@ export const getCurrentUser = cache(async () => {
 /** Require an authenticated user, else redirect to sign-in. */
 export async function requireUser(locale = "en") {
   const user = await getCurrentUser();
-  if (!user) redirect(`/${locale}/signin`);
+  if (!user) redirect(`/${siteLocale(locale)}/signin`);
   return user;
 }
 
@@ -94,7 +95,7 @@ export async function requireRole(
 ) {
   const user = await requireUser(locale);
   const ok = await hasRole(projectId, role);
-  if (!ok) redirect(`/${locale}`);
+  if (!ok) redirect(`/${siteLocale(locale)}`);
   return user;
 }
 
@@ -134,5 +135,5 @@ export async function requireCompleteProfile(locale: string): Promise<void> {
     unstable_rethrow(e);
     console.error(`[profile] couldn't read the profile; sent to the profile step: ${e instanceof Error ? e.name : "error"}`);
   }
-  if (!complete) redirect(`/${locale}/welcome`);
+  if (!complete) redirect(`/${siteLocale(locale)}/welcome`);
 }

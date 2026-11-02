@@ -9,6 +9,7 @@ import { getCurrentUser, getProjectMemberships } from "@/lib/auth-helpers";
 import { COUNTRIES, isCountry, type Country } from "@/lib/countries";
 import { prisma } from "@/lib/prisma";
 import { isProfileComplete, minimumAgeFor, profileRules } from "@/lib/profile";
+import { siteLocale } from "@/i18n/routing";
 
 /**
  * Release 3 (D78, spec 5.4): the profile step, for every signed-in person
@@ -98,10 +99,10 @@ export default async function Page({ params }: { params: Promise<{ locale: strin
   const { locale } = await params;
   setRequestLocale(locale);
   const user = await getCurrentUser();
-  if (!user) redirect(`/${locale}/signin`);
+  if (!user) redirect(`/${siteLocale(locale)}/signin`);
   // A failed read is thrown: the error page, never a redirect.
   const step = await readStep(user.id, user.name, user.email);
-  if (step === "complete") redirect(`/${locale}`);
+  if (step === "complete") redirect(`/${siteLocale(locale)}`);
   return (
     <div className="flex-1 flex flex-col">
       <AppHeader showWorkspaces={false} />
