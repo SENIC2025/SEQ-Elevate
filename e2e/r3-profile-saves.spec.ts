@@ -189,7 +189,19 @@ describe("Release 3: nothing of a person's learning is saved before the profile 
     expect(await prisma.auditLog.count({ where: { actorId: refused } }), "no activity recorded").toBe(0);
     expect(await prisma.userBadge.count({ where: { userId: done.userId } }), "nothing given to another account").toBe(0);
 
-    // The control: a complete profile's badge and activity are written.
+    // The control: a complete profile's badge and activity are written. The badge is the course's,
+    // given only to someone who has completed it (D118): the person completed it elsewhere.
+    const courseId = (
+      await prisma.course.findUniqueOrThrow({ where: { projectId_slug: { projectId: PROJECT, slug: SLUG } }, select: { id: true } })
+    ).id;
+    await prisma.courseEnrollment.create({
+      data: {
+        userId: done.userId,
+        courseId,
+        stagesCompleted: ["CONTEXT", "CONCEPT", "BEHAVIOUR", "SIMULATION", "SCENARIO", "REFLECTION", "ASSESSMENT"],
+        completedAt: new Date(),
+      },
+    });
     const award = await call(done, LEARNER_FILE, "awardBadgeAction", [badge, done.userId]);
     expect(award.result, "a complete profile's award").toEqual({ ok: true });
     for (const [file, name, args] of activity(done)) {
